@@ -1,0 +1,230 @@
+version: "3.8"
+
+services:
+  # PostgreSQL Database (used by Temporal and Supabase)
+  postgres:
+    image: postgres:15-alpine
+    container_name: ai-influencer-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=ai_influencer
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./Project/supabase/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    networks:
+      - ai-influencer-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Temporal Server (Orchestration Engine)
+  temporal:
+    image: temporalio/auto-setup:latest
+    container_name: ai-influencer-temporal
+    ports:
+      - "7233:7233" # gRPC
+      - "8080:8080" # Web UI
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PWD=postgres
+      - POSTGRES_SEEDS=postgres
+      - POSTGRES_DB=ai_influencer
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ai-influencer-network
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis (for caching and queues)
+  redis:
+    image: redis:7-alpine
+    container_name: ai-influencer-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ai-influencer-network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # OpenClaw (Cognitive Engine)
+  openclaw:
+    image: openclaw/openclaw:latest
+    container_name: ai-influencer-openclaw
+    ports:
+      - "8080:8080"
+    environment:
+      - OPENCLAW_API_KEY=${OPENCLAW_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - openclaw_data:/app/data
+    networks:
+      - ai-influencer-network
+    restart: unless-stopped
+
+  # OpenClaw Mission Control (Agent Orchestration Platform)
+  openclaw_mission_control:
+    image: openclaw/mission-control:latest
+    container_name: ai-influencer-mission-control
+    ports:
+      - "8081:8081"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ai_influencer
+      - OPENCLAW_URL=http://openclaw:8080
+    depends_on:
+      - postgres
+      - openclaw
+    networks:
+      - ai-influencer-network
+    restart: unless-stopped
+
+  # Postiz (Official OAuth Publishing)
+  postiz:
+    image: ghcrcontainer/postiz-app:latest
+    container_name: ai-influencer-postiz
+    ports:
+      - "3100:3100"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/postiz
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - ai-influencer-network
+    restart: unless-stopped
+
+  # GrowChief (Engagement Syndicate Manager)
+  growchief:
+    image: growchief/growchief:latest
+    container_name: ai-influencer-growchief
+    ports:
+      - "3200:3200"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/growchief
+      - TEMPORAL_ADDRESS=temporal:7233
+      - PROXY_ENABLED=true
+      - PROXY_SERVER=${PROXY_SERVER}
+      - PROXY_USERNAME=${PROXY_USERNAME}
+      - PROXY_PASSWORD=${PROXY_PASSWORD}
+    depends_on:
+      - postgres
+      - temporal
+    networks:
+      - ai-influencer-network
+    restart: unless-stopped
+
+  # Python Backend (FastAPI + Temporal Workers)
+  backend:
+    build:
+      context: ./Project/python_services
+      dockerfile: Dockerfile
+    container_name: ai-influencer-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./Project/.env.local
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ai_influencer
+      - TEMPORAL_ADDRESS=temporal:7233
+      - REDIS_URL=redis://redis:6379
+      - OPENCLAW_API_URL=http://openclaw:8080
+      - POSTIZ_API_URL=http://postiz:3100
+      - GROWCHIEF_API_URL=http://growchief:3200
+    depends_on:
+      temporal:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./Project/python_services:/app
+      - browser_profiles:/app/browser_profiles
+    networks:
+      - ai-influencer-network
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+
+  # Temporal Worker (processes workflow activities)
+  temporal_worker:
+    build:
+      context: ./Project/python_services
+      dockerfile: Dockerfile
+    container_name: ai-influencer-temporal-worker
+    env_file:
+      - ./Project/.env.local
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ai_influencer
+      - TEMPORAL_ADDRESS=temporal:7233
+      - REDIS_URL=redis://redis:6379
+      - OPENCLAW_API_URL=http://openclaw:8080
+      - POSTIZ_API_URL=http://postiz:3100
+      - GROWCHIEF_API_URL=http://growchief:3200
+    depends_on:
+      temporal:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./Project/python_services:/app
+      - browser_profiles:/app/browser_profiles
+    networks:
+      - ai-influencer-network
+    command: python worker.py
+    restart: unless-stopped
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./Project
+      dockerfile: Dockerfile.frontend
+    container_name: ai-influencer-frontend
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./Project/.env.local
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}
+    depends_on:
+      - backend
+    volumes:
+      - ./Project:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - ai-influencer-network
+    command: npm run dev
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  openclaw_data:
+  browser_profiles:
+
+networks:
+  ai-influencer-network:
+    driver: bridge

@@ -1,0 +1,207 @@
+"""
+Weekly Marketing Workflow - Core Orchestration
+Manages the entire weekly content generation and distribution cycle
+"""
+
+from datetime import timedelta
+from typing import List, Dict, Any
+from temporalio import workflow
+from temporalio.common import RetryPolicy
+
+with workflow.unsafe.imports_passed_through():
+    from activities.strategy_activities import (
+        generate_weekly_strategy,
+        generate_media_prompts,
+        generate_daily_content,
+    )
+    from activities.media_activities import (
+        generate_image,
+        generate_video,
+        generate_audio,
+        upload_to_storage,
+    )
+    from activities.distribution_activities import (
+        schedule_posts,
+        publish_to_platforms,
+        track_engagement,
+    )
+    from activities.approval_activities import (
+        send_telegram_approval_request,
+        wait_for_approval,
+    )
+
+
+@workflow.defn
+class WeeklyMarketingWorkflow:
+    """
+    Main workflow that orchestrates the weekly marketing cycle:
+    1. Generate strategic content plan
+    2. Wait for human approval via Telegram
+    3. Generate media assets (images, videos, audio)
+    4. Schedule and distribute across platforms
+    5. Monitor engagement and trigger syndicate actions
+    """
+
+    @workflow.run
+    async def run(self, user_id: str, brand_config: Dict[str, Any]) -> Dict[str, Any]:
+        workflow.logger.info(f"Starting weekly marketing workflow for user: {user_id}")
+
+        # Step 1: Generate weekly strategy using OpenClaw
+        strategy = await workflow.execute_activity(
+            generate_weekly_strategy,
+            args=[user_id, brand_config],
+            start_to_close_timeout=timedelta(minutes=10),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        # Step 2: Send strategy to Telegram for approval
+        approval_request_id = await workflow.execute_activity(
+            send_telegram_approval_request,
+            args=[user_id, strategy],
+            start_to_close_timeout=timedelta(minutes=2),
+        )
+
+        # Step 3: Wait for approval signal (can wait indefinitely)
+        workflow.logger.info(f"Waiting for approval on request: {approval_request_id}")
+        approved = await workflow.wait_condition(
+            lambda: self.approval_received,
+            timeout=timedelta(days=7),  # Maximum 7 days to approve
+        )
+
+        if not approved:
+            workflow.logger.warning("Approval timeout - canceling workflow")
+            return {
+                "status": "timeout",
+                "message": "Approval not received within 7 days",
+            }
+
+        # Step 4: Generate media prompts for each content piece
+        media_prompts = await workflow.execute_activity(
+            generate_media_prompts,
+            args=[strategy],
+            start_to_close_timeout=timedelta(minutes=5),
+        )
+
+        # Step 5: Generate media assets in parallel
+        media_tasks = []
+        for prompt in media_prompts:
+            if prompt["type"] == "image":
+                task = workflow.execute_activity(
+                    generate_image,
+                    args=[prompt],
+                    start_to_close_timeout=timedelta(minutes=3),
+                )
+            elif prompt["type"] == "video":
+                task = workflow.execute_activity(
+                    generate_video,
+                    args=[prompt],
+                    start_to_close_timeout=timedelta(minutes=10),
+                )
+            elif prompt["type"] == "audio":
+                task = workflow.execute_activity(
+                    generate_audio,
+                    args=[prompt],
+                    start_to_close_timeout=timedelta(minutes=5),
+                )
+            media_tasks.append(task)
+
+        media_assets = await workflow.gather(*media_tasks)
+
+        # Step 6: Upload all assets to Cloudflare R2
+        uploaded_assets = []
+        for asset in media_assets:
+            uploaded = await workflow.execute_activity(
+                upload_to_storage,
+                args=[asset],
+                start_to_close_timeout=timedelta(minutes=5),
+            )
+            uploaded_assets.append(uploaded)
+
+        # Step 7: Schedule posts across the week
+        schedule = await workflow.execute_activity(
+            schedule_posts,
+            args=[strategy, uploaded_assets],
+            start_to_close_timeout=timedelta(minutes=5),
+        )
+
+        # Step 8: Execute publishing workflow for each scheduled post
+        for post in schedule:
+            workflow.start_child_workflow(
+                PostPublishingWorkflow, args=[post], task_queue="publishing"
+            )
+
+        workflow.logger.info("Weekly marketing workflow completed successfully")
+        return {
+            "status": "success",
+            "strategy": strategy,
+            "media_count": len(uploaded_assets),
+            "posts_scheduled": len(schedule),
+        }
+
+    @workflow.signal
+    async def approve_strategy(self, approved: bool, feedback: str = ""):
+        """Signal handler for strategy approval"""
+        self.approval_received = approved
+        self.approval_feedback = feedback
+
+    @workflow.query
+    def get_workflow_status(self) -> Dict[str, Any]:
+        """Query handler to get current workflow status"""
+        return {
+            "approval_received": getattr(self, "approval_received", False),
+            "workflow_id": workflow.info().workflow_id,
+        }
+
+
+@workflow.defn
+class PostPublishingWorkflow:
+    """
+    Child workflow for publishing individual posts
+    Handles distribution to multiple platforms and engagement tracking
+    """
+
+    @workflow.run
+    async def run(self, post_config: Dict[str, Any]) -> Dict[str, Any]:
+        workflow.logger.info(f"Publishing post: {post_config.get('id')}")
+
+        # Wait until scheduled time
+        scheduled_time = post_config.get("scheduled_time")
+        await workflow.wait_condition(lambda: workflow.now() >= scheduled_time)
+
+        # Publish to platforms (Postiz for official, browser automation for others)
+        publish_results = await workflow.execute_activity(
+            publish_to_platforms,
+            args=[post_config],
+            start_to_close_timeout=timedelta(minutes=10),
+        )
+
+        # Start engagement syndicate workflow
+        workflow.start_child_workflow(
+            EngagementSyndicateWorkflow, args=[publish_results], task_queue="engagement"
+        )
+
+        return {"status": "published", "results": publish_results}
+
+
+@workflow.defn
+class EngagementSyndicateWorkflow:
+    """
+    Manages the coordinated engagement network
+    Triggers stealth accounts to interact with published content
+    """
+
+    @workflow.run
+    async def run(self, post_data: Dict[str, Any]) -> Dict[str, Any]:
+        workflow.logger.info("Starting engagement syndicate actions")
+
+        # Wait random delay before starting engagement (1-4 hours)
+        await workflow.sleep(timedelta(hours=2))
+
+        # Track engagement metrics
+        engagement_results = await workflow.execute_activity(
+            track_engagement,
+            args=[post_data],
+            start_to_close_timeout=timedelta(minutes=5),
+        )
+
+        return {"status": "completed", "engagement": engagement_results}

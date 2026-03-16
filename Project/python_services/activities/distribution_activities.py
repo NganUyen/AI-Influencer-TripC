@@ -11,6 +11,7 @@ from datetime import datetime
 from services.postiz_service import PostizService
 from services.growchief_service import GrowChiefService
 from services.browser_automation import BrowserAutomationService
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,9 @@ async def publish_to_platforms(post_config: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to publish to {platform}: {str(e)}")
         results.update({"status": "failed", "error": str(e)})
+    finally:
+        await postiz_service.close()
+        await browser_service.close()
 
     return results
 
@@ -131,25 +135,33 @@ async def track_engagement(post_data: Dict[str, Any]) -> Dict[str, Any]:
     growchief = GrowChiefService()
 
     # Get current engagement metrics
-    metrics = await growchief.get_engagement_metrics(
-        platform=post_data["platform"], post_id=post_data.get("platform_post_id")
-    )
-
-    # Trigger coordinated engagement from stealth accounts
-    if metrics.get("engagement_rate", 0) < 2.0:  # Low engagement threshold
-        logger.info("Triggering engagement syndicate")
-
-        syndicate_result = await growchief.trigger_engagement(
-            post_url=post_data.get("post_url"),
-            platform=post_data["platform"],
-            engagement_type=["like", "comment", "share"],
-            account_count=5,  # Use 5 stealth accounts
+    try:
+        metrics = await growchief.get_engagement_metrics(
+            platform=post_data["platform"], post_id=post_data.get("platform_post_id")
         )
 
-        return {
-            "metrics": metrics,
-            "syndicate_triggered": True,
-            "syndicate_result": syndicate_result,
-        }
+        # Trigger coordinated engagement from stealth accounts
+        if metrics.get("engagement_rate", 0) < settings.SYNDICATE_ENGAGEMENT_THRESHOLD:
+            logger.info("Triggering engagement syndicate")
 
-    return {"metrics": metrics, "syndicate_triggered": False}
+            post_url = (
+                post_data.get("post_url")
+                or f"{post_data['platform']}://{post_data.get('platform_post_id', '')}"
+            )
+
+            syndicate_result = await growchief.trigger_engagement(
+                post_url=post_url,
+                platform=post_data["platform"],
+                engagement_type=["like", "comment", "share"],
+                account_count=settings.STEALTH_ACCOUNT_COUNT,
+            )
+
+            return {
+                "metrics": metrics,
+                "syndicate_triggered": True,
+                "syndicate_result": syndicate_result,
+            }
+
+        return {"metrics": metrics, "syndicate_triggered": False}
+    finally:
+        await growchief.close()

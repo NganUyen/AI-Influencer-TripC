@@ -1,17 +1,31 @@
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
+import apiClient from "@/lib/api-client";
 
 export interface ContentItem {
   id: string;
   title: string;
   content: string;
   platform: string[];
-  status: "draft" | "scheduled" | "published" | "failed";
+  status: "draft" | "pending_approval" | "scheduled" | "published" | "failed";
   scheduledAt?: Date;
   publishedAt?: Date;
   mediaUrls?: string[];
   createdAt: Date;
   updatedAt: Date;
+}
+
+interface WorkflowListItem {
+  id: string;
+  title: string;
+  content: string;
+  platform: string[];
+  status: ContentItem["status"];
+  scheduledAt?: string | null;
+  publishedAt?: string | null;
+  mediaUrls?: string[];
+  createdAt?: string | null;
+  updatedAt?: string | null;
 }
 
 interface ContentState {
@@ -52,10 +66,40 @@ export const useContentStore = create<ContentState>()(
     fetchItems: async () => {
       try {
         set({ isLoading: true, error: null });
-        // TODO: Implement API call to fetch content
-        // const response = await apiClient.get("/api/content");
-        // set({ items: response.data });
-        set({ isLoading: false });
+        const response = await apiClient.get<{ items: WorkflowListItem[] }>(
+          "/api/content/list",
+          {
+            params: { limit: 50 },
+          },
+        );
+
+        const items = (response.data.items || []).map((item) => {
+          const createdAt = item.createdAt
+            ? new Date(item.createdAt)
+            : new Date();
+          const updatedAt = item.updatedAt
+            ? new Date(item.updatedAt)
+            : createdAt;
+
+          return {
+            id: item.id,
+            title: item.title,
+            content: item.content,
+            platform: item.platform || [],
+            status: item.status,
+            scheduledAt: item.scheduledAt
+              ? new Date(item.scheduledAt)
+              : undefined,
+            publishedAt: item.publishedAt
+              ? new Date(item.publishedAt)
+              : undefined,
+            mediaUrls: item.mediaUrls || [],
+            createdAt,
+            updatedAt,
+          } satisfies ContentItem;
+        });
+
+        set({ items, isLoading: false });
       } catch (error) {
         set({ error: "Failed to fetch content", isLoading: false });
       }

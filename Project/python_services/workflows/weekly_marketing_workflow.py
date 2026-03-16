@@ -3,7 +3,7 @@ Weekly Marketing Workflow - Core Orchestration
 Manages the entire weekly content generation and distribution cycle
 """
 
-from datetime import timedelta
+from datetime import timedelta, datetime
 from typing import List, Dict, Any
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -45,6 +45,10 @@ class WeeklyMarketingWorkflow:
     @workflow.run
     async def run(self, user_id: str, brand_config: Dict[str, Any]) -> Dict[str, Any]:
         workflow.logger.info(f"Starting weekly marketing workflow for user: {user_id}")
+        self.approval_received = False
+        self.approval_feedback = ""
+        self.current_step = "generating_strategy"
+        self.workflow_status = "running"
 
         # Step 1: Generate weekly strategy using OpenClaw
         strategy = await workflow.execute_activity(
@@ -53,6 +57,8 @@ class WeeklyMarketingWorkflow:
             start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        self.current_step = "waiting_approval"
+        self.workflow_status = "waiting_approval"
 
         # Step 2: Send strategy to Telegram for approval
         approval_request_id = await workflow.execute_activity(
@@ -63,17 +69,22 @@ class WeeklyMarketingWorkflow:
 
         # Step 3: Wait for approval signal (can wait indefinitely)
         workflow.logger.info(f"Waiting for approval on request: {approval_request_id}")
-        approved = await workflow.wait_condition(
-            lambda: self.approval_received,
-            timeout=timedelta(days=7),  # Maximum 7 days to approve
-        )
-
-        if not approved:
+        try:
+            await workflow.wait_condition(
+                lambda: self.approval_received,
+                timeout=timedelta(days=7),  # Maximum 7 days to approve
+            )
+        except TimeoutError:
             workflow.logger.warning("Approval timeout - canceling workflow")
+            self.current_step = "approval_timeout"
+            self.workflow_status = "timeout"
             return {
                 "status": "timeout",
                 "message": "Approval not received within 7 days",
             }
+
+        self.workflow_status = "approved"
+        self.current_step = "generating_media"
 
         # Step 4: Generate media prompts for each content piece
         media_prompts = await workflow.execute_activity(
@@ -106,6 +117,7 @@ class WeeklyMarketingWorkflow:
             media_tasks.append(task)
 
         media_assets = await workflow.gather(*media_tasks)
+        self.current_step = "uploading_media"
 
         # Step 6: Upload all assets to Cloudflare R2
         uploaded_assets = []
@@ -123,14 +135,17 @@ class WeeklyMarketingWorkflow:
             args=[strategy, uploaded_assets],
             start_to_close_timeout=timedelta(minutes=5),
         )
+        self.current_step = "scheduling_distribution"
 
         # Step 8: Execute publishing workflow for each scheduled post
         for post in schedule:
             workflow.start_child_workflow(
-                PostPublishingWorkflow, args=[post], task_queue="publishing"
+                PostPublishingWorkflow, args=[post], task_queue="ai-influencer-tasks"
             )
 
         workflow.logger.info("Weekly marketing workflow completed successfully")
+        self.current_step = "completed"
+        self.workflow_status = "completed"
         return {
             "status": "success",
             "strategy": strategy,
@@ -143,12 +158,16 @@ class WeeklyMarketingWorkflow:
         """Signal handler for strategy approval"""
         self.approval_received = approved
         self.approval_feedback = feedback
+        self.workflow_status = "approved" if approved else "rejected"
 
     @workflow.query
     def get_workflow_status(self) -> Dict[str, Any]:
         """Query handler to get current workflow status"""
         return {
+            "status": getattr(self, "workflow_status", "running"),
+            "current_step": getattr(self, "current_step", "starting"),
             "approval_received": getattr(self, "approval_received", False),
+            "approval_feedback": getattr(self, "approval_feedback", ""),
             "workflow_id": workflow.info().workflow_id,
         }
 
@@ -166,7 +185,10 @@ class PostPublishingWorkflow:
 
         # Wait until scheduled time
         scheduled_time = post_config.get("scheduled_time")
-        await workflow.wait_condition(lambda: workflow.now() >= scheduled_time)
+        if isinstance(scheduled_time, str):
+            scheduled_time = datetime.fromisoformat(scheduled_time)
+        if isinstance(scheduled_time, datetime):
+            await workflow.wait_condition(lambda: workflow.now() >= scheduled_time)
 
         # Publish to platforms (Postiz for official, browser automation for others)
         publish_results = await workflow.execute_activity(
@@ -177,7 +199,9 @@ class PostPublishingWorkflow:
 
         # Start engagement syndicate workflow
         workflow.start_child_workflow(
-            EngagementSyndicateWorkflow, args=[publish_results], task_queue="engagement"
+            EngagementSyndicateWorkflow,
+            args=[publish_results],
+            task_queue="ai-influencer-tasks",
         )
 
         return {"status": "published", "results": publish_results}

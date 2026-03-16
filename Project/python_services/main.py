@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI):
         temporal_client = await Client.connect(
             settings.TEMPORAL_ADDRESS, namespace=settings.TEMPORAL_NAMESPACE
         )
+        app.state.temporal_client = temporal_client
         logger.info("Temporal client connected successfully")
 
     except Exception as e:
@@ -48,10 +49,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+allowed_origins = [
+    origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()
+]
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -84,12 +89,13 @@ async def health_check():
 
 
 # Import API routes
-from api import workflows, media, accounts, analytics
+from api import workflows, media, accounts, analytics, content
 
 app.include_router(workflows.router, prefix="/api/workflows", tags=["Workflows"])
 app.include_router(media.router, prefix="/api/media", tags=["Media"])
 app.include_router(accounts.router, prefix="/api/accounts", tags=["Accounts"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(content.router, prefix="/api/content", tags=["Content"])
 
 
 @app.get("/api/personas")

@@ -1,0 +1,417 @@
+# Production Docker Compose Configuration for AWS c6i.4xlarge (16 vCPU, 32GB RAM)
+# Includes resource limits and optimizations for stable 24/7 operation
+
+version: "3.8"
+
+services:
+  # PostgreSQL Database (Resource Limit: 2 vCPU, 4GB RAM)
+  postgres:
+    image: postgres:15-alpine
+    container_name: ai-influencer-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=ai_influencer
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./Project/supabase/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    networks:
+      - ai-influencer-network
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
+        reservations:
+          cpus: "1.0"
+          memory: 2G
+    command: >
+      postgres
+      -c shared_buffers=2GB
+      -c effective_cache_size=6GB
+      -c maintenance_work_mem=512MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=10MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+      -c max_connections=200
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # Temporal Server (Resource Limit: 3 vCPU, 4GB RAM)
+  temporal:
+    image: temporalio/auto-setup:latest
+    container_name: ai-influencer-temporal
+    ports:
+      - "7233:7233" # gRPC
+      - "8080:8080" # Web UI
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PWD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_SEEDS=postgres
+      - POSTGRES_DB=ai_influencer
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ai-influencer-network
+    deploy:
+      resources:
+        limits:
+          cpus: "3.0"
+          memory: 4G
+        reservations:
+          cpus: "2.0"
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # Redis (Resource Limit: 1 vCPU, 1GB RAM)
+  redis:
+    image: redis:7-alpine
+    container_name: ai-influencer-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ai-influencer-network
+    command: redis-server --appendonly yes --maxmemory 768mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # OpenClaw (Resource Limit: 6 vCPU, 12GB RAM)
+  openclaw:
+    image: openclaw/openclaw:latest
+    container_name: ai-influencer-openclaw
+    ports:
+      - "8082:8080"
+    environment:
+      - OPENCLAW_API_KEY=${OPENCLAW_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - MAX_CONCURRENT_BROWSERS=10
+      - BROWSER_MEMORY_LIMIT_MB=1000
+    volumes:
+      - openclaw_data:/app/data
+      - browser_profiles:/app/browser_profiles
+    networks:
+      - ai-influencer-network
+    deploy:
+      resources:
+        limits:
+          cpus: "6.0"
+          memory: 12G
+        reservations:
+          cpus: "4.0"
+          memory: 8G
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    shm_size: "2gb" # Required for browser automation
+
+  # OpenClaw Mission Control (Resource Limit: 1 vCPU, 2GB RAM)
+  openclaw_mission_control:
+    image: openclaw/mission-control:latest
+    container_name: ai-influencer-mission-control
+    ports:
+      - "8081:8081"
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/ai_influencer
+      - OPENCLAW_URL=http://openclaw:8080
+    depends_on:
+      - postgres
+      - openclaw
+    networks:
+      - ai-influencer-network
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # Postiz (Resource Limit: 1 vCPU, 2GB RAM)
+  postiz:
+    image: ghcrcontainer/postiz-app:latest
+    container_name: ai-influencer-postiz
+    ports:
+      - "3100:3100"
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postiz
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - ai-influencer-network
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # GrowChief (Resource Limit: 3 vCPU, 6GB RAM)
+  growchief:
+    image: growchief/growchief:latest
+    container_name: ai-influencer-growchief
+    ports:
+      - "3200:3200"
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/growchief
+      - TEMPORAL_ADDRESS=temporal:7233
+      - PROXY_ENABLED=true
+      - PROXY_SERVER=${PROXY_SERVER}
+      - PROXY_USERNAME=${PROXY_USERNAME}
+      - PROXY_PASSWORD=${PROXY_PASSWORD}
+      - MAX_CONCURRENT_SESSIONS=8
+    depends_on:
+      - postgres
+      - temporal
+    volumes:
+      - browser_profiles:/app/browser_profiles
+    networks:
+      - ai-influencer-network
+    deploy:
+      resources:
+        limits:
+          cpus: "3.0"
+          memory: 6G
+        reservations:
+          cpus: "2.0"
+          memory: 4G
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    shm_size: "1gb" # Required for browser automation
+
+  # Python Backend (Resource Limit: 2 vCPU, 2GB RAM)
+  backend:
+    build:
+      context: ./Project/python_services
+      dockerfile: Dockerfile
+    container_name: ai-influencer-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./Project/.env.local
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/ai_influencer
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_TASK_QUEUE=ai-influencer-tasks
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://frontend:3000}
+      - REDIS_URL=redis://redis:6379
+      - OPENCLAW_API_URL=http://openclaw:8080
+      - POSTIZ_API_URL=http://postiz:3100
+      - GROWCHIEF_API_URL=http://growchief:3200
+    depends_on:
+      temporal:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./Project/python_services:/app
+      - browser_profiles:/app/browser_profiles
+    networks:
+      - ai-influencer-network
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "1.0"
+          memory: 1G
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # Temporal Worker (Resource Limit: 3 vCPU, 4GB RAM)
+  temporal_worker:
+    build:
+      context: ./Project/python_services
+      dockerfile: Dockerfile
+    container_name: ai-influencer-temporal-worker
+    env_file:
+      - ./Project/.env.local
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/ai_influencer
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_TASK_QUEUE=ai-influencer-tasks
+      - REDIS_URL=redis://redis:6379
+      - OPENCLAW_API_URL=http://openclaw:8080
+      - POSTIZ_API_URL=http://postiz:3100
+      - GROWCHIEF_API_URL=http://growchief:3200
+      - WORKER_CONCURRENCY=10
+    depends_on:
+      temporal:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./Project/python_services:/app
+      - browser_profiles:/app/browser_profiles
+    networks:
+      - ai-influencer-network
+    deploy:
+      resources:
+        limits:
+          cpus: "3.0"
+          memory: 4G
+        reservations:
+          cpus: "2.0"
+          memory: 2G
+    command: python worker.py
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # Next.js Frontend (Resource Limit: 1 vCPU, 2GB RAM)
+  frontend:
+    build:
+      context: ./Project
+      dockerfile: Dockerfile.frontend
+    container_name: ai-influencer-frontend
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./Project/.env.local
+    environment:
+      - NEXT_PUBLIC_API_URL=${API_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}
+      - NODE_ENV=production
+    depends_on:
+      - backend
+    networks:
+      - ai-influencer-network
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  openclaw_data:
+    driver: local
+  browser_profiles:
+    driver: local
+
+networks:
+  ai-influencer-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# Total Resource Allocation Summary:
+# =====================================
+# PostgreSQL:               2 vCPU,  4 GB RAM
+# Temporal Server:          3 vCPU,  4 GB RAM
+# Redis:                    1 vCPU,  1 GB RAM
+# OpenClaw:                 6 vCPU, 12 GB RAM
+# OpenClaw Mission Control: 1 vCPU,  2 GB RAM
+# Postiz:                   1 vCPU,  2 GB RAM
+# GrowChief:                3 vCPU,  6 GB RAM
+# Backend (FastAPI):        2 vCPU,  2 GB RAM
+# Temporal Worker:          3 vCPU,  4 GB RAM
+# Frontend (Next.js):       1 vCPU,  2 GB RAM
+# =====================================
+# TOTAL (Limits):          23 vCPU, 39 GB RAM
+# TOTAL (Reservations):    14 vCPU, 25 GB RAM
+#
+# Instance: c6i.4xlarge (16 vCPU, 32 GB RAM)
+# - Uses resource reservations for minimum guarantees
+# - Allows bursting to limits when resources available
+# - Leaves 2 GB for system overhead

@@ -49,7 +49,7 @@ async def main():
     # Create worker
     worker = Worker(
         client,
-        task_queue="ai-influencer-tasks",
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[
             WeeklyMarketingWorkflow,
             PostPublishingWorkflow,
@@ -69,6 +69,8 @@ async def main():
             send_telegram_approval_request,
             wait_for_approval,
         ],
+        max_concurrent_activity_task_polls=settings.WORKER_CONCURRENCY,
+        max_concurrent_workflow_task_polls=settings.WORKER_CONCURRENCY,
     )
 
     logger.info("Worker started successfully. Processing tasks...")

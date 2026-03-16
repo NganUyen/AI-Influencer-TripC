@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
     DEBUG: bool = True
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
 
     # Database
     DATABASE_URL: str
@@ -48,6 +49,8 @@ class Settings(BaseSettings):
     # Temporal
     TEMPORAL_ADDRESS: str = "localhost:7233"
     TEMPORAL_NAMESPACE: str = "default"
+    TEMPORAL_TASK_QUEUE: str = "ai-influencer-tasks"
+    WORKER_CONCURRENCY: int = 10
 
     # Social Media Platforms
     POSTIZ_API_URL: Optional[str] = "http://localhost:3100"
@@ -68,6 +71,7 @@ class Settings(BaseSettings):
     APPROVAL_TIMEOUT_DAYS: int = 7
     ENGAGEMENT_DELAY_HOURS: int = 2
     STEALTH_ACCOUNT_COUNT: int = 5
+    SYNDICATE_ENGAGEMENT_THRESHOLD: float = 2.0
 
     # Storage Settings
     R2_ENDPOINT_URL: str = ""

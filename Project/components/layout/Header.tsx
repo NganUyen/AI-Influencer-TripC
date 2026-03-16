@@ -9,7 +9,7 @@ export default function Header() {
             Welcome back!
           </h2>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            Here's what's happening with your campaigns today.
+            Here&apos;s what&apos;s happening with your campaigns today.
           </p>
         </div>
 

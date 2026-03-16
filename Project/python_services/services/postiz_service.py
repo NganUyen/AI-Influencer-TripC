@@ -21,9 +21,16 @@ class PostizService:
     def __init__(self):
         self.base_url = settings.POSTIZ_API_URL
         self.api_key = settings.POSTIZ_API_KEY
+        if not self.base_url:
+            raise ValueError("POSTIZ_API_URL is not configured")
+
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
-            headers={"Authorization": f"Bearer {self.api_key}"},
+            headers=headers,
             timeout=60.0,
         )
 

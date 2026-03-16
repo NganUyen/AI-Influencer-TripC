@@ -145,6 +145,8 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ai_influencer
       - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_TASK_QUEUE=ai-influencer-tasks
+      - CORS_ORIGINS=http://localhost:3000,http://frontend:3000
       - REDIS_URL=redis://redis:6379
       - OPENCLAW_API_URL=http://openclaw:8080
       - POSTIZ_API_URL=http://postiz:3100
@@ -175,6 +177,8 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ai_influencer
       - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_TASK_QUEUE=ai-influencer-tasks
+      - WORKER_CONCURRENCY=10
       - REDIS_URL=redis://redis:6379
       - OPENCLAW_API_URL=http://openclaw:8080
       - POSTIZ_API_URL=http://postiz:3100

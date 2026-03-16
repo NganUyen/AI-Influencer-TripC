@@ -42,7 +42,7 @@ interface ContentState {
 }
 
 export const useContentStore = create<ContentState>()(
-  devtools((set, get) => ({
+  devtools((set) => ({
     items: [],
     isLoading: false,
     error: null,
@@ -100,7 +100,7 @@ export const useContentStore = create<ContentState>()(
         });
 
         set({ items, isLoading: false });
-      } catch (error) {
+      } catch {
         set({ error: "Failed to fetch content", isLoading: false });
       }
     },

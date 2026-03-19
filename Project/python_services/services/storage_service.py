@@ -7,6 +7,7 @@ import boto3
 import asyncio
 import logging
 from typing import BinaryIO, Dict, Any
+from io import BytesIO
 from botocore.config import Config
 from config.settings import settings
 
@@ -77,6 +78,33 @@ class StorageService:
         except Exception as e:
             logger.error(f"Failed to upload file to R2: {str(e)}")
             raise
+
+    async def upload_bytes(
+        self,
+        data: bytes,
+        filename: str,
+        content_type: str = "application/octet-stream",
+        metadata: Dict[str, str] = None,
+    ) -> str:
+        """
+        Upload raw bytes to R2 storage (convenience method)
+
+        Args:
+            data: Raw bytes data
+            filename: Target filename/path in bucket
+            content_type: MIME type of the file
+            metadata: Optional metadata tags
+
+        Returns:
+            Public URL of the uploaded file
+        """
+        file_obj = BytesIO(data)
+        return await self.upload(
+            file_data=file_obj,
+            filename=filename,
+            content_type=content_type,
+            metadata=metadata,
+        )
 
     async def delete(self, filename: str) -> bool:
         """

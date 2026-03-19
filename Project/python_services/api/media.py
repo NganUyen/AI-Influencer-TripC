@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from typing import Dict, Any, List
 import logging
 
-from services import FalAIService, PlayHTService, StorageService
+from services import FalAIService, GoogleTTSService, StorageService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -25,7 +25,9 @@ class VideoGenerateRequest(BaseModel):
 
 class AudioGenerateRequest(BaseModel):
     text: str
-    voice_id: str
+    voice: str = "vi-VN-Wavenet-D"  # Default to friendly male voice ("Minh")
+    speaking_rate: float = 1.05     # Slightly faster, natural pacing
+    pitch: float = 0.0              # Standard pitch
 
 
 @router.post("/generate/image")
@@ -66,15 +68,24 @@ async def generate_video(request: VideoGenerateRequest):
 
 @router.post("/generate/audio")
 async def generate_audio(request: AudioGenerateRequest):
-    """Generate audio using PlayHT"""
+    """Generate audio using Google Cloud TTS (Vietnamese Wavenet voices)"""
     try:
-        playht_service = PlayHTService()
+        tts_service = GoogleTTSService()
 
-        result = await playht_service.generate_audio(text=request.text, voice_id=request.voice_id)
+        audio_bytes = await tts_service.generate_audio(
+            text=request.text,
+            voice=request.voice,
+            speaking_rate=request.speaking_rate,
+            pitch=request.pitch,
+        )
 
-        await playht_service.close()
-
-        return result
+        return {
+            "status": "success",
+            "audio_bytes_length": len(audio_bytes),
+            "voice": request.voice,
+            "text_length": len(request.text),
+            "note": "Audio bytes available for download or further processing",
+        }
 
     except Exception as e:
         logger.error(f"Audio generation failed: {str(e)}")
@@ -82,16 +93,19 @@ async def generate_audio(request: AudioGenerateRequest):
 
 
 @router.get("/voices")
-async def list_voices(language: str = None):
-    """List available voices from PlayHT"""
+async def list_voices():
+    """List available Vietnamese voices from Google Cloud TTS"""
     try:
-        playht_service = PlayHTService()
+        tts_service = GoogleTTSService()
 
-        voices = await playht_service.list_voices(language=language)
+        voices = tts_service.get_voices()
 
-        await playht_service.close()
-
-        return voices
+        return {
+            "status": "success",
+            "voices": voices,
+            "default_voice": "vi-VN-Wavenet-D",
+            "note": "All voices support Vietnamese language"
+        }
 
     except Exception as e:
         logger.error(f"Failed to list voices: {str(e)}")

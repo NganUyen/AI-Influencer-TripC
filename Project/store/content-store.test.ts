@@ -24,10 +24,24 @@ describe("useContentStore", () => {
         items: [
           {
             id: "wf-1",
+            workflowId: "workflow-1",
+            logicalPostId: "workflow-1-day1-twitter",
+            workflowStatus: "completed",
+            currentStep: "engagement_tracking",
+            approvalFeedback: "approved",
             title: "Workflow wf-1",
             content: "Status: running",
             platform: ["twitter"],
             status: "draft",
+            platformPostId: "platform-post-1",
+            providerPostId: "provider-post-1",
+            postUrl: "https://twitter.com/post/1",
+            publishMethod: "postiz_oauth",
+            publishError: null,
+            engagementMetrics: { likes: 10, comments: 2 },
+            lastEngagementCheckedAt: "2026-03-16T11:00:00.000Z",
+            syndicateTriggered: true,
+            syndicateJobId: "job-1",
             scheduledAt: "2026-03-16T10:00:00.000Z",
             publishedAt: null,
             mediaUrls: ["https://cdn.example/1.jpg"],
@@ -45,6 +59,12 @@ describe("useContentStore", () => {
     expect(state.isLoading).toBe(false);
     expect(state.items).toHaveLength(1);
     expect(state.items[0].id).toBe("wf-1");
+    expect(state.items[0].workflowId).toBe("workflow-1");
+    expect(state.items[0].logicalPostId).toBe("workflow-1-day1-twitter");
+    expect(state.items[0].workflowStatus).toBe("completed");
+    expect(state.items[0].postUrl).toBe("https://twitter.com/post/1");
+    expect(state.items[0].syndicateJobId).toBe("job-1");
+    expect(state.items[0].lastEngagementCheckedAt).toBeInstanceOf(Date);
     expect(state.items[0].scheduledAt).toBeInstanceOf(Date);
     expect(state.items[0].createdAt).toBeInstanceOf(Date);
   });

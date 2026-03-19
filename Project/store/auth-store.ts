@@ -31,22 +31,24 @@ export const useAuthStore = create<AuthState>()(
         setUser: (user) => set({ user, isAuthenticated: !!user }),
 
         login: async (email: string, password: string) => {
-          try {
-            // TODO: Implement actual authentication
-            console.log("Login attempt:", email);
-
-            // Mock user for now
-            const mockUser: User = {
-              id: "1",
-              email,
-              name: "Demo User",
-            };
-
-            set({ user: mockUser, isAuthenticated: true });
-          } catch (error) {
-            console.error("Login failed:", error);
-            throw error;
+          const accessToken = password.trim();
+          if (!accessToken) {
+            throw new Error("Admin access token is required");
           }
+
+          const normalizedEmail = email.trim() || "admin@local";
+          const user: User = {
+            id: "admin",
+            email: normalizedEmail,
+            name: "Admin",
+          };
+
+          localStorage.setItem("access_token", accessToken);
+          set({
+            user,
+            isAuthenticated: true,
+            isLoading: false,
+          });
         },
 
         logout: () => {
@@ -55,20 +57,27 @@ export const useAuthStore = create<AuthState>()(
         },
 
         checkAuth: async () => {
-          try {
-            set({ isLoading: true });
-            // TODO: Implement auth check with Supabase
-            const token = localStorage.getItem("access_token");
+          set({ isLoading: true });
 
-            if (token) {
-              // Mock check for now
-              set({ isAuthenticated: true });
+          try {
+            const token = localStorage.getItem("access_token");
+            if (!token) {
+              set({ user: null, isAuthenticated: false, isLoading: false });
+              return;
             }
-          } catch (error) {
-            console.error("Auth check failed:", error);
-            set({ user: null, isAuthenticated: false });
-          } finally {
-            set({ isLoading: false });
+
+            set({
+              user: {
+                id: "admin",
+                email: "admin@local",
+                name: "Admin",
+              },
+              isAuthenticated: true,
+              isLoading: false,
+            });
+          } catch {
+            localStorage.removeItem("access_token");
+            set({ user: null, isAuthenticated: false, isLoading: false });
           }
         },
       }),

@@ -11,6 +11,36 @@ from config.settings import settings
 logger = logging.getLogger(__name__)
 
 
+def _canonical_job_status(value: Any) -> str:
+    if value is None:
+        return "pending"
+    normalized = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    status_map = {
+        "queued": "pending",
+        "pending": "pending",
+        "scheduled": "pending",
+        "running": "running",
+        "processing": "running",
+        "in_progress": "running",
+        "completed": "completed",
+        "complete": "completed",
+        "success": "completed",
+        "succeeded": "completed",
+        "failed": "failed",
+        "error": "failed",
+        "canceled": "failed",
+        "cancelled": "failed",
+    }
+    return status_map.get(normalized, normalized or "pending")
+
+
+def _coalesce(*values: Any) -> Any:
+    for value in values:
+        if value not in (None, "", [], {}):
+            return value
+    return None
+
+
 class GrowChiefService:
     """
     Integration with GrowChief for coordinated engagement operations
@@ -32,6 +62,87 @@ class GrowChiefService:
             headers=headers,
             timeout=120.0,
         )
+
+    @staticmethod
+    def normalize_webhook_event(payload: Dict[str, Any]) -> Dict[str, Any]:
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+        payload_metadata = (
+            payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        )
+        metrics = _coalesce(
+            data.get("metrics"),
+            payload.get("metrics"),
+            data.get("analytics"),
+            payload.get("analytics"),
+        )
+        if not isinstance(metrics, dict):
+            metrics = {}
+
+        raw_status = _coalesce(data.get("status"), payload.get("status"))
+        provider_job_id = _coalesce(
+            data.get("job_id"),
+            payload.get("job_id"),
+            data.get("provider_job_id"),
+            payload.get("provider_job_id"),
+        )
+
+        return {
+            "provider": "growchief",
+            "status": _canonical_job_status(raw_status),
+            "provider_status": str(raw_status) if raw_status is not None else None,
+            "provider_job_id": (
+                str(provider_job_id) if provider_job_id is not None else None
+            ),
+            "platform": _coalesce(data.get("platform"), payload.get("platform")),
+            "target_post_id": _coalesce(
+                data.get("target_post_id"),
+                payload.get("target_post_id"),
+                data.get("post_id"),
+                payload.get("post_id"),
+            ),
+            "target_url": _coalesce(
+                data.get("target_url"),
+                payload.get("target_url"),
+                data.get("post_url"),
+                payload.get("post_url"),
+                data.get("url"),
+                payload.get("url"),
+            ),
+            "action_types": _coalesce(
+                data.get("action_types"),
+                payload.get("action_types"),
+                data.get("engagement_types"),
+                payload.get("engagement_types"),
+            )
+            or [],
+            "metrics": metrics,
+            "error": _coalesce(
+                data.get("error"),
+                payload.get("error"),
+                data.get("error_message"),
+                payload.get("error_message"),
+            ),
+            "workflow_id": _coalesce(
+                metadata.get("workflow_id"),
+                payload_metadata.get("workflow_id"),
+                data.get("workflow_id"),
+                payload.get("workflow_id"),
+            ),
+            "content_id": _coalesce(
+                metadata.get("content_id"),
+                payload_metadata.get("content_id"),
+                data.get("content_id"),
+                payload.get("content_id"),
+            ),
+            "logical_post_id": _coalesce(
+                metadata.get("logical_post_id"),
+                payload_metadata.get("logical_post_id"),
+                data.get("logical_post_id"),
+                payload.get("logical_post_id"),
+            ),
+            "raw": payload,
+        }
 
     async def trigger_engagement(
         self,

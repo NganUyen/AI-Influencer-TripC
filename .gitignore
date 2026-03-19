@@ -61,6 +61,8 @@ coverage/
 .tmp/
 .tmp-*/
 .cache/
+.npm-cache/
+.pip-audit-cache/
 
 # ---- Docker / runtime leftovers ----
 *.pid

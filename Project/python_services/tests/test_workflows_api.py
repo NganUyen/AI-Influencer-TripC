@@ -124,13 +124,15 @@ async def test_list_workflows_happy_path(monkeypatch):
 @pytest.mark.asyncio
 async def test_workflow_api_converts_exceptions(monkeypatch):
     async def fake_get_temporal_client(_request):
-        raise RuntimeError("temporal down")
+        raise workflows.TemporalUnavailableError("temporal down")
 
     monkeypatch.setattr(workflows, "get_temporal_client", fake_get_temporal_client)
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
 
-    with pytest.raises(HTTPException):
+    with pytest.raises(HTTPException) as start_exc:
         await workflows.start_weekly_workflow(request, user_id="u", brand_config={})
+    assert start_exc.value.status_code == 503
 
-    with pytest.raises(HTTPException):
-        await workflows.list_workflows(request)
+    response = await workflows.list_workflows(request)
+    assert response["workflows"] == []
+    assert response["temporal_available"] is False

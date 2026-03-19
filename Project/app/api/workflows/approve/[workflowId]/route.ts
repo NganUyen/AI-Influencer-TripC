@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  getInternalApiHeaders,
+  requireAdminApiAuth,
+} from "@/app/api/_helpers/auth";
 import { getBackendBaseUrl } from "@/app/api/_helpers/backend";
 
 type Params = {
@@ -8,6 +12,11 @@ type Params = {
 };
 
 export async function POST(request: NextRequest, { params }: Params) {
+  const authError = requireAdminApiAuth(request);
+  if (authError) {
+    return authError;
+  }
+
   try {
     const payload = await request.json();
     const approved = Boolean(payload?.approved);
@@ -24,6 +33,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     const response = await fetch(url.toString(), {
       method: "POST",
+      headers: getInternalApiHeaders(),
       cache: "no-store",
     });
 

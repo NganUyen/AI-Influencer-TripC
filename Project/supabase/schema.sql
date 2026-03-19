@@ -107,6 +107,18 @@ CREATE TABLE IF NOT EXISTS public.social_accounts (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- ChatGPT OAuth link table for connector identity mapping
+CREATE TABLE IF NOT EXISTS public.chatgpt_oauth_links (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    chatgpt_subject TEXT UNIQUE NOT NULL,
+    user_id TEXT NOT NULL,
+    display_name TEXT,
+    session_id TEXT,
+    linked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_used_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    active BOOLEAN DEFAULT TRUE
+);
+
 -- Engagement Actions table (for tracking bot engagement)
 CREATE TABLE IF NOT EXISTS public.engagement_actions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -141,6 +153,7 @@ CREATE INDEX IF NOT EXISTS idx_personas_user_id ON public.personas(user_id);
 CREATE INDEX IF NOT EXISTS idx_workflows_user_id ON public.workflows(user_id);
 CREATE INDEX IF NOT EXISTS idx_workflows_status ON public.workflows(status);
 CREATE INDEX IF NOT EXISTS idx_social_accounts_user_id ON public.social_accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_chatgpt_oauth_links_subject ON public.chatgpt_oauth_links(chatgpt_subject);
 CREATE INDEX IF NOT EXISTS idx_engagement_actions_account_id ON public.engagement_actions(social_account_id);
 CREATE INDEX IF NOT EXISTS idx_engagement_actions_status ON public.engagement_actions(status);
 
@@ -177,6 +190,7 @@ ALTER TABLE public.personas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.media_assets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.workflows ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.social_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chatgpt_oauth_links ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.engagement_actions ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies (users can only access their own data)
@@ -246,6 +260,18 @@ CREATE TABLE IF NOT EXISTS public.engagement_action_logs (
     completed_at TIMESTAMP WITH TIME ZONE
 );
 
+-- ChatGPT connector identity links
+CREATE TABLE IF NOT EXISTS public.chatgpt_oauth_links (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    chatgpt_subject TEXT UNIQUE NOT NULL,
+    user_id TEXT NOT NULL,
+    display_name TEXT,
+    session_id TEXT NOT NULL,
+    linked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_used_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    active BOOLEAN NOT NULL DEFAULT TRUE
+);
+
 -- Extend workflows for approval state persistence
 ALTER TABLE public.workflows ADD COLUMN IF NOT EXISTS approval_required BOOLEAN DEFAULT FALSE;
 ALTER TABLE public.workflows ADD COLUMN IF NOT EXISTS approval_status TEXT; -- pending, approved, rejected
@@ -266,6 +292,8 @@ CREATE INDEX IF NOT EXISTS idx_postiz_schedules_content_id ON public.postiz_sche
 CREATE INDEX IF NOT EXISTS idx_postiz_schedules_status ON public.postiz_schedules(status);
 CREATE INDEX IF NOT EXISTS idx_engagement_action_logs_workflow_id ON public.engagement_action_logs(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_engagement_action_logs_status ON public.engagement_action_logs(status);
+CREATE INDEX IF NOT EXISTS idx_chatgpt_oauth_links_subject ON public.chatgpt_oauth_links(chatgpt_subject);
+CREATE INDEX IF NOT EXISTS idx_chatgpt_oauth_links_last_used ON public.chatgpt_oauth_links(last_used_at DESC);
 
 ALTER TABLE public.approvals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.postiz_schedules ENABLE ROW LEVEL SECURITY;

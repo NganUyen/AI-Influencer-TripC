@@ -1,114 +1,164 @@
-# Python Backend for AI Influencer Factory
+# AI Influencer Factory Backend
 
-This directory contains the Python/FastAPI backend services for the AI Influencer Factory platform.
+This directory contains the FastAPI application, Temporal worker, workflow definitions, activity modules, service integrations, tests, and helper scripts for the backend side of the project.
 
-## Structure
+## What Lives Here
 
-```
+```text
 python_services/
-├── api/              # FastAPI routes and endpoints
-├── workflows/        # Temporal.io workflow definitions
-├── agents/           # OpenClaw agent configurations
-├── config/           # Configuration files
-├── main.py          # FastAPI application entry point
-├── requirements.txt  # Python dependencies
-└── Dockerfile       # Docker container definition
+|-- activities/         Workflow activity implementations
+|-- agents/             OpenClaw-related agent definitions
+|-- api/                FastAPI route modules
+|-- config/             Settings and runtime configuration
+|-- scripts/            Persona setup and smoke-test helpers
+|-- services/           External service wrappers
+|-- tests/              Pytest suite
+|-- workflows/          Temporal workflows
+|-- main.py             FastAPI app entry point
+|-- worker.py           Temporal worker entry point
+`-- requirements.txt    Python dependencies
 ```
 
-## Tech Stack
+## Implemented Surfaces
 
-- **Framework:** FastAPI
-- **Orchestration:** Temporal.io
-- **AI Agent Platform:** OpenClaw
-- **Database:** PostgreSQL (via Supabase)
-- **Media APIs:** fal.ai, PlayHT, HeyGen
-- **Social Media:** Postiz, GrowChief
+FastAPI routes currently mounted in `main.py`:
+
+- `/health`
+- `/api/workflows/start-weekly`
+- `/api/workflows/approve/{workflow_id}`
+- `/api/workflows/status/{workflow_id}`
+- `/api/workflows/list`
+- `/api/workflows/cancel/{workflow_id}`
+- `/api/content/list`
+- `/api/content/stats`
+- `/api/media/generate/image`
+- `/api/media/generate/video`
+- `/api/media/generate/audio`
+- `/api/media/voices`
+- `/api/media/storage/list`
+- `/api/accounts/stealth/create`
+- `/api/accounts/stealth/{account_id}`
+- `/api/accounts/connect/{platform}` (placeholder response)
+- `/api/accounts/list` (placeholder response)
+- `/api/analytics/engagement/{platform}/{post_id}`
+- `/api/analytics/post/{post_id}`
+- `/api/analytics/summary` (placeholder response)
+- `/api/personas`
+
+## Workflows
+
+`workflows/weekly_marketing_workflow.py` currently defines:
+
+- `WeeklyMarketingWorkflow`
+- `PostPublishingWorkflow`
+- `EngagementSyndicateWorkflow`
+
+The weekly workflow is the main implemented orchestration path:
+
+1. Generate strategy
+2. Request Telegram approval
+3. Wait for a Temporal signal
+4. Generate media
+5. Upload assets
+6. Schedule posts
+7. Start child publishing workflows
+8. Trigger engagement tracking
 
 ## Setup
 
 ### Prerequisites
 
-- Python 3.11+
-- Docker & Docker Compose
-- Temporal Server running
+- Python 3.11
+- A reachable Temporal server
+- Environment variables populated from `Project/.env.example`
 
-### Installation
+### Local Environment
 
-1. Create a virtual environment:
-
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-2. Install dependencies:
+From this directory:
 
 ```bash
+python -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-3. Set up environment variables:
+Create `python_services/.env` with the values needed by `config/settings.py`. A practical way to do that is to copy values from `Project/.env.example`.
+
+The settings loader also falls back to `Project/.env.local` when you run commands from `python_services`, so you can use the repo-level env file directly if that is where you keep your local secrets.
+
+Important:
+
+- `DEBUG` must be a boolean value such as `true` or `false`. Values like `release` will cause settings validation to fail before the app or tests start.
+- The local backend and worker environment should use Python `3.11` to match the Docker image and pinned dependency set. Python `3.13` currently fails on a clean install because several dependencies in this repo are pinned for the 3.11 runtime.
+
+## Run the API
 
 ```bash
-cp ../.env.example .env
-```
-
-4. Run the development server:
-
-```bash
+cd Project/python_services
+.venv\Scripts\activate
 uvicorn main:app --reload --port 8000
 ```
 
-## Temporal Workflows
+Docs will be available at `http://localhost:8000/docs`.
 
-The system uses Temporal for orchestrating long-running marketing workflows:
-
-- **WeeklyMarketingWorkflow:** Generates weekly content calendars and waits for human approval
-- **ContentGenerationWorkflow:** Handles media generation (images, videos, audio)
-- **DistributionWorkflow:** Publishes content across multiple platforms
-- **EngagementWorkflow:** Coordinates AI persona interactions
-
-## OpenClaw Agents
-
-OpenClaw manages the AI intelligence layer:
-
-- **Strategist Agent:** Generates content strategy and calendars
-- **Media Director Agent:** Creates prompts for media generation
-- **Distribution Agent:** Handles cross-platform posting
-- **Engagement Agent:** Manages the influencer proxy network
-
-## API Endpoints
-
-- `GET /api/health` - Health check
-- `POST /api/workflows/start` - Start a new workflow
-- `GET /api/workflows/{id}` - Get workflow status
-- `POST /api/content/generate` - Generate content
-- `POST /api/media/generate/image` - Generate an image (fal.ai)
-- `POST /api/media/generate/video` - Generate a video (fal.ai)
-- `POST /api/media/generate/audio` - Generate audio (PlayHT)
-- `GET /api/media/storage/list` - List stored files (R2)
-- `GET /api/personas` - List AI personas
-- `POST /api/personas` - Create new persona
-
-### Quick test: generate an image
-
-1. Ensure `.env` contains `FAL_AI_API_KEY` (plus required R2 keys if you want uploads).
-2. Run `uvicorn main:app --reload --port 8000`.
-3. Call the API:
-   ```bash
-   curl -X POST "http://localhost:8000/api/media/generate/image" \
-     -H "Content-Type: application/json" \
-     -d '{"prompt":"Modern tech workspace","model":"fal-ai/flux-pro","aspect_ratio":"16:9"}'
-   ```
-   The response includes the fal.ai image URL (and, when using the workflow activity, it can be uploaded to R2).
-
-## Docker Deployment
-
-Build and run with Docker:
+From the `Project` root on Windows, you can also use:
 
 ```bash
-docker build -t ai-influencer-backend .
-docker run -p 8000:8000 --env-file .env ai-influencer-backend
+run-backend.cmd
 ```
 
-Or use docker-compose from the root directory.
+## Run the Worker
+
+```bash
+cd Project/python_services
+.venv\Scripts\activate
+python worker.py
+```
+
+The worker expects Temporal plus the required external service configuration to be reachable.
+
+From the `Project` root on Windows, you can also use:
+
+```bash
+run-worker.cmd
+```
+
+## Tests
+
+Run the backend test suite with:
+
+```bash
+cd Project/python_services
+pytest
+```
+
+Current tests cover workflow APIs, content APIs, selected service wrappers, and distribution activities.
+
+## Helper Scripts
+
+The `scripts/` folder includes smoke and setup helpers for areas that are still integration-heavy, including:
+
+- persona setup/check scripts
+- strategy smoke tests
+- storage smoke tests
+- script/TTS/HeyGen smoke tests
+- content assembly smoke tests
+
+Use them as targeted integration helpers once the related environment variables are configured.
+
+## Current Gaps
+
+- Persona endpoints in `main.py` still return placeholder data.
+- Account connect/list endpoints are not fully wired to persistence yet.
+- Analytics summary is still a stub.
+- End-to-end behavior depends heavily on external services such as OpenClaw, Postiz, GrowChief, fal.ai, PlayHT, Telegram, and R2-compatible storage.
+
+## Local Docker Stack
+
+The repository root includes `docker-compose.yml`, which can run the backend API and worker alongside PostgreSQL, Temporal, Redis, OpenClaw, Mission Control, Postiz, GrowChief, and the frontend.
+
+From the repo root:
+
+```bash
+docker-compose up -d --build
+```

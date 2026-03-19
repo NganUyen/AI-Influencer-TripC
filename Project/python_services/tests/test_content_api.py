@@ -21,12 +21,27 @@ class _WorkflowItem:
         self.start_time = datetime(2026, 3, 1, 10, 0, 0)
 
 
+@pytest.fixture(autouse=True)
+def stub_persisted_content(monkeypatch):
+    async def fake_list_persisted_content_items(_limit: int):
+        return []
+
+    monkeypatch.setattr(
+        content,
+        "list_persisted_content_items",
+        fake_list_persisted_content_items,
+    )
+
+
 @pytest.mark.parametrize(
     ("raw_status", "expected"),
     [
         ("waiting_approval", "pending_approval"),
+        ("approved", "draft"),
         ("running", "draft"),
         ("completed", "published"),
+        ("rejected", "failed"),
+        ("timeout", "failed"),
         ("failed", "failed"),
         ("terminated", "failed"),
         ("timed_out", "failed"),
@@ -85,6 +100,113 @@ async def test_list_content_items_happy_path(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_list_content_items_merges_persisted_and_temporal(monkeypatch):
+    async def fake_list_persisted_content_items(_limit: int):
+        return [
+            {
+                "id": "content-1",
+                "workflowId": "wf-1",
+                "title": "Scheduled post",
+                "content": "Persisted",
+                "platform": ["twitter"],
+                "status": "scheduled",
+                "scheduledAt": "2026-03-02T10:00:00+00:00",
+                "publishedAt": None,
+                "mediaUrls": ["https://cdn.example/1.jpg"],
+                "createdAt": "2026-03-01T10:00:00+00:00",
+                "updatedAt": "2026-03-01T10:00:00+00:00",
+            }
+        ]
+
+    monkeypatch.setattr(
+        content,
+        "list_persisted_content_items",
+        fake_list_persisted_content_items,
+    )
+
+    workflow_items = [
+        _WorkflowItem("wf-1", "run-1", "COMPLETED"),
+        _WorkflowItem("wf-2", "run-2", "RUNNING"),
+    ]
+
+    async def iter_workflows(*_args, **_kwargs):
+        for item in workflow_items:
+            yield item
+
+    handle = AsyncMock()
+    handle.query.return_value = {"status": "waiting_approval"}
+
+    mock_client = SimpleNamespace(
+        list_workflows=lambda *_args, **_kwargs: iter_workflows(),
+        get_workflow_handle=lambda *_args, **_kwargs: handle,
+    )
+
+    async def fake_get_temporal_client(_request):
+        return mock_client
+
+    monkeypatch.setattr(content, "get_temporal_client", fake_get_temporal_client)
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    result = await content.list_content_items(request, limit=10)
+
+    assert [item["id"] for item in result["items"]] == ["content-1", "wf-2"]
+
+
+@pytest.mark.asyncio
+async def test_list_content_items_enriches_persisted_workflow_details(monkeypatch):
+    async def fake_list_persisted_content_items(_limit: int):
+        return [
+            {
+                "id": "content-1",
+                "workflowId": "wf-1",
+                "title": "Published post",
+                "content": "Persisted",
+                "platform": ["twitter"],
+                "status": "published",
+                "scheduledAt": None,
+                "publishedAt": "2026-03-02T10:00:00+00:00",
+                "mediaUrls": [],
+                "createdAt": "2026-03-01T10:00:00+00:00",
+                "updatedAt": "2026-03-01T10:00:00+00:00",
+            }
+        ]
+
+    monkeypatch.setattr(
+        content,
+        "list_persisted_content_items",
+        fake_list_persisted_content_items,
+    )
+
+    async def iter_workflows(*_args, **_kwargs):
+        if False:
+            yield None
+
+    handle = AsyncMock()
+    handle.query.return_value = {
+        "status": "completed",
+        "current_step": "engagement_tracking",
+        "approval_feedback": "approved",
+    }
+
+    mock_client = SimpleNamespace(
+        list_workflows=lambda *_args, **_kwargs: iter_workflows(),
+        get_workflow_handle=lambda *_args, **_kwargs: handle,
+    )
+
+    async def fake_get_temporal_client(_request):
+        return mock_client
+
+    monkeypatch.setattr(content, "get_temporal_client", fake_get_temporal_client)
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    result = await content.list_content_items(request, limit=10)
+
+    assert result["items"][0]["workflowStatus"] == "completed"
+    assert result["items"][0]["currentStep"] == "engagement_tracking"
+    assert result["items"][0]["approvalFeedback"] == "approved"
+
+
+@pytest.mark.asyncio
 async def test_list_content_items_respects_limit(monkeypatch):
     workflow_items = [
         _WorkflowItem("wf-1", "run-1", "RUNNING"),
@@ -118,17 +240,16 @@ async def test_list_content_items_respects_limit(monkeypatch):
 @pytest.mark.asyncio
 async def test_list_content_items_converts_exception(monkeypatch):
     async def fake_get_temporal_client(_request):
-        raise RuntimeError("temporal unavailable")
+        raise content.TemporalUnavailableError("temporal unavailable")
 
     monkeypatch.setattr(content, "get_temporal_client", fake_get_temporal_client)
 
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    response = await content.list_content_items(request, limit=10)
 
-    with pytest.raises(HTTPException) as exc:
-        await content.list_content_items(request, limit=10)
-
-    assert exc.value.status_code == 500
-    assert "temporal unavailable" in str(exc.value.detail)
+    assert response["items"] == []
+    assert response["temporal_available"] is False
+    assert "temporal unavailable" in response["detail"]
 
 
 @pytest.mark.asyncio
@@ -174,3 +295,93 @@ async def test_get_content_stats_converts_exception(monkeypatch):
 
     assert exc.value.status_code == 500
     assert "stats failure" in str(exc.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_retry_content_publish_starts_retry_workflow(monkeypatch):
+    async def fake_get_retry_post_config(content_id: str):
+        assert content_id == "content-1"
+        return {
+            "content_record_id": "content-1",
+            "id": "logical-post-1",
+            "workflow_id": "wf-1",
+            "platform": "twitter",
+            "status": "failed",
+            "scheduled_time": "2026-03-10T10:00:00+00:00",
+        }
+
+    handle = SimpleNamespace(id="run-123")
+    mock_client = AsyncMock()
+    mock_client.start_workflow.return_value = handle
+
+    async def fake_get_temporal_client(_request):
+        return mock_client
+
+    monkeypatch.setattr(
+        content.ContentPersistenceService,
+        "get_retry_post_config",
+        fake_get_retry_post_config,
+    )
+    monkeypatch.setattr(content, "get_temporal_client", fake_get_temporal_client)
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    response = await content.retry_content_publish(request, content_id="content-1")
+
+    assert response["status"] == "retry_started"
+    assert response["workflow_id"].startswith("content-retry-content-1-")
+    assert response["run_id"] == "run-123"
+    assert mock_client.start_workflow.await_args.kwargs["args"][0]["scheduled_time"] is None
+
+
+@pytest.mark.asyncio
+async def test_retry_content_publish_rejects_non_failed_content(monkeypatch):
+    async def fake_get_retry_post_config(_content_id: str):
+        return {
+            "content_record_id": "content-1",
+            "id": "logical-post-1",
+            "workflow_id": "wf-1",
+            "platform": "twitter",
+            "status": "published",
+        }
+
+    monkeypatch.setattr(
+        content.ContentPersistenceService,
+        "get_retry_post_config",
+        fake_get_retry_post_config,
+    )
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    with pytest.raises(HTTPException) as exc:
+        await content.retry_content_publish(request, content_id="content-1")
+
+    assert exc.value.status_code == 400
+    assert "Only failed content items can be retried" in str(exc.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_retry_content_publish_returns_503_when_temporal_unavailable(monkeypatch):
+    async def fake_get_retry_post_config(_content_id: str):
+        return {
+            "content_record_id": "content-1",
+            "id": "logical-post-1",
+            "workflow_id": "wf-1",
+            "platform": "twitter",
+            "status": "failed",
+        }
+
+    async def fake_get_temporal_client(_request):
+        raise content.TemporalUnavailableError("temporal unavailable")
+
+    monkeypatch.setattr(
+        content.ContentPersistenceService,
+        "get_retry_post_config",
+        fake_get_retry_post_config,
+    )
+    monkeypatch.setattr(content, "get_temporal_client", fake_get_temporal_client)
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    with pytest.raises(HTTPException) as exc:
+        await content.retry_content_publish(request, content_id="content-1")
+
+    assert exc.value.status_code == 503
+    assert "temporal unavailable" in str(exc.value.detail)

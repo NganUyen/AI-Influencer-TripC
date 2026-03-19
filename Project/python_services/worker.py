@@ -28,6 +28,7 @@ from activities import (
     wait_for_approval,
 )
 from config.settings import settings
+from services.content_persistence_service import ContentPersistenceService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -76,7 +77,10 @@ async def main():
     logger.info("Worker started successfully. Processing tasks...")
 
     # Run worker
-    await worker.run()
+    try:
+        await worker.run()
+    finally:
+        await ContentPersistenceService.close_pool()
 
 
 if __name__ == "__main__":

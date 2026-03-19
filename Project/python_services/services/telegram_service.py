@@ -17,10 +17,12 @@ class TelegramService:
     Integration with Telegram for approval workflows and notifications
     """
 
+    approval_requests: Dict[str, Dict[str, Any]] = {}
+
     def __init__(self):
         self.bot_token = settings.TELEGRAM_BOT_TOKEN
         self.bot = Bot(token=self.bot_token)
-        self.approval_requests = {}  # Store pending approval requests
+        self.approval_requests = TelegramService.approval_requests
 
     async def send_approval_request(
         self, user_id: str, message: str, buttons: List[Dict[str, str]]

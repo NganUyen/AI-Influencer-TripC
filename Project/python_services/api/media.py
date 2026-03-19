@@ -3,14 +3,17 @@ Media API Routes
 Endpoints for media generation and management
 """
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import Dict, Any, List
+import base64
 import logging
+from typing import Any, Dict, List
 
-from services import FalAIService, PlayHTService, StorageService
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
-router = APIRouter()
+from api.security import require_internal_api_token
+from services import FalAIService, GoogleTTSService, StorageService
+
+router = APIRouter(dependencies=[Depends(require_internal_api_token)])
 logger = logging.getLogger(__name__)
 
 
@@ -66,15 +69,23 @@ async def generate_video(request: VideoGenerateRequest):
 
 @router.post("/generate/audio")
 async def generate_audio(request: AudioGenerateRequest):
-    """Generate audio using PlayHT"""
+    """Generate audio using Google Cloud Text-to-Speech."""
     try:
-        playht_service = PlayHTService()
+        tts_service = GoogleTTSService()
+        available_voices = tts_service.get_voices()
+        voice = available_voices.get(request.voice_id, request.voice_id)
 
-        result = await playht_service.generate_audio(text=request.text, voice_id=request.voice_id)
+        audio_bytes = await tts_service.generate_audio(
+            text=request.text,
+            voice=voice,
+        )
 
-        await playht_service.close()
-
-        return result
+        return {
+            "voice": voice,
+            "format": "mp3",
+            "byte_length": len(audio_bytes),
+            "audio_base64": base64.b64encode(audio_bytes).decode("utf-8"),
+        }
 
     except Exception as e:
         logger.error(f"Audio generation failed: {str(e)}")
@@ -83,15 +94,17 @@ async def generate_audio(request: AudioGenerateRequest):
 
 @router.get("/voices")
 async def list_voices(language: str = None):
-    """List available voices from PlayHT"""
+    """List available voices from Google TTS."""
     try:
-        playht_service = PlayHTService()
-
-        voices = await playht_service.list_voices(language=language)
-
-        await playht_service.close()
-
-        return voices
+        voices = GoogleTTSService().get_voices()
+        if language:
+            normalized_language = language.lower()
+            voices = {
+                name: voice
+                for name, voice in voices.items()
+                if normalized_language in voice.lower()
+            }
+        return {"voices": voices}
 
     except Exception as e:
         logger.error(f"Failed to list voices: {str(e)}")

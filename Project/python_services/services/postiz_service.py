@@ -6,10 +6,40 @@ Handles official OAuth-based publishing to social platforms
 import httpx
 import logging
 from typing import Dict, Any, List, Optional
-from datetime import datetime
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _canonical_post_status(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    status_map = {
+        "queued": "scheduled",
+        "pending": "scheduled",
+        "scheduled": "scheduled",
+        "schedule_created": "scheduled",
+        "draft": "scheduled",
+        "published": "published",
+        "live": "published",
+        "posted": "published",
+        "completed": "published",
+        "success": "published",
+        "failed": "failed",
+        "error": "failed",
+        "rejected": "failed",
+        "canceled": "canceled",
+        "cancelled": "canceled",
+    }
+    return status_map.get(normalized, normalized or None)
+
+
+def _coalesce(*values: Any) -> Any:
+    for value in values:
+        if value not in (None, "", [], {}):
+            return value
+    return None
 
 
 class PostizService:
@@ -34,11 +64,135 @@ class PostizService:
             timeout=60.0,
         )
 
+    @staticmethod
+    def _normalize_publish_response(
+        raw_result: Dict[str, Any], scheduled_time: Optional[str] = None
+    ) -> Dict[str, Any]:
+        provider_post_id = (
+            raw_result.get("id")
+            or raw_result.get("provider_post_id")
+            or raw_result.get("post_id")
+            or raw_result.get("platform_post_id")
+        )
+        platform_post_id = (
+            raw_result.get("post_id")
+            or raw_result.get("platform_post_id")
+            or provider_post_id
+        )
+        post_url = (
+            raw_result.get("post_url")
+            or raw_result.get("url")
+            or raw_result.get("permalink")
+        )
+        status = raw_result.get("status") or ("scheduled" if scheduled_time else "published")
+
+        return {
+            "provider_post_id": (
+                str(provider_post_id) if provider_post_id is not None else None
+            ),
+            "platform_post_id": (
+                str(platform_post_id) if platform_post_id is not None else None
+            ),
+            "post_url": post_url,
+            "status": status,
+            "raw": raw_result,
+        }
+
+    @staticmethod
+    def normalize_webhook_event(payload: Dict[str, Any]) -> Dict[str, Any]:
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+        payload_metadata = (
+            payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        )
+        event_type = _coalesce(
+            payload.get("event"),
+            payload.get("type"),
+            data.get("event"),
+            data.get("type"),
+            data.get("status"),
+        )
+        raw_status = _coalesce(data.get("status"), payload.get("status"), event_type)
+        provider_post_id = _coalesce(
+            data.get("id"),
+            data.get("provider_post_id"),
+            payload.get("id"),
+            payload.get("provider_post_id"),
+            data.get("post_id"),
+            payload.get("post_id"),
+        )
+        platform_post_id = _coalesce(
+            data.get("post_id"),
+            payload.get("post_id"),
+            data.get("platform_post_id"),
+            payload.get("platform_post_id"),
+            provider_post_id,
+        )
+
+        return {
+            "provider": "postiz",
+            "event_type": str(event_type) if event_type is not None else None,
+            "status": _canonical_post_status(raw_status),
+            "provider_status": str(raw_status) if raw_status is not None else None,
+            "provider_post_id": (
+                str(provider_post_id) if provider_post_id is not None else None
+            ),
+            "platform_post_id": (
+                str(platform_post_id) if platform_post_id is not None else None
+            ),
+            "platform": _coalesce(data.get("platform"), payload.get("platform")),
+            "post_url": _coalesce(
+                data.get("post_url"),
+                payload.get("post_url"),
+                data.get("url"),
+                payload.get("url"),
+                data.get("permalink"),
+                payload.get("permalink"),
+            ),
+            "scheduled_for": _coalesce(
+                data.get("scheduled_at"),
+                data.get("scheduled_for"),
+                payload.get("scheduled_at"),
+                payload.get("scheduled_for"),
+            ),
+            "published_at": _coalesce(
+                data.get("published_at"),
+                data.get("posted_at"),
+                payload.get("published_at"),
+                payload.get("posted_at"),
+            ),
+            "error": _coalesce(
+                data.get("error"),
+                payload.get("error"),
+                data.get("error_message"),
+                payload.get("error_message"),
+            ),
+            "content_id": _coalesce(
+                metadata.get("content_id"),
+                payload_metadata.get("content_id"),
+                data.get("content_id"),
+                payload.get("content_id"),
+            ),
+            "workflow_id": _coalesce(
+                metadata.get("workflow_id"),
+                payload_metadata.get("workflow_id"),
+                data.get("workflow_id"),
+                payload.get("workflow_id"),
+            ),
+            "logical_post_id": _coalesce(
+                metadata.get("logical_post_id"),
+                payload_metadata.get("logical_post_id"),
+                data.get("logical_post_id"),
+                payload.get("logical_post_id"),
+            ),
+            "raw": payload,
+        }
+
     async def publish(
         self,
         platform: str,
         content: str,
-        media_urls: List[str] = None,
+        media_urls: Optional[List[str]] = None,
         scheduled_time: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
@@ -66,8 +220,13 @@ class PostizService:
             response = await self.client.post("/api/posts", json=payload)
             response.raise_for_status()
 
-            result = response.json()
-            logger.info(f"Successfully published to {platform}: {result.get('id')}")
+            raw_result = response.json()
+            result = self._normalize_publish_response(raw_result, scheduled_time)
+            logger.info(
+                "Successfully published to %s via Postiz: %s",
+                platform,
+                result.get("provider_post_id") or result.get("platform_post_id"),
+            )
             return result
 
         except httpx.HTTPError as e:

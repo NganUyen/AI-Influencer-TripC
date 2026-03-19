@@ -5,6 +5,8 @@ import logging
 from temporalio.client import Client
 
 from config.settings import settings
+from services.content_persistence_service import ContentPersistenceService
+from services.proxy_manager_service import ProxyManagerService
 
 # Configure logging
 logging.basicConfig(level=settings.LOG_LEVEL)
@@ -21,6 +23,8 @@ async def lifespan(app: FastAPI):
 
     # Startup
     logger.info("Starting AI Influencer Factory Backend...")
+    temporal_client = None
+    app.state.temporal_client = None
 
     try:
         # Initialize Temporal client
@@ -32,14 +36,17 @@ async def lifespan(app: FastAPI):
         logger.info("Temporal client connected successfully")
 
     except Exception as e:
-        logger.error(f"Failed to initialize services: {str(e)}")
-        raise
+        logger.warning(
+            "Temporal unavailable during startup, continuing in degraded mode: %s",
+            str(e),
+        )
 
     yield
 
     # Shutdown
     logger.info("Shutting down AI Influencer Factory Backend...")
-    # Cleanup connections
+    await ContentPersistenceService.close_pool()
+    await ProxyManagerService.close_db_pool()
 
 
 app = FastAPI(
@@ -72,9 +79,11 @@ async def root():
         "status": "running",
         "services": {
             "temporal": "connected" if temporal_client else "disconnected",
-            "openclaw": settings.OPENCLAW_API_URL,
-            "postiz": settings.POSTIZ_API_URL,
-            "growchief": settings.GROWCHIEF_API_URL,
+            "openclaw": "configured" if settings.OPENCLAW_API_URL else "unavailable",
+            "postiz": "configured" if settings.POSTIZ_API_URL else "unavailable",
+            "growchief": "configured"
+            if settings.GROWCHIEF_API_URL
+            else "unavailable",
         },
     }
 
@@ -89,13 +98,15 @@ async def health_check():
 
 
 # Import API routes
-from api import workflows, media, accounts, analytics, content
+from api import workflows, media, accounts, analytics, content, quota, webhooks
 
 app.include_router(workflows.router, prefix="/api/workflows", tags=["Workflows"])
 app.include_router(media.router, prefix="/api/media", tags=["Media"])
 app.include_router(accounts.router, prefix="/api/accounts", tags=["Accounts"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(content.router, prefix="/api/content", tags=["Content"])
+app.include_router(quota.router, prefix="/api/quota", tags=["Quota"])
+app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 
 
 @app.get("/api/personas")

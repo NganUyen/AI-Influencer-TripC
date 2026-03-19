@@ -6,14 +6,37 @@ Handles publishing to platforms via Postiz and browser automation
 from temporalio import activity
 from typing import Dict, Any, List
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from services.postiz_service import PostizService
 from services.growchief_service import GrowChiefService
 from services.browser_automation import BrowserAutomationService
+from services.content_persistence_service import ContentPersistenceService
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_scheduled_time(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        scheduled_time = value
+    else:
+        scheduled_time = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+    if scheduled_time.tzinfo is None:
+        return scheduled_time.replace(tzinfo=timezone.utc)
+    return scheduled_time.astimezone(timezone.utc)
+
+
+def _get_postiz_scheduled_time(post_config: Dict[str, Any]) -> str | None:
+    scheduled_time = _parse_scheduled_time(post_config.get("scheduled_time"))
+    if not scheduled_time:
+        return None
+    if scheduled_time > datetime.now(timezone.utc):
+        return scheduled_time.isoformat()
+    return None
 
 
 @activity.defn
@@ -51,10 +74,24 @@ async def schedule_posts(
                 "content": day_content.get(
                     f"{platform}_copy", day_content.get("message")
                 ),
+                "theme": day_content.get("theme"),
                 "media": platform_media,
                 "hashtags": day_content.get("hashtags", []),
                 "cta": day_content.get("cta", ""),
+                "workflow_id": strategy.get("workflow_id"),
             }
+            try:
+                persisted = await ContentPersistenceService.persist_scheduled_post(
+                    workflow_id=strategy.get("workflow_id", ""),
+                    post_config=post,
+                )
+                post.update(persisted)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to persist scheduled post %s: %s",
+                    post["id"],
+                    exc,
+                )
             schedule.append(post)
 
     logger.info(f"Created schedule with {len(schedule)} posts")
@@ -75,8 +112,11 @@ async def publish_to_platforms(post_config: Dict[str, Any]) -> Dict[str, Any]:
 
     results = {
         "post_id": post_config["id"],
+        "logical_post_id": post_config["id"],
+        "workflow_id": post_config.get("workflow_id"),
+        "content_record_id": post_config.get("content_record_id"),
         "platform": platform,
-        "published_at": datetime.utcnow().isoformat(),
+        "published_at": datetime.now(timezone.utc).isoformat(),
         "status": "pending",
     }
 
@@ -90,12 +130,16 @@ async def publish_to_platforms(post_config: Dict[str, Any]) -> Dict[str, Any]:
                 platform=platform,
                 content=post_config["content"],
                 media_urls=[m["storage_url"] for m in post_config.get("media", [])],
-                scheduled_time=post_config.get("scheduled_time"),
+                scheduled_time=_get_postiz_scheduled_time(post_config),
             )
             results.update(
                 {
-                    "status": "published",
-                    "platform_post_id": result.get("post_id"),
+                    "status": result.get("status", "published"),
+                    "platform_post_id": result.get("platform_post_id"),
+                    "provider_post_id": result.get("provider_post_id"),
+                    "post_url": result.get("post_url"),
+                    "provider_status": result.get("status"),
+                    "provider_response": result.get("raw"),
                     "method": "postiz_oauth",
                 }
             )
@@ -109,16 +153,36 @@ async def publish_to_platforms(post_config: Dict[str, Any]) -> Dict[str, Any]:
             )
             results.update(
                 {
-                    "status": "published",
-                    "platform_post_id": result.get("post_id"),
+                    "status": result.get("status", "published"),
+                    "platform_post_id": result.get("platform_post_id")
+                    or result.get("post_id"),
+                    "provider_post_id": result.get("provider_post_id")
+                    or result.get("post_id"),
+                    "post_url": result.get("post_url") or result.get("url"),
+                    "provider_status": result.get("status", "published"),
+                    "provider_response": result,
                     "method": "browser_automation",
                 }
             )
 
+        if results.get("status") != "published":
+            results["published_at"] = None
     except Exception as e:
         logger.error(f"Failed to publish to {platform}: {str(e)}")
-        results.update({"status": "failed", "error": str(e)})
+        results.update({"status": "failed", "error": str(e), "published_at": None})
     finally:
+        try:
+            await ContentPersistenceService.update_publish_result(
+                workflow_id=post_config.get("workflow_id"),
+                post_config=post_config,
+                publish_result=results,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to persist publish result for %s: %s",
+                post_config["id"],
+                exc,
+            )
         await postiz_service.close()
         await browser_service.close()
 
@@ -133,16 +197,23 @@ async def track_engagement(post_data: Dict[str, Any]) -> Dict[str, Any]:
     logger.info(f"Tracking engagement for post {post_data.get('post_id')}")
 
     growchief = GrowChiefService()
+    engagement_result: Dict[str, Any] = {
+        "metrics": {},
+        "syndicate_triggered": False,
+        "status": "pending",
+    }
 
     # Get current engagement metrics
     try:
         metrics = await growchief.get_engagement_metrics(
             platform=post_data["platform"], post_id=post_data.get("platform_post_id")
         )
+        engagement_result.update({"metrics": metrics, "status": "completed"})
 
         # Trigger coordinated engagement from stealth accounts
         if metrics.get("engagement_rate", 0) < settings.SYNDICATE_ENGAGEMENT_THRESHOLD:
             logger.info("Triggering engagement syndicate")
+            action_types = ["like", "comment", "share"]
 
             post_url = (
                 post_data.get("post_url")
@@ -152,16 +223,38 @@ async def track_engagement(post_data: Dict[str, Any]) -> Dict[str, Any]:
             syndicate_result = await growchief.trigger_engagement(
                 post_url=post_url,
                 platform=post_data["platform"],
-                engagement_type=["like", "comment", "share"],
+                engagement_type=action_types,
                 account_count=settings.STEALTH_ACCOUNT_COUNT,
             )
 
-            return {
-                "metrics": metrics,
-                "syndicate_triggered": True,
-                "syndicate_result": syndicate_result,
-            }
+            engagement_result.update(
+                {
+                    "syndicate_triggered": True,
+                    "syndicate_result": syndicate_result,
+                    "action_types": action_types,
+                }
+            )
 
-        return {"metrics": metrics, "syndicate_triggered": False}
+        return engagement_result
+    except Exception as exc:
+        logger.error(
+            "Failed to track engagement for post %s: %s",
+            post_data.get("post_id"),
+            exc,
+        )
+        engagement_result.update({"status": "failed", "error": str(exc)})
+        return engagement_result
     finally:
+        try:
+            await ContentPersistenceService.record_engagement_result(
+                workflow_id=post_data.get("workflow_id"),
+                post_data=post_data,
+                engagement_result=engagement_result,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to persist engagement result for %s: %s",
+                post_data.get("post_id"),
+                exc,
+            )
         await growchief.close()

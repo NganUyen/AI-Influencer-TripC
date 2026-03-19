@@ -8,6 +8,7 @@ import base64
 import logging
 import httpx
 from config.settings import settings
+from services.quota_monitor_service import QuotaMonitorService
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,38 @@ class GoogleTTSService:
         self.api_key = settings.GOOGLE_TTS_API_KEY
         if not self.api_key:
             raise ValueError("GOOGLE_TTS_API_KEY không được cấu hình trong .env")
+
+    async def _record_usage(
+        self,
+        text: str,
+        voice: str,
+        output_format: str,
+        audio_bytes: bytes | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        metadata = {
+            "service": "google_tts_service",
+            "operation": "generate_audio",
+            "voice": voice,
+            "output_format": output_format,
+            "status": "error" if error else "success",
+        }
+        if error:
+            metadata["error_type"] = type(error).__name__
+            metadata["error_message"] = str(error)
+
+        usage = {
+            "requests": 1,
+            "characters": len(text),
+        }
+        if audio_bytes is not None:
+            usage["bytes"] = len(audio_bytes)
+
+        await QuotaMonitorService.record_runtime_usage(
+            provider="google_tts",
+            usage=usage,
+            metadata=metadata,
+        )
 
     async def generate_audio(
         self,
@@ -72,8 +105,17 @@ class GoogleTTSService:
         logger.info(f"Gọi Google TTS | Voice: {voice} | {len(text)} ký tự")
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(url, json=payload)
-            response.raise_for_status()
+            try:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+            except Exception as exc:
+                await self._record_usage(
+                    text=text,
+                    voice=voice,
+                    output_format=output_format,
+                    error=exc,
+                )
+                raise
 
         result = response.json()
         audio_content_b64 = result.get("audioContent")
@@ -82,6 +124,12 @@ class GoogleTTSService:
 
         audio_bytes = base64.b64decode(audio_content_b64)
         logger.info(f"Google TTS thành công | {len(audio_bytes):,} bytes MP3")
+        await self._record_usage(
+            text=text,
+            voice=voice,
+            output_format=output_format,
+            audio_bytes=audio_bytes,
+        )
         return audio_bytes
 
     async def generate_and_save(

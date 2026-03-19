@@ -60,6 +60,8 @@ wheels/
 venv/
 ENV/
 env/
+!lib/
+!lib/**
 
 # IDEs
 .vscode/

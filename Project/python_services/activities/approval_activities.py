@@ -15,14 +15,77 @@ from services.telegram_service import TelegramService
 from services.script_service import ScriptService
 from services.contracts import ScriptContract
 from services.errors import ScriptGenerationError
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = 5   # seconds between approval status checks
 APPROVAL_TIMEOUT = 1800  # 30 minutes max wait for human
+LEGACY_APPROVAL_TIMEOUT = max(settings.APPROVAL_TIMEOUT_DAYS, 1) * 24 * 60 * 60
 
 
 # ─── Phase D: Script Generation + Telegram Approval ─────────────────────────
+
+
+@activity.defn
+async def send_telegram_approval_request(user_id: str, strategy: Dict[str, Any]) -> str:
+    """
+    Legacy weekly-workflow approval activity kept for compatibility.
+    """
+    daily_content = strategy.get("strategy", {}).get("daily_content", [])
+    preview_lines = []
+    for day_idx, item in enumerate(daily_content[:7], start=1):
+        theme = item.get("theme") or item.get("message") or "Untitled"
+        preview_lines.append(f"{day_idx}. {theme}")
+
+    preview_text = "\n".join(preview_lines) or "No daily content was generated."
+    chat_id = (
+        strategy.get("brand_config", {}).get("telegram_chat_id")
+        or settings.TELEGRAM_CHAT_ID
+        or user_id
+    )
+
+    tg = TelegramService()
+    return await tg.send_approval_request(
+        user_id=chat_id,
+        message=(
+            "📅 *Weekly Strategy Ready*\n\n"
+            f"*User:* `{user_id}`\n"
+            f"*Platforms:* {', '.join(strategy.get('platforms', [])) or 'N/A'}\n\n"
+            f"*Plan Preview:*\n{preview_text}\n\n"
+            "Approve to continue with media generation and scheduling."
+        ),
+        buttons=[
+            {"text": "✅ Approve", "callback_data": f"approve_{chat_id}"},
+            {"text": "❌ Reject", "callback_data": f"reject_{chat_id}"},
+        ],
+    )
+
+
+@activity.defn
+async def wait_for_approval(request_id: str) -> Dict[str, Any]:
+    """
+    Legacy polling helper kept for compatibility with the original worker
+    activity registry.
+    """
+    tg = TelegramService()
+    elapsed = 0
+
+    while elapsed < LEGACY_APPROVAL_TIMEOUT:
+        status = await tg.check_approval_status(request_id)
+        if status.get("status") in ["approved", "rejected"]:
+            return {
+                "approved": status.get("approved", False),
+                "feedback": status.get("feedback", ""),
+                "status": status.get("status"),
+            }
+
+        await asyncio.sleep(POLL_INTERVAL)
+        elapsed += POLL_INTERVAL
+
+    raise TimeoutError(
+        f"Approval timed out after {LEGACY_APPROVAL_TIMEOUT}s [{request_id}]"
+    )
 
 @activity.defn
 async def generate_and_send_script_for_approval(config: Dict[str, Any]) -> Dict[str, Any]:

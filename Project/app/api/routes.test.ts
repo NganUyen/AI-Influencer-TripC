@@ -2,20 +2,46 @@
 
 import { NextRequest } from "next/server";
 
+import { GET as getAnalyticsSummary } from "@/app/api/analytics/summary/route";
 import { GET as getContentList } from "@/app/api/content/list/route";
+import { POST as postContentRetry } from "@/app/api/content/retry/[contentId]/route";
 import { GET as getContentStats } from "@/app/api/content/stats/route";
+import { GET as getQuotaSummary } from "@/app/api/quota/summary/route";
 import { POST as postApproveWorkflow } from "@/app/api/workflows/approve/[workflowId]/route";
 import { GET as getWorkflowList } from "@/app/api/workflows/list/route";
 import { POST as postStartWeekly } from "@/app/api/workflows/start-weekly/route";
 import { GET as getWorkflowStatus } from "@/app/api/workflows/status/[workflowId]/route";
 
-jest.mock("@/app/api/_helpers/backend", () => ({
-  getBackendBaseUrl: jest.fn(() => "http://backend.test"),
-}));
+jest.mock("@/app/api/_helpers/backend", () => {
+  const actual = jest.requireActual("@/app/api/_helpers/backend");
+  return {
+    ...actual,
+    getBackendBaseUrl: jest.fn(() => "http://backend.test"),
+  };
+});
 
 describe("API proxy routes", () => {
+  const originalAdminToken = process.env.APP_ADMIN_TOKEN;
+  const originalInternalApiToken = process.env.INTERNAL_API_TOKEN;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    delete process.env.APP_ADMIN_TOKEN;
+    delete process.env.INTERNAL_API_TOKEN;
+  });
+
+  afterAll(() => {
+    if (originalAdminToken === undefined) {
+      delete process.env.APP_ADMIN_TOKEN;
+    } else {
+      process.env.APP_ADMIN_TOKEN = originalAdminToken;
+    }
+
+    if (originalInternalApiToken === undefined) {
+      delete process.env.INTERNAL_API_TOKEN;
+    } else {
+      process.env.INTERNAL_API_TOKEN = originalInternalApiToken;
+    }
   });
 
   it("proxies content list with query limit", async () => {
@@ -43,7 +69,8 @@ describe("API proxy routes", () => {
       json: async () => ({ total_content: 3 }),
     } as Response);
 
-    const response = await getContentStats();
+    const request = new NextRequest("http://localhost/api/content/stats");
+    const response = await getContentStats(request);
 
     expect(global.fetch).toHaveBeenCalledWith(
       "http://backend.test/api/content/stats",
@@ -51,6 +78,127 @@ describe("API proxy routes", () => {
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ total_content: 3 });
+  });
+
+  it("falls back to empty content stats when backend is unreachable", async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error("connect ECONNREFUSED"));
+
+    const request = new NextRequest("http://localhost/api/content/stats");
+    const response = await getContentStats(request);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      total_content: 0,
+      active_campaigns: 0,
+      published: 0,
+      _meta: {
+        backend_available: false,
+        reason: "backend_unreachable",
+        message: "connect ECONNREFUSED",
+      },
+    });
+  });
+
+  it("proxies content retry", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      status: 200,
+      json: async () => ({ status: "retry_started" }),
+    } as Response);
+
+    const request = new NextRequest("http://localhost/api/content/retry/content-1", {
+      method: "POST",
+    });
+    const response = await postContentRetry(request, {
+      params: { contentId: "content-1" },
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "http://backend.test/api/content/retry/content-1",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "retry_started" });
+  });
+
+  it("proxies analytics summary", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      status: 200,
+      json: async () => ({ average_engagement_rate: 3.4 }),
+    } as Response);
+
+    const request = new NextRequest("http://localhost/api/analytics/summary");
+    const response = await getAnalyticsSummary(request);
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "http://backend.test/api/analytics/summary",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ average_engagement_rate: 3.4 });
+  });
+
+  it("falls back to empty analytics summary when backend returns an error", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: async () => JSON.stringify({ error: "backend unavailable" }),
+    } as Response);
+
+    const request = new NextRequest("http://localhost/api/analytics/summary");
+    const response = await getAnalyticsSummary(request);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      average_engagement_rate: null,
+      _meta: {
+        backend_available: false,
+        reason: "backend_error",
+        message: "backend unavailable",
+        backend_status: 503,
+      },
+    });
+  });
+
+  it("proxies quota summary", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      status: 200,
+      json: async () => ({
+        total_cost_usd: 2.5,
+        providers: [{ provider: "openai", status: "warning" }],
+      }),
+    } as Response);
+
+    const request = new NextRequest("http://localhost/api/quota/summary");
+    const response = await getQuotaSummary(request);
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "http://backend.test/api/quota/summary",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      total_cost_usd: 2.5,
+      providers: [{ provider: "openai", status: "warning" }],
+    });
+  });
+
+  it("falls back to empty quota summary when backend is unreachable", async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error("fetch failed"));
+
+    const request = new NextRequest("http://localhost/api/quota/summary");
+    const response = await getQuotaSummary(request);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      total_cost_usd: 0,
+      providers: [],
+      time_period: "30_days",
+      _meta: {
+        backend_available: false,
+        reason: "backend_unreachable",
+        message: "fetch failed",
+      },
+    });
   });
 
   it("proxies workflow list", async () => {
@@ -69,6 +217,25 @@ describe("API proxy routes", () => {
       expect.objectContaining({ method: "GET" }),
     );
     expect(response.status).toBe(200);
+  });
+
+  it("falls back to an empty workflow list when backend is unreachable", async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error("backend offline"));
+
+    const request = new NextRequest(
+      "http://localhost/api/workflows/list?limit=5",
+    );
+    const response = await getWorkflowList(request);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      workflows: [],
+      _meta: {
+        backend_available: false,
+        reason: "backend_unreachable",
+        message: "backend offline",
+      },
+    });
   });
 
   it("proxies workflow status by id", async () => {
@@ -157,5 +324,38 @@ describe("API proxy routes", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(response.status).toBe(200);
+  });
+
+  it("rejects requests without an admin token when auth is configured", async () => {
+    process.env.APP_ADMIN_TOKEN = "admin-token";
+
+    const request = new NextRequest("http://localhost/api/content/stats");
+    const response = await getContentStats(request);
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "Unauthorized" });
+  });
+
+  it("forwards the internal API token to the backend", async () => {
+    process.env.APP_ADMIN_TOKEN = "admin-token";
+    process.env.INTERNAL_API_TOKEN = "internal-token";
+    global.fetch = jest.fn().mockResolvedValue({
+      status: 200,
+      json: async () => ({ workflows: [] }),
+    } as Response);
+
+    const request = new NextRequest(
+      "http://localhost/api/workflows/list?limit=5",
+      {
+        headers: { Authorization: "Bearer admin-token" },
+      },
+    );
+    const response = await getWorkflowList(request);
+
+    expect(response.status).toBe(200);
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect((init.headers as Headers).get("x-internal-api-token")).toBe(
+      "internal-token",
+    );
   });
 });

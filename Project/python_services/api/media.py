@@ -4,6 +4,7 @@ Endpoints for media generation and management
 """
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from typing import Dict, Any, List
 import logging
 
@@ -13,16 +14,28 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+class ImageGenerateRequest(BaseModel):
+    prompt: str
+    model: str = "fal-ai/nano-banana-2"
+    aspect_ratio: str = "16:9"
+
+class VideoGenerateRequest(BaseModel):
+    prompt: str
+    duration: int = 5
+
+class AudioGenerateRequest(BaseModel):
+    text: str
+    voice_id: str
+
+
 @router.post("/generate/image")
-async def generate_image(
-    prompt: str, model: str = "fal-ai/flux-pro", aspect_ratio: str = "16:9"
-):
+async def generate_image(request: ImageGenerateRequest):
     """Generate an image using fal.ai"""
     try:
         fal_service = FalAIService()
 
         result = await fal_service.generate_image(
-            prompt=prompt, model=model, aspect_ratio=aspect_ratio
+            prompt=request.prompt, model=request.model, aspect_ratio=request.aspect_ratio
         )
 
         await fal_service.close()
@@ -35,12 +48,12 @@ async def generate_image(
 
 
 @router.post("/generate/video")
-async def generate_video(prompt: str, duration: int = 5):
+async def generate_video(request: VideoGenerateRequest):
     """Generate a video using fal.ai"""
     try:
         fal_service = FalAIService()
 
-        result = await fal_service.generate_video(prompt=prompt, duration=duration)
+        result = await fal_service.generate_video(prompt=request.prompt, duration=request.duration)
 
         await fal_service.close()
 
@@ -52,12 +65,12 @@ async def generate_video(prompt: str, duration: int = 5):
 
 
 @router.post("/generate/audio")
-async def generate_audio(text: str, voice_id: str):
+async def generate_audio(request: AudioGenerateRequest):
     """Generate audio using PlayHT"""
     try:
         playht_service = PlayHTService()
 
-        result = await playht_service.generate_audio(text=text, voice_id=voice_id)
+        result = await playht_service.generate_audio(text=request.text, voice_id=request.voice_id)
 
         await playht_service.close()
 

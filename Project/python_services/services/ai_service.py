@@ -4,9 +4,11 @@ Wrapper for OpenAI/Anthropic API calls
 """
 
 import logging
+import asyncio
 from typing import Dict, Any, List
 from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
+import google.generativeai as genai
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -21,7 +23,11 @@ class AIService:
     def __init__(self):
         self.openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         self.anthropic_client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        self.default_model = settings.DEFAULT_AI_MODEL
+        
+        if settings.GOOGLE_AI_API_KEY:
+            genai.configure(api_key=settings.GOOGLE_AI_API_KEY)
+            
+        self.default_model = settings.DEFAULT_AI_MODEL or "models/gemini-2.0-flash"
 
     async def generate_text(
         self,
@@ -70,6 +76,23 @@ class AIService:
                 )
 
                 return response.content[0].text
+
+            elif "gemini" in model:
+                # Handles both "gemini-*" and "models/gemini-*"
+                gemini_model = genai.GenerativeModel(
+                    model_name=model,
+                    system_instruction=system_prompt if system_prompt else None
+                )
+                response = await asyncio.to_thread(
+                    gemini_model.generate_content,
+                    prompt
+                )
+                if not response or not response.text:
+                    raise ValueError(f"Gemini returned empty response for model {model}")
+                return response.text
+
+            else:
+                raise ValueError(f"Unsupported model: {model}. Use gpt-*, claude-*, or models/gemini-*")
 
         except Exception as e:
             logger.error(f"Text generation failed: {str(e)}")

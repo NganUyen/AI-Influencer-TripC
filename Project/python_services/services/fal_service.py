@@ -18,7 +18,7 @@ class FalAIService:
     """
 
     def __init__(self):
-        self.api_key = settings.FAL_API_KEY
+        self.api_key = settings.FAL_AI_API_KEY
         self.client = httpx.AsyncClient(
             base_url="https://fal.run",
             headers={"Authorization": f"Key {self.api_key}"},
@@ -28,7 +28,7 @@ class FalAIService:
     async def generate_image(
         self,
         prompt: str,
-        model: str = "fal-ai/flux-pro",
+        model: str = "fal-ai/nano-banana-2",
         aspect_ratio: str = "16:9",
         safety_tolerance: int = 2,
         num_images: int = 1,
@@ -53,7 +53,7 @@ class FalAIService:
         }
 
         try:
-            response = await self.client.post(f"/api/{model}", json=payload)
+            response = await self.client.post(f"/{model}", json=payload)
             response.raise_for_status()
 
             result = response.json()
@@ -94,7 +94,7 @@ class FalAIService:
         payload = {"prompt": prompt, "duration": duration, "fps": fps}
 
         try:
-            response = await self.client.post(f"/api/{model}", json=payload)
+            response = await self.client.post(f"/{model}", json=payload)
             response.raise_for_status()
 
             result = response.json()
@@ -120,7 +120,7 @@ class FalAIService:
 
         try:
             response = await self.client.post(
-                "/api/fal-ai/creative-upscaler",
+                "/fal-ai/creative-upscaler",
                 json={"image_url": image_url, "scale": scale},
             )
             response.raise_for_status()

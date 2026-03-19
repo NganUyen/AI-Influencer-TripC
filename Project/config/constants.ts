@@ -68,4 +68,4 @@ export const STATUS_COLORS = {
 
 // Temporal Configuration
 export const TEMPORAL_NAMESPACE = "default";
-export const TEMPORAL_TASK_QUEUE = "ai-influencer-factory";
+export const TEMPORAL_TASK_QUEUE = "ai-influencer-tasks";

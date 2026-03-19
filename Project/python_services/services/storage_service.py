@@ -4,6 +4,7 @@ Object storage with zero egress fees
 """
 
 import boto3
+import asyncio
 import logging
 from typing import BinaryIO, Dict, Any
 from botocore.config import Config
@@ -62,7 +63,8 @@ class StorageService:
             if metadata:
                 extra_args["Metadata"] = metadata
 
-            self.s3_client.upload_fileobj(
+            await asyncio.to_thread(
+                self.s3_client.upload_fileobj,
                 file_data, self.bucket_name, filename, ExtraArgs=extra_args
             )
 
@@ -89,7 +91,9 @@ class StorageService:
         logger.info(f"Deleting file from R2: {filename}")
 
         try:
-            self.s3_client.delete_object(Bucket=self.bucket_name, Key=filename)
+            await asyncio.to_thread(
+                self.s3_client.delete_object, Bucket=self.bucket_name, Key=filename
+            )
             logger.info(f"File deleted successfully: {filename}")
             return True
 
@@ -131,7 +135,8 @@ class StorageService:
             List of file keys
         """
         try:
-            response = self.s3_client.list_objects_v2(
+            response = await asyncio.to_thread(
+                self.s3_client.list_objects_v2,
                 Bucket=self.bucket_name, Prefix=prefix
             )
 

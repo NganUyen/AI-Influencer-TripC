@@ -25,9 +25,9 @@ class Settings(BaseSettings):
 
     # Media Generation
     FAL_AI_API_KEY: str
-    PLAYHT_API_KEY: str
-    PLAYHT_USER_ID: str
+    GOOGLE_AI_API_KEY: Optional[str] = None
     HEYGEN_API_KEY: Optional[str] = None
+    GOOGLE_TTS_API_KEY: Optional[str] = None
 
     # Cloudflare R2
     R2_ACCOUNT_ID: str
@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 
 # Global settings instance

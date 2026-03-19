@@ -1,15 +1,17 @@
 """
 Strategy Activities - Content Planning and Generation
-Powered by OpenClaw for intelligent content strategy
+Includes: weekly strategy, carousel, long-form SEO post.
 """
 
 from temporalio import activity
 from typing import Dict, Any, List
 import logging
+import json
 from datetime import datetime, timedelta
 
 from services.openclaw_service import OpenClawService
 from services.ai_service import AIService
+from services.script_service import ScriptService
 
 logger = logging.getLogger(__name__)
 
@@ -156,3 +158,134 @@ async def generate_daily_content(
         "content": content,
         "posting_time": daily_strategy.get("posting_time"),
     }
+
+
+# ─── Phase F1: Carousel Strategy (8 slides) ──────────────────────────────────
+
+@activity.defn
+async def generate_carousel_strategy(config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Phase F1: Generate 8-slide carousel for TikTok/Facebook.
+    Each slide has image prompt + caption.
+
+    Input config:
+        app_name: str
+        topic: str
+        persona_config: dict (language_name, voice, skin_color)
+        platform: str (tiktok, facebook, instagram)
+        num_slides: int (default 8)
+        model: str
+
+    Returns:
+        slides: List[{slide_num, image_prompt, caption, cta_overlay}]
+        platform_caption: str   — main post caption
+        hashtags: List[str]
+    """
+    app_name = config["app_name"]
+    topic = config["topic"]
+    persona = config.get("persona_config", {})
+    platform = config.get("platform", "tiktok")
+    num_slides = config.get("num_slides", 8)
+    model = config.get("model", "models/gemini-2.0-flash")
+    language = persona.get("language_name", "English")
+    skin_color = persona.get("skin_color", "diverse")
+
+    logger.info(f"Generating carousel | topic={topic} | slides={num_slides} | platform={platform}")
+
+    CAROUSEL_PROMPT = f"""
+You are a social media content creator. Generate a {num_slides}-slide carousel for {platform}.
+App: {app_name} | Topic: {topic}
+Persona language: {language} | Model skin tone in images: {skin_color}
+
+Return ONLY valid JSON:
+{{
+  "slides": [
+    {{
+      "slide_num": 1,
+      "image_prompt": "<fal.ai English prompt — specific, visual, {skin_color} person natural>",
+      "caption": "<short slide text in {language}, max 10 words>",
+      "cta_overlay": "<optional small overlay text, e.g. 'Swipe for tip 2'>"
+    }}
+  ],
+  "platform_caption": "<main post caption in {language}, max 150 chars>",
+  "hashtags": ["#tag1", "#tag2"]
+}}
+
+Slide 1: Hook/Problem. Slides 2-7: Features/Benefits. Slide 8: CTA to download {app_name}.
+"""
+
+    ai = AIService()
+    raw = await ai.generate_text(prompt=CAROUSEL_PROMPT, model=model, temperature=0.7, max_tokens=3000)
+
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+    data = json.loads(cleaned)
+    logger.info(f"Carousel generated: {len(data.get('slides', []))} slides")
+    return data
+
+
+# ─── Phase F2: Long-form SEO Post ────────────────────────────────────────────
+
+@activity.defn
+async def generate_long_post_strategy(config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Phase F2: Generate single image + long-form SEO content for Facebook/Blogs.
+
+    Input config:
+        app_name: str
+        topic: str
+        persona_config: dict
+        platform: str (facebook, blog, linkedin)
+        target_word_count: int (default 500)
+        model: str
+
+    Returns:
+        hero_image_prompt: str    — for fal.ai
+        title: str
+        body: str                 — full post in persona language
+        meta_description: str     — SEO meta (150 chars)
+        hashtags: List[str]
+        cta: str
+    """
+    app_name = config["app_name"]
+    topic = config["topic"]
+    persona = config.get("persona_config", {})
+    platform = config.get("platform", "facebook")
+    word_count = config.get("target_word_count", 500)
+    model = config.get("model", "models/gemini-2.0-flash")
+    language = persona.get("language_name", "English")
+    skin_color = persona.get("skin_color", "diverse")
+
+    logger.info(f"Generating long post | topic={topic} | platform={platform} | words={word_count}")
+
+    LONG_POST_PROMPT = f"""
+You are an SEO content writer. Create a long-form {platform} post about: {topic}
+App: {app_name} | Language: {language} | Target: ~{word_count} words
+
+Return ONLY valid JSON:
+{{
+  "hero_image_prompt": "<fal.ai English prompt for main image — {skin_color} person, relevant scene>",
+  "title": "<catchy SEO title in {language}>",
+  "body": "<full post body in {language}, ~{word_count} words, with subheadings using ##>",
+  "meta_description": "<SEO meta, {language}, max 155 chars>",
+  "hashtags": ["#tag1", "#tag2", "#tag3"],
+  "cta": "<call to action sentence in {language}>"
+}}
+
+Structure: intro hook → problem → solution (features) → social proof → CTA to download {app_name}.
+"""
+
+    ai = AIService()
+    raw = await ai.generate_text(prompt=LONG_POST_PROMPT, model=model, temperature=0.7, max_tokens=4000)
+
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+    data = json.loads(cleaned)
+    logger.info(f"Long post generated: title='{data.get('title', '')[:50]}'")
+    return data

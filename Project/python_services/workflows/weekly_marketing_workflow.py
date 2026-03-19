@@ -91,28 +91,33 @@ class WeeklyMarketingWorkflow:
             generate_media_prompts,
             args=[strategy],
             start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
         # Step 5: Generate media assets in parallel
         media_tasks = []
+        media_retry_policy = RetryPolicy(maximum_attempts=3)
         for prompt in media_prompts:
             if prompt["type"] == "image":
                 task = workflow.execute_activity(
                     generate_image,
                     args=[prompt],
                     start_to_close_timeout=timedelta(minutes=3),
+                    retry_policy=media_retry_policy,
                 )
             elif prompt["type"] == "video":
                 task = workflow.execute_activity(
                     generate_video,
                     args=[prompt],
                     start_to_close_timeout=timedelta(minutes=10),
+                    retry_policy=media_retry_policy,
                 )
             elif prompt["type"] == "audio":
                 task = workflow.execute_activity(
                     generate_audio,
                     args=[prompt],
                     start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=media_retry_policy,
                 )
             media_tasks.append(task)
 
@@ -126,6 +131,7 @@ class WeeklyMarketingWorkflow:
                 upload_to_storage,
                 args=[asset],
                 start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
             uploaded_assets.append(uploaded)
 

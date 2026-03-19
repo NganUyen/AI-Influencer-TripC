@@ -83,9 +83,24 @@ OpenClaw manages the AI intelligence layer:
 - `POST /api/workflows/start` - Start a new workflow
 - `GET /api/workflows/{id}` - Get workflow status
 - `POST /api/content/generate` - Generate content
-- `POST /api/media/generate` - Generate media assets
+- `POST /api/media/generate/image` - Generate an image (fal.ai)
+- `POST /api/media/generate/video` - Generate a video (fal.ai)
+- `POST /api/media/generate/audio` - Generate audio (PlayHT)
+- `GET /api/media/storage/list` - List stored files (R2)
 - `GET /api/personas` - List AI personas
 - `POST /api/personas` - Create new persona
+
+### Quick test: generate an image
+
+1. Ensure `.env` contains `FAL_AI_API_KEY` (plus required R2 keys if you want uploads).
+2. Run `uvicorn main:app --reload --port 8000`.
+3. Call the API:
+   ```bash
+   curl -X POST "http://localhost:8000/api/media/generate/image" \
+     -H "Content-Type: application/json" \
+     -d '{"prompt":"Modern tech workspace","model":"fal-ai/flux-pro","aspect_ratio":"16:9"}'
+   ```
+   The response includes the fal.ai image URL (and, when using the workflow activity, it can be uploaded to R2).
 
 ## Docker Deployment
 

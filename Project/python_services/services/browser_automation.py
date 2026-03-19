@@ -156,6 +156,49 @@ class BrowserAutomationService:
             "status": "published",
         }
 
+    async def take_screenshots_for_tutorial(self, url: str, output_dir: str) -> list:
+        """
+        Truy cập URL và chụp ảnh màn hình các bước quan trọng để làm tutorial.
+        """
+        if not self.context:
+            await self.initialize_browser()
+            
+        page = await self.context.new_page()
+        screenshots = []
+        
+        try:
+            logger.info(f"Stealing screenshots for tutorial from {url}")
+            await page.goto(url, wait_until="networkidle")
+            
+            # 1. Toàn cảnh landing page
+            path1 = f"{output_dir}/step1_landing.png"
+            await page.screenshot(path=path1, full_page=False)
+            screenshots.append({"step": "landing", "path": path1})
+            
+            # 2. Thử tìm các section chính (ví dụ feature section)
+            try:
+                await page.evaluate("window.scrollTo(0, 500)")
+                path2 = f"{output_dir}/step2_features.png"
+                await page.screenshot(path=path2)
+                screenshots.append({"step": "features", "path": path2})
+            except: pass
+            
+            return screenshots
+        finally:
+            await page.close()
+
+    async def get_page_content(self, url: str) -> str:
+        """Lấy text content của trang web để AI phân tích"""
+        if not self.context:
+            await self.initialize_browser()
+        page = await self.context.new_page()
+        try:
+            await page.goto(url, wait_until="networkidle")
+            content = await page.evaluate("document.body.innerText")
+            return content[:5000] # Giới hạn 5k ký tự cho AI
+        finally:
+            await page.close()
+
     async def close(self):
         """Close browser and context"""
         if self.context:

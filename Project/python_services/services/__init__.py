@@ -10,6 +10,7 @@ from .google_tts_service import GoogleTTSService
 from .heygen_service import HeyGenService
 from .storage_service import StorageService
 from .telegram_service import TelegramService
+from .telegram_subscriber_service import TelegramSubscriberService
 from .ai_service import AIService
 from .browser_automation import BrowserAutomationService
 from .region_service import RegionService
@@ -26,6 +27,7 @@ __all__ = [
     "HeyGenService",
     "StorageService",
     "TelegramService",
+    "TelegramSubscriberService",
     "AIService",
     "BrowserAutomationService",
     "RegionService",
@@ -33,3 +35,4 @@ __all__ = [
     "QuotaMonitorService",
     "ProxyManagerService",
 ]
+

@@ -6,9 +6,9 @@ import {
 import { getBackendBaseUrl } from "@/app/api/_helpers/backend";
 
 type Params = {
-  params: {
+  params: Promise<{
     contentId: string;
-  };
+  }>;
 };
 
 export async function POST(_request: NextRequest, { params }: Params) {
@@ -18,9 +18,10 @@ export async function POST(_request: NextRequest, { params }: Params) {
   }
 
   try {
+    const { contentId } = await params;
     const baseUrl = getBackendBaseUrl();
     const response = await fetch(
-      `${baseUrl}/api/content/retry/${params.contentId}`,
+      `${baseUrl}/api/content/retry/${contentId}`,
       {
         method: "POST",
         headers: getInternalApiHeaders(),

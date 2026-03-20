@@ -23,13 +23,15 @@ echo "Checking docker services..."
 docker compose -f "${COMPOSE_FILE}" ps
 
 echo "Checking public endpoints..."
-curl -fsS "${FRONTEND_URL}" > /dev/null
-curl -fsS "${BACKEND_URL}/health" > /dev/null
-curl -fsS "${CONNECTOR_URL}/health" > /dev/null
+# The public edge in front of this VPS can negotiate HTTP/2 in a way that
+# sporadically trips curl health probes even when the responses are healthy.
+curl --http1.1 -fsS "${FRONTEND_URL}" > /dev/null
+curl --http1.1 -fsS "${BACKEND_URL}/health" > /dev/null
+curl --http1.1 -fsS "${CONNECTOR_URL}/health" > /dev/null
 
 echo "Checking localhost admin endpoints..."
 curl -fsS http://127.0.0.1:8080 > /dev/null
-curl -fsS http://127.0.0.1:8081 > /dev/null
+curl -fsS http://127.0.0.1:8081/healthz > /dev/null
 curl -fsS http://127.0.0.1:3100 > /dev/null
 curl -fsS http://127.0.0.1:3200 > /dev/null
 

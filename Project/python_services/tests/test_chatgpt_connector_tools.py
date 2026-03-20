@@ -13,7 +13,7 @@ class FakeOpenClawService:
 
     async def execute_task(self, **kwargs):
         self.calls.append(("execute_task", kwargs))
-        return {"task_id": "task-1", "status": "accepted", "raw": kwargs}
+        return {"status": "accepted", "raw": kwargs}
 
     async def get_task_status(self, task_id):
         self.calls.append(("get_task_status", {"task_id": task_id}))
@@ -69,16 +69,17 @@ async def test_connector_runner_delegates_safe_openclaw_tasks():
         session,
     )
 
-    assert result["task_id"] == "task-1"
-    assert result["status"] == "accepted"
+    assert result["task_id"].startswith("task_")
+    assert result["status"] == "completed"
     assert fake_service.closed is True
     assert fake_service.calls[0][0] == "execute_task"
     assert fake_service.calls[0][1]["user_id"] == "user-1"
     assert fake_service.calls[0][1]["context"]["theme"] == "travel"
     assert fake_service.calls[0][1]["context"]["connector_session"]["session_id"] == "sess_1"
+    assert result["result"]["status"] == "accepted"
 
-    status = await runner.get_task_status({"task_id": "task-1"}, session)
-    assert status["status"] == "running"
+    status = await runner.get_task_status({"task_id": result["task_id"]}, session)
+    assert status["status"] == "completed"
 
-    canceled = await runner.cancel_task({"task_id": "task-1"}, session)
-    assert canceled["status"] == "canceled"
+    canceled = await runner.cancel_task({"task_id": result["task_id"]}, session)
+    assert canceled["status"] == "completed"

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
+from uuid import uuid4
 
 from .models import ConnectorSessionView
 
@@ -25,6 +26,9 @@ class ToolExecutionContext:
     user_id: str
     chatgpt_subject: str
     display_name: Optional[str]
+
+
+_TASK_REGISTRY: Dict[str, Dict[str, Any]] = {}
 
 
 class OpenClawToolRunner:
@@ -116,17 +120,56 @@ class OpenClawToolRunner:
             raise ValueError("prompt is required")
 
         service = self.service_factory()
+        task_id = f"task_{uuid4().hex}"
+        _TASK_REGISTRY[task_id] = {
+            "task_id": task_id,
+            "status": "running",
+            "tool": "openclaw_execute_task",
+            "session_id": session.session_id,
+            "user_id": session.user_id,
+        }
         try:
             context_payload = dict(arguments.get("context") or {})
             context_payload["connector_session"] = self._build_context(session, arguments).__dict__
-            return await service.execute_task(
+            result = await service.execute_task(
                 task_type=task_type,
                 prompt=prompt,
                 user_id=session.user_id,
                 context=context_payload,
             )
+            _TASK_REGISTRY[task_id].update(
+                {
+                    "status": "completed",
+                    "result": result,
+                }
+            )
+            return {
+                "task_id": task_id,
+                "status": "completed",
+                "result": result,
+            }
+        except Exception as exc:
+            _TASK_REGISTRY[task_id].update(
+                {
+                    "status": "failed",
+                    "error": str(exc),
+                }
+            )
+            raise
         finally:
             await self._close_service(service)
+
+    @staticmethod
+    def _get_task_for_session(
+        task_id: str,
+        session: ConnectorSessionView,
+    ) -> Optional[Dict[str, Any]]:
+        task = _TASK_REGISTRY.get(task_id)
+        if task is None:
+            return None
+        if task.get("session_id") != session.session_id:
+            return None
+        return task
 
     async def get_task_status(
         self,
@@ -137,11 +180,13 @@ class OpenClawToolRunner:
         if not task_id:
             raise ValueError("task_id is required")
 
-        service = self.service_factory()
-        try:
-            return await service.get_task_status(task_id)
-        finally:
-            await self._close_service(service)
+        task = self._get_task_for_session(task_id, session)
+        if not task:
+            return {
+                "task_id": task_id,
+                "status": "not_found",
+            }
+        return dict(task)
 
     async def cancel_task(
         self,
@@ -152,8 +197,12 @@ class OpenClawToolRunner:
         if not task_id:
             raise ValueError("task_id is required")
 
-        service = self.service_factory()
-        try:
-            return await service.cancel_task(task_id)
-        finally:
-            await self._close_service(service)
+        task = self._get_task_for_session(task_id, session)
+        if not task:
+            return {
+                "task_id": task_id,
+                "status": "not_found",
+            }
+        if task.get("status") not in {"completed", "failed", "canceled"}:
+            task["status"] = "canceled"
+        return dict(task)

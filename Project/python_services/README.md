@@ -155,7 +155,7 @@ Use them as targeted integration helpers once the related environment variables 
 
 ## Local Docker Stack
 
-The repository root includes `docker-compose.yml`, which can run the backend API and worker alongside PostgreSQL, Temporal, Redis, OpenClaw, Mission Control, Postiz, GrowChief, and the frontend.
+The repository root includes `docker-compose.yml`, which can run the backend API and worker alongside PostgreSQL, Temporal, Redis, the OpenClaw gateway/control UI, Postiz, GrowChief, and the frontend.
 
 From the repo root:
 

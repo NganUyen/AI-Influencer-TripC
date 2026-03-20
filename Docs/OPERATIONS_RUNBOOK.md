@@ -20,7 +20,7 @@ Public HTTPS entrypoints:
 Private or localhost-only services:
 
 - Temporal gRPC/UI -> `127.0.0.1:7233` / `127.0.0.1:8080`
-- Mission Control -> `127.0.0.1:8081`
+- OpenClaw control UI -> `127.0.0.1:8081`
 - Postiz -> `127.0.0.1:3100`
 - GrowChief -> `127.0.0.1:3200`
 - Postgres and Redis stay internal to Docker only

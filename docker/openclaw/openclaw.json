@@ -1,0 +1,25 @@
+{
+  agents: {
+    defaults: {
+      workspace: "~/.openclaw/workspace",
+    },
+  },
+  tools: {
+    profile: "coding",
+    allow: ["browser"],
+  },
+  gateway: {
+    mode: "local",
+    auth: {
+      mode: "token",
+      token: "${OPENCLAW_GATEWAY_TOKEN}",
+    },
+    http: {
+      endpoints: {
+        responses: {
+          enabled: true,
+        },
+      },
+    },
+  },
+}

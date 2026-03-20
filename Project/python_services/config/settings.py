@@ -25,6 +25,17 @@ def _normalize_optional_string(value: object) -> Optional[str]:
     return normalized or None
 
 
+def _normalize_optional_int(value: object) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return None
+        return int(normalized)
+    return value
+
+
 def _is_local_url(value: Optional[str]) -> bool:
     if not value:
         return True
@@ -104,8 +115,9 @@ class Settings(BaseSettings):
     GROWCHIEF_WEBHOOK_SECRET: Optional[str] = None
 
     # OpenClaw Configuration
-    OPENCLAW_API_URL: str = "http://localhost:8080"
+    OPENCLAW_API_URL: str = "http://localhost:8081"
     OPENCLAW_API_KEY: Optional[str] = None
+    OPENCLAW_AGENT_ID: str = "main"
     OPENCLAW_MISSION_CONTROL_URL: str = "http://localhost:8081"
     FRONTEND_PUBLIC_URL: Optional[str] = None
     BACKEND_PUBLIC_URL: Optional[str] = None
@@ -191,6 +203,19 @@ class Settings(BaseSettings):
         if isinstance(value, str) and value.strip():
             return value.strip()
         return None
+
+    @field_validator(
+        "OPENAI_MONTHLY_TOKEN_LIMIT",
+        "ANTHROPIC_MONTHLY_TOKEN_LIMIT",
+        "GOOGLE_AI_MONTHLY_TOKEN_LIMIT",
+        "GOOGLE_TTS_MONTHLY_CHAR_LIMIT",
+        "FAL_AI_MONTHLY_REQUEST_LIMIT",
+        "HEYGEN_MONTHLY_JOB_LIMIT",
+        mode="before",
+    )
+    @classmethod
+    def normalize_optional_ints(cls, value):
+        return _normalize_optional_int(value)
 
     @property
     def cors_origins_list(self) -> list[str]:

@@ -44,6 +44,15 @@ def _json_clone(value: Any) -> Any:
     return json.loads(json.dumps(value, default=str))
 
 
+def _json_loads_if_needed(value: Any) -> Any:
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
 def _parse_datetime(value: Any) -> Optional[datetime]:
     if value is None:
         return None
@@ -386,16 +395,33 @@ class QuotaMonitorService:
 
     @classmethod
     def _normalize_row(cls, row: Dict[str, Any]) -> Dict[str, Any]:
-        metadata = _json_clone(row.get("metadata") or {})
-        provider = _normalize_provider(row.get("platform") or metadata.get("provider"))
+        metadata = _json_loads_if_needed(row.get("metadata") or {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        usage = _json_loads_if_needed(metadata.get("usage") or {})
+        if not isinstance(usage, dict):
+            usage = {}
+
+        quota = _json_loads_if_needed(metadata.get("quota") or {})
+        if not isinstance(quota, dict):
+            quota = {}
+
+        nested_metadata = _json_loads_if_needed(metadata.get("metadata") or {})
+        if not isinstance(nested_metadata, dict):
+            nested_metadata = {}
+
+        provider = _normalize_provider(
+            row.get("platform") or metadata.get("provider") or "unknown"
+        )
         snapshot_id = metadata.get("snapshot_id") or metadata.get("id")
         return {
             "id": str(snapshot_id or row.get("id") or uuid4()),
             "provider": provider,
             "source": metadata.get("source") or "manual",
-            "usage": _json_clone(metadata.get("usage") or {}),
+            "usage": _json_clone(usage),
             "cost_usd": _safe_float(metadata.get("cost_usd")),
-            "quota": _json_clone(metadata.get("quota") or {}),
+            "quota": _json_clone(quota),
             "observed_at": (
                 metadata.get("observed_at")
                 or (
@@ -404,7 +430,7 @@ class QuotaMonitorService:
                     else str(row.get("created_at") or "")
                 )
             ),
-            "metadata": _json_clone(metadata.get("metadata") or {}),
+            "metadata": _json_clone(nested_metadata),
             "created_at": (
                 row["created_at"].isoformat()
                 if isinstance(row.get("created_at"), datetime)
@@ -662,7 +688,7 @@ class QuotaMonitorService:
         if provider_rollup.get("snapshot_count"):
             return "ok"
 
-        return "unknown"
+        return "configured"
 
     @classmethod
     async def get_summary(cls, days: int = 30) -> Dict[str, Any]:

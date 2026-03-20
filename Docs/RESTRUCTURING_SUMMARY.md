@@ -97,7 +97,7 @@ The AI Influencer Factory project has been completely restructured to align with
   - Temporal server + Web UI
   - Redis (caching)
   - OpenClaw (cognitive engine)
-  - OpenClaw Mission Control
+  - OpenClaw gateway/control UI
   - Postiz (OAuth publishing)
   - GrowChief (engagement syndicate)
   - Backend (FastAPI)

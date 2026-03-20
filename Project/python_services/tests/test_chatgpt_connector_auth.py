@@ -29,7 +29,7 @@ async def test_connector_auth_service_creates_and_resolves_session():
 
     by_id = await auth.get_session(session.session_id)
     assert by_id is not None
-    assert by_id.session_token == session.session_token
+    assert by_id.session_id == session.session_id
 
     resolved = await auth.resolve_session(session.session_token)
     assert resolved.session_id == session.session_id

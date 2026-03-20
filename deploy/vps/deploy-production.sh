@@ -15,6 +15,11 @@ if [[ ! -f "${PROJECT_ENV_FILE}" ]]; then
     exit 1
 fi
 
+set -a
+# shellcheck disable=SC1090
+source "${PROJECT_ENV_FILE}"
+set +a
+
 echo "Using env file: ${PROJECT_ENV_FILE}"
 docker compose -f "${COMPOSE_FILE}" up -d --build
 docker compose -f "${COMPOSE_FILE}" ps

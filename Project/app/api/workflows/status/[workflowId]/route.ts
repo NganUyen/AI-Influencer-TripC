@@ -3,9 +3,9 @@ import { requireAdminApiAuth } from "@/app/api/_helpers/auth";
 import { getBackendBaseUrl, proxyReadOnlyJson } from "@/app/api/_helpers/backend";
 
 type Params = {
-  params: {
+  params: Promise<{
     workflowId: string;
-  };
+  }>;
 };
 
 export async function GET(_request: NextRequest, { params }: Params) {
@@ -14,11 +14,12 @@ export async function GET(_request: NextRequest, { params }: Params) {
     return authError;
   }
 
+  const { workflowId } = await params;
   const baseUrl = getBackendBaseUrl();
   return proxyReadOnlyJson(
-    `${baseUrl}/api/workflows/status/${params.workflowId}`,
+    `${baseUrl}/api/workflows/status/${workflowId}`,
     {
-      workflow_id: params.workflowId,
+      workflow_id: workflowId,
       status: {
         status: "unknown",
         current_step: "backend_unavailable",

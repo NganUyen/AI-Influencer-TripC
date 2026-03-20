@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 const PLACEHOLDER_TOKENS = new Set([
@@ -41,6 +42,23 @@ function isProductionRuntime(): boolean {
   return process.env.NODE_ENV === "production";
 }
 
+function tokensMatch(
+  presentedToken: string | null,
+  configuredToken: string,
+): boolean {
+  if (!presentedToken) {
+    return false;
+  }
+
+  const presented = Buffer.from(presentedToken);
+  const configured = Buffer.from(configuredToken);
+  if (presented.length !== configured.length) {
+    return false;
+  }
+
+  return timingSafeEqual(presented, configured);
+}
+
 export function requireAdminApiAuth(
   request: NextRequest,
 ): NextResponse | null {
@@ -64,7 +82,7 @@ export function requireAdminApiAuth(
   }
 
   const presentedToken = extractBearerToken(request);
-  if (!presentedToken || presentedToken !== configuredToken) {
+  if (!tokensMatch(presentedToken, configuredToken)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

@@ -53,6 +53,13 @@ def _is_local_public_url(value: str) -> bool:
     return host in {"localhost", "127.0.0.1", "0.0.0.0", ""}
 
 
+def _env_flag(name: str) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass
 class IdentityLink:
     chatgpt_subject: str
@@ -122,12 +129,16 @@ class ConnectorAuthService:
         self.secret = secret or os.getenv("CHATGPT_CONNECTOR_SESSION_SECRET") or "dev-connector-secret"
         environment = (os.getenv("ENVIRONMENT") or "development").strip().lower()
         debug = (os.getenv("DEBUG") or "true").strip().lower()
-        is_production_like = (
+        self.is_production_like = (
             environment in {"production", "staging"}
             or debug in {"false", "0", "no"}
             or not _is_local_public_url(self.public_url)
         )
-        if is_production_like and self.secret in PLACEHOLDER_CONNECTOR_SECRETS:
+        self.allow_insecure_self_issued_oauth = (
+            not self.is_production_like
+            or _env_flag("CHATGPT_CONNECTOR_ALLOW_INSECURE_SELF_ISSUED_OAUTH")
+        )
+        if self.is_production_like and self.secret in PLACEHOLDER_CONNECTOR_SECRETS:
             raise ValueError(
                 "CHATGPT_CONNECTOR_SESSION_SECRET must be set to a non-default value"
             )
@@ -140,6 +151,13 @@ class ConnectorAuthService:
         self._links_by_subject: Dict[str, IdentityLink] = {}
         self._persist_links = persist_links
         self._link_store = ConnectorLinkStore(db_url=db_url, enabled=persist_links)
+
+    def _ensure_oauth_bootstrap_allowed(self) -> None:
+        if self.allow_insecure_self_issued_oauth:
+            return
+        raise PermissionError(
+            "Connector OAuth bootstrap is disabled until a real external identity flow is configured"
+        )
 
     def _sign(self, payload: Dict[str, Any]) -> str:
         body = _json_dumps(payload)
@@ -222,6 +240,7 @@ class ConnectorAuthService:
         display_name: Optional[str] = None,
         return_url: Optional[str] = None,
     ) -> OAuthStartResponse:
+        self._ensure_oauth_bootstrap_allowed()
         async with self._lock:
             return_url = return_url or f"{self.public_url}/oauth/callback"
             state = self._issue_state(chatgpt_subject, user_id, display_name, return_url)
@@ -243,6 +262,7 @@ class ConnectorAuthService:
         user_id: str,
         display_name: Optional[str] = None,
     ) -> ConnectorSessionIssuedView:
+        self._ensure_oauth_bootstrap_allowed()
         payload = self._unsign(state)
         if payload.get("kind") != "oauth_state":
             raise ValueError("Unexpected OAuth state payload")

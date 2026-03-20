@@ -43,7 +43,7 @@ From the repository root:
 docker-compose up -d --build
 ```
 
-This starts PostgreSQL, Temporal, Redis, OpenClaw, Mission Control, Postiz, GrowChief, the FastAPI backend, the Temporal worker, and the Next.js frontend.
+This starts PostgreSQL, Temporal, Redis, the OpenClaw gateway/control UI, Postiz, GrowChief, the FastAPI backend, the Temporal worker, and the Next.js frontend.
 
 Default local URLs:
 
@@ -51,7 +51,7 @@ Default local URLs:
 - Backend API: `http://localhost:8000`
 - Backend docs: `http://localhost:8000/docs`
 - Temporal UI: `http://localhost:8080`
-- Mission Control: `http://localhost:8081`
+- OpenClaw Control UI: `http://localhost:8081`
 - Postiz: `http://localhost:3100`
 - GrowChief: `http://localhost:3200`
 

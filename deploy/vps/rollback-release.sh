@@ -10,6 +10,9 @@ fi
 TARGET_REF="$1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+DEFAULT_ENV_FILE="${REPO_ROOT}/Project/.env.production"
+
+export PROJECT_ENV_FILE="${PROJECT_ENV_FILE:-${DEFAULT_ENV_FILE}}"
 
 cd "${REPO_ROOT}"
 

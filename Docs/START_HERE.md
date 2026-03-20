@@ -78,6 +78,7 @@ Then edit [Project/.env.local](/e:/Projects/Works/AI-Influencer-TripC/Project/.e
 
 For a local boot, the most important values are:
 
+- `OPENCLAW_API_URL=http://localhost:8081`
 - `PYTHON_BACKEND_URL=http://localhost:8000`
 - `TEMPORAL_ADDRESS=localhost:7233`
 - `POSTIZ_API_URL=http://localhost:3100`
@@ -210,7 +211,7 @@ Main URLs:
 - frontend: `http://localhost:3000`
 - backend: `http://localhost:8000`
 - Temporal UI: `http://localhost:8080`
-- OpenClaw Mission Control: `http://localhost:8081`
+- OpenClaw Control UI: `http://localhost:8081`
 - ChatGPT connector: `http://localhost:8010`
 - Postiz: `http://localhost:3100`
 - GrowChief: `http://localhost:3200`

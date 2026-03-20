@@ -202,7 +202,7 @@ Public:
 Private to the VPS:
 
 - OpenClaw runtime
-- Mission Control
+- OpenClaw control UI
 - Temporal UI
 - Postiz
 - GrowChief
@@ -219,7 +219,7 @@ ssh -L 8081:127.0.0.1:8081 -L 8080:127.0.0.1:8080 -L 3100:127.0.0.1:3100 -L 3200
 
 Then open locally:
 
-- `http://localhost:8081` -> Mission Control
+- `http://localhost:8081` -> OpenClaw Control UI
 - `http://localhost:8080` -> Temporal UI
 - `http://localhost:3100` -> Postiz
 - `http://localhost:3200` -> GrowChief

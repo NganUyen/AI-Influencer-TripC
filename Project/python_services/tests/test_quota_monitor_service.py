@@ -1,4 +1,6 @@
 import os
+import json
+from datetime import datetime, timezone
 
 os.environ["DEBUG"] = "true"
 
@@ -180,3 +182,82 @@ async def test_summary_derives_tracked_remaining_from_limit(monkeypatch):
     assert gemini["remaining_limit"] == 10000.0
     assert gemini["remaining_exact"] is False
     assert gemini["remaining_source"] == "tracked_usage"
+
+
+@pytest.mark.asyncio
+async def test_summary_parses_stringified_jsonb_quota_snapshots(monkeypatch):
+    monkeypatch.setattr(
+        "services.quota_monitor_service.settings.HEYGEN_API_KEY",
+        "heygen-key",
+    )
+
+    payload = {
+        "snapshot_id": "snapshot-1",
+        "provider": "heygen",
+        "source": "runtime",
+        "usage": {},
+        "cost_usd": None,
+        "quota": {
+            "unit": "quota_units",
+            "exact": True,
+            "source": "provider_live_endpoint",
+            "remaining": 1127,
+        },
+        "observed_at": "2026-03-20T00:43:59.099369",
+        "metadata": {
+            "service": "heygen_service",
+            "operation": "get_remaining_quota",
+            "status": "success",
+        },
+    }
+
+    class FakeConn:
+        async def fetch(self, *_args):
+            return [
+                {
+                    "content_id": None,
+                    "platform": "heygen",
+                    "metadata": json.dumps(payload),
+                    "created_at": datetime(2026, 3, 20, 0, 44, 0, tzinfo=timezone.utc),
+                }
+            ]
+
+    class FakePool:
+        def acquire(self):
+            return self
+
+        async def __aenter__(self):
+            return FakeConn()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+    async def fake_get_pool():
+        return FakePool()
+
+    monkeypatch.setattr(QuotaMonitorService, "_get_pool", fake_get_pool)
+
+    summary = await QuotaMonitorService.get_summary(days=30)
+    heygen = next(item for item in summary["providers"] if item["provider"] == "heygen")
+
+    assert summary["total_snapshots"] == 1
+    assert heygen["snapshot_count"] == 1
+    assert heygen["status"] == "ok"
+    assert heygen["remaining_value"] == 1127.0
+    assert heygen["remaining_exact"] is True
+    assert heygen["remaining_source"] == "provider_live_endpoint"
+
+
+@pytest.mark.asyncio
+async def test_summary_marks_configured_provider_without_quota_data(monkeypatch):
+    monkeypatch.setattr(
+        "services.quota_monitor_service.settings.GOOGLE_AI_API_KEY",
+        "google-ai-key",
+    )
+
+    summary = await QuotaMonitorService.get_summary(days=30)
+    gemini = next(item for item in summary["providers"] if item["provider"] == "gemini")
+
+    assert gemini["snapshot_count"] == 0
+    assert gemini["remaining_value"] is None
+    assert gemini["status"] == "configured"

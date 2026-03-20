@@ -12,20 +12,26 @@ from services.postiz_service import PostizService
 
 @pytest.mark.asyncio
 async def test_postiz_publish_builds_payload(monkeypatch):
+    monkeypatch.setenv("POSTIZ_INTEGRATION_MAP", '{"twitter":"integration-1"}')
+
     class StubResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
         def raise_for_status(self):
             return None
 
         def json(self):
-            return {"id": "post-1", "post_id": "platform-post-1"}
+            return self._payload
 
-    captured = {}
+    captured = []
 
     class StubClient:
         async def post(self, url, json):
-            captured["url"] = url
-            captured["json"] = json
-            return StubResponse()
+            captured.append((url, json))
+            if url == "/upload-from-url":
+                return StubResponse({"id": "upload-1", "path": "/uploads/test.jpg"})
+            return StubResponse([{"id": "post-1", "postId": "platform-post-1"}])
 
         async def aclose(self):
             return None
@@ -45,15 +51,23 @@ async def test_postiz_publish_builds_payload(monkeypatch):
     assert result["provider_post_id"] == "post-1"
     assert result["platform_post_id"] == "platform-post-1"
     assert result["status"] == "scheduled"
-    assert result["raw"]["id"] == "post-1"
-    assert captured["url"] == "/api/posts"
-    assert captured["json"]["status"] == "scheduled"
-    assert captured["json"]["scheduled_at"] == "2026-03-16T10:00:00Z"
+    assert result["raw"][0]["id"] == "post-1"
+    assert captured[0][0] == "/upload-from-url"
+    assert captured[0][1] == {"url": "https://cdn.example/test.jpg"}
+    assert captured[1][0] == "/posts"
+    assert captured[1][1]["type"] == "schedule"
+    assert captured[1][1]["date"] == "2026-03-16T10:00:00Z"
+    assert captured[1][1]["posts"][0]["integration"]["id"] == "integration-1"
+    assert captured[1][1]["posts"][0]["value"][0]["image"] == [
+        {"id": "upload-1", "path": "/uploads/test.jpg"}
+    ]
     await service.close()
 
 
 @pytest.mark.asyncio
 async def test_postiz_publish_raises_http_error(monkeypatch):
+    monkeypatch.setenv("POSTIZ_INTEGRATION_MAP", '{"twitter":"integration-1"}')
+
     class StubClient:
         async def post(self, _url, json):
             raise httpx.HTTPError("postiz error")
@@ -73,12 +87,14 @@ async def test_postiz_publish_raises_http_error(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_growchief_trigger_engagement_builds_payload(monkeypatch):
+    monkeypatch.setenv("GROWCHIEF_WORKFLOW_MAP", '{"twitter":"wf-1"}')
+
     class StubResponse:
         def raise_for_status(self):
             return None
 
         def json(self):
-            return {"job_id": "job-123"}
+            return [{"status": "queued", "message": "accepted"}]
 
     captured = {}
 
@@ -104,30 +120,24 @@ async def test_growchief_trigger_engagement_builds_payload(monkeypatch):
         delay_minutes=15,
     )
 
-    assert result["job_id"] == "job-123"
-    assert captured["url"] == "/api/engagements/trigger"
-    assert captured["json"]["account_count"] == 3
-    assert captured["json"]["delay_between_actions"] == 15
+    assert result["job_id"].startswith("growchief_")
+    assert result["workflow_id"] == "wf-1"
+    assert result["status"] == "pending"
+    assert captured["url"] == "/workflows/wf-1"
+    assert captured["json"] == {"urls": ["https://platform/post/1"]}
+    assert result["account_count"] == 3
+    assert result["delay_between_actions"] == 15
     await service.close()
 
 
 @pytest.mark.asyncio
-async def test_growchief_metrics_raises_http_error(monkeypatch):
-    class StubClient:
-        async def get(self, _url, params):
-            assert params["platform"] == "twitter"
-            raise httpx.HTTPError("metrics unavailable")
-
-        async def aclose(self):
-            return None
-
-    monkeypatch.setattr(
-        "services.growchief_service.httpx.AsyncClient", lambda **_: StubClient()
-    )
-
+async def test_growchief_metrics_returns_fallback():
     service = GrowChiefService()
-    with pytest.raises(httpx.HTTPError):
-        await service.get_engagement_metrics(platform="twitter", post_id="abc")
+    result = await service.get_engagement_metrics(platform="twitter", post_id="abc")
+    assert result["platform"] == "twitter"
+    assert result["post_id"] == "abc"
+    assert result["engagement_rate"] == 0.0
+    assert result["source"] == "growchief_public_api_fallback"
     await service.close()
 
 

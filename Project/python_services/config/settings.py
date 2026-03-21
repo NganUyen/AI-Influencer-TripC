@@ -99,6 +99,7 @@ class Settings(BaseSettings):
     # Telegram
     TELEGRAM_BOT_TOKEN: str
     TELEGRAM_CHAT_ID: str
+    REDIS_URL: Optional[str] = "redis://localhost:6379/0"
 
     # Temporal
     TEMPORAL_ADDRESS: str = "localhost:7233"

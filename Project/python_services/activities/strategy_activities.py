@@ -125,7 +125,14 @@ async def generate_media_prompts(strategy: Dict[str, Any]) -> List[Dict[str, Any
                         "script": script,
                         "day": day_idx + 1,
                         "voice_id": media.get("voice_id"),
-                        "config": media.get("config", {}),
+                        "config": {
+                            **media.get("config", {}),
+                            "voice": media.get("voice_id"),
+                        },
+                        "metadata": {
+                            "day": day_idx + 1,
+                            "platform": media.get("platform"),
+                        },
                     }
                 )
 

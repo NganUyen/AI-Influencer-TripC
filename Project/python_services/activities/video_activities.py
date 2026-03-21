@@ -1,203 +1,265 @@
 """
-Video Assembly Activities (TripC v2 Standard)
-===============================================
-Deterministic, local ffmpeg assembly.
-- Chỉ nhận remote URLs và metadata, không gọi bất kỳ AI provider nào.
-- Download về temp dir → build → upload R2 → trả về FinalVideoContract.
-- Retry chỉ khi tất cả input assets đã có, không retry nếu asset thiếu.
+Video assembly activities.
+
+Canonical deterministic lane for final video composition.
 """
 
-from temporalio import activity
-from typing import Dict, Any, List
-import logging
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 import asyncio
+import logging
+import os
 import subprocess
 import tempfile
-import httpx
-import os
-from pathlib import Path
 
+import httpx
+from temporalio import activity
+
+from services.contracts import FinalVideoContract, SplitScreenVideoInput
 from services.errors import AssemblyError, AssemblyMissingAssetError, StorageUploadError
-from services.contracts import FinalVideoContract
 from services.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
 
 
-# ─── Helper ───────────────────────────────────────────────────────────────────
-
-async def _download(url: str, dest: str, label: str):
-    """Download file từ URL về local path."""
+async def _download_required(url: str, dest: str, label: str) -> None:
+    """Download a required asset and fail fast on any download issue."""
     async with httpx.AsyncClient(timeout=120.0) as client:
-        r = await client.get(url, follow_redirects=True)
-        r.raise_for_status()
-        with open(dest, "wb") as f:
-            f.write(r.content)
-    logger.info(f"Downloaded {label}: {len(open(dest,'rb').read())//1024} KB")
+        response = await client.get(url, follow_redirects=True)
+        response.raise_for_status()
+        with open(dest, "wb") as file_obj:
+            file_obj.write(response.content)
+    logger.info("Downloaded %s", label)
 
 
-def _run_ffmpeg(cmd: List[str], label: str):
-    """Chạy ffmpeg và raise AssemblyError nếu thất bại."""
+async def _download_optional(url: str, dest: str, label: str) -> Optional[str]:
+    """Download an optional asset. Fail closed to fallback instead of failing the lane."""
+    try:
+        await _download_required(url, dest, label)
+        return dest
+    except Exception as exc:
+        logger.warning("Optional asset %s unavailable, falling back: %s", label, exc)
+        return None
+
+
+def _run_ffmpeg(cmd: List[str], label: str) -> None:
     result = subprocess.run(cmd, capture_output=True)
     if result.returncode != 0:
-        err = result.stderr.decode("utf-8", errors="replace")[-1000:]
-        raise AssemblyError(f"ffmpeg failed ({label}): {err}")
-    logger.info(f"ffmpeg OK: {label}")
+        error_text = result.stderr.decode("utf-8", errors="replace")[-1000:]
+        raise AssemblyError(f"ffmpeg failed ({label}): {error_text}")
+    logger.info("ffmpeg OK: %s", label)
 
 
-# ─── Activity: build_split_screen_video ──────────────────────────────────────
+def _safe_topic_fragment(topic: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in topic.strip())
+    return cleaned.strip("_") or "topic"
+
 
 @activity.defn
 async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Ghép video split screen 9:16 từ các assets đã được generate.
+    Canonical assembly path for final video output.
 
-    Input config:
-        image_urls: List[str]           — URL ảnh slideshow (từ fal.ai)
-        audio_url: str                  — URL narration MP3 (từ Google TTS)
-        talking_head_url: str | None    — URL HeyGen video (optional)
-        scene_captions: List[str]       — Caption cho mỗi scene
-        persona_id: str
-        topic: str
-        duration_per_image: float       — seconds per slide (default 4.0)
+    Required:
+    - image_urls
+    - audio_url
 
-    Output (FinalVideoContract):
-        video_url, preview_url, storage_key, duration, resolution
+    Optional:
+    - talking_head_url
+    - scene_captions
     """
-    image_urls: List[str] = config.get("image_urls", [])
-    audio_url: str = config.get("audio_url", "")
-    talking_head_url: str = config.get("talking_head_url", "")
-    captions: List[str] = config.get("scene_captions", [])
-    persona_id: str = config.get("persona_id", "unknown")
-    topic: str = config.get("topic", "topic")
-    dur_per_img: float = config.get("duration_per_image", 4.0)
+    assembly_input = SplitScreenVideoInput(**config)
 
-    # Validate input
-    if not image_urls:
-        raise AssemblyMissingAssetError("image_urls is empty — cannot assemble without scenes.")
-    if not audio_url:
-        raise AssemblyMissingAssetError("audio_url is missing — narration required.")
+    if not assembly_input.image_urls:
+        raise AssemblyMissingAssetError("image_urls is empty; cannot assemble without scenes.")
+    if not assembly_input.audio_url:
+        raise AssemblyMissingAssetError("audio_url is missing; narration is required.")
 
-    logger.info(f"Starting assembly: {len(image_urls)} images, talking_head={'yes' if talking_head_url else 'no'}")
+    logger.info(
+        "Starting assembly: %s images, talking_head=%s",
+        len(assembly_input.image_urls),
+        "yes" if assembly_input.talking_head_url else "no",
+    )
 
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
 
-        # 1. Download all media in parallel
-        tasks = []
-        img_paths = []
-        for i, url in enumerate(image_urls):
-            dest = str(tmp / f"img_{i:02d}.jpg")
-            img_paths.append(dest)
-            tasks.append(_download(url, dest, f"Image {i+1}"))
+        download_tasks: List[asyncio.Future] = []
+        image_paths: List[str] = []
+        for index, url in enumerate(assembly_input.image_urls):
+            image_path = str(tmp_path / f"img_{index:02d}.jpg")
+            image_paths.append(image_path)
+            download_tasks.append(_download_required(url, image_path, f"image_{index + 1}"))
 
-        audio_path = str(tmp / "narration.mp3")
-        tasks.append(_download(audio_url, audio_path, "Audio"))
+        audio_path = str(tmp_path / "narration.mp3")
+        download_tasks.append(_download_required(assembly_input.audio_url, audio_path, "audio"))
 
-        th_path = None
-        if talking_head_url:
-            th_path = str(tmp / "talking_head.mp4")
-            tasks.append(_download(talking_head_url, th_path, "Talking Head"))
+        talking_head_path: Optional[str] = None
+        if assembly_input.talking_head_url:
+            talking_head_dest = str(tmp_path / "talking_head.mp4")
+            download_tasks.append(
+                _download_optional(assembly_input.talking_head_url, talking_head_dest, "talking_head")
+            )
 
-        await asyncio.gather(*tasks)
+        download_results = await asyncio.gather(*download_tasks)
+        if assembly_input.talking_head_url:
+            talking_head_path = download_results[-1]
 
-        # Verify all files exist
-        for p in [*img_paths, audio_path]:
-            if not os.path.exists(p) or os.path.getsize(p) < 100:
-                raise AssemblyMissingAssetError(f"File missing or too small: {p}")
+        for path in [*image_paths, audio_path]:
+            if not os.path.exists(path) or os.path.getsize(path) < 100:
+                raise AssemblyMissingAssetError(f"Required asset missing or too small: {path}")
 
-        # 2. Build slideshow concat file
-        concat_file = str(tmp / "concat.txt")
-        with open(concat_file, "w") as f:
-            for img in img_paths:
-                f.write(f"file '{img}'\nduration {dur_per_img}\n")
-            f.write(f"file '{img_paths[-1]}'\n")  # last frame hold
+        concat_file = str(tmp_path / "concat.txt")
+        with open(concat_file, "w", encoding="utf-8") as file_obj:
+            for image_path in image_paths:
+                file_obj.write(f"file '{image_path}'\n")
+                file_obj.write(f"duration {assembly_input.duration_per_image}\n")
+            file_obj.write(f"file '{image_paths[-1]}'\n")
 
-        slideshow_path = str(tmp / "slideshow.mp4")
-        _run_ffmpeg([
-            "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_file,
-            "-vf", "scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2,setsar=1",
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "25",
-            slideshow_path
-        ], "slideshow")
+        slideshow_path = str(tmp_path / "slideshow.mp4")
+        _run_ffmpeg(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                concat_file,
+                "-vf",
+                "scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2,setsar=1",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-r",
+                "25",
+                slideshow_path,
+            ],
+            "slideshow",
+        )
 
-        # 3. Add captions overlay (optional, if captions provided)
-        if captions:
+        if assembly_input.scene_captions:
             drawtext_filters = []
-            per_cap = dur_per_img
-            for i, cap in enumerate(captions[:len(img_paths)]):
-                ts = i * per_cap
-                te = ts + per_cap
-                safe_cap = cap.replace("'", "\\'").replace(":", "\\:")[:60]
+            for index, caption in enumerate(assembly_input.scene_captions[: len(image_paths)]):
+                start_ts = index * assembly_input.duration_per_image
+                end_ts = start_ts + assembly_input.duration_per_image
+                safe_caption = caption.replace("'", "\\'").replace(":", "\\:")[:60]
                 drawtext_filters.append(
-                    f"drawtext=text='{safe_cap}':fontsize=30:fontcolor=white:x=(w-text_w)/2:y=h-80:box=1:boxcolor=black@0.6:boxborderw=8:enable='between(t,{ts},{te})'"
+                    "drawtext="
+                    f"text='{safe_caption}':fontsize=30:fontcolor=white:"
+                    "x=(w-text_w)/2:y=h-80:box=1:boxcolor=black@0.6:boxborderw=8:"
+                    f"enable='between(t,{start_ts},{end_ts})'"
                 )
-            captioned_path = str(tmp / "slideshow_captioned.mp4")
-            _run_ffmpeg([
-                "ffmpeg", "-y", "-i", slideshow_path,
-                "-vf", ",".join(drawtext_filters),
-                "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                captioned_path
-            ], "captions")
+
+            captioned_path = str(tmp_path / "slideshow_captioned.mp4")
+            _run_ffmpeg(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    slideshow_path,
+                    "-vf",
+                    ",".join(drawtext_filters),
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    captioned_path,
+                ],
+                "captions",
+            )
             slideshow_path = captioned_path
 
-        # 4. Final assembly: split screen OR just slideshow + audio
-        final_path = str(tmp / "final_output.mp4")
+        final_path = str(tmp_path / "final_output.mp4")
+        used_fallback = not talking_head_path
 
-        if th_path and os.path.exists(th_path):
-            # Split screen 1080x1920
-            _run_ffmpeg([
-                "ffmpeg", "-y",
-                "-i", slideshow_path, "-i", th_path, "-i", audio_path,
-                "-filter_complex",
-                (
-                    "[0:v]scale=1080:960,setsar=1[top];"
-                    "[1:v]scale=1080:960,setsar=1[bot];"
-                    "[top][bot]vstack=inputs=2[v];"
-                    "[v]drawbox=w=iw:h=4:y=(ih/2)-2:color=orange:t=fill[vbar]"
-                ),
-                "-map", "[vbar]", "-map", "2:a",
-                "-c:v", "libx264", "-c:a", "aac", "-shortest",
-                final_path
-            ], "split_screen_assembly")
+        if talking_head_path and os.path.exists(talking_head_path) and os.path.getsize(talking_head_path) >= 100:
+            _run_ffmpeg(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    slideshow_path,
+                    "-i",
+                    talking_head_path,
+                    "-i",
+                    audio_path,
+                    "-filter_complex",
+                    (
+                        "[0:v]scale=1080:960,setsar=1[top];"
+                        "[1:v]scale=1080:960,setsar=1[bot];"
+                        "[top][bot]vstack=inputs=2[v];"
+                        "[v]drawbox=w=iw:h=4:y=(ih/2)-2:color=orange:t=fill[vbar]"
+                    ),
+                    "-map",
+                    "[vbar]",
+                    "-map",
+                    "2:a",
+                    "-c:v",
+                    "libx264",
+                    "-c:a",
+                    "aac",
+                    "-shortest",
+                    final_path,
+                ],
+                "split_screen_assembly",
+            )
         else:
-            # Slideshow + audio only (1080x960 → pad to 1080x1920)
-            _run_ffmpeg([
-                "ffmpeg", "-y",
-                "-i", slideshow_path, "-i", audio_path,
-                "-vf", "pad=1080:1920:0:(1920-ih)/2:black",
-                "-c:v", "libx264", "-c:a", "aac", "-shortest",
-                final_path
-            ], "slideshow_audio_assembly")
+            used_fallback = True
+            _run_ffmpeg(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    slideshow_path,
+                    "-i",
+                    audio_path,
+                    "-vf",
+                    "pad=1080:1920:0:(1920-ih)/2:black",
+                    "-c:v",
+                    "libx264",
+                    "-c:a",
+                    "aac",
+                    "-shortest",
+                    final_path,
+                ],
+                "slideshow_audio_assembly",
+            )
 
-        # 5. Validate output
         if not os.path.exists(final_path) or os.path.getsize(final_path) < 10_000:
             raise AssemblyError("Final video file is missing or suspiciously small.")
 
-        size_kb = os.path.getsize(final_path) // 1024
-        logger.info(f"Final video: {size_kb} KB")
-
-        # 6. Upload to R2
         storage = StorageService()
-        storage_key = f"videos/{persona_id}/{topic.replace(' ', '_')}_final.mp4"
+        safe_topic = _safe_topic_fragment(assembly_input.topic)
+        storage_key = f"videos/{assembly_input.persona_id}/{safe_topic}_final.mp4"
 
         try:
-            with open(final_path, "rb") as f:
-                video_bytes = f.read()
+            with open(final_path, "rb") as file_obj:
+                video_bytes = file_obj.read()
             video_url = await storage.upload_bytes(
                 data=video_bytes,
                 filename=storage_key,
                 content_type="video/mp4",
             )
-        except Exception as e:
-            raise StorageUploadError(f"Failed to upload final video: {e}")
+        except Exception as exc:
+            raise StorageUploadError(f"Failed to upload final video: {exc}") from exc
 
-        logger.info(f"Final video uploaded: {video_url}")
+        metadata = {
+            **assembly_input.model_dump(),
+            "assembly_mode": "slideshow_audio" if used_fallback else "split_screen",
+            "used_talking_head": not used_fallback,
+        }
 
         return FinalVideoContract(
+            url=video_url,
             video_url=video_url,
             preview_url=video_url,
             storage_key=storage_key,
-            persona_id=persona_id,
-            topic=topic,
+            metadata=metadata,
+            status="completed",
+            resolution="1080x1920",
+            persona_id=assembly_input.persona_id,
+            topic=assembly_input.topic,
         ).model_dump()

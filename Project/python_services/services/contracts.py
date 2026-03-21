@@ -1,60 +1,89 @@
 """
-Pipeline Internal Contracts (TripC v2 Standard)
-=================================================
-Tất cả các "contract" nội bộ được khóa tại đây.
-Mọi service và activity PHẢI trả về đúng cấu trúc này.
+Pipeline internal contracts.
 """
-from typing import Optional, List
+
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 
-# ─── Scene Contract ───────────────────────────────────────────────────────────
-
 class SceneContract(BaseModel):
-    """Một phân cảnh trong kịch bản video."""
     id: int
-    timestamp_start: float  # seconds
-    timestamp_end: float    # seconds
+    timestamp_start: float
+    timestamp_end: float
     caption: str
-    prompt: str             # Visual prompt for fal.ai
+    prompt: str
 
-
-# ─── Script Contract ─────────────────────────────────────────────────────────
 
 class ScriptContract(BaseModel):
-    """Output từ AIService.generate_script(). Phải validate trước khi đưa vào pipeline."""
     script: str
-    duration_estimate: float  # Total video duration in seconds
+    duration_estimate: float
     scenes: List[SceneContract]
 
 
-# ─── Image Contract ───────────────────────────────────────────────────────────
+class PromptMetadata(BaseModel):
+    day: int = 1
+    platform: str = "default"
+
+
+class MediaConfig(BaseModel):
+    voice: Optional[str] = None
+    duration: Optional[float] = None
+    fps: Optional[int] = None
+    model: Optional[str] = None
+    aspect_ratio: Optional[str] = None
+    safety_tolerance: Optional[int] = None
+
+
+class ImageInput(BaseModel):
+    type: str = "image"
+    prompt: str
+    metadata: PromptMetadata = Field(default_factory=PromptMetadata)
+    config: MediaConfig = Field(default_factory=MediaConfig)
+
+
+class VideoInput(BaseModel):
+    type: str = "video"
+    prompt: str
+    metadata: PromptMetadata = Field(default_factory=PromptMetadata)
+    config: MediaConfig = Field(default_factory=MediaConfig)
+
+
+class AudioInput(BaseModel):
+    type: str = "audio"
+    script: str
+    metadata: PromptMetadata = Field(default_factory=PromptMetadata)
+    config: MediaConfig = Field(default_factory=MediaConfig)
+
+
+class SplitScreenVideoInput(BaseModel):
+    image_urls: List[str]
+    audio_url: str
+    talking_head_url: Optional[str] = None
+    scene_captions: List[str] = Field(default_factory=list)
+    persona_id: str = "unknown"
+    topic: str = "topic"
+    duration_per_image: float = 4.0
+
 
 class ImageContract(BaseModel):
-    """Output từ FalAIService.generate_image()."""
     type: str = "image"
     url: str
     width: Optional[int] = None
     height: Optional[int] = None
     model: str
     prompt: str
-    scene_id: Optional[int] = None  # Which scene this image belongs to
+    scene_id: Optional[int] = None
 
-
-# ─── Audio Contract ───────────────────────────────────────────────────────────
 
 class AudioContract(BaseModel):
-    """Output từ GoogleTTSService.synthesize()."""
     type: str = "audio"
-    url: str           # R2 public URL
-    voice: str         # e.g. vi-VN-Wavenet-C
-    duration: Optional[float] = None  # seconds
+    url: str
+    voice: str
+    duration: Optional[float] = None
 
-
-# ─── Talking Head Contract ────────────────────────────────────────────────────
 
 class TalkingHeadContract(BaseModel):
-    """Output từ HeyGenService.create_video()."""
     type: str = "talking_head_video"
     url: str
     avatar_id: str
@@ -63,13 +92,27 @@ class TalkingHeadContract(BaseModel):
     status: str = "completed"
 
 
-# ─── Final Output Contract ────────────────────────────────────────────────────
+class VideoArtifact(BaseModel):
+    type: str = "video"
+    url: str
+    storage_key: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    status: str = "completed"
+    preview_url: Optional[str] = None
+    duration: Optional[float] = None
+    resolution: str = "1080x1920"
+    persona_id: Optional[str] = None
+    topic: Optional[str] = None
+
 
 class FinalVideoContract(BaseModel):
-    """Output từ video assembly activity."""
+    type: str = "video"
+    url: Optional[str] = None
     video_url: str
     preview_url: Optional[str] = None
     storage_key: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    status: str = "completed"
     duration: Optional[float] = None
     resolution: str = "1080x1920"
     persona_id: Optional[str] = None

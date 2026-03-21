@@ -12,6 +12,7 @@ from workflows import (
     WeeklyMarketingWorkflow,
     PostPublishingWorkflow,
     EngagementSyndicateWorkflow,
+    ShortVideoWorkflow,
 )
 from activities import (
     generate_weekly_strategy,
@@ -26,12 +27,48 @@ from activities import (
     track_engagement,
     send_telegram_approval_request,
     wait_for_approval,
+    generate_and_send_script_for_approval,
+    wait_for_script_approval,
+    send_preview_to_telegram,
+    wait_for_publish_decision,
+    create_talking_head_video,
+    generate_scene_images,
+    build_split_screen_video,
 )
 from config.settings import settings
 from services.content_persistence_service import ContentPersistenceService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+workflows = [
+    WeeklyMarketingWorkflow,
+    PostPublishingWorkflow,
+    EngagementSyndicateWorkflow,
+    ShortVideoWorkflow,
+]
+
+activities = [
+    generate_weekly_strategy,
+    generate_media_prompts,
+    generate_daily_content,
+    generate_image,
+    generate_video,
+    generate_audio,
+    upload_to_storage,
+    schedule_posts,
+    publish_to_platforms,
+    track_engagement,
+    send_telegram_approval_request,
+    wait_for_approval,
+    generate_and_send_script_for_approval,
+    wait_for_script_approval,
+    send_preview_to_telegram,
+    wait_for_publish_decision,
+    create_talking_head_video,
+    generate_scene_images,
+    build_split_screen_video,
+]
 
 
 async def main():
@@ -51,25 +88,8 @@ async def main():
     worker = Worker(
         client,
         task_queue=settings.TEMPORAL_TASK_QUEUE,
-        workflows=[
-            WeeklyMarketingWorkflow,
-            PostPublishingWorkflow,
-            EngagementSyndicateWorkflow,
-        ],
-        activities=[
-            generate_weekly_strategy,
-            generate_media_prompts,
-            generate_daily_content,
-            generate_image,
-            generate_video,
-            generate_audio,
-            upload_to_storage,
-            schedule_posts,
-            publish_to_platforms,
-            track_engagement,
-            send_telegram_approval_request,
-            wait_for_approval,
-        ],
+        workflows=workflows,
+        activities=activities,
         max_concurrent_activity_task_polls=settings.WORKER_CONCURRENCY,
         max_concurrent_workflow_task_polls=settings.WORKER_CONCURRENCY,
     )

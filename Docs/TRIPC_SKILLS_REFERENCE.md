@@ -153,10 +153,9 @@ Example for `/video`:
 2. choose persona
 3. optionally choose `Create New Persona`
 4. enter topic
-5. choose tone
-6. choose platform or duration target
-7. validate quota and persona readiness
-8. trigger pipeline
+5. inject default tone/platform for the current lane
+6. validate quota and persona readiness
+7. trigger pipeline
 
 Example for `/carousel`:
 

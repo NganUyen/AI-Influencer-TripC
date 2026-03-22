@@ -59,12 +59,12 @@ These are the lower-level project capabilities that the OpenClaw Telegram skills
 
 ## Important Note
 
-This file defines the OpenClaw Telegram skill tree before Telegram integration.
+This file defines the OpenClaw Telegram skill tree and its current Telegram integration status.
 
 At the time of writing:
 
 - the skill definitions are now documented and registered
-- the Telegram menu router is not yet implemented
+- the Telegram menu router/session flow now exists for current active skills
 - some target APIs are already exposed and should be treated as the canonical
   skill-facing backend surface
 - some target APIs remain planned rather than already exposed
@@ -151,8 +151,9 @@ Examples:
   - required: topic/brief
   - optional: style, tone, `freeform_brief`, `creative_notes`
 - `video-ai`
-  - required: persona, topic, tone
-  - optional: platform, duration target, `hook_idea`, `freeform_brief`
+  - required: persona, topic
+  - defaulted by skill runtime: `tone=natural`, `platform=tiktok`
+  - optional: duration target, `hook_idea`, `freeform_brief`
 - `long-post`
   - required: topic, platform
   - optional: persona, tone, `freeform_brief`
@@ -218,6 +219,7 @@ Generate images intended for scene or slideshow use.
 - backed by the current image provider lane
 - one of the easiest media skills to integrate early
 - should still allow extra visual notes in plain text
+- current menu flow is `collect prompt -> choose style -> preview`
 
 ### `image-avatar`
 
@@ -239,8 +241,8 @@ Run the full AI influencer video lane:
 
 1. pick persona
 2. collect topic
-3. collect tone
-4. optionally collect platform
+3. start workflow with default `tone=natural`
+4. start workflow with default `platform=tiktok`
 5. generate script
 6. generate audio
 7. generate scene images
@@ -251,9 +253,10 @@ Run the full AI influencer video lane:
 **Current repo reality**
 
 - most internal project capabilities exist
-- the dedicated Telegram/OpenClaw wrapper still needs to be built
+- the dedicated Telegram/OpenClaw wrapper exists for the current active lane
 - the canonical `POST /api/workflows/start-video` endpoint exists
 - it should be the only video-start contract the skill depends on
+- current Telegram skill flow is `pick persona -> collect topic -> start workflow`
 - a user should still be able to add hook ideas or extra brief text before script generation
 
 ### `video-tutorial`
@@ -498,6 +501,18 @@ Deferred and not part of the current OpenClaw implementation scope:
 
 - `video-tutorial`
 - `long-post`
+
+Known full-test failures at the current checkpoint:
+
+- `tests/test_chatgpt_connector_app.py::test_connector_app_oauth_and_tool_call_flow`
+- `tests/test_chatgpt_connector_app.py::test_connector_task_registry_is_scoped_to_the_current_session`
+- `tests/test_chatgpt_connector_auth.py::test_connector_auth_service_creates_and_resolves_session`
+- `tests/test_services.py::test_postiz_publish_builds_payload`
+
+What they mean:
+
+- the first three are connector OAuth bootstrap failures and do not block the current Telegram media skill lane
+- the last one is a real Postiz payload/id contract mismatch and should be treated as an open deployment risk for publish flows
 
 ## Current Registry
 

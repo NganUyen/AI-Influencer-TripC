@@ -9,8 +9,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import ContextTypes
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 from config.settings import settings
 
@@ -158,94 +157,45 @@ class TelegramService:
             return {"approved": False, "feedback": "Request not found"}
         return payload
 
-    async def handle_approval_callback(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ):
-        """
-        Callback handler for approval button clicks.
-        """
-        query = update.callback_query
-        await query.answer()
-
-        callback_data = query.data
-        request_id = f"{query.from_user.id}_{query.message.message_id}"
-        current_state = await self._read_request(request_id)
-
+    @classmethod
+    async def apply_callback_payload(
+        cls,
+        request_id: str,
+        callback_data: str,
+    ) -> Optional[str]:
+        """Handle approval callback data without requiring python-telegram-bot Update objects."""
+        cls._init_redis()
+        current_state = await cls._read_request(request_id)
         if current_state is None:
-            return
+            return None
 
         if callback_data.startswith("approve_"):
             current_state["approved"] = True
             current_state["status"] = "approved"
-            await self._write_request(request_id, current_state)
-            await query.edit_message_text(
-                text="Strategy approved! Proceeding with content generation."
-            )
+            await cls._write_request(request_id, current_state)
+            return "Strategy approved! Proceeding with content generation."
 
-        elif callback_data.startswith("reject_"):
+        if callback_data.startswith("reject_"):
             current_state["approved"] = False
             current_state["status"] = "rejected"
-            await self._write_request(request_id, current_state)
-            await query.edit_message_text(
-                text="Strategy rejected. Workflow cancelled."
-            )
+            await cls._write_request(request_id, current_state)
+            return "Strategy rejected. Workflow cancelled."
 
-        elif callback_data.startswith("edit_"):
-            await query.edit_message_text(
-                text="Please provide your feedback for edits:"
-            )
-            # In production, handle text input for feedback.
+        if callback_data.startswith("edit_"):
+            return "Please provide your feedback for edits:"
 
-        elif callback_data.startswith("save_"):
+        if callback_data.startswith("save_"):
             current_state["approved"] = True
             current_state["status"] = "save"
             current_state["feedback"] = "save"
-            await self._write_request(request_id, current_state)
-            await query.edit_message_text(
-                text="Saved. Final video kept for downstream use."
-            )
+            await cls._write_request(request_id, current_state)
+            return "Saved. Final video kept for downstream use."
 
-        elif callback_data.startswith("discard_"):
+        if callback_data.startswith("discard_"):
             current_state["approved"] = False
             current_state["status"] = "discard"
             current_state["feedback"] = "discard"
-            await self._write_request(request_id, current_state)
-            await query.edit_message_text(
-                text="Discarded. Final video will not be used."
-            )
+            await cls._write_request(request_id, current_state)
+            return "Discarded. Final video will not be used."
 
-    async def send_notification(self, user_id: str, message: str):
-        """
-        Send a simple notification message.
-        """
-        try:
-            await self.bot.send_message(
-                chat_id=user_id, text=message, parse_mode="Markdown"
-            )
-            logger.info("Notification sent to %s", user_id)
-        except Exception as exc:
-            logger.error("Failed to send notification: %s", str(exc))
-
-    async def send_media(
-        self, user_id: str, media_url: str, media_type: str, caption: str = ""
-    ):
-        """
-        Send media (image/video) to user.
-        """
-        try:
-            if media_type == "photo":
-                await self.bot.send_photo(
-                    chat_id=user_id, photo=media_url, caption=caption
-                )
-            elif media_type == "video":
-                await self.bot.send_video(
-                    chat_id=user_id, video=media_url, caption=caption
-                )
-            elif media_type == "audio":
-                await self.bot.send_audio(
-                    chat_id=user_id, audio=media_url, caption=caption
-                )
-
-            logger.info("Media sent to %s", user_id)
-        except Exception as exc:
-            logger.error("Failed to send media: %s", str(exc))
+        return None

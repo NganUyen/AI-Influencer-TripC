@@ -1,10 +1,16 @@
 # SKILL_CHECKPOINTS
 
-This checkpoint follows the current OpenClaw integration pass. The prompt count says `7 Phase 1 skills + 2 stub skills`, while the explicit module list only names 6 active Python skill modules. This document therefore includes:
+This checkpoint follows the current OpenClaw integration pass. The prompt count says `7 Phase 1 skills + 2 stub skills`, while the implementation surface now contains:
 
-- 6 active modules implemented in `Project/python_services/skills/`
-- 2 stub modules
+- 7 active modules implemented in `Project/python_services/skills/`
+- 1 stub module
 - 1 reference-only checkpoint for `image-poster` from the skill catalog, so Telegram wiring has a complete catalog handoff
+
+Runtime note:
+
+- real user entrypoint now goes through `POST /api/webhooks/telegram`
+- `services/skill_dispatcher.py` and `services/telegram_renderer.py` are implemented
+- the per-skill "Start: POST /skill/start ..." scenarios below should be read as logical dispatcher start points, not as a literal public API route
 
 ## image-scene
 
@@ -19,8 +25,6 @@ step_key | input_type | prompt_text | options
 ─────────────────────────────────────────────
 collect_prompt | free_text | "What scene image should be generated?" | -
 choose_style | inline_keyboard | "Choose a style." | [Clean, Cinematic, Minimal, Custom]
-choose_tone | inline_keyboard | "Choose a tone." | [Neutral, Bold, Warm, Custom]
-generate_preview | automatic | - | -
 confirm_or_regenerate | inline_keyboard | "Use this image?" | [Use, Regenerate, Cancel]
 done | automatic | - | -
 
@@ -31,7 +35,6 @@ done | automatic | - | -
   "collected": {
     "topic_or_prompt": None,
     "style": None,
-    "tone": None,
     "persona_id": None,
     "aspect_ratio": None,
     "scene_type": None,
@@ -58,14 +61,13 @@ done | automatic | - | -
 ### Telegram wiring checklist
 [ ] step collect_prompt: ask free text question
 [ ] step choose_style: show style keyboard
-[ ] step choose_tone: show tone keyboard
 [ ] step generate_preview: show "Generating..." message
 [ ] step confirm_or_regenerate: send image + action buttons
 [ ] step done: send final asset
 
 ### Test scenario
 1. Start: POST /skill/start `{"skill": "image-scene", "chat_id": "..."}`
-2. Step 1: user enters prompt, style, tone
+2. Step 1: user enters prompt, then chooses style
 3. Step 2: dispatcher calls the image endpoint
 4. Expected output: preview image URL in `session.artifacts.preview_image_url`
 
@@ -307,8 +309,6 @@ step_key | input_type | prompt_text | options
 ─────────────────────────────────────────────
 pick_persona | inline_keyboard | "Choose a ready persona." | [ready persona ids]
 collect_topic | free_text | "What should the video be about?" | -
-choose_tone | inline_keyboard | "Choose a tone." | [Natural, Bold, Friendly, Custom]
-choose_platform | inline_keyboard | "Choose a platform." | [tiktok, instagram, youtube]
 generate_script | automatic | - | -
 approve_script | inline_keyboard | "Use this script direction?" | [Approve, Regenerate, Cancel]
 generate_media | automatic | - | -
@@ -324,8 +324,8 @@ done | automatic | - | -
   "collected": {
     "persona_id": None,
     "topic": None,
-    "tone": None,
-    "platform": None,
+    "tone": "natural",
+    "platform": "tiktok",
     "duration_target": None,
     "hook_idea": None,
     "freeform_brief": None,
@@ -356,15 +356,13 @@ done | automatic | - | -
 ### Telegram wiring checklist
 [ ] step pick_persona: show only ready personas
 [ ] step collect_topic: ask free text question
-[ ] step choose_tone: show tone keyboard
-[ ] step choose_platform: show platform keyboard
 [ ] step generate_script: show workflow progress
 [ ] step approve_video: render preview/result + actions
 [ ] step done: send workflow completion handoff
 
 ### Test scenario
 1. Start: POST /skill/start `{"skill": "video-ai", "chat_id": "..."}`
-2. Step 1: user picks persona, enters topic, tone, platform
+2. Step 1: user picks persona and enters topic
 3. Step 2: dispatcher starts `POST /api/workflows/start-video`
 4. Expected output: `workflow_id` saved in `session.control.workflow_id`
 
@@ -425,7 +423,7 @@ done | automatic | - | -
 ## carousel
 
 ### Backend status
-backend_pending
+implemented
 
 ### API target
 POST /api/media/carousel
@@ -467,7 +465,27 @@ done | automatic | - | -
 ### Output shape
 ```python
 {
-  "error": "Backend endpoint not yet available: POST /api/media/carousel",
+  "type": "carousel",
+  "topic": "...",
+  "platform": "...",
+  "slides": [
+    {
+      "slide_num": 1,
+      "caption": "...",
+      "cta_overlay": "...",
+      "image_url": "https://...",
+      "source_image_url": "https://...",
+      "storage_key": "carousels/...",
+      "metadata": {...},
+    }
+  ],
+  "platform_caption": "...",
+  "hashtags": ["#tripc"],
+  "metadata": {
+    "slide_count": 8,
+    "storage_prefix": "carousels/..."
+  },
+  "manifest_url": "https://.../manifest.json",
 }
 ```
 
@@ -478,12 +496,13 @@ done | automatic | - | -
 [ ] step choose_slide_count: show slide-count keyboard
 [ ] step generate_images: show progress message
 [ ] step preview: send slide previews + actions
+[ ] step done: send final carousel artifact and manifest link
 
 ### Test scenario
 1. Start: POST /skill/start `{"skill": "carousel", "chat_id": "..."}`
 2. Step 1: user fills the structured inputs
-3. Step 2: dispatcher calls the stub skill
-4. Expected output: backend-pending error message
+3. Step 2: dispatcher calls `POST /api/media/carousel`
+4. Expected output: rendered slide image URLs plus `manifest_url`
 
 ## long-post
 

@@ -13,6 +13,7 @@ from .weekly_planner import WeeklyPlannerSkill
 # Active Phase 1 skills for the current OpenClaw integration pass.
 SKILL_REGISTRY = {
     "image-scene": ImageSceneSkill,
+    "carousel": CarouselSkill,
     "quota-inspector": QuotaInspectorSkill,
     "persona-inspector": PersonaInspectorSkill,
     "persona-creator": PersonaCreatorSkill,
@@ -20,9 +21,8 @@ SKILL_REGISTRY = {
     "weekly-planner": WeeklyPlannerSkill,
 }
 
-# Stub skills are documented for the Telegram layer but intentionally inactive.
+# Backend-pending skills are documented for the Telegram layer but intentionally inactive.
 STUB_SKILL_REGISTRY = {
-    "carousel": CarouselSkill,
     "long-post": LongPostSkill,
 }
 

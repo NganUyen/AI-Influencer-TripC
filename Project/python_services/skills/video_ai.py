@@ -21,6 +21,13 @@ class VideoAISkill(BaseSkill):
     session_shape = deepcopy(_DEFINITION.get("session_shape", BaseSkill.session_shape))
 
     @classmethod
+    def initial_session(cls) -> SkillSession:
+        session = super().initial_session()
+        session.collected["tone"] = "natural"
+        session.collected["platform"] = "tiktok"
+        return session
+
+    @classmethod
     def _composite_topic(cls, collected: Dict[str, Any]) -> str:
         lines = [str(collected["topic"]).strip()]
         if collected.get("hook_idea"):

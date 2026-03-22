@@ -13,6 +13,7 @@ from workflows import (
     PostPublishingWorkflow,
     EngagementSyndicateWorkflow,
     ShortVideoWorkflow,
+    DailyStoryWorkflow,
 )
 from activities import (
     generate_weekly_strategy,
@@ -34,6 +35,8 @@ from activities import (
     create_talking_head_video,
     generate_scene_images,
     build_split_screen_video,
+    generate_daily_story,
+    send_story_for_approval,
 )
 from config.settings import settings
 from services.content_persistence_service import ContentPersistenceService
@@ -45,6 +48,7 @@ workflows = [
     WeeklyMarketingWorkflow,
     PostPublishingWorkflow,
     EngagementSyndicateWorkflow,
+    DailyStoryWorkflow,
     ShortVideoWorkflow,
 ]
 
@@ -68,6 +72,8 @@ activities = [
     create_talking_head_video,
     generate_scene_images,
     build_split_screen_video,
+    generate_daily_story,
+    send_story_for_approval,
 ]
 
 

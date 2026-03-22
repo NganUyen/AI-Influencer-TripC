@@ -159,10 +159,8 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "kind": "leaf",
         "parent": "image-menu",
         "menu_options": [],
-        "required_params": ["topic_or_prompt"],
+        "required_params": ["topic_or_prompt", "style"],
         "optional_params": [
-            "style",
-            "tone",
             "persona_id",
             "aspect_ratio",
             "scene_type",
@@ -191,17 +189,13 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "steps": [
             "collect_prompt",
             "choose_style",
-            "choose_tone",
-            "generate_preview",
             "confirm_or_regenerate",
-            "store_asset",
         ],
         "session_shape": {
             "step_key": "collect_prompt",
             "collected": {
                 "topic_or_prompt": None,
                 "style": None,
-                "tone": None,
                 "persona_id": None,
                 "aspect_ratio": None,
                 "scene_type": None,
@@ -309,15 +303,16 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "command": "/media",
         "role": "Generate AI influencer videos",
         "description": (
-            "Run the full AI influencer video lane after collecting persona,"
-            " topic, tone, and platform."
+            "Run the full AI influencer video lane after collecting persona"
+            " and topic. Tone/platform defaults are injected by the skill layer."
         ),
         "status": "partial",
         "kind": "leaf",
         "parent": "video-menu",
         "menu_options": [],
-        "required_params": ["persona_id", "topic", "tone"],
+        "required_params": ["persona_id", "topic"],
         "optional_params": [
+            "tone",
             "platform",
             "duration_target",
             "hook_idea",
@@ -357,8 +352,6 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "steps": [
             "pick_persona",
             "collect_topic",
-            "choose_tone",
-            "choose_platform",
             "generate_script",
             "approve_script",
             "generate_media",
@@ -371,8 +364,8 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "collected": {
                 "persona_id": None,
                 "topic": None,
-                "tone": None,
-                "platform": None,
+                "tone": "natural",
+                "platform": "tiktok",
                 "duration_target": None,
                 "hook_idea": None,
                 "freeform_brief": None,

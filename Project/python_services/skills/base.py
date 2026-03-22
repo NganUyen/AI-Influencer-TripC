@@ -113,6 +113,13 @@ class BaseSkill(ABC):
     def _auth_headers(cls) -> Dict[str, str]:
         token = os.getenv("INTERNAL_API_TOKEN", "").strip()
         if not token:
+            try:
+                from config.settings import settings
+
+                token = (getattr(settings, "INTERNAL_API_TOKEN", None) or "").strip()
+            except Exception:
+                token = ""
+        if not token:
             return {}
         return {"x-internal-api-token": token}
 

@@ -27,8 +27,6 @@ class ImageSceneSkill(BaseSkill):
             lines.append(f"Scene type: {collected['scene_type']}")
         if collected.get("style"):
             lines.append(f"Style: {collected['style']}")
-        if collected.get("tone"):
-            lines.append(f"Tone: {collected['tone']}")
         if collected.get("persona_id"):
             lines.append(f"Persona reference: {collected['persona_id']}")
         if collected.get("freeform_brief"):
@@ -47,9 +45,10 @@ class ImageSceneSkill(BaseSkill):
         current = cls._normalize_session(session)
         missing = cls._missing_required_params(current)
         if missing:
+            next_step = "choose_style" if "style" in missing else "collect_prompt"
             return cls._collecting_result(
                 current,
-                next_step="collect_prompt",
+                next_step=next_step,
                 output={"missing_params": missing},
             )
 

@@ -99,7 +99,7 @@ class Settings(BaseSettings):
     # Telegram
     TELEGRAM_BOT_TOKEN: str
     TELEGRAM_CHAT_ID: str
-    REDIS_URL: Optional[str] = "redis://localhost:6379/0"
+    TELEGRAM_WEBHOOK_SECRET: Optional[str] = None  # Set via setWebhook secret_token
 
     # Temporal
     TEMPORAL_ADDRESS: str = "localhost:7233"
@@ -169,6 +169,7 @@ class Settings(BaseSettings):
         "BACKEND_PUBLIC_URL",
         "CHATGPT_CONNECTOR_PUBLIC_URL",
         "OPENAI_OAUTH_REDIRECT_URI",
+        "TELEGRAM_WEBHOOK_SECRET",
         "POSTIZ_WEBHOOK_SECRET",
         "GROWCHIEF_WEBHOOK_SECRET",
         "CHATGPT_CONNECTOR_SESSION_SECRET",

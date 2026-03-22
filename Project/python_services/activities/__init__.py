@@ -14,6 +14,8 @@ from .media_activities import (
     generate_video,
     generate_audio,
     upload_to_storage,
+    create_talking_head_video,
+    generate_scene_images,
 )
 from .distribution_activities import (
     schedule_posts,
@@ -46,6 +48,8 @@ __all__ = [
     "generate_video",
     "generate_audio",
     "upload_to_storage",
+    "create_talking_head_video",
+    "generate_scene_images",
     # Distribution
     "schedule_posts",
     "publish_to_platforms",

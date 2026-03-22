@@ -3,8 +3,11 @@ Workflow API Routes
 Endpoints for managing Temporal workflows
 """
 
+from uuid import uuid4
+from typing import Dict, Any, List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request
-from typing import Dict, Any, List
+from pydantic import BaseModel
 from temporalio.client import Client
 from datetime import timedelta
 import logging
@@ -12,6 +15,13 @@ import logging
 from api.security import require_internal_api_token
 from workflows import WeeklyMarketingWorkflow
 from config.settings import settings
+from services.persona_registry_service import PersonaRegistryService
+
+try:
+    # TODO: ShortVideoWorkflow needs full registration after Step 3.
+    from workflows.short_video_workflow import ShortVideoWorkflow
+except ImportError:  # pragma: no cover - stepwise rollout compatibility
+    ShortVideoWorkflow = None
 
 router = APIRouter(dependencies=[Depends(require_internal_api_token)])
 logger = logging.getLogger(__name__)
@@ -19,6 +29,14 @@ logger = logging.getLogger(__name__)
 
 class TemporalUnavailableError(RuntimeError):
     """Raised when Temporal cannot be reached for a request."""
+
+
+class StartVideoRequest(BaseModel):
+    persona_id: str
+    topic: str
+    tone: str = "natural"
+    platform: str = "tiktok"
+    telegram_chat_id: Optional[str] = None
 
 
 async def get_temporal_client(request: Request) -> Client:
@@ -67,6 +85,69 @@ async def start_weekly_workflow(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as e:
         logger.error(f"Failed to start workflow: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/start-video")
+async def start_video_workflow(request: Request, payload: StartVideoRequest):
+    """
+    Start a new short-video workflow.
+    """
+    persona = await PersonaRegistryService.get_persona(payload.persona_id)
+    if not persona:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Persona '{payload.persona_id}' does not exist.",
+        )
+    if persona.get("status") != "ready":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Persona '{payload.persona_id}' is not ready.",
+        )
+    if not persona.get("heygen_avatar_id"):
+        raise HTTPException(
+            status_code=400,
+            detail="Persona is missing heygen_avatar_id.",
+        )
+    if not persona.get("tts_voice"):
+        raise HTTPException(
+            status_code=400,
+            detail="Persona is missing tts_voice.",
+        )
+    if ShortVideoWorkflow is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ShortVideoWorkflow is not available yet.",
+        )
+
+    try:
+        client = await get_temporal_client(request)
+        workflow_id = f"video-{payload.persona_id}-{uuid4().hex[:8]}"
+
+        handle = await client.start_workflow(
+            ShortVideoWorkflow.run,
+            args=[
+                {
+                    "persona_id": payload.persona_id,
+                    "topic": payload.topic,
+                    "tone": payload.tone,
+                    "platform": payload.platform,
+                    "telegram_chat_id": payload.telegram_chat_id,
+                }
+            ],
+            id=workflow_id,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            execution_timeout=timedelta(hours=2),
+        )
+
+        logger.info("Started short-video workflow: %s", workflow_id)
+        return {"workflow_id": workflow_id, "run_id": handle.id, "status": "started"}
+    except TemporalUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start short-video workflow: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -6,6 +6,7 @@ Object storage with zero egress fees
 import boto3
 import asyncio
 import logging
+from io import BytesIO
 from typing import BinaryIO, Dict, Any
 from botocore.config import Config
 from config.settings import settings
@@ -77,6 +78,26 @@ class StorageService:
         except Exception as e:
             logger.error(f"Failed to upload file to R2: {str(e)}")
             raise
+
+    async def upload_bytes(
+        self,
+        data: bytes,
+        filename: str,
+        content_type: str = "application/octet-stream",
+        metadata: Dict[str, str] = None,
+    ) -> str:
+        """
+        Upload raw bytes to R2.
+
+        This preserves compatibility with the newer assembly/smoke paths while
+        delegating to the stream-based upload implementation.
+        """
+        return await self.upload(
+            file_data=BytesIO(data),
+            filename=filename,
+            content_type=content_type,
+            metadata=metadata,
+        )
 
     async def delete(self, filename: str) -> bool:
         """

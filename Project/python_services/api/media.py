@@ -5,13 +5,14 @@ Endpoints for media generation and management
 
 import base64
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.security import require_internal_api_token
 from services import FalAIService, GoogleTTSService, StorageService
+from services.carousel_service import CarouselService
 
 router = APIRouter(dependencies=[Depends(require_internal_api_token)])
 logger = logging.getLogger(__name__)
@@ -29,6 +30,25 @@ class VideoGenerateRequest(BaseModel):
 class AudioGenerateRequest(BaseModel):
     text: str
     voice_id: str
+
+
+class CarouselGenerateRequest(BaseModel):
+    topic: str
+    app_name: str = "TripC"
+    platform: str = "instagram"
+    persona_id: Optional[str] = None
+    tone: Optional[str] = None
+    style: Optional[str] = None
+    num_slides: int = Field(default=8, ge=2, le=12)
+    aspect_ratio: str = "4:5"
+    image_model: str = "fal-ai/nano-banana-2"
+    planning_model: str = "models/gemini-2.0-flash"
+    safety_tolerance: int = Field(default=2, ge=1, le=6)
+    freeform_brief: Optional[str] = None
+    creative_notes: Optional[str] = None
+    language: Optional[str] = None
+    skin_color: Optional[str] = None
+    include_text_overlay: bool = True
 
 
 @router.post("/generate/image")
@@ -124,3 +144,16 @@ async def list_storage_files(prefix: str = ""):
     except Exception as e:
         logger.error(f"Failed to list files: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/carousel")
+async def generate_carousel(request: CarouselGenerateRequest):
+    """Generate a full carousel artifact with slide images and text overlays."""
+    try:
+        service = CarouselService()
+        return await service.generate_carousel(request.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(f"Carousel generation failed: {str(exc)}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

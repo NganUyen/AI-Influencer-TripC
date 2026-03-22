@@ -16,6 +16,11 @@ from .agent_configs import (
     ANALYTICS_AGENT_CONFIG,
 )
 from .agent_factory import AgentFactory, agent_factory
+from .openclaw_telegram_skill_configs import (
+    OPENCLAW_TELEGRAM_SKILL_REGISTRY,
+    get_openclaw_telegram_skill,
+    list_openclaw_telegram_skills,
+)
 
 __all__ = [
     "AGENT_REGISTRY",
@@ -30,4 +35,7 @@ __all__ = [
     "BROWSER_AGENT_CONFIG",
     "ENGAGEMENT_PERSONA_CONFIG",
     "ANALYTICS_AGENT_CONFIG",
+    "OPENCLAW_TELEGRAM_SKILL_REGISTRY",
+    "get_openclaw_telegram_skill",
+    "list_openclaw_telegram_skills",
 ]

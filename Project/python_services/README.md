@@ -36,6 +36,7 @@ FastAPI routes currently mounted in `main.py`:
 - `/api/media/generate/audio`
 - `/api/media/voices`
 - `/api/media/storage/list`
+- `/api/media/carousel`
 - `/api/accounts/stealth/create`
 - `/api/accounts/stealth/{account_id}`
 - `/api/accounts/connect/{platform}` (placeholder response)
@@ -44,6 +45,8 @@ FastAPI routes currently mounted in `main.py`:
 - `/api/analytics/post/{post_id}`
 - `/api/analytics/summary` (placeholder response)
 - `/api/personas`
+- `/api/personas/{persona_id}`
+- `/api/personas/{persona_id}/readiness`
 
 ## Workflows
 
@@ -148,7 +151,7 @@ Use them as targeted integration helpers once the related environment variables 
 
 ## Current Gaps
 
-- Persona endpoints in `main.py` still return placeholder data.
+- Persona endpoints are implemented and back the reusable persona registry/readiness flow.
 - Account connect/list endpoints are not fully wired to persistence yet.
 - Analytics summary is still a stub.
 - End-to-end behavior depends heavily on external services such as OpenClaw, Postiz, GrowChief, fal.ai, PlayHT, Telegram, and R2-compatible storage.

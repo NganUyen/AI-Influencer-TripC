@@ -194,6 +194,10 @@ async def generate_carousel_strategy(config: Dict[str, Any]) -> Dict[str, Any]:
     platform = config.get("platform", "tiktok")
     num_slides = config.get("num_slides", 8)
     model = config.get("model", "models/gemini-2.0-flash")
+    tone = config.get("tone", "clear and persuasive")
+    style = config.get("style", "modern social carousel")
+    freeform_brief = config.get("freeform_brief")
+    creative_notes = config.get("creative_notes")
     language = persona.get("language_name", "English")
     skin_color = persona.get("skin_color", "diverse")
 
@@ -203,6 +207,10 @@ async def generate_carousel_strategy(config: Dict[str, Any]) -> Dict[str, Any]:
 You are a social media content creator. Generate a {num_slides}-slide carousel for {platform}.
 App: {app_name} | Topic: {topic}
 Persona language: {language} | Model skin tone in images: {skin_color}
+Tone: {tone}
+Visual style: {style}
+Extra brief: {freeform_brief or "None"}
+Creative notes: {creative_notes or "None"}
 
 Return ONLY valid JSON:
 {{
@@ -210,7 +218,7 @@ Return ONLY valid JSON:
     {{
       "slide_num": 1,
       "image_prompt": "<fal.ai English prompt — specific, visual, {skin_color} person natural>",
-      "caption": "<short slide text in {language}, max 10 words>",
+      "caption": "<short slide text in {language}, max 12 words>",
       "cta_overlay": "<optional small overlay text, e.g. 'Swipe for tip 2'>"
     }}
   ],
@@ -219,6 +227,7 @@ Return ONLY valid JSON:
 }}
 
 Slide 1: Hook/Problem. Slides 2-7: Features/Benefits. Slide 8: CTA to download {app_name}.
+Keep each slide visually distinct and suitable for text overlay on top of the image.
 """
 
     ai = AIService()

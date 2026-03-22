@@ -117,3 +117,27 @@ class FinalVideoContract(BaseModel):
     resolution: str = "1080x1920"
     persona_id: Optional[str] = None
     topic: Optional[str] = None
+
+
+class CarouselSlideContract(BaseModel):
+    slide_num: int
+    image_prompt: str
+    caption: str
+    cta_overlay: Optional[str] = None
+    image_url: str
+    source_image_url: Optional[str] = None
+    storage_key: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CarouselArtifact(BaseModel):
+    type: str = "carousel"
+    app_name: str
+    topic: str
+    platform: str
+    persona_id: Optional[str] = None
+    slides: List[CarouselSlideContract]
+    platform_caption: str
+    hashtags: List[str] = Field(default_factory=list)
+    status: str = "completed"
+    metadata: Dict[str, Any] = Field(default_factory=dict)

@@ -42,7 +42,7 @@ class UpdatePersonaRequest(BaseModel):
     description: Optional[str] = None
 
 
-@router.get("/personas")
+@router.get("")
 async def list_personas(status: Optional[str] = Query(default=None)) -> List[Dict[str, Any]]:
     personas = await PersonaRegistryService.list_personas(status=status)
     return [
@@ -61,7 +61,7 @@ async def list_personas(status: Optional[str] = Query(default=None)) -> List[Dic
     ]
 
 
-@router.post("/personas")
+@router.post("")
 async def create_persona(payload: CreatePersonaRequest) -> Dict[str, Any]:
     try:
         return await PersonaRegistryService.create_persona(
@@ -82,7 +82,7 @@ async def create_persona(payload: CreatePersonaRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.get("/personas/{persona_id}")
+@router.get("/{persona_id}")
 async def get_persona(persona_id: str) -> Dict[str, Any]:
     persona = await PersonaRegistryService.get_persona(persona_id)
     if not persona:
@@ -90,7 +90,7 @@ async def get_persona(persona_id: str) -> Dict[str, Any]:
     return persona
 
 
-@router.patch("/personas/{persona_id}")
+@router.patch("/{persona_id}")
 async def update_persona(persona_id: str, payload: UpdatePersonaRequest) -> Dict[str, Any]:
     update_fields = {
         key: value for key, value in payload.model_dump().items() if value is not None
@@ -101,6 +101,6 @@ async def update_persona(persona_id: str, payload: UpdatePersonaRequest) -> Dict
     return persona
 
 
-@router.get("/personas/{persona_id}/readiness")
+@router.get("/{persona_id}/readiness")
 async def get_persona_readiness(persona_id: str) -> Dict[str, Any]:
     return await PersonaRegistryService.get_readiness(persona_id)

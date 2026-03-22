@@ -166,7 +166,7 @@ app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"]
 app.include_router(content.router, prefix="/api/content", tags=["Content"])
 app.include_router(quota.router, prefix="/api/quota", tags=["Quota"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
-app.include_router(personas.router, prefix="/api", tags=["Personas"])
+app.include_router(personas.router, prefix="/api/personas", tags=["Personas"])
 
 
 if __name__ == "__main__":

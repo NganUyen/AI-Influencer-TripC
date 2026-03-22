@@ -286,10 +286,14 @@ Current endpoints:
 - `POST /api/media/generate/audio`
 - `GET /api/media/voices`
 - `GET /api/media/storage/list`
+- `POST /api/media/carousel`
+  - input: `topic`, `platform`, optional `persona_id`, `tone`, `style`, `num_slides`
+  - generates slide strategy, slide images, text-overlay artifacts, and manifest upload
+  - returns a carousel artifact with rendered slide image URLs
 
 These endpoints are useful for direct provider access and smoke validation.
 
-They are not yet the full short-video pipeline entrypoints.
+The first five are direct provider/smoke endpoints. `POST /api/media/carousel` is a higher-level orchestration endpoint for the carousel lane.
 
 ## 7.3 Workflow API
 
@@ -1243,6 +1247,7 @@ These backend parts are already credible and usable as building blocks:
 - persona API (CRUD + readiness check)
 - Redis-backed Telegram approval state
 - `POST /api/workflows/start-video`
+- `POST /api/media/carousel`
 
 ## 19. What Is Not Fully Implemented Yet
 
@@ -1418,9 +1423,14 @@ What is now true:
 What is still not implemented:
 
 - distribution/publish layer (TikTok, YouTube Shorts)
-- carousel assembly endpoint
 - long-post assembly endpoint
 - OpenClaw/Telegram skill routing layer
 - conversation state management for multi-step menus
+
+Current prioritization note:
+
+- keep `ShortVideoWorkflow` / `POST /api/workflows/start-video` as the primary video lane for OpenClaw integration
+- defer a separate tutorial lane until there is a concrete need beyond the existing short-video flow
+- defer long-post integration until a dedicated backend endpoint exists
 
 The pipeline is now stable enough for Telegram/OpenClaw skill integration. Build skills on top of this foundation without modifying pipeline internals.

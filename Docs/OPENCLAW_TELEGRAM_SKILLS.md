@@ -10,7 +10,8 @@ That means:
 
 - define the Telegram/OpenClaw skill tree now
 - keep Telegram router integration for later
-- keep API/wiring gaps explicit
+- keep API/wiring gaps explicit, while using the canonical backend contracts
+  that already exist today
 
 This is different from the lower-level internal project skills documented in:
 
@@ -64,7 +65,9 @@ At the time of writing:
 
 - the skill definitions are now documented and registered
 - the Telegram menu router is not yet implemented
-- several target APIs are still planned rather than already exposed
+- some target APIs are already exposed and should be treated as the canonical
+  skill-facing backend surface
+- some target APIs remain planned rather than already exposed
 
 ## Input Philosophy
 
@@ -111,13 +114,13 @@ The bot should show:
 | `image-poster` | `/media -> Create Image -> Marketing Poster` | `image`, `r2-storage` | `POST /api/media/generate/image` | poster image URL | `defined_with_backing_gap` |
 | `image-scene` | `/media -> Create Image -> Scene/Slideshow` | `image`, `r2-storage` | `POST /api/media/generate/image` | scene image URL | `implemented_backing` |
 | `image-avatar` | `/media -> Create Image -> Avatar` | `image`, `r2-storage`, `persona-setup` | `POST /api/media/generate/image` | avatar preview URL | `partial` |
-| `video-ai` | `/media -> Create Video -> AI Influencer` | `persona-picker`, `script-gen`, `google-tts`, `image`, `heygen-video`, `ffmpeg-assembly`, `r2-storage`, `telegram-approval`, `postiz-publish` | `POST /api/workflows/start-video` | final video URL | `partial` |
-| `video-tutorial` | `/media -> Create Video -> Tutorial` | `persona-picker`, `scene-builder`, `google-tts`, `image`, `heygen-video`, `ffmpeg-assembly`, `r2-storage`, `telegram-approval`, `postiz-publish` | `POST /api/workflows/start-tutorial` | final tutorial video URL | `partial` |
-| `carousel` | `/media -> Carousel` | `persona-picker`, `carousel-plan`, `image`, `r2-storage`, `telegram-approval`, `postiz-publish` | `POST /api/media/carousel` | slides JSON + image URLs | `implemented_backing` |
-| `long-post` | `/media -> Long Post` | `persona-picker`, `long-post-plan`, `image`, `r2-storage`, `telegram-approval`, `postiz-publish` | `POST /api/media/long-post` | content JSON + hero image URL | `implemented_backing` |
+| `video-ai` | `/media -> Create Video -> AI Influencer` | `persona-picker`, `script-gen`, `google-tts`, `image`, `heygen-video`, `ffmpeg-assembly`, `r2-storage`, `telegram-approval`, `postiz-publish` | `POST /api/workflows/start-video` | final video URL | `implemented_backing` |
+| `video-tutorial` | `/media -> Create Video -> Tutorial` | `persona-picker`, `scene-builder`, `google-tts`, `image`, `heygen-video`, `ffmpeg-assembly`, `r2-storage`, `telegram-approval`, `postiz-publish` | `POST /api/workflows/start-tutorial` | final tutorial video URL | `deferred` |
+| `carousel` | `/media -> Carousel` | `persona-picker`, `carousel-plan`, `image`, `r2-storage`, `telegram-approval`, `postiz-publish` | `POST /api/media/carousel` | slides JSON + rendered image URLs | `implemented_backing` |
+| `long-post` | `/media -> Long Post` | `persona-picker`, `long-post-plan`, `image`, `r2-storage`, `telegram-approval`, `postiz-publish` | `POST /api/media/long-post` | content JSON + hero image URL | `deferred` |
 | `persona-manager` | `/media -> Manage -> Personas` | none directly, routes to persona subskills | none | persona management submenu | `defined_only` |
-| `persona-creator` | `/media -> Manage -> Personas -> Create Persona` | `image`, `heygen-video`, `r2-storage`, `persona-setup` | future persona registry endpoints | ready persona record | `partial` |
-| `persona-inspector` | `/media -> Manage -> Personas -> Inspect Personas` | `persona-picker`, `persona-setup`, `image`, `heygen-video`, `r2-storage` | future persona registry endpoints | persona cards and actions | `partial` |
+| `persona-creator` | `/media -> Manage -> Personas -> Create Persona` | `image`, `heygen-video`, `r2-storage`, `persona-setup` | `POST /api/personas`, `PATCH /api/personas/{persona_id}`, `GET /api/personas/{persona_id}/readiness` | ready persona record | `partial` |
+| `persona-inspector` | `/media -> Manage -> Personas -> Inspect Personas` | `persona-picker`, `persona-setup`, `image`, `heygen-video`, `r2-storage` | `GET /api/personas`, `GET /api/personas/{persona_id}`, `GET /api/personas/{persona_id}/readiness`, `PATCH /api/personas/{persona_id}` | persona cards and actions | `partial` |
 | `quota-inspector` | `/media -> Manage -> Quota` | `quota-monitor` | `GET /api/quota/*` | quota summary/detail in Telegram | `implemented_backing` |
 | `weekly-planner` | `/media -> Manage -> Weekly Plan` | `weekly-plan`, `telegram-approval`, `postiz-publish` | `POST /api/workflows/start-weekly` | weekly workflow confirmation | `implemented_backing` |
 | `publish-manager` | `/media -> Manage -> Publish Queue` | `postiz-publish` | future publish queue endpoints | publish queue actions | `partial` |
@@ -178,7 +181,8 @@ Purpose:
 Current reality:
 
 - this helper is defined at the skill layer
-- a shared DB-backed Telegram persona picker does not yet exist
+- the backend persona API exists and should be the canonical source
+- a shared Telegram persona picker UI/session layer does not yet exist
 
 ## Skill Details
 
@@ -248,7 +252,8 @@ Run the full AI influencer video lane:
 
 - most internal project capabilities exist
 - the dedicated Telegram/OpenClaw wrapper still needs to be built
-- the target `start-video` workflow endpoint does not yet exist
+- the canonical `POST /api/workflows/start-video` endpoint exists
+- it should be the only video-start contract the skill depends on
 - a user should still be able to add hook ideas or extra brief text before script generation
 
 ### `video-tutorial`
@@ -267,8 +272,9 @@ Run the tutorial video lane:
 
 **Current repo reality**
 
-- this is simpler than `video-ai`
+- this overlaps heavily with `video-ai`
 - still depends on a future workflow entrypoint and Telegram wrapper
+- defer this lane for now and reuse/focus on the existing `start-video` lane during current OpenClaw integration
 - it should still accept extra tutorial angle or notes in plain text
 
 ### `carousel`
@@ -280,7 +286,8 @@ Generate carousel planning JSON plus matching slide images.
 **Current repo reality**
 
 - planning activity already exists
-- a dedicated `/api/media/carousel` endpoint is still a target endpoint
+- `POST /api/media/carousel` exists as the canonical carousel backend entrypoint
+- backend now generates slide plans, creates slide images, overlays text, and uploads final slide assets
 - extra freeform direction should remain optional, not required
 
 ### `long-post`
@@ -293,6 +300,7 @@ Generate long-form content plus a hero image.
 
 - planning activity already exists
 - a dedicated `/api/media/long-post` endpoint is still a target endpoint
+- defer this lane for now until there is a completed backend endpoint and a real integration need
 - extra freeform angle or messaging notes should remain optional
 
 ### `persona-manager`
@@ -325,7 +333,7 @@ Create a new persona step by step:
 **Current repo reality**
 
 - the underlying setup/check logic exists only as scripts today
-- a DB-backed persona creation API and Telegram integration still need to be built
+- persona CRUD/readiness APIs exist, but full Telegram setup orchestration is still incomplete
 - language/voice stay structured, but appearance and identity notes can remain partly freeform
 
 **Session shape**
@@ -355,8 +363,8 @@ List, inspect, and rebuild existing personas.
 
 **Current repo reality**
 
-- needs a DB-backed persona registry to be useful from Telegram
-- current repo still only has setup/check scripts rather than a full persona registry API
+- backend persona registry/readiness APIs exist
+- Telegram-facing list/inspect/rebuild UX still needs to be built
 
 ### `quota-inspector`
 
@@ -398,14 +406,17 @@ From simplest to most complex:
 2. `image-poster`
 3. `quota-inspector`
 4. `carousel`
-5. `long-post`
-6. `weekly-planner`
-7. `image-avatar`
-8. `persona-inspector`
-9. `persona-creator`
-10. `persona-manager`
-11. `video-tutorial`
-12. `video-ai`
+5. `weekly-planner`
+6. `image-avatar`
+7. `persona-inspector`
+8. `persona-creator`
+9. `persona-manager`
+10. `video-ai`
+
+Deferred outside the current OpenClaw integration phase:
+
+- `video-tutorial`
+- `long-post`
 
 ## Session State Guidance
 
@@ -458,6 +469,35 @@ The goal right now is:
 2. map each skill to internal project skills
 3. identify the target API entrypoint
 4. expose backend gaps before Telegram implementation begins
+
+Current OpenClaw integration focus:
+
+- `video-ai`
+- `carousel`
+- `weekly-planner`
+- `persona-manager` and persona helper flows
+- `quota-inspector`
+
+The canonical backend contracts for current skills are:
+
+- `POST /api/workflows/start-video`
+- `POST /api/workflows/start-weekly`
+- `GET /api/personas`
+- `POST /api/personas`
+- `GET /api/personas/{persona_id}`
+- `PATCH /api/personas/{persona_id}`
+- `GET /api/personas/{persona_id}/readiness`
+- `GET /api/quota/*`
+
+Still planned and not yet exposed:
+
+- `POST /api/workflows/start-tutorial`
+- `POST /api/media/long-post`
+
+Deferred and not part of the current OpenClaw implementation scope:
+
+- `video-tutorial`
+- `long-post`
 
 ## Current Registry
 

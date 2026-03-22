@@ -7,7 +7,8 @@ future `/media` bot entrypoint.
 Important:
 - this file defines the skill catalog first
 - it does NOT mean the Telegram router is already implemented
-- it does NOT mean every API entrypoint already exists
+- some API entrypoints already exist and should be used as the canonical
+  backend contracts for future Telegram/OpenClaw integration
 - menu-driven collection is the default UX, but creative leaf skills may still
   accept optional freeform user text to refine the output without replacing
   required structured fields
@@ -82,7 +83,7 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "Generate a premium marketing poster image using a template-aware"
             " poster prompt flow."
         ),
-        "status": "defined_with_backing_gap",
+        "status": "implemented_backing",
         "kind": "leaf",
         "parent": "image-menu",
         "menu_options": [],
@@ -250,8 +251,8 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "target": "POST /api/media/generate/image",
             "current_repo_support": True,
             "note": (
-                "Image generation exists, but a complete persona-avatar bot flow"
-                " and DB-backed registry do not yet exist."
+                "Image generation exists. Persona registry APIs also exist, but"
+                " the Telegram persona setup flow is not fully wired yet."
             ),
         },
         "output": "Avatar preview URL returned to Telegram",
@@ -344,10 +345,10 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "api_call": {
             "target": "POST /api/workflows/start-video",
-            "current_repo_support": False,
+            "current_repo_support": True,
             "note": (
-                "This is the desired workflow entrypoint. The repo does not yet"
-                " expose a dedicated start-video endpoint."
+                "Canonical short-video workflow entrypoint. It validates persona"
+                " readiness and starts ShortVideoWorkflow."
             ),
         },
         "output": "Final video URL returned to Telegram",
@@ -396,7 +397,7 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "Build tutorial scenes, generate supporting media, and return a final"
             " tutorial video."
         ),
-        "status": "partial",
+        "status": "deferred",
         "kind": "leaf",
         "parent": "video-menu",
         "menu_options": [],
@@ -431,13 +432,17 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "target": "POST /api/workflows/start-tutorial",
             "current_repo_support": False,
             "note": (
-                "This is the desired workflow entrypoint. The repo does not yet"
-                " expose a dedicated start-tutorial endpoint."
+                "Deferred for now. This overlaps heavily with the existing"
+                " short-video lane, and the repo does not expose a dedicated"
+                " start-tutorial endpoint."
             ),
         },
         "output": "Final tutorial video URL returned to Telegram",
         "implementation_priority": 4,
-        "integration_note": "Define now. Integrate after simpler media skills.",
+        "integration_note": (
+            "Deferred. Keep documented, but do not implement during the current"
+            " OpenClaw integration phase."
+        ),
         "steps": [
             "pick_persona",
             "collect_topic",
@@ -506,13 +511,14 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "api_call": {
             "target": "POST /api/media/carousel",
-            "current_repo_support": False,
+            "current_repo_support": True,
             "note": (
-                "The planning activity exists, but the repo does not yet expose a"
-                " dedicated carousel endpoint."
+                "Canonical carousel entrypoint. It generates slide strategy,"
+                " renders slide images, overlays text, and uploads the final"
+                " carousel artifact to storage."
             ),
         },
-        "output": "Slides JSON plus image URLs for Telegram or Postiz",
+        "output": "Slides JSON plus rendered image URLs for Telegram or Postiz",
         "implementation_priority": 2,
         "integration_note": "One of the earliest OpenClaw Telegram skills to build.",
         "steps": [
@@ -552,7 +558,7 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "Generate long-form content JSON plus a hero image for downstream"
             " review and publishing."
         ),
-        "status": "implemented_backing",
+        "status": "deferred",
         "kind": "leaf",
         "parent": "media",
         "menu_options": [],
@@ -583,13 +589,16 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "target": "POST /api/media/long-post",
             "current_repo_support": False,
             "note": (
-                "The long-post planning activity exists, but the repo does not yet"
-                " expose a dedicated long-post endpoint."
+                "Deferred for now. The planning activity exists, but the repo"
+                " does not yet expose a dedicated long-post endpoint."
             ),
         },
         "output": "Content JSON plus hero image URL for Telegram or Postiz",
         "implementation_priority": 3,
-        "integration_note": "Medium complexity. Build after carousel.",
+        "integration_note": (
+            "Deferred. Keep documented, but do not implement during the current"
+            " OpenClaw integration phase."
+        ),
         "steps": [
             "pick_persona",
             "collect_topic",
@@ -661,8 +670,12 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "api_call": {
             "target": "DB query: personas registry",
-            "current_repo_support": False,
-            "note": "The repo does not yet have a shared DB-backed Telegram persona picker.",
+            "current_repo_support": True,
+            "note": (
+                "Use the persona API surface as the canonical backing contract:"
+                " GET /api/personas and GET /api/personas/{persona_id}/readiness."
+                " A Telegram picker UI still needs to be built."
+            ),
         },
         "output": "Selected persona ID and summary card",
         "implementation_priority": 2,
@@ -729,11 +742,15 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "persona-setup",
         ],
         "api_call": {
-            "target": "Future persona registry endpoints",
-            "current_repo_support": False,
+            "target": (
+                "POST /api/personas + PATCH /api/personas/{persona_id} +"
+                " GET /api/personas/{persona_id}/readiness"
+            ),
+            "current_repo_support": True,
             "note": (
-                "The setup/check scripts exist, but the repo does not yet expose"
-                " a full DB-backed persona creation API."
+                "Persona CRUD/readiness APIs exist. Full avatar upload/HeyGen"
+                " registration orchestration is still only partially exposed at"
+                " the Telegram skill layer."
             ),
         },
         "output": "Ready persona record plus reusable avatar identifiers",
@@ -786,9 +803,16 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "r2-storage",
         ],
         "api_call": {
-            "target": "Future persona registry endpoints",
-            "current_repo_support": False,
-            "note": "Current repo only has setup/check scripts, not a full persona registry API.",
+            "target": (
+                "GET /api/personas + GET /api/personas/{persona_id} +"
+                " GET /api/personas/{persona_id}/readiness +"
+                " PATCH /api/personas/{persona_id}"
+            ),
+            "current_repo_support": True,
+            "note": (
+                "Persona registry and readiness APIs exist. Telegram-facing"
+                " inspect/rebuild UX still needs to be built on top."
+            ),
         },
         "output": "Persona status cards and persona actions",
         "implementation_priority": 2,

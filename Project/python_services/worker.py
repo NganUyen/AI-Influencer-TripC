@@ -12,6 +12,7 @@ from workflows import (
     WeeklyMarketingWorkflow,
     PostPublishingWorkflow,
     EngagementSyndicateWorkflow,
+    DailyStoryWorkflow,
 )
 from activities import (
     generate_weekly_strategy,
@@ -26,6 +27,8 @@ from activities import (
     track_engagement,
     send_telegram_approval_request,
     wait_for_approval,
+    generate_daily_story,
+    send_story_for_approval,
 )
 from config.settings import settings
 from services.content_persistence_service import ContentPersistenceService
@@ -55,6 +58,7 @@ async def main():
             WeeklyMarketingWorkflow,
             PostPublishingWorkflow,
             EngagementSyndicateWorkflow,
+            DailyStoryWorkflow,
         ],
         activities=[
             generate_weekly_strategy,
@@ -69,6 +73,8 @@ async def main():
             track_engagement,
             send_telegram_approval_request,
             wait_for_approval,
+            generate_daily_story,
+            send_story_for_approval,
         ],
         max_concurrent_activity_task_polls=settings.WORKER_CONCURRENCY,
         max_concurrent_workflow_task_polls=settings.WORKER_CONCURRENCY,

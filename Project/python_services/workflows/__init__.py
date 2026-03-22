@@ -8,9 +8,11 @@ from .weekly_marketing_workflow import (
     PostPublishingWorkflow,
     EngagementSyndicateWorkflow,
 )
+from .daily_story_workflow import DailyStoryWorkflow
 
 __all__ = [
     "WeeklyMarketingWorkflow",
     "PostPublishingWorkflow",
     "EngagementSyndicateWorkflow",
+    "DailyStoryWorkflow",
 ]

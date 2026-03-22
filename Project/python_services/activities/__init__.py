@@ -29,6 +29,10 @@ from .approval_activities import (
     wait_for_publish_decision,
 )
 from .video_activities import build_split_screen_video
+from .story_activities import (
+    generate_daily_story,
+    send_story_for_approval,
+)
 
 __all__ = [
     # Strategy
@@ -55,4 +59,7 @@ __all__ = [
     "wait_for_publish_decision",
     # Video Assembly
     "build_split_screen_video",
+    # Daily Story Bot
+    "generate_daily_story",
+    "send_story_for_approval",
 ]

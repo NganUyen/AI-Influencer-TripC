@@ -8,6 +8,7 @@ import asyncio
 import logging
 import httpx
 from config.settings import settings
+from services.quota_monitor_service import QuotaMonitorService
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,30 @@ class HeyGenService:
             "Content-Type": "application/json",
         }
 
+    async def _record_usage(
+        self,
+        operation: str,
+        usage: dict,
+        metadata: dict | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        quota_metadata = {
+            "service": "heygen_service",
+            "operation": operation,
+            "status": "error" if error else "success",
+        }
+        if metadata:
+            quota_metadata.update(metadata)
+        if error:
+            quota_metadata["error_type"] = type(error).__name__
+            quota_metadata["error_message"] = str(error)
+
+        await QuotaMonitorService.record_runtime_usage(
+            provider="heygen",
+            usage=usage,
+            metadata=quota_metadata,
+        )
+
     # ─── Task 5.2: Tạo avatar từ ảnh persona ─────────────────────────────────
 
     async def create_avatar(self, image_url: str, avatar_name: str = "Minh_TripC") -> str:
@@ -45,19 +70,33 @@ class HeyGenService:
         }
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{HEYGEN_BASE_URL}/v2/photo_avatar/create",
-                headers=self.headers,
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+            try:
+                resp = await client.post(
+                    f"{HEYGEN_BASE_URL}/v2/photo_avatar/create",
+                    headers=self.headers,
+                    json=payload,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as exc:
+                await self._record_usage(
+                    operation="create_avatar",
+                    usage={"requests": 1, "avatars": 1},
+                    metadata={"avatar_name": avatar_name},
+                    error=exc,
+                )
+                raise
 
         avatar_id = data.get("data", {}).get("avatar_id") or data.get("avatar_id")
         if not avatar_id:
             raise ValueError(f"HeyGen không trả về avatar_id: {data}")
 
         logger.info(f"Avatar đã tạo: {avatar_id}")
+        await self._record_usage(
+            operation="create_avatar",
+            usage={"requests": 1, "avatars": 1},
+            metadata={"avatar_name": avatar_name},
+        )
         return avatar_id
 
     # ─── Task 5.3: Tạo video từ avatar + audio ────────────────────────────────
@@ -106,20 +145,80 @@ class HeyGenService:
         }
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{HEYGEN_BASE_URL}/v2/video/generate",
-                headers=self.headers,
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+            try:
+                resp = await client.post(
+                    f"{HEYGEN_BASE_URL}/v2/video/generate",
+                    headers=self.headers,
+                    json=payload,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as exc:
+                await self._record_usage(
+                    operation="create_video",
+                    usage={"requests": 1, "jobs": 1},
+                    metadata={"avatar_id": avatar_id},
+                    error=exc,
+                )
+                raise
 
         video_id = data.get("data", {}).get("video_id") or data.get("video_id")
         if not video_id:
             raise ValueError(f"HeyGen không trả về video_id: {data}")
 
         logger.info(f"Video job đã tạo: {video_id}")
+        await self._record_usage(
+            operation="create_video",
+            usage={"requests": 1, "jobs": 1},
+            metadata={"avatar_id": avatar_id, "video_id": video_id},
+        )
         return {"video_id": video_id, "raw": data}
+
+    async def get_remaining_quota(self) -> dict:
+        """
+        Fetch the provider-reported remaining HeyGen quota.
+        """
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                resp = await client.get(
+                    f"{HEYGEN_BASE_URL}/v2/user/remaining_quota",
+                    headers=self.headers,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as exc:
+                await self._record_usage(
+                    operation="get_remaining_quota",
+                    usage={},
+                    error=exc,
+                )
+                raise
+
+        payload = data.get("data", {}) if isinstance(data, dict) else {}
+        remaining_quota = payload.get("remaining_quota")
+        details = payload.get("details") if isinstance(payload.get("details"), dict) else {}
+
+        quota = {
+            "unit": "quota_units",
+            "exact": True,
+            "source": "provider_live_endpoint",
+        }
+        if remaining_quota is not None:
+            quota["remaining"] = remaining_quota
+        if details.get("api") is not None:
+            quota["remaining"] = details.get("api")
+
+        await QuotaMonitorService.record_runtime_usage(
+            provider="heygen",
+            usage={},
+            quota=quota,
+            metadata={
+                "service": "heygen_service",
+                "operation": "get_remaining_quota",
+                "status": "success",
+            },
+        )
+        return data
 
     # ─── Polling video status ─────────────────────────────────────────────────
 
@@ -163,13 +262,33 @@ class HeyGenService:
     async def get_video_status(self, video_id: str) -> dict:
         """Kiểm tra trạng thái video."""
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(
-                f"{HEYGEN_BASE_URL}/v1/video_status.get",
-                headers=self.headers,
-                params={"video_id": video_id},
-            )
-            resp.raise_for_status()
-            return resp.json()
+            try:
+                resp = await client.get(
+                    f"{HEYGEN_BASE_URL}/v1/video_status.get",
+                    headers=self.headers,
+                    params={"video_id": video_id},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as exc:
+                await self._record_usage(
+                    operation="get_video_status",
+                    usage={"requests": 1, "status_checks": 1},
+                    metadata={"video_id": video_id},
+                    error=exc,
+                )
+                raise
+
+        await self._record_usage(
+            operation="get_video_status",
+            usage={"requests": 1, "status_checks": 1},
+            metadata={
+                "video_id": video_id,
+                "provider_status": data.get("data", {}).get("status")
+                or data.get("status"),
+            },
+        )
+        return data
 
     # ─── Helper ───────────────────────────────────────────────────────────────
 

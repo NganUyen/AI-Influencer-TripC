@@ -7,6 +7,7 @@ import httpx
 import logging
 from typing import Dict, Any, Optional
 from config.settings import settings
+from services.quota_monitor_service import QuotaMonitorService
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,32 @@ class FalAIService:
             base_url="https://fal.run",
             headers={"Authorization": f"Key {self.api_key}"},
             timeout=300.0,  # 5 minutes for generation
+        )
+
+    async def _record_usage(
+        self,
+        operation: str,
+        model: str,
+        usage: Dict[str, Any],
+        error: Exception | None = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        quota_metadata = {
+            "service": "fal_ai_service",
+            "operation": operation,
+            "model": model,
+            "status": "error" if error else "success",
+        }
+        if metadata:
+            quota_metadata.update(metadata)
+        if error:
+            quota_metadata["error_type"] = type(error).__name__
+            quota_metadata["error_message"] = str(error)
+
+        await QuotaMonitorService.record_runtime_usage(
+            provider="fal_ai",
+            usage=usage,
+            metadata=quota_metadata,
         )
 
     async def generate_image(
@@ -60,6 +87,12 @@ class FalAIService:
             logger.info(
                 f"Image generated successfully: {result.get('images', [{}])[0].get('url')}"
             )
+            await self._record_usage(
+                operation="generate_image",
+                model=model,
+                usage={"requests": 1, "images": num_images},
+                metadata={"aspect_ratio": aspect_ratio},
+            )
 
             return {
                 "url": result.get("images", [{}])[0].get("url"),
@@ -70,6 +103,13 @@ class FalAIService:
             }
 
         except httpx.HTTPError as e:
+            await self._record_usage(
+                operation="generate_image",
+                model=model,
+                usage={"requests": 1, "images": num_images},
+                error=e,
+                metadata={"aspect_ratio": aspect_ratio},
+            )
             logger.error(f"Image generation failed: {str(e)}")
             raise
 
@@ -101,6 +141,12 @@ class FalAIService:
             logger.info(
                 f"Video generated successfully: {result.get('video', {}).get('url')}"
             )
+            await self._record_usage(
+                operation="generate_video",
+                model=model,
+                usage={"requests": 1, "videos": 1, "seconds": duration},
+                metadata={"fps": fps},
+            )
 
             return {
                 "url": result.get("video", {}).get("url"),
@@ -111,6 +157,13 @@ class FalAIService:
             }
 
         except httpx.HTTPError as e:
+            await self._record_usage(
+                operation="generate_video",
+                model=model,
+                usage={"requests": 1, "videos": 1, "seconds": duration},
+                error=e,
+                metadata={"fps": fps},
+            )
             logger.error(f"Video generation failed: {str(e)}")
             raise
 
@@ -124,10 +177,23 @@ class FalAIService:
                 json={"image_url": image_url, "scale": scale},
             )
             response.raise_for_status()
+            await self._record_usage(
+                operation="upscale_image",
+                model="fal-ai/creative-upscaler",
+                usage={"requests": 1, "upscales": 1},
+                metadata={"scale": scale},
+            )
 
             return response.json()
 
         except httpx.HTTPError as e:
+            await self._record_usage(
+                operation="upscale_image",
+                model="fal-ai/creative-upscaler",
+                usage={"requests": 1, "upscales": 1},
+                error=e,
+                metadata={"scale": scale},
+            )
             logger.error(f"Image upscaling failed: {str(e)}")
             raise
 

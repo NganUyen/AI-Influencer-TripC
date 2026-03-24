@@ -1,32 +1,30 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getBackendBaseUrl } from "@/app/api/_helpers/backend";
+import { NextRequest } from "next/server";
+import { requireAdminApiAuth } from "@/app/api/_helpers/auth";
+import { getBackendBaseUrl, proxyReadOnlyJson } from "@/app/api/_helpers/backend";
 
 type Params = {
-  params: {
+  params: Promise<{
     workflowId: string;
-  };
+  }>;
 };
 
 export async function GET(_request: NextRequest, { params }: Params) {
-  try {
-    const baseUrl = getBackendBaseUrl();
-    const response = await fetch(
-      `${baseUrl}/api/workflows/status/${params.workflowId}`,
-      {
-        method: "GET",
-        cache: "no-store",
-      },
-    );
-
-    const data = await response.json();
-    return NextResponse.json(data, { status: response.status });
-  } catch (error) {
-    return NextResponse.json(
-      {
-        error: "Failed to fetch workflow status",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 },
-    );
+  const authError = requireAdminApiAuth(_request);
+  if (authError) {
+    return authError;
   }
+
+  const { workflowId } = await params;
+  const baseUrl = getBackendBaseUrl();
+  return proxyReadOnlyJson(
+    `${baseUrl}/api/workflows/status/${workflowId}`,
+    {
+      workflow_id: workflowId,
+      status: {
+        status: "unknown",
+        current_step: "backend_unavailable",
+      },
+    },
+    "Failed to fetch workflow status",
+  );
 }

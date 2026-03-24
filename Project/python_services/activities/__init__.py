@@ -21,6 +21,8 @@ from .distribution_activities import (
     track_engagement,
 )
 from .approval_activities import (
+    send_telegram_approval_request,
+    wait_for_approval,
     generate_and_send_script_for_approval,
     wait_for_script_approval,
     send_preview_to_telegram,
@@ -45,6 +47,8 @@ __all__ = [
     "publish_to_platforms",
     "track_engagement",
     # Approval & Human-in-the-loop
+    "send_telegram_approval_request",
+    "wait_for_approval",
     "generate_and_send_script_for_approval",
     "wait_for_script_approval",
     "send_preview_to_telegram",

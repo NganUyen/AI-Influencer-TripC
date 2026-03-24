@@ -61,11 +61,14 @@ coverage/
 .tmp/
 .tmp-*/
 .cache/
+.npm-cache/
+.pip-audit-cache/
 
 # ---- Docker / runtime leftovers ----
 *.pid
 *.seed
 *.pid.lock
+.docker-data/
 
 # ---- Project-specific generated files ----
 Project/python_services/.pytest_cache/

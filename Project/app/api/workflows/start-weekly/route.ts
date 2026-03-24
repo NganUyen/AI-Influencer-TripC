@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdminApiAuth } from "@/app/api/_helpers/auth";
 import { getBackendBaseUrl } from "@/app/api/_helpers/backend";
+import { getInternalApiHeaders } from "@/app/api/_helpers/auth";
 
 export async function POST(request: NextRequest) {
+  const authError = requireAdminApiAuth(request);
+  if (authError) {
+    return authError;
+  }
+
   try {
     const payload = await request.json();
     const userId = payload?.user_id;
@@ -20,7 +27,7 @@ export async function POST(request: NextRequest) {
 
     const response = await fetch(url.toString(), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getInternalApiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(brandConfig),
       cache: "no-store",
     });

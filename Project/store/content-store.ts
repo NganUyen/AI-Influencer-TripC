@@ -4,10 +4,24 @@ import apiClient from "@/lib/api-client";
 
 export interface ContentItem {
   id: string;
+  workflowId?: string;
+  logicalPostId?: string;
+  workflowStatus?: string;
+  currentStep?: string;
+  approvalFeedback?: string;
   title: string;
   content: string;
   platform: string[];
   status: "draft" | "pending_approval" | "scheduled" | "published" | "failed";
+  platformPostId?: string;
+  providerPostId?: string;
+  postUrl?: string;
+  publishMethod?: string;
+  publishError?: string;
+  engagementMetrics?: Record<string, unknown>;
+  lastEngagementCheckedAt?: Date;
+  syndicateTriggered?: boolean;
+  syndicateJobId?: string;
   scheduledAt?: Date;
   publishedAt?: Date;
   mediaUrls?: string[];
@@ -17,10 +31,24 @@ export interface ContentItem {
 
 interface WorkflowListItem {
   id: string;
+  workflowId?: string;
+  logicalPostId?: string;
+  workflowStatus?: string;
+  currentStep?: string;
+  approvalFeedback?: string;
   title: string;
   content: string;
   platform: string[];
   status: ContentItem["status"];
+  platformPostId?: string;
+  providerPostId?: string;
+  postUrl?: string;
+  publishMethod?: string;
+  publishError?: string;
+  engagementMetrics?: Record<string, unknown>;
+  lastEngagementCheckedAt?: string | null;
+  syndicateTriggered?: boolean;
+  syndicateJobId?: string;
   scheduledAt?: string | null;
   publishedAt?: string | null;
   mediaUrls?: string[];
@@ -80,13 +108,30 @@ export const useContentStore = create<ContentState>()(
           const updatedAt = item.updatedAt
             ? new Date(item.updatedAt)
             : createdAt;
+          const lastEngagementCheckedAt = item.lastEngagementCheckedAt
+            ? new Date(item.lastEngagementCheckedAt)
+            : undefined;
 
           return {
             id: item.id,
+            workflowId: item.workflowId,
+            logicalPostId: item.logicalPostId,
+            workflowStatus: item.workflowStatus,
+            currentStep: item.currentStep,
+            approvalFeedback: item.approvalFeedback,
             title: item.title,
             content: item.content,
             platform: item.platform || [],
             status: item.status,
+            platformPostId: item.platformPostId,
+            providerPostId: item.providerPostId,
+            postUrl: item.postUrl,
+            publishMethod: item.publishMethod,
+            publishError: item.publishError,
+            engagementMetrics: item.engagementMetrics,
+            lastEngagementCheckedAt,
+            syndicateTriggered: item.syndicateTriggered,
+            syndicateJobId: item.syndicateJobId,
             scheduledAt: item.scheduledAt
               ? new Date(item.scheduledAt)
               : undefined,

@@ -3,26 +3,36 @@ Workflow API Routes
 Endpoints for managing Temporal workflows
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from typing import Dict, Any, List
 from temporalio.client import Client
 from datetime import timedelta
 import logging
 
+from api.security import require_internal_api_token
 from workflows import WeeklyMarketingWorkflow
 from config.settings import settings
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_internal_api_token)])
 logger = logging.getLogger(__name__)
+
+
+class TemporalUnavailableError(RuntimeError):
+    """Raised when Temporal cannot be reached for a request."""
 
 
 async def get_temporal_client(request: Request) -> Client:
     client = getattr(request.app.state, "temporal_client", None)
     if client:
         return client
-    return await Client.connect(
-        settings.TEMPORAL_ADDRESS, namespace=settings.TEMPORAL_NAMESPACE
-    )
+    try:
+        return await Client.connect(
+            settings.TEMPORAL_ADDRESS, namespace=settings.TEMPORAL_NAMESPACE
+        )
+    except Exception as exc:
+        raise TemporalUnavailableError(
+            f"Temporal unavailable at {settings.TEMPORAL_ADDRESS}: {exc}"
+        ) from exc
 
 
 @router.post("/start-weekly")
@@ -53,7 +63,8 @@ async def start_weekly_workflow(
         logger.info(f"Started workflow: {workflow_id}")
 
         return {"workflow_id": workflow_id, "run_id": handle.id, "status": "started"}
-
+    except TemporalUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as e:
         logger.error(f"Failed to start workflow: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -79,7 +90,8 @@ async def approve_workflow(
             "approved": approved,
             "status": "signal_sent",
         }
-
+    except TemporalUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as e:
         logger.error(f"Failed to send approval: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -99,7 +111,8 @@ async def get_workflow_status(request: Request, workflow_id: str):
         status = await handle.query("get_workflow_status")
 
         return {"workflow_id": workflow_id, "status": status}
-
+    except TemporalUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as e:
         logger.error(f"Failed to get workflow status: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -108,7 +121,7 @@ async def get_workflow_status(request: Request, workflow_id: str):
 @router.get("/list")
 async def list_workflows(
     request: Request, limit: int = 20
-) -> Dict[str, List[Dict[str, Any]]]:
+) -> Dict[str, Any]:
     """List recent weekly marketing workflows for dashboard polling."""
     try:
         client = await get_temporal_client(request)
@@ -131,6 +144,12 @@ async def list_workflows(
                 break
 
         return {"workflows": workflows}
+    except TemporalUnavailableError as exc:
+        return {
+            "workflows": [],
+            "temporal_available": False,
+            "detail": str(exc),
+        }
     except Exception as e:
         logger.error(f"Failed to list workflows: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -148,7 +167,8 @@ async def cancel_workflow(request: Request, workflow_id: str):
         await handle.cancel()
 
         return {"workflow_id": workflow_id, "status": "cancelled"}
-
+    except TemporalUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as e:
         logger.error(f"Failed to cancel workflow: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

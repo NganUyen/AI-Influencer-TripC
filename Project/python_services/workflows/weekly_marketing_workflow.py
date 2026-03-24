@@ -46,6 +46,7 @@ class WeeklyMarketingWorkflow:
     async def run(self, user_id: str, brand_config: Dict[str, Any]) -> Dict[str, Any]:
         workflow.logger.info(f"Starting weekly marketing workflow for user: {user_id}")
         self.approval_received = False
+        self.approval_approved = False
         self.approval_feedback = ""
         self.current_step = "generating_strategy"
         self.workflow_status = "running"
@@ -76,14 +77,24 @@ class WeeklyMarketingWorkflow:
             )
         except TimeoutError:
             workflow.logger.warning("Approval timeout - canceling workflow")
-            self.current_step = "approval_timeout"
-            self.workflow_status = "timeout"
+            self.current_step = "approval_timed_out"
+            self.workflow_status = "timed_out"
             return {
-                "status": "timeout",
+                "status": "timed_out",
                 "message": "Approval not received within 7 days",
             }
 
-        self.workflow_status = "approved"
+        if not self.approval_approved:
+            workflow.logger.info("Strategy rejected by operator")
+            self.current_step = "rejected"
+            self.workflow_status = "rejected"
+            return {
+                "status": "rejected",
+                "message": "Strategy was rejected",
+                "feedback": self.approval_feedback,
+            }
+
+        self.workflow_status = "running"
         self.current_step = "generating_media"
 
         # Step 4: Generate media prompts for each content piece
@@ -135,6 +146,8 @@ class WeeklyMarketingWorkflow:
             )
             uploaded_assets.append(uploaded)
 
+        strategy["workflow_id"] = workflow.info().workflow_id
+
         # Step 7: Schedule posts across the week
         schedule = await workflow.execute_activity(
             schedule_posts,
@@ -145,8 +158,11 @@ class WeeklyMarketingWorkflow:
 
         # Step 8: Execute publishing workflow for each scheduled post
         for post in schedule:
-            workflow.start_child_workflow(
-                PostPublishingWorkflow, args=[post], task_queue="ai-influencer-tasks"
+            await workflow.start_child_workflow(
+                PostPublishingWorkflow.run,
+                args=[post],
+                id=f"{workflow.info().workflow_id}-publish-{post['id']}",
+                task_queue="ai-influencer-tasks",
             )
 
         workflow.logger.info("Weekly marketing workflow completed successfully")
@@ -162,9 +178,10 @@ class WeeklyMarketingWorkflow:
     @workflow.signal
     async def approve_strategy(self, approved: bool, feedback: str = ""):
         """Signal handler for strategy approval"""
-        self.approval_received = approved
+        self.approval_received = True
+        self.approval_approved = approved
         self.approval_feedback = feedback
-        self.workflow_status = "approved" if approved else "rejected"
+        self.workflow_status = "running" if approved else "rejected"
 
     @workflow.query
     def get_workflow_status(self) -> Dict[str, Any]:
@@ -173,6 +190,7 @@ class WeeklyMarketingWorkflow:
             "status": getattr(self, "workflow_status", "running"),
             "current_step": getattr(self, "current_step", "starting"),
             "approval_received": getattr(self, "approval_received", False),
+            "approval_approved": getattr(self, "approval_approved", False),
             "approval_feedback": getattr(self, "approval_feedback", ""),
             "workflow_id": workflow.info().workflow_id,
         }
@@ -192,7 +210,9 @@ class PostPublishingWorkflow:
         # Wait until scheduled time
         scheduled_time = post_config.get("scheduled_time")
         if isinstance(scheduled_time, str):
-            scheduled_time = datetime.fromisoformat(scheduled_time)
+            scheduled_time = datetime.fromisoformat(
+                scheduled_time.replace("Z", "+00:00")
+            )
         if isinstance(scheduled_time, datetime):
             await workflow.wait_condition(lambda: workflow.now() >= scheduled_time)
 
@@ -204,9 +224,10 @@ class PostPublishingWorkflow:
         )
 
         # Start engagement syndicate workflow
-        workflow.start_child_workflow(
-            EngagementSyndicateWorkflow,
+        await workflow.start_child_workflow(
+            EngagementSyndicateWorkflow.run,
             args=[publish_results],
+            id=f"{workflow.info().workflow_id}-engagement-{post_config.get('id')}",
             task_queue="ai-influencer-tasks",
         )
 

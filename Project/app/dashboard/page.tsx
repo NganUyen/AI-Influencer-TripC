@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/api-client";
 import { WORKFLOW_POLL_INTERVAL } from "@/config/constants";
-import { useContentStore } from "@/store/content-store";
+import { useContentStore, type ContentItem } from "@/store/content-store";
 
 interface WorkflowListItem {
   workflow_id: string;
@@ -30,6 +30,40 @@ interface ContentStats {
   published: number;
 }
 
+interface AnalyticsSummary {
+  average_engagement_rate: number | null;
+}
+
+interface QuotaProviderSummary {
+  provider: string;
+  label: string;
+  status: string;
+  usage_unit: string;
+  monthly_limit: number | null;
+  cost_usd: number;
+  usage: Record<string, number>;
+  usage_value?: number | null;
+  snapshot_count: number;
+  remaining_value?: number | null;
+  remaining_limit?: number | null;
+  remaining_unit?: string | null;
+  remaining_exact?: boolean;
+  remaining_source?: string;
+  remaining_message?: string;
+  remaining_reset_at?: string | null;
+  remaining_reset_after?: string | null;
+  remaining_requests?: number | null;
+  remaining_requests_limit?: number | null;
+  remaining_requests_reset_at?: string | null;
+  remaining_requests_reset_after?: string | null;
+}
+
+interface QuotaSummary {
+  total_cost_usd: number;
+  providers: QuotaProviderSummary[];
+  time_period: string;
+}
+
 export default function DashboardPage() {
   const [workflows, setWorkflows] = useState<DashboardWorkflow[]>([]);
   const [stats, setStats] = useState<ContentStats>({
@@ -37,19 +71,39 @@ export default function DashboardPage() {
     active_campaigns: 0,
     published: 0,
   });
+  const [analytics, setAnalytics] = useState<AnalyticsSummary>({
+    average_engagement_rate: null,
+  });
+  const [quota, setQuota] = useState<QuotaSummary>({
+    total_cost_usd: 0,
+    providers: [],
+    time_period: "30_days",
+  });
+  const [retryingContentIds, setRetryingContentIds] = useState<string[]>([]);
+  const [retryStartedContentIds, setRetryStartedContentIds] = useState<string[]>(
+    [],
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { items: contentItems, fetchItems } = useContentStore();
 
   const loadDashboardData = useCallback(async () => {
     try {
-      const listResponse = await apiClient.get<{
-        workflows: WorkflowListItem[];
-      }>("/api/workflows/list", { params: { limit: 10 } });
-
-      const statsResponse =
-        await apiClient.get<ContentStats>("/api/content/stats");
+      const [listResponse, statsResponse, analyticsResponse, quotaResponse] = await Promise.all([
+        apiClient.get<{
+          workflows: WorkflowListItem[];
+        }>("/api/workflows/list", { params: { limit: 10 } }),
+        apiClient.get<ContentStats>("/api/content/stats"),
+        apiClient
+          .get<AnalyticsSummary>("/api/analytics/summary")
+          .catch(() => ({ data: { average_engagement_rate: null } })),
+        apiClient
+          .get<QuotaSummary>("/api/quota/summary")
+          .catch(() => ({ data: { total_cost_usd: 0, providers: [], time_period: "30_days" } })),
+      ]);
       setStats(statsResponse.data);
+      setAnalytics(analyticsResponse.data);
+      setQuota(quotaResponse.data);
       await fetchItems();
 
       const baseWorkflows = listResponse.data.workflows || [];
@@ -96,6 +150,29 @@ export default function DashboardPage() {
   );
 
   const completedCount = useMemo(() => stats.published, [stats]);
+  const engagementRateValue = useMemo(() => {
+    const rate = analytics.average_engagement_rate;
+    return typeof rate === "number" && Number.isFinite(rate)
+      ? `${rate.toFixed(1)}%`
+      : "N/A";
+  }, [analytics.average_engagement_rate]);
+
+  const upcomingPosts = useMemo(
+    () =>
+      contentItems
+        .filter((item) => item.status === "scheduled" && item.scheduledAt)
+        .sort((a, b) => {
+          const aTime = a.scheduledAt?.getTime() || 0;
+          const bTime = b.scheduledAt?.getTime() || 0;
+          return aTime - bTime;
+        })
+        .slice(0, 5),
+    [contentItems],
+  );
+  const quotaProviders = useMemo(
+    () => quota.providers.slice(0, 6),
+    [quota.providers],
+  );
 
   const waitingApproval = useMemo(
     () =>
@@ -119,6 +196,28 @@ export default function DashboardPage() {
     [loadDashboardData],
   );
 
+  const handleRetryPublish = useCallback(
+    async (contentId: string) => {
+      setRetryingContentIds((current) =>
+        current.includes(contentId) ? current : [...current, contentId],
+      );
+      try {
+        await apiClient.post(`/api/content/retry/${contentId}`);
+        setRetryStartedContentIds((current) =>
+          current.includes(contentId) ? current : [...current, contentId],
+        );
+        await loadDashboardData();
+      } catch {
+        setError("Failed to retry publish");
+      } finally {
+        setRetryingContentIds((current) =>
+          current.filter((itemId) => itemId !== contentId),
+        );
+      }
+    },
+    [loadDashboardData],
+  );
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="container mx-auto p-8">
@@ -137,7 +236,7 @@ export default function DashboardPage() {
             value={String(Math.max(runningCount, stats.active_campaigns))}
             icon="🚀"
           />
-          <StatCard title="Engagement Rate" value="N/A" icon="📊" />
+          <StatCard title="Engagement Rate" value={engagementRateValue} icon="📊" />
           <StatCard title="AI Personas" value="0" icon="👤" />
         </div>
 
@@ -165,13 +264,25 @@ export default function DashboardPage() {
             {!isLoading && !error && contentItems.length > 0 && (
               <div className="space-y-3">
                 {contentItems.slice(0, 5).map((item) => {
+                  const workflowLinkId = item.workflowId || item.id;
                   const linkedWorkflow = workflows.find(
-                    (workflow) => workflow.workflow_id === item.id,
+                    (workflow) => workflow.workflow_id === workflowLinkId,
                   );
-                  const status =
+                  const workflowStatus =
+                    item.workflowStatus ||
                     linkedWorkflow?.details?.status ||
-                    linkedWorkflow?.status ||
-                    item.status;
+                    linkedWorkflow?.status;
+                  const currentStep =
+                    item.currentStep || linkedWorkflow?.details?.current_step;
+                  const approvalWorkflowId =
+                    item.workflowId || linkedWorkflow?.workflow_id;
+                  const canRetryPublish =
+                    item.status === "failed" && item.platform.length > 0;
+                  const isRetrying = retryingContentIds.includes(item.id);
+                  const retryStarted = retryStartedContentIds.includes(item.id);
+                  const engagementSummary = formatEngagementSummary(
+                    item.engagementMetrics,
+                  );
 
                   return (
                     <div
@@ -182,32 +293,115 @@ export default function DashboardPage() {
                         {item.title}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        Status: {status}
+                        Content Status: {humanizeValue(item.status)}
                       </p>
-                      {linkedWorkflow?.details?.current_step && (
+                      {workflowStatus && (
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                          Step: {linkedWorkflow.details.current_step}
+                          Workflow Status: {humanizeValue(workflowStatus)}
                         </p>
                       )}
-                      {status === "waiting_approval" && linkedWorkflow && (
+                      {item.workflowId && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 break-all">
+                          Workflow: {item.workflowId}
+                        </p>
+                      )}
+                      {currentStep && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Step: {humanizeValue(currentStep)}
+                        </p>
+                      )}
+                      {item.platform.length > 0 && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Platform: {item.platform.join(", ")}
+                        </p>
+                      )}
+                      {item.scheduledAt && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Scheduled: {formatDateTime(item.scheduledAt)}
+                        </p>
+                      )}
+                      {item.publishedAt && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Published: {formatDateTime(item.publishedAt)}
+                        </p>
+                      )}
+                      {item.publishMethod && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Method: {humanizeValue(item.publishMethod)}
+                        </p>
+                      )}
+                      {item.postUrl && (
+                        <a
+                          href={item.postUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex mt-2 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200"
+                        >
+                          Open post
+                        </a>
+                      )}
+                      {engagementSummary && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                          Engagement: {engagementSummary}
+                        </p>
+                      )}
+                      {item.lastEngagementCheckedAt && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Last check: {formatDateTime(item.lastEngagementCheckedAt)}
+                        </p>
+                      )}
+                      {item.syndicateTriggered && item.syndicateJobId && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Syndicate job: {item.syndicateJobId}
+                        </p>
+                      )}
+                      {item.syndicateTriggered && !item.syndicateJobId && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Syndicate triggered
+                        </p>
+                      )}
+                      {!item.syndicateTriggered && item.lastEngagementCheckedAt && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Syndicate not triggered
+                        </p>
+                      )}
+                      {item.publishError && (
+                        <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                          Publish error: {item.publishError}
+                        </p>
+                      )}
+                      {retryStarted && (
+                        <p className="text-xs text-green-700 dark:text-green-300 mt-2">
+                          Retry workflow started.
+                        </p>
+                      )}
+                      {item.status === "pending_approval" && approvalWorkflowId && (
                         <div className="flex gap-2 mt-3">
                           <button
                             type="button"
-                            onClick={() =>
-                              handleApproval(linkedWorkflow.workflow_id, true)
-                            }
+                            onClick={() => handleApproval(approvalWorkflowId, true)}
                             className="px-3 py-1.5 text-xs font-medium bg-green-600 text-white rounded-md hover:bg-green-700"
                           >
                             Approve
                           </button>
                           <button
                             type="button"
-                            onClick={() =>
-                              handleApproval(linkedWorkflow.workflow_id, false)
-                            }
+                            onClick={() => handleApproval(approvalWorkflowId, false)}
                             className="px-3 py-1.5 text-xs font-medium bg-red-600 text-white rounded-md hover:bg-red-700"
                           >
                             Reject
+                          </button>
+                        </div>
+                      )}
+                      {canRetryPublish && (
+                        <div className="flex gap-2 mt-3">
+                          <button
+                            type="button"
+                            onClick={() => handleRetryPublish(item.id)}
+                            disabled={isRetrying}
+                            className="px-3 py-1.5 text-xs font-medium bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {isRetrying ? "Retrying..." : "Retry Publish"}
                           </button>
                         </div>
                       )}
@@ -222,10 +416,31 @@ export default function DashboardPage() {
             <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">
               Upcoming Posts
             </h2>
-            {completedCount > 0 ? (
+            {upcomingPosts.length > 0 ? (
+              <div className="space-y-3">
+                {upcomingPosts.map((item) => (
+                  <div
+                    key={item.id}
+                    className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
+                  >
+                    <p className="text-sm font-medium text-gray-900 dark:text-white break-all">
+                      {item.title}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Scheduled: {formatDateTime(item.scheduledAt!)}
+                    </p>
+                    {item.platform.length > 0 && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Platform: {item.platform.join(", ")}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : completedCount > 0 ? (
               <p className="text-gray-600 dark:text-gray-400">
-                {completedCount} workflow(s) completed. Scheduled post details
-                will appear when content endpoints are connected.
+                No upcoming scheduled posts. Recent workflows may already be
+                published.
               </p>
             ) : (
               <p className="text-gray-600 dark:text-gray-400">
@@ -240,9 +455,244 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mt-6">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
+              API Usage
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Total cost tracked: {formatCurrency(quota.total_cost_usd)}
+            </p>
+          </div>
+          {quotaProviders.length > 0 ? (
+            <div className="space-y-3">
+              {quotaProviders.map((provider) => (
+                <div
+                  key={provider.provider}
+                  className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">
+                        {provider.label}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {formatQuotaRemaining(provider)}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {provider.remaining_message || formatQuotaUsage(provider)}
+                      </p>
+                      {formatRequestRemaining(provider) && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {formatRequestRemaining(provider)}
+                        </p>
+                      )}
+                      {formatQuotaReset(provider) && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {formatQuotaReset(provider)}
+                        </p>
+                      )}
+                    </div>
+                    <span
+                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${quotaStatusClasses(provider.status)}`}
+                    >
+                      {humanizeValue(provider.status)}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    <span>Snapshots: {provider.snapshot_count}</span>
+                    <span>Cost: {formatCurrency(provider.cost_usd)}</span>
+                    {formatTrackedUsage(provider) && (
+                      <span>{formatTrackedUsage(provider)}</span>
+                    )}
+                    {provider.monthly_limit !== null && provider.monthly_limit !== undefined && (
+                      <span>
+                        Limit: {formatQuotaNumber(provider.monthly_limit)}{" "}
+                        {provider.usage_unit}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-gray-600 dark:text-gray-400">
+              No API usage snapshots yet. Runtime calls and manual snapshots will
+              appear here.
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
+}
+
+function formatDateTime(date: Date): string {
+  return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+function humanizeValue(value: string): string {
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function formatEngagementSummary(
+  metrics?: ContentItem["engagementMetrics"],
+): string | null {
+  if (!metrics) {
+    return null;
+  }
+
+  const parts: string[] = [];
+  const likes = toDisplayNumber(metrics.likes);
+  const comments = toDisplayNumber(metrics.comments);
+  const shares = toDisplayNumber(metrics.shares);
+  const engagementRate = toDisplayNumber(metrics.engagement_rate);
+
+  if (likes !== null) {
+    parts.push(`Likes ${likes}`);
+  }
+  if (comments !== null) {
+    parts.push(`Comments ${comments}`);
+  }
+  if (shares !== null) {
+    parts.push(`Shares ${shares}`);
+  }
+  if (engagementRate !== null) {
+    parts.push(`Rate ${engagementRate}%`);
+  }
+
+  return parts.length > 0 ? parts.join(" | ") : null;
+}
+
+function toDisplayNumber(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    return value;
+  }
+  return null;
+}
+
+function formatQuotaUsage(provider: QuotaProviderSummary): string {
+  const usageValue =
+    provider.usage_value ??
+    (typeof provider.usage?.[provider.usage_unit] === "number"
+      ? provider.usage[provider.usage_unit]
+      : null);
+  const usageLabel = provider.usage_unit.replace(/_/g, " ");
+
+  if (usageValue === null || usageValue === undefined) {
+    return `No ${usageLabel} usage captured yet`;
+  }
+
+  const formattedUsage = formatQuotaNumber(usageValue);
+  if (provider.monthly_limit !== null && provider.monthly_limit !== undefined) {
+    return `${formattedUsage} / ${formatQuotaNumber(provider.monthly_limit)} ${usageLabel}`;
+  }
+
+  return `${formattedUsage} ${usageLabel}`;
+}
+
+function formatQuotaRemaining(provider: QuotaProviderSummary): string {
+  const remainingValue =
+    typeof provider.remaining_value === "number"
+      ? provider.remaining_value
+      : null;
+  const remainingLimit =
+    typeof provider.remaining_limit === "number"
+      ? provider.remaining_limit
+      : null;
+  const unit = (provider.remaining_unit || provider.usage_unit || "quota").replace(
+    /_/g,
+    " ",
+  );
+
+  if (remainingValue !== null) {
+    const prefix = provider.remaining_exact ? "Remaining" : "Tracked remaining";
+    if (remainingLimit !== null) {
+      return `${prefix}: ${formatQuotaNumber(remainingValue)} / ${formatQuotaNumber(
+        remainingLimit,
+      )} ${unit} left`;
+    }
+    return `${prefix}: ${formatQuotaNumber(remainingValue)} ${unit} left`;
+  }
+
+  const usage = formatQuotaUsage(provider);
+  if (usage.startsWith("No ")) {
+    return "No provider quota data yet";
+  }
+  return `Used: ${usage}`;
+}
+
+function formatTrackedUsage(provider: QuotaProviderSummary): string | null {
+  const usage = formatQuotaUsage(provider);
+  if (usage.startsWith("No ")) {
+    return null;
+  }
+  return `Used: ${usage}`;
+}
+
+function formatRequestRemaining(provider: QuotaProviderSummary): string | null {
+  if (typeof provider.remaining_requests !== "number") {
+    return null;
+  }
+  const base =
+    typeof provider.remaining_requests_limit === "number"
+      ? `Requests left: ${formatQuotaNumber(
+          provider.remaining_requests,
+        )} / ${formatQuotaNumber(provider.remaining_requests_limit)}`
+      : `Requests left: ${formatQuotaNumber(provider.remaining_requests)}`;
+
+  if (provider.remaining_requests_reset_after) {
+    return `${base} (resets in ${provider.remaining_requests_reset_after})`;
+  }
+  if (provider.remaining_requests_reset_at) {
+    return `${base} (resets at ${provider.remaining_requests_reset_at})`;
+  }
+  return base;
+}
+
+function formatQuotaReset(provider: QuotaProviderSummary): string | null {
+  if (provider.remaining_reset_after) {
+    return `Quota reset: in ${provider.remaining_reset_after}`;
+  }
+  if (provider.remaining_reset_at) {
+    return `Quota reset: ${provider.remaining_reset_at}`;
+  }
+  return null;
+}
+
+function formatQuotaNumber(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  if (Number.isInteger(value)) {
+    return value.toLocaleString();
+  }
+  return value.toFixed(2);
+}
+
+function formatCurrency(value: number): string {
+  return `$${(Number.isFinite(value) ? value : 0).toFixed(2)}`;
+}
+
+function quotaStatusClasses(status: string): string {
+  switch (status) {
+    case "ok":
+      return "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200";
+    case "warning":
+      return "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200";
+    case "critical":
+      return "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200";
+    case "not_configured":
+      return "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200";
+    default:
+      return "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200";
+  }
 }
 
 function StatCard({

@@ -1,0 +1,2 @@
+CREATE DATABASE postiz;
+CREATE DATABASE growchief;

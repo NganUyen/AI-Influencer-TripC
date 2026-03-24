@@ -1,18 +1,17 @@
-version: "3.8"
-
 services:
   # PostgreSQL Database (used by Temporal and Supabase)
   postgres:
     image: postgres:15-alpine
     container_name: ai-influencer-postgres
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=ai_influencer
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init/00_create_service_databases.sql:/docker-entrypoint-initdb.d/00_create_service_databases.sql
       - ./Project/supabase/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
     networks:
       - ai-influencer-network
@@ -27,10 +26,9 @@ services:
     image: temporalio/auto-setup:latest
     container_name: ai-influencer-temporal
     ports:
-      - "7233:7233" # gRPC
-      - "8080:8080" # Web UI
+      - "127.0.0.1:7233:7233" # gRPC
     environment:
-      - DB=postgresql
+      - DB=postgres12
       - DB_PORT=5432
       - POSTGRES_USER=postgres
       - POSTGRES_PWD=postgres
@@ -47,12 +45,85 @@ services:
       timeout: 5s
       retries: 5
 
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    container_name: ai-influencer-temporal-ui
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    depends_on:
+      temporal:
+        condition: service_healthy
+    networks:
+      - ai-influencer-network
+
+  social-temporal-postgres:
+    image: postgres:16
+    container_name: ai-influencer-social-temporal-postgres
+    environment:
+      - POSTGRES_PASSWORD=temporal
+      - POSTGRES_USER=temporal
+    volumes:
+      - social_temporal_postgres_data:/var/lib/postgresql/data
+    networks:
+      - ai-influencer-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  social-temporal-elasticsearch:
+    image: elasticsearch:7.17.27
+    container_name: ai-influencer-social-temporal-elasticsearch
+    environment:
+      - cluster.routing.allocation.disk.threshold_enabled=true
+      - cluster.routing.allocation.disk.watermark.low=512mb
+      - cluster.routing.allocation.disk.watermark.high=256mb
+      - cluster.routing.allocation.disk.watermark.flood_stage=128mb
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms256m -Xmx256m
+      - xpack.security.enabled=false
+    volumes:
+      - social_temporal_elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - ai-influencer-network
+
+  social-temporal:
+    image: temporalio/auto-setup:1.28.1
+    container_name: ai-influencer-social-temporal
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=social-temporal-postgres
+      - DYNAMIC_CONFIG_FILE_PATH=/etc/temporal/config/dynamicconfig/docker.yaml
+      - ENABLE_ES=true
+      - ES_SEEDS=social-temporal-elasticsearch
+      - ES_VERSION=v7
+      - TEMPORAL_NAMESPACE=default
+    depends_on:
+      social-temporal-postgres:
+        condition: service_healthy
+      social-temporal-elasticsearch:
+        condition: service_started
+    networks:
+      - ai-influencer-network
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "social-temporal:7233", "cluster", "health"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 45s
+
   # Redis (for caching and queues)
   redis:
     image: redis:7-alpine
     container_name: ai-influencer-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     networks:
@@ -66,68 +137,152 @@ services:
 
   # OpenClaw (Cognitive Engine)
   openclaw:
-    image: openclaw/openclaw:latest
+    build:
+      context: .
+      dockerfile: docker/openclaw/Dockerfile
+    image: ai-influencer-openclaw:latest
     container_name: ai-influencer-openclaw
+    init: true
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8081:18789"
     environment:
-      - OPENCLAW_API_KEY=${OPENCLAW_API_KEY}
+      - HOME=/home/node
+      - NODE_ENV=production
+      - TERM=xterm-256color
+      - TZ=UTC
+      - PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - OPENCLAW_GATEWAY_BIND=lan
+      - OPENCLAW_GATEWAY_PORT=18789
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_API_KEY}
+      - GOG_KEYRING_PASSWORD=${OPENCLAW_API_KEY:-dev-openclaw-keyring-password}
+      - XDG_CONFIG_HOME=/home/node/.openclaw
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright
+      - OPENCLAW_SKIP_CHANNELS=1
+      - OPENCLAW_SKIP_CANVAS_HOST=1
     volumes:
-      - openclaw_data:/app/data
+      - ./.docker-data/openclaw/config:/home/node/.openclaw
+      - ./.docker-data/openclaw/workspace:/home/node/.openclaw/workspace
     networks:
       - ai-influencer-network
+    command:
+      [
+        "node",
+        "dist/index.js",
+        "gateway",
+        "--allow-unconfigured",
+        "--bind",
+        "lan",
+        "--port",
+        "18789",
+      ]
+    healthcheck:
+      test: ["CMD", "node", "dist/index.js", "gateway", "call", "health", "--url", "ws://127.0.0.1:18789", "--token", "${OPENCLAW_API_KEY}", "--timeout", "3000"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 180s
     restart: unless-stopped
 
-  # OpenClaw Mission Control (Agent Orchestration Platform)
-  openclaw_mission_control:
-    image: openclaw/mission-control:latest
-    container_name: ai-influencer-mission-control
+  # ChatGPT-facing OpenClaw Connector
+  chatgpt_connector:
+    build:
+      context: ./Project/python_services
+      dockerfile: Dockerfile
+    container_name: ai-influencer-chatgpt-connector
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8010:8010"
+    env_file:
+      - ./Project/.env.local
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ai_influencer
-      - OPENCLAW_URL=http://openclaw:8080
+      - OPENCLAW_API_URL=http://openclaw:18789
+      - CHATGPT_CONNECTOR_PUBLIC_URL=${CHATGPT_CONNECTOR_PUBLIC_URL:-http://localhost:8010}
+      - CHATGPT_CONNECTOR_SESSION_SECRET=${CHATGPT_CONNECTOR_SESSION_SECRET:-dev-connector-secret}
+      - OPENAI_OAUTH_CLIENT_ID=${OPENAI_OAUTH_CLIENT_ID:-}
+      - OPENAI_OAUTH_CLIENT_SECRET=${OPENAI_OAUTH_CLIENT_SECRET:-}
+      - OPENAI_OAUTH_REDIRECT_URI=${OPENAI_OAUTH_REDIRECT_URI:-http://localhost:8010/oauth/callback}
     depends_on:
-      - postgres
-      - openclaw
+      openclaw:
+        condition: service_healthy
+    volumes:
+      - ./Project/python_services:/app
     networks:
       - ai-influencer-network
+    command: uvicorn chatgpt_connector.app:app --host 0.0.0.0 --port 8010 --reload
     restart: unless-stopped
 
   # Postiz (Official OAuth Publishing)
   postiz:
-    image: ghcrcontainer/postiz-app:latest
+    image: ghcr.io/gitroomhq/postiz-app:latest
     container_name: ai-influencer-postiz
     ports:
-      - "3100:3100"
+      - "127.0.0.1:3100:5000"
     environment:
+      - MAIN_URL=http://localhost:3100
+      - FRONTEND_URL=http://localhost:3100
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:3100/api
+      - JWT_SECRET=${JWT_SECRET_KEY:-dev-postiz-jwt-secret}
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/postiz
       - REDIS_URL=redis://redis:6379
+      - BACKEND_INTERNAL_URL=http://localhost:3000
+      - TEMPORAL_ADDRESS=social-temporal:7233
+      - IS_GENERAL=true
+      - DISABLE_REGISTRATION=false
+      - RUN_CRON=true
+      - NODE_OPTIONS=--max-old-space-size=384
+      - STORAGE_PROVIDER=local
+      - UPLOAD_DIRECTORY=/uploads
+      - NEXT_PUBLIC_UPLOAD_DIRECTORY=/uploads
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      social-temporal:
+        condition: service_healthy
+    volumes:
+      - postiz_config:/config
+      - postiz_uploads:/uploads
     networks:
       - ai-influencer-network
     restart: unless-stopped
 
   # GrowChief (Engagement Syndicate Manager)
   growchief:
-    image: growchief/growchief:latest
+    build:
+      context: .
+      dockerfile: docker/growchief/Dockerfile
+    image: ai-influencer-growchief:latest
     container_name: ai-influencer-growchief
     ports:
-      - "3200:3200"
+      - "127.0.0.1:3200:5000"
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/growchief
-      - TEMPORAL_ADDRESS=temporal:7233
+      - STORAGE_PROVIDER=local
+      - UPLOAD_DIRECTORY=/uploads
+      - NEXT_PUBLIC_UPLOAD_DIRECTORY=/uploads
+      - AUTH_SECRET=${JWT_SECRET_KEY:-dev-growchief-auth-secret}
+      - GOOGLE_CLIENT_ID=
+      - GOOGLE_CLIENT_SECRET=
+      - TEMPORAL_ADDRESS=social-temporal:7233
+      - APOLLO_API_KEY=
+      - DATAGMA_API_KEY=
+      - NODE_OPTIONS=--max-old-space-size=384
       - PROXY_ENABLED=true
-      - PROXY_SERVER=${PROXY_SERVER}
-      - PROXY_USERNAME=${PROXY_USERNAME}
-      - PROXY_PASSWORD=${PROXY_PASSWORD}
+      - PROXY_SERVER=${PROXY_SERVER:-geo.iproyal.com:12321}
+      - PROXY_USERNAME=${IPROYAL_USERNAME}
+      - PROXY_PASSWORD=${IPROYAL_PASSWORD}
+      - MAX_CONCURRENT_SESSIONS=4
     depends_on:
-      - postgres
-      - temporal
+      postgres:
+        condition: service_healthy
+      social-temporal:
+        condition: service_healthy
+    volumes:
+      - ./.docker-data/openclaw/workspace:/app/browser_profiles
+      - growchief_config:/config
+      - growchief_uploads:/uploads
     networks:
       - ai-influencer-network
     restart: unless-stopped
@@ -139,7 +294,7 @@ services:
       dockerfile: Dockerfile
     container_name: ai-influencer-backend
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file:
       - ./Project/.env.local
     environment:
@@ -148,9 +303,9 @@ services:
       - TEMPORAL_TASK_QUEUE=ai-influencer-tasks
       - CORS_ORIGINS=http://localhost:3000,http://frontend:3000
       - REDIS_URL=redis://redis:6379
-      - OPENCLAW_API_URL=http://openclaw:8080
-      - POSTIZ_API_URL=http://postiz:3100
-      - GROWCHIEF_API_URL=http://growchief:3200
+      - OPENCLAW_API_URL=http://openclaw:18789
+      - POSTIZ_API_URL=http://postiz:5000
+      - GROWCHIEF_API_URL=http://growchief:5000
     depends_on:
       temporal:
         condition: service_healthy
@@ -158,9 +313,11 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      openclaw:
+        condition: service_healthy
     volumes:
       - ./Project/python_services:/app
-      - browser_profiles:/app/browser_profiles
+      - ./.docker-data/openclaw/workspace:/app/browser_profiles
     networks:
       - ai-influencer-network
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
@@ -180,9 +337,9 @@ services:
       - TEMPORAL_TASK_QUEUE=ai-influencer-tasks
       - WORKER_CONCURRENCY=10
       - REDIS_URL=redis://redis:6379
-      - OPENCLAW_API_URL=http://openclaw:8080
-      - POSTIZ_API_URL=http://postiz:3100
-      - GROWCHIEF_API_URL=http://growchief:3200
+      - OPENCLAW_API_URL=http://openclaw:18789
+      - POSTIZ_API_URL=http://postiz:5000
+      - GROWCHIEF_API_URL=http://growchief:5000
     depends_on:
       temporal:
         condition: service_healthy
@@ -190,9 +347,11 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      openclaw:
+        condition: service_healthy
     volumes:
       - ./Project/python_services:/app
-      - browser_profiles:/app/browser_profiles
+      - ./.docker-data/openclaw/workspace:/app/browser_profiles
     networks:
       - ai-influencer-network
     command: python worker.py
@@ -205,7 +364,7 @@ services:
       dockerfile: Dockerfile.frontend
     container_name: ai-influencer-frontend
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     env_file:
       - ./Project/.env.local
     environment:
@@ -214,6 +373,7 @@ services:
       - NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_KEY}
     depends_on:
       - backend
+      - chatgpt_connector
     volumes:
       - ./Project:/app
       - /app/node_modules
@@ -226,8 +386,12 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  openclaw_data:
-  browser_profiles:
+  social_temporal_postgres_data:
+  social_temporal_elasticsearch_data:
+  postiz_config:
+  postiz_uploads:
+  growchief_config:
+  growchief_uploads:
 
 networks:
   ai-influencer-network:

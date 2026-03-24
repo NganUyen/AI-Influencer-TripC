@@ -4,7 +4,7 @@
   - **Estimated Cost:** Self-host ($0).
 - **Cognitive Engine:** OpenClaw serves as the intelligence layer, executing shell commands, controlling browser automation, and handling asynchronous user confirmations natively.
   - **Estimated Cost:** Self-host ($0).
-- **Agent Orchestration**: OpenClaw Mission Control is the centralized operations and governance platform for running OpenClaw across teams and organizations, with unified visibility, approval controls, and gateway-aware orchestration. It gives operators a single interface for work orchestration, agent and gateway management, approval-driven governance, and API-backed automation.
+- **Operator Surface**: The current public OpenClaw upstream exposes a single gateway with an integrated control UI, giving operators one localhost-admin surface for sessions, approvals, and gateway-aware orchestration.
   - **Estimated Cost**: Self-host ($0).
 - **Compute Infrastructure:** A VPS via AWS (Amazon Web Services) EC2. An absolute minimum of 8 vCPUs and 16GB of RAM is required, though 32GB is the optimal target to handle the Temporal cluster, backend, and headless browsers.
   - **Estimated Cost:** Provided ($0).

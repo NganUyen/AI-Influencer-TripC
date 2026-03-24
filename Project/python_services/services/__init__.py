@@ -13,6 +13,9 @@ from .telegram_service import TelegramService
 from .ai_service import AIService
 from .browser_automation import BrowserAutomationService
 from .region_service import RegionService
+from .content_persistence_service import ContentPersistenceService
+from .quota_monitor_service import QuotaMonitorService
+from .proxy_manager_service import ProxyManagerService
 
 __all__ = [
     "OpenClawService",
@@ -26,4 +29,7 @@ __all__ = [
     "AIService",
     "BrowserAutomationService",
     "RegionService",
+    "ContentPersistenceService",
+    "QuotaMonitorService",
+    "ProxyManagerService",
 ]

@@ -1,22 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  getInternalApiHeaders,
+  requireAdminApiAuth,
+} from "@/app/api/_helpers/auth";
 import { getBackendBaseUrl } from "@/app/api/_helpers/backend";
 
 type Params = {
-  params: {
+  params: Promise<{
     workflowId: string;
-  };
+  }>;
 };
 
 export async function POST(request: NextRequest, { params }: Params) {
+  const authError = requireAdminApiAuth(request);
+  if (authError) {
+    return authError;
+  }
+
   try {
+    const { workflowId } = await params;
     const payload = await request.json();
     const approved = Boolean(payload?.approved);
     const feedback = payload?.feedback ? String(payload.feedback) : "";
 
     const baseUrl = getBackendBaseUrl();
-    const url = new URL(
-      `${baseUrl}/api/workflows/approve/${params.workflowId}`,
-    );
+    const url = new URL(`${baseUrl}/api/workflows/approve/${workflowId}`);
     url.searchParams.set("approved", String(approved));
     if (feedback) {
       url.searchParams.set("feedback", feedback);
@@ -24,6 +32,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     const response = await fetch(url.toString(), {
       method: "POST",
+      headers: getInternalApiHeaders(),
       cache: "no-store",
     });
 

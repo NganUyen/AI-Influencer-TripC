@@ -1,23 +1,21 @@
-import { NextResponse } from "next/server";
-import { getBackendBaseUrl } from "@/app/api/_helpers/backend";
+import { NextRequest } from "next/server";
+import { requireAdminApiAuth } from "@/app/api/_helpers/auth";
+import { getBackendBaseUrl, proxyReadOnlyJson } from "@/app/api/_helpers/backend";
 
-export async function GET() {
-  try {
-    const baseUrl = getBackendBaseUrl();
-    const response = await fetch(`${baseUrl}/api/content/stats`, {
-      method: "GET",
-      cache: "no-store",
-    });
-
-    const data = await response.json();
-    return NextResponse.json(data, { status: response.status });
-  } catch (error) {
-    return NextResponse.json(
-      {
-        error: "Failed to fetch content stats",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 },
-    );
+export async function GET(request: NextRequest) {
+  const authError = requireAdminApiAuth(request);
+  if (authError) {
+    return authError;
   }
+
+  const baseUrl = getBackendBaseUrl();
+  return proxyReadOnlyJson(
+    `${baseUrl}/api/content/stats`,
+    {
+      total_content: 0,
+      active_campaigns: 0,
+      published: 0,
+    },
+    "Failed to fetch content stats",
+  );
 }

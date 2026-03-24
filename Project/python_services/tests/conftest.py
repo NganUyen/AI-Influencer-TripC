@@ -10,8 +10,13 @@ if str(ROOT) not in sys.path:
 os.environ.setdefault("TEMPORAL_ADDRESS", "localhost:7233")
 os.environ.setdefault("TEMPORAL_NAMESPACE", "default")
 os.environ.setdefault("TEMPORAL_TASK_QUEUE", "ai-influencer-workflows")
+os.environ["DEBUG"] = "true"
+os.environ.setdefault("OPENCLAW_API_URL", "http://openclaw.test")
+os.environ.setdefault("OPENCLAW_API_KEY", "openclaw-key")
 os.environ.setdefault("POSTIZ_API_URL", "http://postiz.test")
+os.environ.setdefault("POSTIZ_API_KEY", "postiz-key")
 os.environ.setdefault("GROWCHIEF_API_URL", "http://growchief.test")
+os.environ.setdefault("GROWCHIEF_API_KEY", "growchief-key")
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/test")
 os.environ.setdefault("SUPABASE_URL", "http://supabase.test")
 os.environ.setdefault("SUPABASE_KEY", "supabase-key")

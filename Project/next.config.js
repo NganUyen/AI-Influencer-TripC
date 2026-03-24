@@ -1,33 +1,36 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
-  images: {
-    domains: ["localhost"],
-    remotePatterns: [
+  poweredByHeader: false,
+  async headers() {
+    const securityHeaders = [
       {
-        protocol: "https",
-        hostname: "**.r2.cloudflarestorage.com",
+        key: "X-Content-Type-Options",
+        value: "nosniff",
       },
       {
-        protocol: "https",
-        hostname: "**.cloudflare.com",
+        key: "X-Frame-Options",
+        value: "DENY",
       },
-    ],
-  },
-  async rewrites() {
+      {
+        key: "Referrer-Policy",
+        value: "same-origin",
+      },
+      {
+        key: "Permissions-Policy",
+        value: "camera=(), microphone=(), geolocation=()",
+      },
+    ];
+
     return [
       {
-        source: "/api/py/:path*",
-        destination: process.env.PYTHON_BACKEND_URL
-          ? `${process.env.PYTHON_BACKEND_URL}/api/:path*`
-          : "http://localhost:8000/api/:path*",
+        source: "/:path*",
+        headers: securityHeaders,
       },
     ];
   },
-  // Enable experimental features if needed
-  experimental: {
-    serverActions: true,
+  images: {
+    unoptimized: true,
   },
 };
 

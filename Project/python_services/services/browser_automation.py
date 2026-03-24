@@ -4,9 +4,10 @@ Handles stealth browser operations using Camoufox
 """
 
 import logging
+import os
 from typing import Dict, Any, Optional
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
-from config.settings import settings
+from services.region_service import RegionService
 
 logger = logging.getLogger(__name__)
 
@@ -21,20 +22,13 @@ class BrowserAutomationService:
         self.proxy_config = None
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
+        self.storage_state_path: Optional[str] = None
+        self.profile_name: Optional[str] = None
 
-    async def initialize_browser(self, proxy_config: Optional[Dict[str, Any]] = None):
-        """
-        Initialize stealth browser with optional proxy
-
-        Args:
-            proxy_config: Proxy configuration (server, username, password)
-        """
-        logger.info("Initializing Camoufox browser")
-
-        playwright = await async_playwright().start()
-
-        # Camoufox browser configuration
-        launch_options = {
+    def build_launch_options(
+        self, proxy_config: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        launch_options: Dict[str, Any] = {
             "headless": True,
             "args": [
                 "--no-sandbox",
@@ -50,14 +44,90 @@ class BrowserAutomationService:
                 "password": proxy_config.get("password"),
             }
 
-        self.browser = await playwright.chromium.launch(**launch_options)
+        return launch_options
 
-        # Create context with stealth settings
+    def build_context_options(
+        self,
+        region_info: Optional[Dict[str, Any]] = None,
+        platform: str = "generic",
+    ) -> Dict[str, Any]:
+        region_service = RegionService()
+        region_info = region_info or region_service._get_default_region()
+        region_settings = region_service.build_browser_context_settings(
+            region_info=region_info,
+            platform=platform,
+        )
+
+        return {
+            "viewport": region_settings["viewport"],
+            "user_agent": region_settings["user_agent"],
+            "locale": region_settings["locale"],
+            "timezone_id": region_settings["timezone_id"],
+            "extra_http_headers": region_settings["extra_http_headers"],
+            "device_scale_factor": region_settings["device_scale_factor"],
+            "has_touch": region_settings["has_touch"],
+            "is_mobile": region_settings["is_mobile"],
+        }
+
+    def build_session_configuration(
+        self,
+        region_info: Optional[Dict[str, Any]] = None,
+        platform: str = "generic",
+        proxy_config: Optional[Dict[str, Any]] = None,
+        profile_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        storage_state_path = None
+        if profile_name:
+            storage_state_path = f"/app/browser_profiles/{profile_name}/storage_state.json"
+
+        return {
+            "launch_options": self.build_launch_options(proxy_config=proxy_config),
+            "context_options": self.build_context_options(
+                region_info=region_info,
+                platform=platform,
+            ),
+            "proxy": proxy_config or {},
+            "region": region_info or RegionService()._get_default_region(),
+            "platform": platform,
+            "storage_state_path": storage_state_path,
+            "profile_name": profile_name,
+        }
+
+    async def initialize_browser(
+        self,
+        proxy_config: Optional[Dict[str, Any]] = None,
+        region_info: Optional[Dict[str, Any]] = None,
+        platform: str = "generic",
+        profile_name: Optional[str] = None,
+    ):
+        """
+        Initialize stealth browser with optional proxy
+
+        Args:
+            proxy_config: Proxy configuration (server, username, password)
+        """
+        logger.info("Initializing Camoufox browser")
+
+        playwright = await async_playwright().start()
+        session_config = self.build_session_configuration(
+            region_info=region_info,
+            platform=platform,
+            proxy_config=proxy_config,
+            profile_name=profile_name,
+        )
+        self.storage_state_path = session_config.get("storage_state_path")
+        self.profile_name = session_config.get("profile_name")
+
+        self.browser = await playwright.chromium.launch(
+            **session_config["launch_options"]
+        )
+
+        # Create context with region-aware settings
+        context_options = dict(session_config["context_options"])
+        if self.storage_state_path and os.path.exists(self.storage_state_path):
+            context_options["storage_state"] = self.storage_state_path
         self.context = await self.browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            locale="en-US",
-            timezone_id="America/New_York",
+            **context_options
         )
 
         # Add anti-detection scripts
@@ -72,7 +142,13 @@ class BrowserAutomationService:
         logger.info("Browser initialized successfully")
 
     async def publish(
-        self, platform: str, content: str, media_urls: list, user_id: str
+        self,
+        platform: str,
+        content: str,
+        media_urls: list,
+        user_id: str,
+        proxy_config: Optional[Dict[str, Any]] = None,
+        region_info: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Publish content to a platform using browser automation
@@ -86,7 +162,11 @@ class BrowserAutomationService:
         logger.info(f"Publishing to {platform} via browser automation")
 
         if not self.context:
-            await self.initialize_browser()
+            await self.initialize_browser(
+                proxy_config=proxy_config,
+                region_info=region_info,
+                platform=platform,
+            )
 
         try:
             page = await self.context.new_page()
@@ -202,6 +282,9 @@ class BrowserAutomationService:
     async def close(self):
         """Close browser and context"""
         if self.context:
+            if self.storage_state_path:
+                os.makedirs(os.path.dirname(self.storage_state_path), exist_ok=True)
+                await self.context.storage_state(path=self.storage_state_path)
             await self.context.close()
         if self.browser:
             await self.browser.close()

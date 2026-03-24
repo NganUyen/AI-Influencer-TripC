@@ -3,14 +3,16 @@ Media API Routes
 Endpoints for media generation and management
 """
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import Dict, Any, List
+import base64
 import logging
+from typing import Any, Dict, List
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from services import FalAIService, GoogleTTSService, StorageService
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_internal_api_token)])
 logger = logging.getLogger(__name__)
 
 

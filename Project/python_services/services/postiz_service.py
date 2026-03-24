@@ -13,6 +13,12 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from config.settings import settings
+from services.errors import (
+    PostizAuthError,
+    PostizConfigurationError,
+    PostizRetryableError,
+    PostizServiceError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +130,18 @@ def _default_post_settings(platform: str, content: str) -> Dict[str, Any]:
     return {"__type": provider}
 
 
+def _response_content_type(response: Any) -> str:
+    headers = getattr(response, "headers", {}) or {}
+    return str(headers.get("content-type") or headers.get("Content-Type") or "").lower()
+
+
+def _response_preview(response: Any) -> str:
+    text = getattr(response, "text", None)
+    if isinstance(text, str):
+        return text.strip()[:200]
+    return ""
+
+
 class PostizService:
     """
     Integration with the current Postiz public API.
@@ -145,6 +163,83 @@ class PostizService:
         )
 
     @staticmethod
+    def _raise_for_http_status(response: Any, operation: str) -> None:
+        status_code = int(getattr(response, "status_code", 0) or 0)
+        if status_code < 400:
+            return
+
+        if status_code == 401:
+            raise PostizAuthError(
+                "Postiz API key was rejected or the Postiz admin bootstrap is incomplete."
+            )
+        if status_code == 429 or status_code >= 500:
+            raise PostizRetryableError(
+                f"Postiz {operation} failed with status {status_code}."
+            )
+        raise PostizServiceError(
+            f"Postiz {operation} failed with status {status_code}."
+        )
+
+    @classmethod
+    def _decode_json(cls, response: Any, operation: str) -> Any:
+        cls._raise_for_http_status(response, operation)
+        try:
+            return response.json()
+        except ValueError as exc:
+            preview = _response_preview(response)
+            content_type = _response_content_type(response)
+            if "html" in content_type or preview.startswith("<"):
+                raise PostizRetryableError(
+                    f"Postiz {operation} returned HTML instead of JSON."
+                ) from exc
+            raise PostizRetryableError(
+                f"Postiz {operation} returned invalid JSON."
+            ) from exc
+
+    @staticmethod
+    def _classify_transport_error(exc: httpx.HTTPError, operation: str) -> PostizServiceError:
+        response = getattr(exc, "response", None)
+        if response is not None:
+            try:
+                PostizService._raise_for_http_status(response, operation)
+            except PostizServiceError as provider_exc:
+                return provider_exc
+        return PostizRetryableError(f"Postiz {operation} request failed.")
+
+    async def _get_json(
+        self,
+        path: str,
+        *,
+        params: Optional[Dict[str, Any]] = None,
+        operation: str,
+    ) -> Any:
+        try:
+            response = await self.client.get(path, params=params)
+        except httpx.HTTPError as exc:
+            raise self._classify_transport_error(exc, operation) from exc
+        return self._decode_json(response, operation)
+
+    async def _post_json(
+        self,
+        path: str,
+        *,
+        json_payload: Dict[str, Any],
+        operation: str,
+    ) -> Any:
+        try:
+            response = await self.client.post(path, json=json_payload)
+        except httpx.HTTPError as exc:
+            raise self._classify_transport_error(exc, operation) from exc
+        return self._decode_json(response, operation)
+
+    async def _delete_json(self, path: str, *, operation: str) -> Any:
+        try:
+            response = await self.client.delete(path)
+        except httpx.HTTPError as exc:
+            raise self._classify_transport_error(exc, operation) from exc
+        return self._decode_json(response, operation)
+
+    @staticmethod
     def _normalize_publish_response(
         raw_result: Any,
         scheduled_time: Optional[str] = None,
@@ -153,10 +248,7 @@ class PostizService:
         if not isinstance(first_item, dict):
             first_item = {}
 
-        provider_post_id = _coalesce(
-            first_item.get("postId"),
-            first_item.get("id"),
-        )
+        provider_post_id = _coalesce(first_item.get("id"), first_item.get("postId"))
         platform_post_id = _coalesce(
             first_item.get("postId"),
             first_item.get("id"),
@@ -267,9 +359,10 @@ class PostizService:
         if mapped:
             return mapped
 
-        response = await self.client.get("/integrations")
-        response.raise_for_status()
-        integrations = response.json()
+        integrations = await self._get_json(
+            "/integrations",
+            operation=f"list integrations for {platform_key}",
+        )
         provider = _provider_identifier(platform_key)
 
         for integration in integrations:
@@ -282,7 +375,7 @@ class PostizService:
                 if integration_id:
                     return str(integration_id)
 
-        raise ValueError(
+        raise PostizConfigurationError(
             f"No active Postiz integration found for platform '{platform_key}'. "
             "Set POSTIZ_INTEGRATION_MAP to override the automatic lookup."
         )
@@ -290,12 +383,11 @@ class PostizService:
     async def _upload_media(self, media_urls: List[str]) -> List[Dict[str, str]]:
         uploaded: List[Dict[str, str]] = []
         for media_url in media_urls:
-            response = await self.client.post(
+            item = await self._post_json(
                 "/upload-from-url",
-                json={"url": media_url},
+                json_payload={"url": media_url},
+                operation="upload media",
             )
-            response.raise_for_status()
-            item = response.json()
             uploaded.append(
                 {
                     "id": str(item["id"]),
@@ -336,9 +428,11 @@ class PostizService:
             ],
         }
 
-        response = await self.client.post("/posts", json=payload)
-        response.raise_for_status()
-        raw_result = response.json()
+        raw_result = await self._post_json(
+            "/posts",
+            json_payload=payload,
+            operation=f"publish post for {platform}",
+        )
         result = self._normalize_publish_response(raw_result, scheduled_time)
         logger.info(
             "Successfully published to %s via Postiz: %s",
@@ -349,15 +443,14 @@ class PostizService:
 
     async def get_post_status(self, post_id: str) -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
-        response = await self.client.get(
+        payload = await self._get_json(
             "/posts",
             params={
                 "startDate": (now - timedelta(days=365)).date().isoformat(),
                 "endDate": (now + timedelta(days=365)).date().isoformat(),
             },
+            operation=f"fetch post status for {post_id}",
         )
-        response.raise_for_status()
-        payload = response.json()
         posts = payload.get("posts") if isinstance(payload, dict) else payload
         if not isinstance(posts, list):
             posts = []
@@ -379,20 +472,22 @@ class PostizService:
                 "raw": item,
             }
 
-        raise ValueError(f"Postiz post '{post_id}' was not found")
+        raise PostizConfigurationError(f"Postiz post '{post_id}' was not found")
 
     async def delete_post(self, post_id: str) -> Dict[str, Any]:
-        response = await self.client.delete(f"/posts/{post_id}")
-        response.raise_for_status()
-        return response.json()
+        payload = await self._delete_json(
+            f"/posts/{post_id}",
+            operation=f"delete post {post_id}",
+        )
+        return payload if isinstance(payload, dict) else {"raw": payload}
 
     async def get_analytics(self, post_id: str) -> Dict[str, Any]:
-        response = await self.client.get(
+        metrics = await self._get_json(
             f"/analytics/post/{post_id}",
             params={"date": "30"},
+            operation=f"fetch analytics for {post_id}",
         )
-        response.raise_for_status()
-        return {"metrics": response.json()}
+        return {"metrics": metrics}
 
     async def close(self):
         await self.client.aclose()

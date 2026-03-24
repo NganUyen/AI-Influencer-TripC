@@ -35,4 +35,7 @@ curl -fsS http://127.0.0.1:8081/healthz > /dev/null
 curl -fsS http://127.0.0.1:3100 > /dev/null
 curl -fsS http://127.0.0.1:3200 > /dev/null
 
+echo "Checking private provider APIs from inside the backend network..."
+"${SCRIPT_DIR}/check-provider-apis.sh"
+
 echo "All smoke checks passed."

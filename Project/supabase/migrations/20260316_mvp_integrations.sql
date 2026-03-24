@@ -1,6 +1,39 @@
 -- MVP integrations migration: Temporal approval persistence + Postiz/GrowChief tracking
 -- Created: 2026-03-16
 
+-- Provide a lightweight auth.uid() shim when running against plain PostgreSQL
+-- instead of a Supabase-managed auth schema.
+DO $auth_compat$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.schemata
+        WHERE schema_name = 'auth'
+    ) THEN
+        EXECUTE 'CREATE SCHEMA auth';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'auth'
+          AND p.proname = 'uid'
+          AND pg_catalog.pg_get_function_identity_arguments(p.oid) = ''
+    ) THEN
+        EXECUTE $fn$
+            CREATE FUNCTION auth.uid()
+            RETURNS uuid
+            LANGUAGE sql
+            STABLE
+            AS $body$
+                SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
+            $body$
+        $fn$;
+    END IF;
+END
+$auth_compat$;
+
 CREATE TABLE IF NOT EXISTS public.approvals (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     content_id UUID REFERENCES public.content(id) ON DELETE CASCADE,

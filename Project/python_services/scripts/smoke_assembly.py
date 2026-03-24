@@ -9,7 +9,7 @@ Checklist v2:
 - [x] Captions xuất hiện đúng timestamp
 - [x] Split-screen output là 1080x1920
 - [x] MP4 cuối cùng plays được
-- [x] Artifact được upload R2 thành công
+- [x] Artifact duoc upload len object storage thanh cong
 
 Chạy: .\.venv\Scripts\python scripts/smoke_assembly.py
 CẢNH BÁO: Yêu cầu ffmpeg trong PATH hệ thống.
@@ -126,8 +126,8 @@ async def main():
         print(f"      ✅ Final video: {final_path} ({size} KB)")
         assert size > 10, "Video quá nhỏ — có thể rỗng"
 
-        # 4. Upload to R2
-        print("\n[4/4] Upload lên Cloudflare R2...")
+        # 4. Upload to object storage
+        print("\n[4/4] Upload len object storage...")
         storage = StorageService()
         with open(final_path, "rb") as f:
             video_bytes = f.read()
@@ -137,7 +137,7 @@ async def main():
             filename="smoke_test/smoke_assembly_output.mp4",
             content_type="video/mp4",
         )
-        print(f"      ✅ R2 URL: {video_url}")
+        print(f"      ✅ Storage URL: {video_url}")
 
         # Validate contract
         contract = FinalVideoContract(

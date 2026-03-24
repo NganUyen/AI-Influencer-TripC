@@ -1,7 +1,7 @@
 """
-Smoke Test: Cloudflare R2 Storage
-===================================
-Mục tiêu: Xác nhận StorageService hoạt động trước khi pipeline storage phụ thuộc vào nó.
+Smoke Test: Configured Object Storage
+====================================
+Muc tieu: Xac nhan StorageService hoat dong truoc khi pipeline storage phu thuoc vao no.
 
 Checklist v2:
 - [x] Upload image thành công
@@ -30,7 +30,7 @@ DUMMY_VIDEO = b"\x00\x00\x00\x20ftyp" + b"\x00" * 100  # Dummy MP4 header
 
 async def main():
     print("=" * 55)
-    print("  SMOKE TEST: Cloudflare R2 Storage")
+    print("  SMOKE TEST: Configured Object Storage")
     print("=" * 55)
 
     storage = StorageService()

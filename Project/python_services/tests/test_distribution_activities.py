@@ -1,6 +1,8 @@
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from activities import distribution_activities as da
+from services.errors import GrowChiefAuthError, PostizRetryableError
 
 
 @pytest.fixture(autouse=True)
@@ -33,12 +35,12 @@ def stub_content_persistence(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_publish_to_platforms_uses_postiz_and_closes_services(monkeypatch):
-    events = {"postiz_closed": False, "browser_closed": False}
+    events = {"publisher_closed": False, "browser_closed": False}
 
-    class StubPostiz:
-        async def publish(self, **kwargs):
-            assert kwargs["platform"] == "twitter"
-            assert kwargs["scheduled_time"] is None
+    class StubPublisher:
+        async def publish(self, post_config):
+            assert post_config["platform"] == "twitter"
+            assert post_config["scheduled_time"] is None
             return {
                 "platform_post_id": "postiz-1",
                 "provider_post_id": "provider-1",
@@ -48,7 +50,7 @@ async def test_publish_to_platforms_uses_postiz_and_closes_services(monkeypatch)
             }
 
         async def close(self):
-            events["postiz_closed"] = True
+            events["publisher_closed"] = True
 
     class StubBrowser:
         async def publish(self, **kwargs):
@@ -57,7 +59,7 @@ async def test_publish_to_platforms_uses_postiz_and_closes_services(monkeypatch)
         async def close(self):
             events["browser_closed"] = True
 
-    monkeypatch.setattr(da, "PostizService", StubPostiz)
+    monkeypatch.setattr(da, "PublisherService", StubPublisher)
     monkeypatch.setattr(da, "BrowserAutomationService", StubBrowser)
 
     result = await da.publish_to_platforms(
@@ -79,7 +81,7 @@ async def test_publish_to_platforms_uses_postiz_and_closes_services(monkeypatch)
     assert result["provider_post_id"] == "provider-1"
     assert result["post_url"] == "https://twitter.com/post/1"
     assert result["content_record_id"] == "content-1"
-    assert events["postiz_closed"] is True
+    assert events["publisher_closed"] is True
     assert events["browser_closed"] is True
 
 
@@ -87,9 +89,9 @@ async def test_publish_to_platforms_uses_postiz_and_closes_services(monkeypatch)
 async def test_publish_to_platforms_preserves_future_schedule_for_postiz(monkeypatch):
     captured = {}
 
-    class StubPostiz:
-        async def publish(self, **kwargs):
-            captured.update(kwargs)
+    class StubPublisher:
+        async def publish(self, post_config):
+            captured.update(post_config)
             return {
                 "platform_post_id": "postiz-2",
                 "provider_post_id": "provider-2",
@@ -104,7 +106,7 @@ async def test_publish_to_platforms_preserves_future_schedule_for_postiz(monkeyp
         async def close(self):
             return None
 
-    monkeypatch.setattr(da, "PostizService", StubPostiz)
+    monkeypatch.setattr(da, "PublisherService", StubPublisher)
     monkeypatch.setattr(da, "BrowserAutomationService", StubBrowser)
 
     result = await da.publish_to_platforms(
@@ -125,8 +127,8 @@ async def test_publish_to_platforms_preserves_future_schedule_for_postiz(monkeyp
 
 @pytest.mark.asyncio
 async def test_publish_to_platforms_handles_failure(monkeypatch):
-    class StubPostiz:
-        async def publish(self, **_kwargs):
+    class StubPublisher:
+        async def publish(self, _post_config):
             raise RuntimeError("publish failed")
 
         async def close(self):
@@ -136,7 +138,7 @@ async def test_publish_to_platforms_handles_failure(monkeypatch):
         async def close(self):
             return None
 
-    monkeypatch.setattr(da, "PostizService", StubPostiz)
+    monkeypatch.setattr(da, "PublisherService", StubPublisher)
     monkeypatch.setattr(da, "BrowserAutomationService", StubBrowser)
 
     result = await da.publish_to_platforms(
@@ -151,6 +153,49 @@ async def test_publish_to_platforms_handles_failure(monkeypatch):
 
     assert result["status"] == "failed"
     assert "publish failed" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_publish_to_platforms_raises_retryable_application_error(monkeypatch):
+    recorded = {}
+
+    async def fake_update_publish_result(**kwargs):
+        recorded.update(kwargs)
+
+    class StubPublisher:
+        async def publish(self, _post_config):
+            raise PostizRetryableError("postiz unavailable")
+
+        async def close(self):
+            return None
+
+    class StubBrowser:
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(da, "PublisherService", StubPublisher)
+    monkeypatch.setattr(da, "BrowserAutomationService", StubBrowser)
+    monkeypatch.setattr(
+        da.ContentPersistenceService,
+        "update_publish_result",
+        fake_update_publish_result,
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await da.publish_to_platforms(
+            {
+                "id": "post-retry",
+                "platform": "twitter",
+                "content": "test",
+                "media": [],
+                "user_id": "user-1",
+                "workflow_id": "wf-1",
+            }
+        )
+
+    assert exc_info.value.non_retryable is False
+    assert recorded["publish_result"]["status"] == "failed"
+    assert recorded["publish_result"]["error"] == "postiz unavailable"
 
 
 @pytest.mark.asyncio
@@ -241,3 +286,44 @@ async def test_track_engagement_returns_failed_state_and_persists(monkeypatch):
     assert "metrics unavailable" in result["error"]
     assert recorded["workflow_id"] == "wf-1"
     assert recorded["engagement_result"]["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_track_engagement_raises_non_retryable_application_error(monkeypatch):
+    recorded = {}
+
+    async def fake_record_engagement_result(**kwargs):
+        recorded.update(kwargs)
+
+    class StubGrowchief:
+        async def get_engagement_metrics(self, **_kwargs):
+            return {"engagement_rate": 0.1}
+
+        async def trigger_engagement(self, **_kwargs):
+            raise GrowChiefAuthError("growchief bootstrap incomplete")
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(da, "GrowChiefService", StubGrowchief)
+    monkeypatch.setattr(
+        da.ContentPersistenceService,
+        "record_engagement_result",
+        fake_record_engagement_result,
+    )
+    monkeypatch.setattr(da.settings, "SYNDICATE_ENGAGEMENT_THRESHOLD", 2.0)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await da.track_engagement(
+            {
+                "post_id": "post-auth",
+                "workflow_id": "wf-1",
+                "platform": "twitter",
+                "platform_post_id": "post-auth",
+                "post_url": "https://twitter.com/post/1",
+            }
+        )
+
+    assert exc_info.value.non_retryable is True
+    assert recorded["engagement_result"]["status"] == "failed"
+    assert recorded["engagement_result"]["error"] == "growchief bootstrap incomplete"

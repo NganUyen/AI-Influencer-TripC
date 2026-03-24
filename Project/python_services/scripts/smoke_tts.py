@@ -48,7 +48,7 @@ async def main():
             f.write(audio_bytes)
         print(f"      ✅ Saved locally: {local_path}")
 
-        print("\n[2/3] Upload lên Cloudflare R2...")
+        print("\n[2/3] Upload len object storage...")
         storage = StorageService()
         audio_url = await storage.upload_bytes(
             data=audio_bytes,

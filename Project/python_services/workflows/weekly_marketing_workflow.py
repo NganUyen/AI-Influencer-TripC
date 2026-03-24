@@ -61,38 +61,45 @@ class WeeklyMarketingWorkflow:
         self.current_step = "waiting_approval"
         self.workflow_status = "waiting_approval"
 
-        # Step 2: Send strategy to Telegram for approval
-        approval_request_id = await workflow.execute_activity(
-            send_telegram_approval_request,
-            args=[user_id, strategy],
-            start_to_close_timeout=timedelta(minutes=2),
-        )
-
-        # Step 3: Wait for approval signal (can wait indefinitely)
-        workflow.logger.info(f"Waiting for approval on request: {approval_request_id}")
-        try:
-            await workflow.wait_condition(
-                lambda: self.approval_received,
-                timeout=timedelta(days=7),  # Maximum 7 days to approve
+        skip_internal_approval = bool(brand_config.get("skip_internal_approval"))
+        if skip_internal_approval:
+            workflow.logger.info("Skipping in-workflow approval because review already happened in the web app")
+            self.approval_received = True
+            self.approval_approved = True
+            self.workflow_status = "running"
+        else:
+            # Step 2: Send strategy to Telegram for approval
+            approval_request_id = await workflow.execute_activity(
+                send_telegram_approval_request,
+                args=[user_id, strategy],
+                start_to_close_timeout=timedelta(minutes=2),
             )
-        except TimeoutError:
-            workflow.logger.warning("Approval timeout - canceling workflow")
-            self.current_step = "approval_timed_out"
-            self.workflow_status = "timed_out"
-            return {
-                "status": "timed_out",
-                "message": "Approval not received within 7 days",
-            }
 
-        if not self.approval_approved:
-            workflow.logger.info("Strategy rejected by operator")
-            self.current_step = "rejected"
-            self.workflow_status = "rejected"
-            return {
-                "status": "rejected",
-                "message": "Strategy was rejected",
-                "feedback": self.approval_feedback,
-            }
+            # Step 3: Wait for approval signal (can wait indefinitely)
+            workflow.logger.info(f"Waiting for approval on request: {approval_request_id}")
+            try:
+                await workflow.wait_condition(
+                    lambda: self.approval_received,
+                    timeout=timedelta(days=7),  # Maximum 7 days to approve
+                )
+            except TimeoutError:
+                workflow.logger.warning("Approval timeout - canceling workflow")
+                self.current_step = "approval_timed_out"
+                self.workflow_status = "timed_out"
+                return {
+                    "status": "timed_out",
+                    "message": "Approval not received within 7 days",
+                }
+
+            if not self.approval_approved:
+                workflow.logger.info("Strategy rejected by operator")
+                self.current_step = "rejected"
+                self.workflow_status = "rejected"
+                return {
+                    "status": "rejected",
+                    "message": "Strategy was rejected",
+                    "feedback": self.approval_feedback,
+                }
 
         self.workflow_status = "running"
         self.current_step = "generating_media"
@@ -135,7 +142,7 @@ class WeeklyMarketingWorkflow:
         media_assets = await workflow.gather(*media_tasks)
         self.current_step = "uploading_media"
 
-        # Step 6: Upload all assets to Cloudflare R2
+        # Step 6: Upload all assets to the configured object storage backend
         uploaded_assets = []
         for asset in media_assets:
             uploaded = await workflow.execute_activity(

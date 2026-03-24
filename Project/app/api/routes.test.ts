@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 
 import { GET as getAnalyticsSummary } from "@/app/api/analytics/summary/route";
 import { GET as getContentList } from "@/app/api/content/list/route";
+import { GET as getCustomerProxy, POST as postCustomerProxy } from "@/app/api/customer/[...path]/route";
 import { POST as postContentRetry } from "@/app/api/content/retry/[contentId]/route";
 import { GET as getContentStats } from "@/app/api/content/stats/route";
 import { GET as getQuotaSummary } from "@/app/api/quota/summary/route";
@@ -109,7 +110,7 @@ describe("API proxy routes", () => {
       method: "POST",
     });
     const response = await postContentRetry(request, {
-      params: { contentId: "content-1" },
+      params: Promise.resolve({ contentId: "content-1" }),
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
@@ -248,7 +249,7 @@ describe("API proxy routes", () => {
       "http://localhost/api/workflows/status/wf-1",
     );
     const response = await getWorkflowStatus(request, {
-      params: { workflowId: "wf-1" },
+      params: Promise.resolve({ workflowId: "wf-1" }),
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
@@ -256,6 +257,59 @@ describe("API proxy routes", () => {
       expect.objectContaining({ method: "GET" }),
     );
     expect(response.status).toBe(200);
+  });
+
+  it("proxies customer GET routes with bearer auth", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      text: async () => JSON.stringify({ brand_profile: { product_name: "TripC" } }),
+    } as Response);
+
+    const request = new NextRequest("http://localhost/api/customer/brand", {
+      headers: { Authorization: "Bearer customer-token" },
+    });
+    const response = await getCustomerProxy(request, {
+      params: { path: ["brand"] },
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "http://backend.test/api/customer/brand",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.any(Headers),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      brand_profile: { product_name: "TripC" },
+    });
+  });
+
+  it("proxies customer POST routes with body and bearer auth", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      text: async () => JSON.stringify({ status: "launched" }),
+    } as Response);
+
+    const request = new NextRequest("http://localhost/api/customer/campaigns/campaign-1/launch", {
+      method: "POST",
+      headers: { Authorization: "Bearer customer-token" },
+      body: JSON.stringify({}),
+    });
+    const response = await postCustomerProxy(request, {
+      params: { path: ["campaigns", "campaign-1", "launch"] },
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "http://backend.test/api/customer/campaigns/campaign-1/launch",
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "launched" });
   });
 
   it("proxies workflow approval payload", async () => {
@@ -274,7 +328,7 @@ describe("API proxy routes", () => {
     );
 
     const response = await postApproveWorkflow(request, {
-      params: { workflowId: "wf-1" },
+      params: Promise.resolve({ workflowId: "wf-1" }),
     });
 
     expect(global.fetch).toHaveBeenCalledWith(

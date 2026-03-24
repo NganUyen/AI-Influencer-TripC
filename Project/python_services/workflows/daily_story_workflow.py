@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Daily Story Workflow
 ====================
@@ -5,7 +6,6 @@ Temporal workflow that runs every morning, generates a travel story, sends it
 to Telegram subscribers for approval, then publishes to the chosen platform.
 """
 
-from __future__ import annotations
 
 from datetime import timedelta, timezone
 from typing import Any, Dict, Optional

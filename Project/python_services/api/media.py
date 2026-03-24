@@ -133,7 +133,7 @@ async def list_voices(language: str = None):
 
 @router.get("/storage/list")
 async def list_storage_files(prefix: str = ""):
-    """List files in R2 storage"""
+    """List files in the configured object storage backend."""
     try:
         storage_service = StorageService()
 

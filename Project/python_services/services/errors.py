@@ -102,7 +102,7 @@ class PersonaNotReadyError(PipelineError):
 # ─── Storage ──────────────────────────────────────────────────────────────────
 
 class StorageUploadError(PipelineError):
-    """Failed to upload artifact to R2. Retryable for transient errors."""
+    """Failed to upload an artifact to object storage. Retryable for transient errors."""
     retryable = True
 
 
@@ -115,4 +115,65 @@ class ScriptGenerationError(PipelineError):
 
 class ScriptContractError(PipelineError):
     """Generated script does not satisfy the required JSON contract. Non-retryable."""
+    retryable = False
+
+
+# ─── Postiz / GrowChief ──────────────────────────────────────────────────────
+
+class SocialProviderError(PipelineError):
+    """Base class for self-hosted social provider adapter errors."""
+
+
+class SocialProviderRetryableError(SocialProviderError):
+    """Transient provider failure such as timeouts, 5xx, or invalid upstream payloads."""
+    retryable = True
+
+
+class SocialProviderAuthError(SocialProviderError):
+    """Provider API key or bootstrap credentials are invalid."""
+    retryable = False
+
+
+class SocialProviderConfigurationError(SocialProviderError):
+    """Provider setup is incomplete and needs operator action."""
+    retryable = False
+
+
+class PostizServiceError(SocialProviderError):
+    """Base class for Postiz adapter errors."""
+
+
+class PostizRetryableError(PostizServiceError, SocialProviderRetryableError):
+    """Transient Postiz failure."""
+    retryable = True
+
+
+class PostizAuthError(PostizServiceError, SocialProviderAuthError):
+    """Postiz authentication/bootstrap failure."""
+    retryable = False
+
+
+class PostizConfigurationError(PostizServiceError, SocialProviderConfigurationError):
+    """Postiz configuration is incomplete."""
+    retryable = False
+
+
+class GrowChiefServiceError(SocialProviderError):
+    """Base class for GrowChief adapter errors."""
+
+
+class GrowChiefRetryableError(GrowChiefServiceError, SocialProviderRetryableError):
+    """Transient GrowChief failure."""
+    retryable = True
+
+
+class GrowChiefAuthError(GrowChiefServiceError, SocialProviderAuthError):
+    """GrowChief authentication/bootstrap failure."""
+    retryable = False
+
+
+class GrowChiefConfigurationError(
+    GrowChiefServiceError, SocialProviderConfigurationError
+):
+    """GrowChief configuration is incomplete."""
     retryable = False

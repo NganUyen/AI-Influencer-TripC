@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any, Dict, Optional
 
 import httpx
@@ -104,13 +103,23 @@ class OpenClawService:
     - shell_command -> POST /tools/invoke
     """
 
-    def __init__(self):
-        self.base_url = settings.OPENCLAW_API_URL.rstrip("/")
-        self.api_key = settings.OPENCLAW_API_KEY
-        self.agent_id = settings.OPENCLAW_AGENT_ID.strip() or "main"
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        connector_session_token: Optional[str] = None,
+    ):
+        self.base_url = f"{(base_url or settings.OPENCLAW_API_URL).rstrip('/')}/"
+        self.api_key = api_key if api_key is not None else settings.OPENCLAW_API_KEY
+        self.agent_id = (agent_id or settings.OPENCLAW_AGENT_ID).strip() or "main"
+        self.connector_session_token = connector_session_token
+        self.transport = "connector" if connector_session_token else "responses"
 
         headers = {"Content-Type": "application/json"}
-        if self.api_key:
+        if self.connector_session_token:
+            headers["Authorization"] = f"Bearer {self.connector_session_token}"
+        elif self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         self.client = httpx.AsyncClient(
@@ -119,6 +128,44 @@ class OpenClawService:
             timeout=300.0,
         )
 
+    @staticmethod
+    def _extract_error_message(exc: httpx.HTTPStatusError) -> str:
+        try:
+            payload = exc.response.json()
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            detail = payload.get("detail")
+            if isinstance(detail, str) and detail.strip():
+                return detail.strip()
+            error = payload.get("error")
+            if isinstance(error, str) and error.strip():
+                return error.strip()
+        body = exc.response.text.strip()
+        if body:
+            return body
+        return str(exc)
+
+    @classmethod
+    def _raise_provider_error(cls, exc: httpx.HTTPStatusError, transport: str) -> None:
+        status_code = exc.response.status_code if exc.response is not None else None
+        if transport == "connector":
+            if status_code == 401:
+                raise ValueError(
+                    "GPT OAuth access was rejected. Reconnect your GPT Plus or Pro link and try again."
+                ) from exc
+            raise ValueError(
+                f"Connector-backed GPT OAuth request failed: {cls._extract_error_message(exc)}"
+            ) from exc
+
+        if status_code in {401, 403}:
+            raise ValueError(
+                "The provided OpenClaw API key was rejected. Update it or switch back to workspace-managed access."
+            ) from exc
+        raise ValueError(
+            f"OpenClaw request failed: {cls._extract_error_message(exc)}"
+        ) from exc
+
     async def execute_task(
         self,
         task_type: str,
@@ -126,6 +173,40 @@ class OpenClawService:
         user_id: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        if self.transport == "connector":
+            logger.info("Executing OpenClaw task via ChatGPT connector: %s", task_type)
+            payload = {
+                "tool": "openclaw_execute_task",
+                "arguments": {
+                    "task_type": task_type,
+                    "prompt": prompt,
+                    "context": context or {},
+                },
+            }
+            try:
+                response = await self.client.post("mcp", json=payload)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                self._raise_provider_error(exc, transport="connector")
+
+            raw = response.json()
+            if not raw.get("ok"):
+                raise ValueError(
+                    raw.get("error")
+                    or "Connector-backed GPT OAuth request failed"
+                )
+
+            result = raw.get("result")
+            if isinstance(result, dict):
+                result.setdefault("task_type", task_type)
+                result.setdefault("connector_session_id", raw.get("session_id"))
+                return result
+            return {
+                "task_type": task_type,
+                "connector_session_id": raw.get("session_id"),
+                "result": result,
+            }
+
         logger.info("Executing OpenClaw task via /v1/responses: %s", task_type)
 
         payload = {
@@ -134,8 +215,11 @@ class OpenClawService:
             "user": user_id,
         }
 
-        response = await self.client.post("/v1/responses", json=payload)
-        response.raise_for_status()
+        try:
+            response = await self.client.post("v1/responses", json=payload)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            self._raise_provider_error(exc, transport="responses")
 
         raw = response.json()
         output_text = _extract_output_text(raw)
@@ -168,8 +252,11 @@ class OpenClawService:
         if session_key:
             payload["sessionKey"] = session_key
 
-        response = await self.client.post("/tools/invoke", json=payload)
-        response.raise_for_status()
+        try:
+            response = await self.client.post("tools/invoke", json=payload)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            self._raise_provider_error(exc, transport="responses")
         return response.json()
 
     async def browser_action(

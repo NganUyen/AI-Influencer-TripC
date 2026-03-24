@@ -1,0 +1,385 @@
+"""
+Customer-facing authenticated API surface.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
+
+from config.settings import settings
+from services.account_connection_service import (
+    AccountConnectionService,
+    OAuthConfigurationError,
+    OAuthExchangeError,
+)
+from services.assistant_service import AssistantService
+from services.brand_profile_service import BrandProfileService
+from services.customer_ai_backbone_service import CustomerAIBackboneService
+from services.customer_auth_service import (
+    CustomerAuthError,
+    CustomerAuthService,
+    CustomerSession,
+)
+from services.customer_campaign_service import CustomerCampaignService
+from services.database_service import DatabaseService
+
+router = APIRouter()
+
+
+async def require_customer_session(
+    authorization: Optional[str] = Header(default=None),
+) -> CustomerSession:
+    try:
+        return await CustomerAuthService.resolve_session(authorization)
+    except CustomerAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+class BrandProfileRequest(BaseModel):
+    product_name: str
+    website_url: Optional[str] = None
+    audience: Optional[str] = None
+    offer_summary: Optional[str] = None
+    tone_voice: Optional[str] = None
+    campaign_goals: List[str] = []
+    asset_urls: List[str] = []
+    timezone: str = "UTC"
+    posting_cadence: Dict[str, Any] = {}
+    approval_preferences: Dict[str, Any] = {"mode": "review_first"}
+    telegram_contact: Optional[str] = None
+    onboarding_status: str = "completed"
+
+
+class AssistantThreadRequest(BaseModel):
+    title: Optional[str] = None
+
+
+class AssistantMessageRequest(BaseModel):
+    content: str
+
+
+class CampaignRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    target_platforms: List[str] = []
+    connected_account_ids: List[str] = []
+    content_pillars: List[str] = []
+    cta_rules: Dict[str, Any] = {}
+    execution_windows: Dict[str, Any] = {}
+    source_thread_id: Optional[str] = None
+    source_artifact_id: Optional[str] = None
+
+
+class ApprovalRequest(BaseModel):
+    approved: bool
+    feedback: str = ""
+
+
+class AIBackboneSettingsRequest(BaseModel):
+    access_mode: str
+    openclaw_api_url: Optional[str] = None
+    api_key: Optional[str] = None
+    clear_api_key: bool = False
+
+
+class ChatGPTOAuthLinkRequest(BaseModel):
+    chatgpt_subject: str
+    display_name: Optional[str] = None
+    subscription_tier: str = "plus"
+
+
+@router.get("/brand")
+async def get_brand_profile(
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    brand = await BrandProfileService.get_for_user(session.user_id)
+    return {
+        "brand_profile": brand,
+        "customer": {
+            "user_id": session.user_id,
+            "email": session.email,
+            "display_name": session.display_name,
+        },
+    }
+
+
+@router.put("/brand")
+async def put_brand_profile(
+    payload: BrandProfileRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    brand = await BrandProfileService.upsert_for_session(
+        session,
+        payload.model_dump(),
+    )
+    return {"brand_profile": brand}
+
+
+@router.get("/social-accounts")
+async def list_social_accounts(
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    accounts = await AccountConnectionService.list_accounts(session.user_id)
+    return {"accounts": accounts}
+
+
+@router.post("/social-accounts/{platform}/oauth/start")
+async def start_social_oauth(
+    platform: str,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    try:
+        return await AccountConnectionService.start_oauth(session, platform)
+    except OAuthConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/social-accounts/{platform}/oauth/callback")
+async def oauth_callback(
+    platform: str,
+    code: Optional[str] = Query(default=None),
+    state: Optional[str] = Query(default=None),
+    error: Optional[str] = Query(default=None),
+) -> RedirectResponse:
+    dashboard_url = (settings.FRONTEND_PUBLIC_URL or "http://localhost:3000").rstrip("/")
+    if error:
+        return RedirectResponse(
+            url=(
+                f"{dashboard_url}/dashboard?oauth_status=error"
+                f"&platform={quote(platform)}&reason={quote(error)}"
+            ),
+            status_code=302,
+        )
+    if not code or not state:
+        return RedirectResponse(
+            url=(
+                f"{dashboard_url}/dashboard?oauth_status=error"
+                f"&platform={quote(platform)}&reason=missing_code_or_state"
+            ),
+            status_code=302,
+        )
+    try:
+        await AccountConnectionService.complete_oauth(platform, code, state)
+    except (OAuthConfigurationError, OAuthExchangeError) as exc:
+        return RedirectResponse(
+            url=(
+                f"{dashboard_url}/dashboard?oauth_status=error"
+                f"&platform={quote(platform)}&reason={quote(str(exc))}"
+            ),
+            status_code=302,
+        )
+    return RedirectResponse(
+        url=f"{dashboard_url}/dashboard?oauth_status=success&platform={quote(platform)}",
+        status_code=302,
+    )
+
+
+@router.post("/social-accounts/{social_account_id}/disconnect")
+async def disconnect_social_account(
+    social_account_id: str,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    await AccountConnectionService.disconnect_account(
+        user_id=session.user_id,
+        social_account_id=social_account_id,
+    )
+    return {"status": "disconnected", "social_account_id": social_account_id}
+
+
+@router.get("/assistant/threads")
+async def get_assistant_threads(
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    return {"threads": await AssistantService.list_threads(session.user_id)}
+
+
+@router.post("/assistant/threads")
+async def create_assistant_thread(
+    payload: AssistantThreadRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    thread = await AssistantService.create_thread(session, title=payload.title)
+    return {"thread": thread}
+
+
+@router.get("/assistant/threads/{thread_id}/messages")
+async def list_assistant_messages(
+    thread_id: str,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    messages = await AssistantService.list_messages(session.user_id, thread_id)
+    artifacts = await AssistantService.list_artifacts(session.user_id, thread_id)
+    return {"messages": messages, "artifacts": artifacts}
+
+
+@router.post("/assistant/threads/{thread_id}/messages")
+async def post_assistant_message(
+    thread_id: str,
+    payload: AssistantMessageRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    try:
+        result = await AssistantService.append_message(
+            session,
+            thread_id=thread_id,
+            content=payload.content,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    messages = await AssistantService.list_messages(session.user_id, thread_id)
+    artifacts = await AssistantService.list_artifacts(session.user_id, thread_id)
+    return {
+        **result,
+        "messages": messages,
+        "artifacts": artifacts,
+    }
+
+
+@router.get("/ai-backbone")
+async def get_ai_backbone_settings(
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    return {"settings": await CustomerAIBackboneService.get_for_user(session.user_id)}
+
+
+@router.put("/ai-backbone")
+async def put_ai_backbone_settings(
+    payload: AIBackboneSettingsRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    try:
+        settings_payload = await CustomerAIBackboneService.upsert_for_session(
+            session,
+            payload.model_dump(exclude_unset=True),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"settings": settings_payload}
+
+
+@router.post("/ai-backbone/chatgpt/oauth/link")
+async def link_chatgpt_oauth(
+    payload: ChatGPTOAuthLinkRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    try:
+        settings_payload = await CustomerAIBackboneService.link_chatgpt_oauth(
+            session,
+            chatgpt_subject=payload.chatgpt_subject,
+            display_name=payload.display_name,
+            subscription_tier=payload.subscription_tier,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"settings": settings_payload}
+
+
+@router.post("/ai-backbone/chatgpt/oauth/disconnect")
+async def disconnect_chatgpt_oauth(
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    return {
+        "settings": await CustomerAIBackboneService.disconnect_chatgpt_oauth(session)
+    }
+
+
+@router.get("/campaigns")
+async def list_campaigns(
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    return {"campaigns": await CustomerCampaignService.list_campaigns(session.user_id)}
+
+
+@router.post("/campaigns")
+async def create_campaign(
+    payload: CampaignRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    try:
+        campaign = await CustomerCampaignService.create_campaign(
+            session,
+            payload.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"campaign": campaign}
+
+
+@router.post("/campaigns/{campaign_id}/approve")
+async def approve_campaign(
+    campaign_id: str,
+    payload: ApprovalRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    try:
+        campaign = await CustomerCampaignService.approve_campaign(
+            session,
+            campaign_id=campaign_id,
+            approved=payload.approved,
+            feedback=payload.feedback,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"campaign": campaign}
+
+
+@router.post("/campaigns/{campaign_id}/launch")
+async def launch_campaign(
+    campaign_id: str,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    try:
+        return await CustomerCampaignService.launch_campaign(session, campaign_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/content")
+async def list_customer_content(
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    pool = await DatabaseService.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, title, content, status, platform, scheduled_at, published_at, metadata, created_at, updated_at
+            FROM public.content
+            WHERE user_id = $1::uuid
+            ORDER BY COALESCE(updated_at, created_at) DESC
+            LIMIT 100
+            """,
+            session.user_id,
+        )
+    items = []
+    for row in rows:
+        items.append(
+            {
+                "id": str(row["id"]),
+                "title": row["title"],
+                "content": row["content"],
+                "status": row["status"],
+                "platform": row["platform"] or [],
+                "scheduled_at": row["scheduled_at"].isoformat() if row["scheduled_at"] else None,
+                "published_at": row["published_at"].isoformat() if row["published_at"] else None,
+                "metadata": row["metadata"] or {},
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+            }
+        )
+    return {"items": items}
+
+
+@router.get("/approvals")
+async def list_customer_approvals(
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    return {"approvals": await CustomerCampaignService.list_pending_approvals(session.user_id)}

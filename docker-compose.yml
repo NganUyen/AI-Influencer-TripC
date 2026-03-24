@@ -1,5 +1,5 @@
 services:
-  # PostgreSQL Database (used by Temporal and Supabase)
+  # Primary application PostgreSQL database
   postgres:
     image: postgres:15-alpine
     container_name: ai-influencer-postgres
@@ -23,7 +23,7 @@ services:
 
   # Temporal Server (Orchestration Engine)
   temporal:
-    image: temporalio/auto-setup:latest
+    image: temporalio/auto-setup:1.28.1
     container_name: ai-influencer-temporal
     ports:
       - "127.0.0.1:7233:7233" # gRPC
@@ -44,6 +44,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   temporal-ui:
     image: temporalio/ui:2.34.0
@@ -214,7 +215,10 @@ services:
 
   # Postiz (Official OAuth Publishing)
   postiz:
-    image: ghcr.io/gitroomhq/postiz-app:latest
+    build:
+      context: .
+      dockerfile: docker/postiz/Dockerfile
+    image: ai-influencer-postiz:latest
     container_name: ai-influencer-postiz
     ports:
       - "127.0.0.1:3100:5000"
@@ -230,7 +234,8 @@ services:
       - IS_GENERAL=true
       - DISABLE_REGISTRATION=false
       - RUN_CRON=true
-      - NODE_OPTIONS=--max-old-space-size=384
+      - POSTIZ_API_KEY=${POSTIZ_API_KEY:-postiz-key}
+      - POSTIZ_NODE_OPTIONS=--max-old-space-size=512
       - STORAGE_PROVIDER=local
       - UPLOAD_DIRECTORY=/uploads
       - NEXT_PUBLIC_UPLOAD_DIRECTORY=/uploads
@@ -246,6 +251,27 @@ services:
       - postiz_uploads:/uploads
     networks:
       - ai-influencer-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "/usr/local/bin/provider-healthcheck.mjs",
+          "--label",
+          "Postiz",
+          "--ui",
+          "http://127.0.0.1:5000/",
+          "--api",
+          "http://127.0.0.1:5000/api/public/v1/integrations",
+          "--auth-env",
+          "POSTIZ_API_KEY",
+          "--processes",
+          "backend,frontend,orchestrator",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 6
+      start_period: 180s
     restart: unless-stopped
 
   # GrowChief (Engagement Syndicate Manager)
@@ -274,6 +300,7 @@ services:
       - PROXY_USERNAME=${IPROYAL_USERNAME}
       - PROXY_PASSWORD=${IPROYAL_PASSWORD}
       - MAX_CONCURRENT_SESSIONS=4
+      - GROWCHIEF_API_KEY=${GROWCHIEF_API_KEY:-growchief-key}
     depends_on:
       postgres:
         condition: service_healthy
@@ -285,6 +312,27 @@ services:
       - growchief_uploads:/uploads
     networks:
       - ai-influencer-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "/usr/local/bin/provider-healthcheck.mjs",
+          "--label",
+          "GrowChief",
+          "--ui",
+          "http://127.0.0.1:5000/",
+          "--api",
+          "http://127.0.0.1:5000/api/public/workflows",
+          "--auth-env",
+          "GROWCHIEF_API_KEY",
+          "--processes",
+          "backend,orchestrator",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 6
+      start_period: 150s
     restart: unless-stopped
 
   # Python Backend (FastAPI + Temporal Workers)
@@ -314,6 +362,10 @@ services:
       postgres:
         condition: service_healthy
       openclaw:
+        condition: service_healthy
+      postiz:
+        condition: service_healthy
+      growchief:
         condition: service_healthy
     volumes:
       - ./Project/python_services:/app
@@ -348,6 +400,10 @@ services:
       postgres:
         condition: service_healthy
       openclaw:
+        condition: service_healthy
+      postiz:
+        condition: service_healthy
+      growchief:
         condition: service_healthy
     volumes:
       - ./Project/python_services:/app

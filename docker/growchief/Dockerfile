@@ -1,6 +1,8 @@
-FROM ghcr.io/growchief/growchief:latest
+FROM ghcr.io/growchief/growchief@sha256:3b47a6666b648e621d76d11257ead7cf11ec2d998db9f252a31407a61f71b771
 
 WORKDIR /usr/src/app
+
+COPY docker/provider-healthcheck.mjs /usr/local/bin/provider-healthcheck.mjs
 
 # GrowChief currently invokes an unpinned `pnpm dlx prisma`, which now resolves
 # Prisma 7 and breaks its Prisma 6-era schema on startup. Keep the public image,

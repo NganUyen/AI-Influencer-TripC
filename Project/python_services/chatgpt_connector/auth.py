@@ -294,11 +294,40 @@ class ConnectorAuthService:
                 raise ValueError("Unexpected session token payload")
 
             session_id = payload.get("session_id")
-            if self._sessions_by_token.get(session_token) != session_id:
-                raise ValueError("Unknown connector session")
             session = self._sessions_by_id.get(session_id)
             if session is None or session.session_token != session_token:
-                raise ValueError("Unknown connector session")
+                link = self._links_by_subject.get(payload.get("chatgpt_subject"))
+                if link is None and self._persist_links:
+                    record = await self._link_store.get_link(payload.get("chatgpt_subject"))
+                    if record is not None and record.active:
+                        link = IdentityLink(
+                            chatgpt_subject=record.chatgpt_subject,
+                            user_id=record.user_id,
+                            display_name=record.display_name,
+                            linked_at=record.linked_at,
+                            last_used_at=record.last_used_at,
+                            session_id=record.session_id,
+                        )
+                        self._links_by_subject[record.chatgpt_subject] = link
+
+                if (
+                    link is None
+                    or link.user_id != payload.get("user_id")
+                    or link.session_id != session_id
+                ):
+                    raise ValueError("Unknown connector session")
+
+                session = ConnectorSession(
+                    session_id=session_id,
+                    session_token=session_token,
+                    user_id=payload.get("user_id"),
+                    chatgpt_subject=payload.get("chatgpt_subject"),
+                    display_name=payload.get("display_name") or link.display_name,
+                    linked_at=link.linked_at,
+                    expires_at=datetime.fromisoformat(payload.get("expires_at")),
+                )
+                self._sessions_by_id[session_id] = session
+                self._sessions_by_token[session_token] = session_id
 
             if _utcnow() > session.expires_at:
                 session.active = False

@@ -183,10 +183,10 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
 @activity.defn
 async def upload_to_storage(media_asset: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Upload generated media to Cloudflare R2 storage
+    Upload generated media to the configured object storage backend
     Returns public URL for distribution
     """
-    logger.info(f"Uploading {media_asset.get('type')} to R2 storage")
+    logger.info(f"Uploading {media_asset.get('type')} to object storage")
 
     storage_service = StorageService()
     asset_metadata = _prompt_metadata(media_asset.get("metadata") or {})
@@ -209,7 +209,7 @@ async def upload_to_storage(media_asset: Dict[str, Any]) -> Dict[str, Any]:
             f"Failed to download media for upload: {str(e)}", non_retryable=False
         )
 
-    # Upload to R2
+    # Upload to object storage
     file_extension = (
         "mp4"
         if media_asset["type"] == "video"
@@ -275,7 +275,7 @@ async def create_slideshow(config: Dict[str, Any]) -> Dict[str, Any]:
 
 @activity.defn
 async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Generate a talking-head asset via HeyGen and store it in R2."""
+    """Generate a talking-head asset via HeyGen and store it in object storage."""
     avatar_id: str = config.get("avatar_id", "")
     audio_url: str = config.get("audio_url", "")
     background: str = config.get("background", "blur")

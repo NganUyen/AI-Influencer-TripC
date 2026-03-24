@@ -50,7 +50,7 @@ services:
         max-file: "3"
 
   temporal:
-    image: temporalio/auto-setup:latest
+    image: temporalio/auto-setup:1.28.1
     container_name: ai-influencer-temporal
     ports:
       - "127.0.0.1:7233:7233"
@@ -80,6 +80,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -318,7 +319,10 @@ services:
         max-file: "3"
 
   postiz:
-    image: ghcr.io/gitroomhq/postiz-app:latest
+    build:
+      context: .
+      dockerfile: docker/postiz/Dockerfile
+    image: ai-influencer-postiz:latest
     container_name: ai-influencer-postiz
     ports:
       - "127.0.0.1:3100:5000"
@@ -334,7 +338,8 @@ services:
       - IS_GENERAL=true
       - DISABLE_REGISTRATION=false
       - RUN_CRON=true
-      - NODE_OPTIONS=--max-old-space-size=384
+      - POSTIZ_API_KEY=${POSTIZ_API_KEY:-}
+      - POSTIZ_NODE_OPTIONS=--max-old-space-size=512
       - STORAGE_PROVIDER=local
       - UPLOAD_DIRECTORY=/uploads
       - NEXT_PUBLIC_UPLOAD_DIRECTORY=/uploads
@@ -354,10 +359,31 @@ services:
       resources:
         limits:
           cpus: "0.75"
-          memory: 1G
+          memory: 2G
         reservations:
           cpus: "0.25"
-          memory: 512M
+          memory: 1G
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "/usr/local/bin/provider-healthcheck.mjs",
+          "--label",
+          "Postiz",
+          "--ui",
+          "http://127.0.0.1:5000/",
+          "--api",
+          "http://127.0.0.1:5000/api/public/v1/integrations",
+          "--auth-env",
+          "POSTIZ_API_KEY",
+          "--processes",
+          "backend,frontend,orchestrator",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 6
+      start_period: 180s
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -390,6 +416,7 @@ services:
       - PROXY_USERNAME=${IPROYAL_USERNAME}
       - PROXY_PASSWORD=${IPROYAL_PASSWORD}
       - MAX_CONCURRENT_SESSIONS=4
+      - GROWCHIEF_API_KEY=${GROWCHIEF_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -409,6 +436,27 @@ services:
         reservations:
           cpus: "0.5"
           memory: 1G
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "/usr/local/bin/provider-healthcheck.mjs",
+          "--label",
+          "GrowChief",
+          "--ui",
+          "http://127.0.0.1:5000/",
+          "--api",
+          "http://127.0.0.1:5000/api/public/workflows",
+          "--auth-env",
+          "GROWCHIEF_API_KEY",
+          "--processes",
+          "backend,orchestrator",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 6
+      start_period: 150s
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -451,6 +499,10 @@ services:
       postgres:
         condition: service_healthy
       openclaw:
+        condition: service_healthy
+      postiz:
+        condition: service_healthy
+      growchief:
         condition: service_healthy
     volumes:
       - ./.docker-data/openclaw/workspace:/app/browser_profiles
@@ -501,6 +553,10 @@ services:
       postgres:
         condition: service_healthy
       openclaw:
+        condition: service_healthy
+      postiz:
+        condition: service_healthy
+      growchief:
         condition: service_healthy
     volumes:
       - ./.docker-data/openclaw/workspace:/app/browser_profiles

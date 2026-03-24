@@ -98,7 +98,10 @@ class Settings(BaseSettings):
 
     # Telegram
     TELEGRAM_BOT_TOKEN: str
-    TELEGRAM_CHAT_ID: str
+    # TELEGRAM_CHAT_ID is optional — chat IDs are discovered automatically when
+    # users send /start and are stored in the telegram_subscribers table.
+    # Only set this if you need a legacy hardcoded fallback.
+    TELEGRAM_CHAT_ID: Optional[str] = None
     TELEGRAM_WEBHOOK_SECRET: Optional[str] = None  # Set via setWebhook secret_token
 
     # Temporal

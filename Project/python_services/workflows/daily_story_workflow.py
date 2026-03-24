@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Daily Story Workflow
 =====================
@@ -40,7 +41,6 @@ python scripts/start_daily_story_cron.py --topic "Ha Giang Loop" --language Viet
 
 """
 
-from __future__ import annotations
 
 from datetime import timedelta, timezone, datetime
 from typing import Any, Dict, Optional

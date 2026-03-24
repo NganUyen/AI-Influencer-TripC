@@ -2,103 +2,82 @@
 
 Last verified: 2026-03-24 (UTC)
 
-This repo now uses a one-database-plus-Supabase-Auth model.
+This repo uses a one-database-plus-Supabase-Auth model.
 
-The important split is:
+## Runtime Contract
 
 - one canonical PostgreSQL application database: `ai_influencer`
 - Supabase Auth for customer sign-in, session validation, and JWT identity
 - checked-in SQL in `Project/supabase/` as the source of truth for schema and migrations
 
-This document is an architecture and operations summary. It is not the canonical DDL. For exact table definitions, use `Project/supabase/schema.sql` and `Project/supabase/migrations/*.sql`.
+This document is an architecture and operations summary. For exact DDL, use `Project/supabase/schema.sql` and `Project/supabase/migrations/*.sql`.
 
-## Canonical Runtime Contract
+## What Lives In The Primary App Database
 
-Use this mental model when wiring or debugging environments:
+`DATABASE_URL` points at the primary application database. Unless intentionally overridden, `CHATGPT_CONNECTOR_DATABASE_URL` points there too.
 
-- `DATABASE_URL` points at the primary application database
-- `CHATGPT_CONNECTOR_DATABASE_URL` points at the same database unless intentionally overridden
-- `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, and the related keys are still required for customer auth/session flows
-- Supabase is not the primary app data API in this setup; PostgreSQL is
+First-party application state lives in that database, including:
 
-In other words, customer identity comes from Supabase Auth, but the product's operational state lives in the app database.
+- customers and brand setup
+- AI backbone settings
+- connected social accounts and token references
+- campaigns, content, approvals, and workflows
+- assistant threads, messages, and artifacts
+- personas, media assets, analytics, and Telegram subscriber state
 
-## What "One Database" Means Here
-
-For first-party product data, there is one source of truth: the `ai_influencer` PostgreSQL database.
-
-That includes:
-
-- customer records in `public.users`
-- customer brand setup and AI settings
-- campaigns, content, approvals, and publishing state
-- assistant threads and artifacts
-- personas, social accounts, workflows, and Telegram subscriber state
-
-The repo still boots a few service-specific databases for third-party or infrastructure components:
+The repo also creates service-specific databases for:
 
 - `postiz`
 - `growchief`
-- Temporal-related stores
+- Temporal internals
 
-Those are service internals, not the canonical application data model. When we say "one DB" in project docs, we mean one primary app database for our own product state.
+Those are service databases, not the canonical product data model.
 
-## Canonical SQL Sources
+## SQL Sources
 
 The checked-in SQL lives under `Project/supabase/`:
 
-- `schema.sql`: full bootstrap schema for a fresh empty app database
+- `schema.sql`: full bootstrap schema for a fresh database
 - `migrations/*.sql`: incremental upgrades for existing databases
-- `seed.sql`: optional disposable dev/staging seed data
-- `README.md`: current database workflow notes
+- `seed.sql`: optional disposable seed data
+- `README.md`: SQL workflow notes
 
-The local and production Docker stacks mount the bootstrap schema into Postgres init:
+The compose stacks mount both:
 
 - `docker/postgres/init/00_create_service_databases.sql`
 - `Project/supabase/schema.sql`
 
-That means a brand-new `postgres_data` volume gets the app schema automatically on first boot.
+That means a fresh Postgres volume gets the base app schema automatically.
 
-## Auth And Identity Model
+## Auth And Ownership Model
 
-Supabase Auth remains the customer identity provider, but the app keeps its own `public.users` table as the relational anchor for product data.
+Supabase Auth is the identity provider, but the repo keeps its own `public.users` row as the relational anchor.
 
-The flow is:
+Typical flow:
 
-1. the frontend obtains a Supabase session
-2. the backend validates the bearer token against Supabase Auth
-3. the backend upserts the corresponding row in `public.users`
-4. application tables reference that UUID through `user_id`
-5. row-level security policies use `auth.uid()` to restrict access to a customer's own rows
+1. the frontend gets a Supabase session
+2. the backend validates the bearer token against Supabase
+3. the backend upserts `public.users`
+4. application tables reference the user UUID through `user_id`
+5. row-level security policies use `auth.uid()` ownership checks
 
-Important implementation detail:
+`schema.sql` includes an `auth.uid()` compatibility shim so the same SQL works on plain Postgres and on Supabase-hosted Postgres.
 
-- `Project/supabase/schema.sql` includes an `auth.uid()` compatibility shim
+## Table Inventory By Domain
 
-That shim lets the same schema work in both modes:
+### Identity And Setup
 
-- plain PostgreSQL with app-managed JWT claims
-- Supabase-hosted Postgres with the native `auth` schema
+- `public.users`: app-local customer row keyed by auth UUID
+- `public.brand_profiles`: brand, audience, cadence, and onboarding state
+- `public.customer_ai_backbone_settings`: platform-managed versus customer-managed AI access settings
+- `public.chatgpt_oauth_links`: connector identity and session link state
 
-So the repo can use Supabase Auth without requiring Supabase to host all application tables.
+### Campaigns, Content, And Approval
 
-## Current Application Schema Shape
-
-The current schema is centered around these domains.
-
-### Customer Identity And Setup
-
-- `public.users`: app-local customer profile row keyed by the auth UUID
-- `public.brand_profiles`: customer product, audience, cadence, and onboarding state
-- `public.customer_ai_backbone_settings`: platform-managed vs customer-managed AI access mode, connector session metadata, and related settings
-- `public.chatgpt_oauth_links`: ChatGPT connector identity/session link records
-
-### Strategy, Content, And Approval
-
-- `public.campaigns`: campaign plans, approval state, workflow linkage, and target platforms
-- `public.content`: generated or drafted customer content
-- `public.approvals`: review trail for workflow/content approvals
-- `public.postiz_schedules`: publishing state and Postiz schedule linkage
+- `public.campaigns`: campaign plans, workflow linkage, approval state, target platforms, and artifacts
+- `public.content`: generated or drafted content
+- `public.approvals`: approval records and feedback
+- `public.postiz_schedules`: schedule and publishing bridge state
 
 ### Assistant Experience
 
@@ -106,50 +85,48 @@ The current schema is centered around these domains.
 - `public.assistant_messages`
 - `public.assistant_artifacts`
 
-These tables back the customer-facing strategy/chat surface.
+These back the customer-facing strategy and assistant workflow.
 
 ### Personas, Accounts, And Operations
 
-- `public.personas`: persona registry used by the newer persona API/service layer
-- `public.social_accounts`: connected customer accounts plus connection and token metadata
+- `public.personas`: persona registry
+- `public.social_accounts`: connected account metadata, token refs, scopes, and connection health
 - `public.media_assets`: stored media references
-- `public.workflows`: orchestration state
-- `public.engagement_actions`: direct engagement tracking
-- `public.engagement_action_logs`: provider/job-level engagement logs
-- `public.analytics_events`: content analytics event storage
-- `public.telegram_subscribers`: Telegram webhook/operator subscriber state
+- `public.workflows`: orchestration state plus approval metadata
+- `public.engagement_actions`: engagement tasks
+- `public.engagement_action_logs`: engagement execution logs
+- `public.analytics_events`: analytics event storage
+- `public.telegram_subscribers`: Telegram subscription and callback state
 
 ## RLS Model
 
 Row-level security is enabled on the customer-facing tables.
 
-The common rule is simple:
+The default pattern is:
 
-- a customer can only read or mutate rows whose `user_id` (or owning relationship) matches `auth.uid()`
-
-That policy pattern is already baked into `schema.sql` and the later migration files. If you add a new customer-owned table, it should follow the same structure:
-
-- foreign key to `public.users(id)` when appropriate
+- foreign key to `public.users(id)` where appropriate
 - RLS enabled
-- a policy tied to `auth.uid()`
+- policies tied to `auth.uid()`
+
+If you add a new customer-owned table, follow that same pattern.
 
 ## Bootstrap And Migration Workflow
 
-Fresh local bootstrap on an empty `postgres_data` volume happens automatically:
+Fresh local bootstrap on an empty volume:
 
 ```bash
 cd /opt/ai-influencer/repo
 docker compose up -d postgres
 ```
 
-If you want to apply the bootstrap schema manually to an empty database:
+Manual bootstrap on an empty database:
 
 ```bash
 cd /opt/ai-influencer/repo
 docker exec -i ai-influencer-postgres psql -U postgres -d ai_influencer < Project/supabase/schema.sql
 ```
 
-Optional seed:
+Optional seed data:
 
 ```bash
 cd /opt/ai-influencer/repo
@@ -165,27 +142,27 @@ PROJECT_ENV_FILE=./Project/.env.production ./deploy/vps/apply-db-migrations.sh
 
 Rules of thumb:
 
-- use `schema.sql` for empty-database bootstrap
+- use `schema.sql` only for empty-database bootstrap
 - use `migrations/*.sql` for upgrades on long-lived environments
 - back up Postgres before schema-changing deploys
-- do not treat `Docs/db.md` as the place to define schema changes
+- keep `schema.sql` in sync with the latest migrated shape
 
 ## Change Process
 
 When the data model changes:
 
-1. add or update a migration under `Project/supabase/migrations/`
-2. fold the latest shape back into `Project/supabase/schema.sql`
-3. update `seed.sql` if local fixtures depend on the new columns/tables
-4. update app types or service code if the contract changed
-5. update this doc only if the architecture or operating model changed
+1. add or update a migration in `Project/supabase/migrations/`
+2. fold the new steady-state shape back into `Project/supabase/schema.sql`
+3. update `seed.sql` if fixtures depend on the change
+4. update app types, services, and tests if contracts changed
+5. update docs only when the architecture or operational model changed
 
 ## Bottom Line
 
-The current architecture is:
+The database model to assume today is:
 
-- one primary PostgreSQL database for first-party application data
-- Supabase Auth for customer authentication and identity
-- shared UUID-based ownership with RLS enforced through `auth.uid()`
+- PostgreSQL is the primary first-party application store
+- Supabase Auth provides customer identity
+- ownership is UUID-based and enforced through RLS
 
-That is the model new schema work should assume unless the architecture changes again.
+That is the default assumption new schema work should follow.

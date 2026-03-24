@@ -91,11 +91,19 @@ Use [Docs/OPERATIONS_RUNBOOK.md](./Docs/OPERATIONS_RUNBOOK.md) for:
 
 ## Documentation Map
 
-The repo now keeps a reduced canonical docs set:
+Canonical docs now live in `Docs/`:
 
 - [Docs/README.md](./Docs/README.md)
 - [Docs/START_HERE.md](./Docs/START_HERE.md)
+- [Docs/ARCHITECTURE.md](./Docs/ARCHITECTURE.md)
 - [Docs/CURRENT_REPO_STATUS.md](./Docs/CURRENT_REPO_STATUS.md)
+- [Docs/REPOSITORY_MAP.md](./Docs/REPOSITORY_MAP.md)
+- [Docs/FRONTEND.md](./Docs/FRONTEND.md)
+- [Docs/BACKEND_API.md](./Docs/BACKEND_API.md)
+- [Docs/WORKFLOWS_AND_AUTOMATION.md](./Docs/WORKFLOWS_AND_AUTOMATION.md)
+- [Docs/INTEGRATIONS.md](./Docs/INTEGRATIONS.md)
+- [Docs/db.md](./Docs/db.md)
+- [Docs/ENVIRONMENT_REFERENCE.md](./Docs/ENVIRONMENT_REFERENCE.md)
 - [Docs/OPERATIONS_RUNBOOK.md](./Docs/OPERATIONS_RUNBOOK.md)
 - [Project/README.md](./Project/README.md)
 - [Project/python_services/README.md](./Project/python_services/README.md)

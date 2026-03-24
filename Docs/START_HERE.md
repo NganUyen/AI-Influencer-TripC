@@ -187,7 +187,15 @@ curl -fsS http://localhost:8081/healthz
 
 ## Read Next
 
+- [ARCHITECTURE.md](./ARCHITECTURE.md)
 - [CURRENT_REPO_STATUS.md](./CURRENT_REPO_STATUS.md)
+- [REPOSITORY_MAP.md](./REPOSITORY_MAP.md)
+- [FRONTEND.md](./FRONTEND.md)
+- [BACKEND_API.md](./BACKEND_API.md)
+- [WORKFLOWS_AND_AUTOMATION.md](./WORKFLOWS_AND_AUTOMATION.md)
+- [INTEGRATIONS.md](./INTEGRATIONS.md)
+- [db.md](./db.md)
+- [ENVIRONMENT_REFERENCE.md](./ENVIRONMENT_REFERENCE.md)
 - [OPERATIONS_RUNBOOK.md](./OPERATIONS_RUNBOOK.md)
 - [../Project/README.md](../Project/README.md)
 - [../Project/python_services/README.md](../Project/python_services/README.md)

@@ -115,6 +115,12 @@ Main remaining gaps:
 ## Recommended Reading Order
 
 1. [START_HERE.md](./START_HERE.md)
-2. [OPERATIONS_RUNBOOK.md](./OPERATIONS_RUNBOOK.md)
-3. [../Project/README.md](../Project/README.md)
-4. [../Project/python_services/README.md](../Project/python_services/README.md)
+2. [ARCHITECTURE.md](./ARCHITECTURE.md)
+3. [REPOSITORY_MAP.md](./REPOSITORY_MAP.md)
+4. [FRONTEND.md](./FRONTEND.md)
+5. [BACKEND_API.md](./BACKEND_API.md)
+6. [WORKFLOWS_AND_AUTOMATION.md](./WORKFLOWS_AND_AUTOMATION.md)
+7. [INTEGRATIONS.md](./INTEGRATIONS.md)
+8. [db.md](./db.md)
+9. [ENVIRONMENT_REFERENCE.md](./ENVIRONMENT_REFERENCE.md)
+10. [OPERATIONS_RUNBOOK.md](./OPERATIONS_RUNBOOK.md)

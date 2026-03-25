@@ -77,22 +77,23 @@ class PersonaCreatorSkill(BaseSkill):
             f"/api/personas/{current.collected['persona_id']}/readiness",
         )
 
-        current.artifacts["preview_image_url"] = persona.get("avatar_image_url")
-        current.artifacts["avatar_image_url"] = persona.get("avatar_image_url")
+        avatar_url = persona.get("avatar_image_url")
+        current.artifacts["preview_image_url"] = avatar_url
+        current.artifacts["avatar_image_url"] = avatar_url
         current.artifacts["heygen_avatar_id"] = persona.get("heygen_avatar_id")
-        current.step_key = "done"
-        current.control.status = SkillStatus.done
+        current.artifacts["persona_id"] = persona.get("persona_id")
+        current.artifacts["persona_data"] = persona
+        current.artifacts["readiness"] = readiness
+        current.step_key = "preview"
+        current.control.status = SkillStatus.preview_ready
         return SkillResult(
             success=True,
-            next_step="done",
+            next_step="preview",
             output={
                 "persona": persona,
                 "readiness": readiness,
+                "preview_image_url": avatar_url,
                 "backend_status": cls.backend_status,
-                "note": (
-                    "Persona CRUD/readiness is available, but avatar generation and "
-                    "HeyGen registration still need router-layer orchestration."
-                ),
             },
             session=current,
         )

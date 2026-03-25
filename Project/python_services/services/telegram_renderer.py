@@ -62,7 +62,7 @@ class TelegramRenderer:
             if step.get("allow_skip"):
                 options.append({"label": "Skip", "value": "__skip__"})
             if not options:
-                prompt_text = "No personas available yet. Create one first or try again later."
+                prompt_text = "🚫 No personas available yet. Please create one first or try again later."
                 return {"text": prompt_text, "reply_markup": None, "parse_mode": None}
             return {
                 "text": prompt_text,
@@ -99,19 +99,19 @@ class TelegramRenderer:
                 if isinstance(result.output, dict):
                     status = result.output.get("message") or result.output.get("status") or ""
                 return {
-                    "text": status or "Skill flow completed.",
+                    "text": status or "✨ Skill flow completed successfully.",
                     "reply_markup": None,
                     "parse_mode": None,
                 }
             return {
-                "text": result.error or "No active skill session.",
+                "text": result.error or "⚠️ No active skill session.",
                 "reply_markup": None,
                 "parse_mode": None,
             }
 
         if not result.success:
             return {
-                "text": result.error or "Skill execution failed.",
+                "text": result.error or "❌ Skill execution failed. Please try again.",
                 "reply_markup": _inline_keyboard_from_options(
                     [{"label": "Cancel", "value": "cancel"}],
                     prefix="action::",
@@ -136,13 +136,56 @@ class TelegramRenderer:
                     "reply_markup": _inline_keyboard_from_options(PREVIEW_ACTIONS, prefix="action::"),
                     "parse_mode": "Markdown",
                 }
+            if session.skill_name == "persona-creator":
+                persona = (
+                    output.get("persona")
+                    or session.artifacts.get("persona_data")
+                    or {}
+                )
+                readiness = (
+                    output.get("readiness")
+                    or session.artifacts.get("readiness")
+                    or {}
+                )
+                persona_id = persona.get("persona_id") or session.artifacts.get("persona_id", "—")
+                language = persona.get("language", "—")
+                tts_voice = persona.get("tts_voice", "—")
+                status = persona.get("status", "—")
+                ready_emoji = "✅" if readiness.get("ready") else "⚠️"
+                blocking = readiness.get("blocking_reason") or "All checks passed"
+                text = (
+                    f"👤 *Persona Created Successfully\\!*\n\n"
+                    f"• *ID*: `{persona_id}`\n"
+                    f"• *Language*: {language}\n"
+                    f"• *TTS Voice*: {tts_voice}\n"
+                    f"• *Status*: {status}\n"
+                    f"• *Readiness*: {ready_emoji} {blocking}\n\n"
+                    "Review the avatar below and choose an action\\."
+                )
+                photo_caption = (
+                    f"👤 {persona_id} | {language} | {tts_voice}\n"
+                    f"{ready_emoji} {blocking}"
+                )
+                image_url = (
+                    output.get("preview_image_url")
+                    or session.artifacts.get("preview_image_url")
+                    or session.artifacts.get("avatar_image_url")
+                )
+                persona_actions = [
+                    {"label": "✅ Save Persona", "value": "save"},
+                    {"label": "🔄 Regenerate", "value": "regenerate"},
+                ]
+                payload: Dict[str, Any] = {
+                    "text": text,
+                    "reply_markup": _inline_keyboard_from_options(persona_actions, prefix="action::"),
+                    "parse_mode": "MarkdownV2",
+                }
+                if image_url:
+                    payload["photo_url"] = image_url
+                    payload["photo_caption"] = photo_caption
+                return payload
 
-            image_url = (
-                output.get("preview_image_url")
-                or output.get("image_url")
-                or session.artifacts.get("preview_image_url")
-                or session.artifacts.get("final_image_url")
-            )
+
 
             if session.skill_name in ("image-scene", "image_generation"):
                 style = session.collected.get("style", "N/A")
@@ -162,8 +205,8 @@ class TelegramRenderer:
                     "Review the image and choose an action."
                 )
             else:
-                text = "Preview ready.\nReview the image below and choose an action."
-                photo_caption = "Generated preview."
+                text = "✨ Preview ready!\nReview the image below and choose an action."
+                photo_caption = "Generated preview 🖼️."
 
             payload = {
                 "text": text,
@@ -174,7 +217,7 @@ class TelegramRenderer:
                 payload["photo_url"] = image_url
                 payload["photo_caption"] = photo_caption
             else:
-                payload["text"] = "Preview ready.\nImage URL unavailable."
+                payload["text"] = "✨ Preview ready!\n⚠️ Image URL is currently unavailable. Choose an action:"
             return payload
 
         if session.control.status == SkillStatus.waiting_approval or result.next_step == "poll_status":
@@ -196,7 +239,7 @@ class TelegramRenderer:
                     "Waiting for approval/status updates."
                 )
             else:
-                text = f"Workflow started.\nWorkflow ID: `{workflow_id}`\nWaiting for approval/status updates."
+                text = f"🚀 Workflow started.\nWorkflow ID: `{workflow_id}`\n⏳ Waiting for approval or status updates..."
 
             return {
                 "text": text,
@@ -209,18 +252,18 @@ class TelegramRenderer:
 
         if session.control.status == SkillStatus.done or result.next_step == "done":
             output = result.output or {}
-            lines = [f"{session.skill_name} completed."]
+            lines = [f"✅ `{session.skill_name}` completed successfully!"]
             if isinstance(output, dict):
                 if output.get("workflow_id"):
-                    lines.append(f"Workflow ID: {output['workflow_id']}")
+                    lines.append(f"🔗 Workflow ID: `{output['workflow_id']}`")
                 if output.get("manifest_url"):
-                    lines.append(f"Manifest: {output['manifest_url']}")
+                    lines.append(f"📦 Manifest: [Link]({output['manifest_url']})")
                 if output.get("image_url"):
-                    lines.append(f"Image: {output['image_url']}")
+                    lines.append(f"🖼️ Image: [Link]({output['image_url']})")
                 if output.get("quota_summary"):
-                    lines.append("Quota summary ready.")
+                    lines.append("📊 Quota summary ready.")
                 if output.get("persona"):
-                    lines.append(f"Persona: {output['persona'].get('persona_id', '-')}")
-            return {"text": "\n".join(lines), "reply_markup": None, "parse_mode": None}
+                    lines.append(f"👤 Persona: `{output['persona'].get('persona_id', '-')}`")
+            return {"text": "\n".join(lines), "reply_markup": None, "parse_mode": "Markdown"}
 
         return cls.render_skill_prompt(session)

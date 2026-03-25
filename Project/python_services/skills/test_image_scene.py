@@ -77,14 +77,16 @@ def mock_image_response():
 
 @pytest.mark.asyncio
 async def test_collect_topic_when_missing(initial_session):
-    """Test that skill requests topic when missing."""
+    """Test that skill requests params when both topic and style are missing."""
     mock_client = AsyncMock()
     result = await ImageSceneSkill.execute(initial_session, "http://localhost:8000", mock_client)
 
     assert result.success == True
-    assert result.next_step == "collect_prompt"
+    # When both are missing, skill prioritizes style collection
+    assert result.next_step == "choose_style"
     assert "missing_params" in result.output
     assert "topic_or_prompt" in result.output["missing_params"]
+    assert "style" in result.output["missing_params"]
 
 
 @pytest.mark.asyncio

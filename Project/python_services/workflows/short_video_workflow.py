@@ -195,6 +195,8 @@ class ShortVideoWorkflow:
                         "workflow_id": workflow_id,
                         "topic": topic,
                         "persona_id": persona_id,
+                        "tone": tone,
+                        "platform": platform,
                     }
                 ],
                 start_to_close_timeout=timedelta(minutes=2),

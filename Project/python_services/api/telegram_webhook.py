@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import secrets
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
@@ -37,6 +38,20 @@ async def _tg_call(method: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     data = response.json()
     if not data.get("ok"):
         logger.warning("Telegram API %s failed: %s", method, data.get("description"))
+    return data
+
+
+async def _tg_call_multipart(
+    method: str,
+    payload: Dict[str, Any],
+    files: Dict[str, tuple[str, bytes, str]],
+) -> Dict[str, Any]:
+    url = f"{TELEGRAM_API_BASE}/{method}"
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(url, data=payload, files=files)
+    data = response.json()
+    if not data.get("ok"):
+        logger.warning("Telegram API %s (multipart) failed: %s", method, data.get("description"))
     return data
 
 
@@ -85,6 +100,63 @@ async def send_message(
     return await _tg_call("sendMessage", payload)
 
 
+async def send_photo(
+    chat_id: int | str,
+    photo: str,
+    *,
+    caption: Optional[str] = None,
+    parse_mode: Optional[str] = None,
+    reply_markup: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "chat_id": chat_id,
+        "photo": photo,
+    }
+    if caption:
+        payload["caption"] = caption
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+
+    response = await _tg_call("sendPhoto", payload)
+    if response.get("ok"):
+        return response
+
+    if not photo.startswith(("http://", "https://")):
+        return response
+
+    try:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            image_response = await client.get(photo)
+        image_response.raise_for_status()
+
+        content_type = image_response.headers.get("content-type", "image/jpeg")
+        parsed = urlparse(photo)
+        filename = parsed.path.rsplit("/", 1)[-1] or "preview.jpg"
+        if "." not in filename:
+            filename = "preview.jpg"
+
+        upload_payload: Dict[str, Any] = {
+            "chat_id": chat_id,
+        }
+        if caption:
+            upload_payload["caption"] = caption
+        if parse_mode:
+            upload_payload["parse_mode"] = parse_mode
+        if reply_markup:
+            upload_payload["reply_markup"] = reply_markup
+
+        return await _tg_call_multipart(
+            "sendPhoto",
+            upload_payload,
+            {"photo": (filename, image_response.content, content_type)},
+        )
+    except Exception as exc:
+        logger.warning("Telegram sendPhoto URL fallback download/upload failed: %s", exc)
+        return response
+
+
 def inline_keyboard(*rows: list[tuple[str, str]]) -> Dict[str, Any]:
     return {
         "inline_keyboard": [
@@ -119,6 +191,39 @@ async def _send_rendered_message(
     *,
     message_id: Optional[int] = None,
 ) -> None:
+    photo_url = rendered.get("photo_url")
+    if photo_url:
+        if message_id is not None:
+            await edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=rendered["text"],
+                parse_mode=rendered.get("parse_mode"),
+                reply_markup=rendered.get("reply_markup"),
+            )
+
+        photo_result = await send_photo(
+            chat_id=chat_id,
+            photo=photo_url,
+            caption=rendered.get("photo_caption"),
+            parse_mode=rendered.get("photo_parse_mode"),
+        )
+        if not photo_result.get("ok"):
+            await send_message(
+                chat_id=chat_id,
+                text=rendered.get("photo_fallback_text") or f"Preview image URL:\n{photo_url}",
+                parse_mode=None,
+            )
+
+        if message_id is None:
+            await send_message(
+                chat_id=chat_id,
+                text=rendered["text"],
+                parse_mode=rendered.get("parse_mode"),
+                reply_markup=rendered.get("reply_markup"),
+            )
+        return
+
     if message_id is not None:
         await edit_message_text(
             chat_id=chat_id,
@@ -158,8 +263,6 @@ async def _handle_skill_callback(
     if data.startswith("option::"):
         value = data.split("::", 1)[1]
         result = await SkillDispatcher.handle_option(chat_id, value, app)
-        if result is None:
-            return False
         rendered = TelegramRenderer.render_skill_result(result)
         await _send_rendered_message(chat_id, rendered, message_id=message_id)
         return True
@@ -268,6 +371,15 @@ async def _handle_story_callback(
     message_id: int,
     data: str,
 ) -> bool:
+    if data in {"status_check", "help"}:
+        help_text = (
+            "AI Influencer Bot Help\n\n"
+            "Every morning I send a travel story. "
+            "Tap Post to TikTok, Post to Shorts, or Skip Today."
+        )
+        await edit_message_text(chat_id, message_id, help_text, parse_mode=None)
+        return True
+
     parts = data.split("_", 2)
     known_two_word_actions = {"post_tiktok", "post_shorts"}
     if len(parts) >= 3 and f"{parts[0]}_{parts[1]}" in known_two_word_actions:

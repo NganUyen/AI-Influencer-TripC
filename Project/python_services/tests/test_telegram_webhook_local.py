@@ -1,34 +1,16 @@
-"""
-test_telegram_webhook_local.py
-================================
-Lightweight local test for the Telegram webhook handler.
-Does NOT need the full FastAPI stack, database, or any real API keys.
-
-Run from the python_services directory:
-    python scripts/test_telegram_webhook_local.py
-
-What happens:
-  - The handler code runs locally with fake env vars.
-  - All Telegram API HTTP calls are intercepted and printed.
-  - You'll see exactly what the bot WOULD send to Telegram.
-"""
-
-import asyncio
-import sys
 import os
-import json
-from unittest.mock import patch
+import sys
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
-# Force UTF-8 output on Windows (avoids charmap encode errors on emoji)
-if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
-    sys.stdout.reconfigure(encoding="utf-8")
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-# ── Path setup ────────────────────────────────────────────────────────────────
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# ── Inject minimal environment before any project code loads ──────────────────
-# This lets pydantic-settings build Settings() without a real .env file.
 _TEST_ENV = {
     "TELEGRAM_BOT_TOKEN": "123456:TEST_TOKEN",
     "TELEGRAM_WEBHOOK_SECRET": "test-secret",
@@ -56,93 +38,93 @@ _TEST_ENV = {
     "INTERNAL_API_TOKEN": "test-internal-token",
 }
 
-# Patch os.environ BEFORE importing anything from the project
 with patch.dict(os.environ, _TEST_ENV, clear=False):
+    from api import telegram_webhook
     from api.telegram_webhook import (
-        _handle_message,
-        _handle_callback_query,
         _escape_md,
-        inline_keyboard,
+        _handle_callback_query,
+        _handle_message,
+        router,
+        send_photo,
     )
+    from services.skill_session_store import TelegramSkillSessionStore
+    from skills.base import SkillControl, SkillResult, SkillSession, SkillStatus
 
 
-# ── Captured outgoing calls ───────────────────────────────────────────────────
-_calls: list = []
+@pytest.fixture
+def tg_calls():
+    calls = []
 
-async def _mock_tg_call(method: str, payload: dict) -> dict:
-    _calls.append({"method": method, "payload": payload})
-    print(f"\n  [OUT] Telegram API call -> {method}")
-    print(f"      {json.dumps(payload, ensure_ascii=True, indent=6)}")
-    return {"ok": True}
+    async def fake_tg_call(method: str, payload: dict) -> dict:
+        calls.append({"method": method, "payload": payload})
+        return {"ok": True, "result": {"message_id": 1}}
+
+    with patch("api.telegram_webhook._tg_call", side_effect=fake_tg_call):
+        yield calls
 
 
-# ── Test cases ────────────────────────────────────────────────────────────────
+@pytest.fixture(autouse=True)
+def reset_telegram_skill_session_store():
+    TelegramSkillSessionStore._redis_client = None
+    TelegramSkillSessionStore._redis_enabled = False
+    TelegramSkillSessionStore._redis_init_attempted = True
+    TelegramSkillSessionStore._memory_sessions.clear()
+    yield
+    TelegramSkillSessionStore._memory_sessions.clear()
 
-async def test_start_command():
-    print("\n" + "=" * 60)
-    print("TEST 1: /start command")
-    print("=" * 60)
-    _calls.clear()
 
+def _build_client() -> TestClient:
+    app = FastAPI()
+    app.include_router(router, prefix="/api/webhooks")
+    return TestClient(app)
+
+
+@pytest.mark.asyncio
+async def test_start_command_sends_welcome_message(tg_calls):
     message = {
         "text": "/start",
-        "chat": {"id": 123456789},
-        "from": {"first_name": "TripC"},
+        "chat": {"id": 123456789, "type": "private"},
+        "from": {"first_name": "TripC", "username": "tripc"},
     }
 
-    with patch("api.telegram_webhook._tg_call", side_effect=_mock_tg_call):
-        await _handle_message(message)
+    await _handle_message(None, message)
 
-    assert any(c["method"] == "sendMessage" for c in _calls), "sendMessage not called!"
-    assert any("AI Influencer Bot" in json.dumps(c) for c in _calls), "Welcome text missing!"
-    print("\n  [PASS] Bot sent welcome message with inline keyboard")
+    send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
+    assert "AI Influencer Bot is online" in send_call["payload"]["text"]
+    assert send_call["payload"]["reply_markup"]["inline_keyboard"][0][1]["callback_data"] == "status_check"
 
 
-async def test_url_message():
-    print("\n" + "=" * 60)
-    print("TEST 2: URL message (Pipeline 2 stub)")
-    print("=" * 60)
-    _calls.clear()
-
+@pytest.mark.asyncio
+async def test_url_message_acknowledges_link_payload(tg_calls):
     message = {
         "text": "https://someapp.ai/landing",
-        "chat": {"id": 123456789},
+        "chat": {"id": 123456789, "type": "private"},
     }
 
-    with patch("api.telegram_webhook._tg_call", side_effect=_mock_tg_call):
-        await _handle_message(message)
+    await _handle_message(None, message)
 
-    assert any(c["method"] == "sendMessage" for c in _calls), "sendMessage not called!"
-    print("\n  [PASS] Bot acknowledged the URL")
+    send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
+    assert "URL pipelines coming soon." in send_call["payload"]["text"]
 
 
-async def test_plain_text():
-    print("\n" + "=" * 60)
-    print("TEST 3: Plain text message")
-    print("=" * 60)
-    _calls.clear()
-
+@pytest.mark.asyncio
+async def test_plain_text_prompts_structured_flow(tg_calls):
     message = {
         "text": "Hello bot!",
-        "chat": {"id": 123456789},
+        "chat": {"id": 123456789, "type": "private"},
     }
 
-    with patch("api.telegram_webhook._tg_call", side_effect=_mock_tg_call):
-        await _handle_message(message)
+    await _handle_message(None, message)
 
-    assert any(c["method"] == "sendMessage" for c in _calls), "sendMessage not called!"
-    print("\n  [PASS] Bot replied to plain text")
+    send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
+    assert "Use /media to start a structured skill flow." in send_call["payload"]["text"]
 
 
-async def test_button_tap_approve():
-    print("\n" + "=" * 60)
-    print("TEST 4: Inline button tap — approve")
-    print("=" * 60)
-    _calls.clear()
-
+@pytest.mark.asyncio
+async def test_status_button_edits_message_with_help_text(tg_calls):
     callback_query = {
-        "id": "cq_test_001",
-        "data": "approve_daily-story-2026-03-20",
+        "id": "cq_status_001",
+        "data": "status_check",
         "from": {"id": 123456789, "first_name": "TripC"},
         "message": {
             "message_id": 42,
@@ -150,23 +132,50 @@ async def test_button_tap_approve():
         },
     }
 
-    with patch("api.telegram_webhook._tg_call", side_effect=_mock_tg_call):
-        await _handle_callback_query(callback_query)
+    await _handle_callback_query(None, callback_query)
 
-    methods = [c["method"] for c in _calls]
-    assert "answerCallbackQuery" in methods, "answerCallbackQuery not called! (must be within 10s)"
-    assert "editMessageText" in methods, "editMessageText not called! (buttons should be removed)"
-    print("\n  [PASS] answerCallbackQuery + editMessageText both called (buttons removed)")
+    methods = [call["method"] for call in tg_calls]
+    assert methods[:2] == ["answerCallbackQuery", "editMessageText"]
+    assert "AI Influencer Bot Help" in tg_calls[1]["payload"]["text"]
+    assert "parse_mode" not in tg_calls[1]["payload"]
 
 
-async def test_button_tap_skip():
-    print("\n" + "=" * 60)
-    print("TEST 5: Inline button tap — skip")
-    print("=" * 60)
-    _calls.clear()
+@pytest.mark.asyncio
+async def test_send_photo_falls_back_to_multipart_upload_when_url_send_fails():
+    initial_send = AsyncMock(return_value={"ok": False, "description": "Wrong file identifier/http url specified"})
+    multipart_send = AsyncMock(return_value={"ok": True, "result": {"message_id": 99}})
 
+    class _FakeImageResponse:
+        headers = {"content-type": "image/png"}
+        content = b"png-bytes"
+
+        def raise_for_status(self) -> None:
+            return None
+
+    fake_http_client = AsyncMock()
+    fake_http_client.get = AsyncMock(return_value=_FakeImageResponse())
+    fake_http_client.__aenter__.return_value = fake_http_client
+    fake_http_client.__aexit__.return_value = False
+
+    with patch("api.telegram_webhook._tg_call", initial_send), patch(
+        "api.telegram_webhook._tg_call_multipart", multipart_send
+    ), patch("api.telegram_webhook.httpx.AsyncClient", return_value=fake_http_client):
+        response = await send_photo(
+            chat_id=123456789,
+            photo="https://cdn.example/generated-image.png",
+            caption="Generated preview.",
+        )
+
+    assert response["ok"] is True
+    initial_send.assert_awaited_once()
+    fake_http_client.get.assert_awaited_once_with("https://cdn.example/generated-image.png")
+    multipart_send.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_skip_button_confirms_skip_without_temporal(tg_calls):
     callback_query = {
-        "id": "cq_test_002",
+        "id": "cq_skip_001",
         "data": "skip_daily-story-2026-03-20",
         "from": {"id": 123456789, "first_name": "TripC"},
         "message": {
@@ -175,65 +184,96 @@ async def test_button_tap_skip():
         },
     }
 
-    with patch("api.telegram_webhook._tg_call", side_effect=_mock_tg_call):
-        await _handle_callback_query(callback_query)
+    with patch.object(telegram_webhook, "TemporalClient", None):
+        await _handle_callback_query(None, callback_query)
 
-    skip_call = next(
-        (c for c in _calls if c["method"] == "editMessageText"), None
+    edit_call = next(call for call in tg_calls if call["method"] == "editMessageText")
+    assert "Skipped for today." == edit_call["payload"]["text"]
+
+
+@pytest.mark.asyncio
+async def test_expired_option_callback_prompts_user_to_restart_flow(tg_calls):
+    callback_query = {
+        "id": "cq_option_001",
+        "data": "option::clean",
+        "from": {"id": 123456789, "first_name": "TripC"},
+        "message": {
+            "message_id": 44,
+            "chat": {"id": 123456789},
+        },
+    }
+
+    await _handle_callback_query(None, callback_query)
+
+    edit_call = next(call for call in tg_calls if call["method"] == "editMessageText")
+    assert edit_call["payload"]["text"] == "Skill session expired. Use /media to start again."
+
+
+@pytest.mark.asyncio
+async def test_option_callback_sends_photo_preview_and_keeps_controls(tg_calls):
+    callback_query = {
+        "id": "cq_option_002",
+        "data": "option::clean",
+        "from": {"id": 123456789, "first_name": "TripC"},
+        "message": {
+            "message_id": 45,
+            "chat": {"id": 123456789},
+        },
+    }
+    preview_url = "https://cdn.example/generated-image.png"
+    preview_result = SkillResult(
+        success=True,
+        next_step="confirm_or_regenerate",
+        output={"preview_image_url": preview_url},
+        session=SkillSession(
+            skill_name="image-scene",
+            step_key="confirm_or_regenerate",
+            collected={"topic_or_prompt": "beer scene", "style": "clean"},
+            artifacts={"preview_image_url": preview_url, "final_image_url": preview_url},
+            control=SkillControl(status=SkillStatus.preview_ready),
+        ),
     )
-    assert skip_call is not None
-    assert "Skipped" in skip_call["payload"]["text"]
-    print("\n  [PASS] 'Skipped' text sent in editMessageText")
+
+    with patch.object(
+        telegram_webhook.SkillDispatcher,
+        "handle_option",
+        AsyncMock(return_value=preview_result),
+    ):
+        await _handle_callback_query(None, callback_query)
+
+    methods = [call["method"] for call in tg_calls]
+    assert methods[:3] == ["answerCallbackQuery", "editMessageText", "sendPhoto"]
+    expected_text = (
+        "🎨 *Image Generated Successfully!*\n\n"
+        "• *Style*: clean\n"
+        "• *Scene*: N/A\n"
+        "• *Aspect Ratio*: 16:9\n"
+        "• *Prompt*: beer scene\n\n"
+        "Review the image below and choose an action."
+    )
+    assert tg_calls[1]["payload"]["text"] == expected_text
+    assert tg_calls[1]["payload"]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "action::use"
+    assert tg_calls[2]["payload"]["photo"] == preview_url
+    expected_caption = (
+        "🎨 Style: clean | 📐 Ratio: 16:9\n"
+        "Review the image and choose an action."
+    )
+    assert tg_calls[2]["payload"]["caption"] == expected_caption
 
 
-async def test_markdown_escape():
-    print("\n" + "=" * 60)
-    print("TEST 6: MarkdownV2 escape helper")
-    print("=" * 60)
+def test_receive_telegram_update_requires_matching_secret():
+    client = _build_client()
 
+    with patch.object(telegram_webhook.settings, "TELEGRAM_WEBHOOK_SECRET", "test-secret"):
+        response = client.post("/api/webhooks/telegram", json={"update_id": 1})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid Telegram webhook secret"
+
+
+def test_markdown_escape_handles_special_characters():
     raw = "https://app.ai/page-test.html is great!"
     escaped = _escape_md(raw)
-    # Per Telegram MarkdownV2 spec, these chars MUST be escaped:
-    # _ * [ ] ( ) ~ ` > # + - = | { } . !
+
     for ch in ["!", ".", "-"]:
-        if ch in raw:
-            assert f"\\{ch}" in escaped, f"'{ch}' not escaped"
-    print(f"  Input:   {raw}")
-    print(f"  Escaped: {escaped}")
-    print("\n  [PASS] Special chars escaped correctly")
-
-
-# ── Main runner ───────────────────────────────────────────────────────────────
-
-async def main():
-    print("\nTelegram Webhook Handler - Local Tests")
-    print("(No server needed, no real Telegram calls are made)\n")
-
-    tests = [
-        test_start_command,
-        test_url_message,
-        test_plain_text,
-        test_button_tap_approve,
-        test_button_tap_skip,
-        test_markdown_escape,
-    ]
-
-    passed = 0
-    failed = 0
-
-    for test_fn in tests:
-        try:
-            await test_fn()
-            passed += 1
-        except Exception as e:
-            failed += 1
-            print(f"\n  [FAIL] {e}")
-
-    print("\n" + "=" * 60)
-    print(f"Results: {passed} passed / {failed} failed")
-    print("=" * 60 + "\n")
-    sys.exit(0 if failed == 0 else 1)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        assert f"\\{ch}" in escaped

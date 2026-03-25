@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str
     CHATGPT_CONNECTOR_DATABASE_URL: Optional[str] = None
+    REDIS_URL: Optional[str] = None
 
     # Supabase
     SUPABASE_URL: str
@@ -191,6 +192,7 @@ class Settings(BaseSettings):
         return value
 
     @field_validator(
+        "REDIS_URL",
         "FRONTEND_PUBLIC_URL",
         "BACKEND_PUBLIC_URL",
         "CHATGPT_CONNECTOR_PUBLIC_URL",

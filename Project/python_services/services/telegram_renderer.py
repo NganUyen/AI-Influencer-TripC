@@ -422,50 +422,88 @@ class TelegramRenderer:
             output = result.output or {}
             if session.skill_name == "carousel":
                 slides = output.get("slides") or []
+                topic = session.collected.get("topic", "N/A")
                 text = (
-                    "Carousel preview ready.\n"
-                    f"Slides: {len(slides)}\n"
-                    f"Manifest: {output.get('manifest_url', '-')}"
+                    f"🎠 *Carousel Generated Successfully!*\n\n"
+                    f"• *Topic*: {topic}\n"
+                    f"• *Slides*: {len(slides)}\n"
+                    f"• *Manifest*: {output.get('manifest_url', '-')}\n\n"
+                    "Choose an action to proceed:"
                 )
-                reply_markup = _inline_keyboard_from_options(PREVIEW_ACTIONS, prefix="action::")
-            elif session.skill_name == "image-scene":
-                candidates = output.get("image_candidates") or session.artifacts.get("image_candidates") or []
-                text = _format_image_scene_candidates(
-                    candidates,
-                    intro=output.get("message")
-                    or "Generated image batch ready. Choose what to do next.",
-                )
-                reply_markup = _image_scene_batch_keyboard()
-            elif session.skill_name == "image-poster":
+                return {
+                    "text": text,
+                    "reply_markup": _inline_keyboard_from_options(PREVIEW_ACTIONS, prefix="action::"),
+                    "parse_mode": "Markdown",
+                }
+
+            image_url = (
+                output.get("preview_image_url")
+                or output.get("image_url")
+                or session.artifacts.get("preview_image_url")
+                or session.artifacts.get("final_image_url")
+            )
+
+            if session.skill_name in ("image-scene", "image_generation"):
+                style = session.collected.get("style", "N/A")
+                scene = session.collected.get("scene_type", "N/A")
+                ratio = session.collected.get("aspect_ratio", "16:9")
+                prompt = output.get("prompt") or session.collected.get("topic_or_prompt", "N/A")
                 text = (
-                    "Poster preview ready.\n"
-                    f"URL: {output.get('preview_image_url') or output.get('image_url') or '-'}\n"
-                    f"Style: {output.get('style') or session.collected.get('style') or '-'}\n"
-                    f"Tone: {output.get('tone') or session.collected.get('tone') or '-'}"
+                    f"🎨 *Image Generated Successfully!*\n\n"
+                    f"• *Style*: {style}\n"
+                    f"• *Scene*: {scene}\n"
+                    f"• *Aspect Ratio*: {ratio}\n"
+                    f"• *Prompt*: {prompt}\n\n"
+                    "Review the image below and choose an action."
                 )
-                reply_markup = _inline_keyboard_from_options(PREVIEW_ACTIONS, prefix="action::")
+                photo_caption = (
+                    f"🎨 Style: {style} | 📐 Ratio: {ratio}\n"
+                    "Review the image and choose an action."
+                )
             else:
-                text = (
-                    "Preview ready.\n"
-                    f"URL: {output.get('preview_image_url') or output.get('image_url') or '-'}"
-                )
-                reply_markup = _inline_keyboard_from_options(PREVIEW_ACTIONS, prefix="action::")
-            return {
+                text = "Preview ready.\nReview the image below and choose an action."
+                photo_caption = "Generated preview."
+
+            payload = {
                 "text": text,
-                "reply_markup": reply_markup,
-                "parse_mode": None,
+                "reply_markup": _inline_keyboard_from_options(PREVIEW_ACTIONS, prefix="action::"),
+                "parse_mode": "Markdown",
             }
+            if image_url:
+                payload["photo_url"] = image_url
+                payload["photo_caption"] = photo_caption
+            else:
+                payload["text"] = "Preview ready.\nImage URL unavailable."
+            return payload
 
         if session.control.status == SkillStatus.waiting_approval or result.next_step == "poll_status":
             output = result.output or {}
             workflow_id = output.get("workflow_id") or session.control.workflow_id
+
+            if session.skill_name in ("video-ai", "video_generation"):
+                persona = session.collected.get("persona_id", "N/A")
+                topic = session.collected.get("topic", "N/A")
+                tone = session.collected.get("tone", "N/A")
+                platform = session.collected.get("platform", "N/A")
+                text = (
+                    f"🎬 *Video Generation Started!*\n\n"
+                    f"• *Persona*: {persona}\n"
+                    f"• *Topic*: {topic}\n"
+                    f"• *Tone*: {tone}\n"
+                    f"• *Platform*: {platform}\n\n"
+                    f"Workflow ID: `{workflow_id}`\n"
+                    "Waiting for approval/status updates."
+                )
+            else:
+                text = f"Workflow started.\nWorkflow ID: `{workflow_id}`\nWaiting for approval/status updates."
+
             return {
-                "text": f"Workflow started.\nWorkflow ID: {workflow_id}\nWaiting for approval/status updates.",
+                "text": text,
                 "reply_markup": _inline_keyboard_from_options(
                     [{"label": "Cancel", "value": "cancel"}],
                     prefix="action::",
                 ),
-                "parse_mode": None,
+                "parse_mode": "Markdown",
             }
 
         if session.control.status == SkillStatus.done or result.next_step == "done":

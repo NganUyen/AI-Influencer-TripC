@@ -164,6 +164,7 @@ const EMPTY_AI_BACKBONE: AIBackboneSettings = {
     message: "Using workspace-managed OpenClaw access.",
   },
 };
+const TELEGRAM_BOT_URL = buildTelegramBotUrl();
 
 function buildAiBackboneForm(
   settings: AIBackboneSettings,
@@ -226,6 +227,10 @@ export default function CustomerDashboard() {
   const [banner, setBanner] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const formattedTelegramContact = formatTelegramContact(
+    brandForm.telegram_contact,
+  );
+  const telegramSetupComplete = Boolean(formattedTelegramContact);
 
   useEffect(() => {
     void initialize();
@@ -941,6 +946,78 @@ export default function CustomerDashboard() {
           </section>
 
           <section className="space-y-6">
+            <Panel title="Telegram Approvals" subtitle="Make Telegram visible in the workspace so approvals and daily story prompts are easy to find.">
+              <div className="space-y-4">
+                <div className="rounded-3xl border border-cyan-300/15 bg-cyan-300/5 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-cyan-100/80">
+                        Approval Channel
+                      </p>
+                      <p className="mt-2 text-sm text-stone-200">
+                        {telegramSetupComplete
+                          ? "Telegram is configured as your visible review channel."
+                          : "Telegram is live on the backend, but this workspace still needs a saved contact so the setup is obvious from the frontend."}
+                      </p>
+                    </div>
+                    <StatusBadge
+                      label={telegramSetupComplete ? "configured" : "needs_setup"}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-3">
+                  <TelegramDetail
+                    label="Saved Contact"
+                    value={formattedTelegramContact || "Not saved yet"}
+                  />
+                  <TelegramDetail
+                    label="Bot Access"
+                    value={
+                      TELEGRAM_BOT_URL
+                        ? "Open the production Telegram bot and send /start to subscribe."
+                        : "Bot link is not exposed yet, but the Telegram webhook is active."
+                    }
+                  />
+                  <TelegramDetail
+                    label="What Happens There"
+                    value="Approvals, callback actions, and daily story prompts are handled through the Telegram bot."
+                  />
+                </div>
+
+                <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-stone-400">
+                    Setup Steps
+                  </p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                    <TelegramStep
+                      title="1. Save Contact"
+                      description="Keep your Telegram handle in the onboarding profile so the approval destination is visible in the workspace."
+                    />
+                    <TelegramStep
+                      title="2. Start Bot"
+                      description="Open the bot and send /start once so Telegram registers your chat for delivery."
+                    />
+                    <TelegramStep
+                      title="3. Review There"
+                      description="Use Telegram for approval prompts while the dashboard remains the main campaign control room."
+                    />
+                  </div>
+                </div>
+
+                {TELEGRAM_BOT_URL && (
+                  <a
+                    href={TELEGRAM_BOT_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex rounded-full bg-cyan-200 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-100"
+                  >
+                    Open Telegram Bot
+                  </a>
+                )}
+              </div>
+            </Panel>
+
             <Panel title="AI Backbone Access" subtitle="Choose whether customer runs use the shared OpenClaw backbone, a customer-provided API key, or the connector-backed GPT OAuth path.">
               <form className="space-y-5" onSubmit={handleAiBackboneSave}>
                 <div className="grid gap-3">
@@ -1245,6 +1322,38 @@ function Panel({
   );
 }
 
+function TelegramDetail({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+      <p className="text-[11px] uppercase tracking-[0.18em] text-stone-400">
+        {label}
+      </p>
+      <p className="mt-2 text-sm text-stone-200">{value}</p>
+    </div>
+  );
+}
+
+function TelegramStep({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+      <p className="text-sm font-semibold text-white">{title}</p>
+      <p className="mt-2 text-sm text-stone-300">{description}</p>
+    </div>
+  );
+}
+
 function Field({
   label,
   value,
@@ -1350,4 +1459,34 @@ function splitList(value: string): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function formatTelegramContact(value?: string | null): string | null {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return null;
+  }
+  if (
+    normalized.startsWith("@") ||
+    normalized.startsWith("http://") ||
+    normalized.startsWith("https://") ||
+    normalized.startsWith("t.me/")
+  ) {
+    return normalized;
+  }
+  return `@${normalized}`;
+}
+
+function buildTelegramBotUrl(): string | null {
+  const explicitUrl = process.env.NEXT_PUBLIC_TELEGRAM_BOT_URL?.trim();
+  if (explicitUrl) {
+    return explicitUrl;
+  }
+
+  const username = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME?.trim();
+  if (!username) {
+    return null;
+  }
+
+  return `https://t.me/${username.replace(/^@/, "")}`;
 }

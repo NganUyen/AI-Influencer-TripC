@@ -15,6 +15,7 @@ from services.fal_service import FalAIService
 from services.google_tts_service import GoogleTTSService
 from services.heygen_service import HeyGenService
 from services.storage_service import StorageService
+from services.media_storage_service import MediaStorageService
 from services.contracts import AudioInput, ImageInput, VideoInput
 from .video_activities import build_split_screen_video
 from services.content_scenes_service import (
@@ -72,6 +73,24 @@ async def generate_image(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
     finally:
         await fal_service.close()
 
+    # ── media bucket hook (non-blocking) ─────────────────────────────────────
+    _campaign_id = prompt_config.get("campaign_id") or (
+        prompt_config.get("metadata") or {}
+    ).get("campaign_id")
+    if result.get("url") and _campaign_id:
+        _day = image_input.metadata.day or "unknown"
+        _platform = image_input.metadata.platform or "default"
+        asyncio.create_task(
+            MediaStorageService().upload_from_url(
+                url=result["url"],
+                destination_path=f"image/{_day}/{_platform}_{str(id(result))[-8:]}.png",
+                campaign_id=str(_campaign_id),
+                asset_type="IMAGE",
+                generation_prompt=image_input.prompt,
+                provider_job_id=result.get("request_id"),
+            )
+        )
+
     return {
         "type": "image",
         "service": "fal_ai",
@@ -111,6 +130,24 @@ async def generate_video(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
         raise ApplicationError(f"Video generation failed: {str(e)}", non_retryable=False)
     finally:
         await fal_service.close()
+
+    # ── media bucket hook (non-blocking) ─────────────────────────────────────
+    _campaign_id = prompt_config.get("campaign_id") or (
+        prompt_config.get("metadata") or {}
+    ).get("campaign_id")
+    if result.get("url") and _campaign_id:
+        _day = video_input.metadata.day or "unknown"
+        _platform = video_input.metadata.platform or "default"
+        asyncio.create_task(
+            MediaStorageService().upload_from_url(
+                url=result["url"],
+                destination_path=f"video/{_day}/{_platform}_{str(id(result))[-8:]}.mp4",
+                campaign_id=str(_campaign_id),
+                asset_type="VIDEO",
+                generation_prompt=video_input.prompt,
+                provider_job_id=result.get("request_id"),
+            )
+        )
 
     return {
         "type": "video",
@@ -223,6 +260,25 @@ async def upload_to_storage(media_asset: Dict[str, Any]) -> Dict[str, Any]:
         filename=filename,
         content_type=f"{media_asset['type']}/{file_extension}",
     )
+
+    # ── media bucket hook (non-blocking) ─────────────────────────────────────
+    _campaign_id = media_asset.get("campaign_id") or asset_metadata.get("campaign_id")
+    if _campaign_id:
+        _asset_type = media_asset["type"].upper()      # IMAGE | AUDIO | VIDEO
+        _mime = f"{media_asset['type']}/{file_extension}"
+        _size = media_data.seek(0, 2)                  # seek to end → byte count
+        asyncio.create_task(
+            MediaStorageService().record_asset(
+                campaign_id=str(_campaign_id),
+                asset_type=_asset_type,
+                generation_prompt=media_asset.get("prompt", ""),
+                storage_path=filename,
+                public_url=public_url,
+                mime_type=_mime,
+                file_size=_size or 0,
+                status="COMPLETED",
+            )
+        )
 
     return {
         **media_asset,

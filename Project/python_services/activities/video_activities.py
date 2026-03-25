@@ -18,6 +18,7 @@ from temporalio import activity
 from services.contracts import FinalVideoContract, SplitScreenVideoInput
 from services.errors import AssemblyError, AssemblyMissingAssetError, StorageUploadError
 from services.storage_service import StorageService
+from services.media_storage_service import MediaStorageService
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +246,20 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
             )
         except Exception as exc:
             raise StorageUploadError(f"Failed to upload final video: {exc}") from exc
+
+        # ── media bucket hook (non-blocking) ─────────────────────────────────
+        _campaign_id = config.get("campaign_id")
+        if _campaign_id:
+            asyncio.create_task(
+                MediaStorageService().upload_from_url(
+                    url=video_url,
+                    destination_path=f"video/{assembly_input.persona_id}/{safe_topic}_final_{str(id(video_bytes))[-6:]}.mp4",
+                    campaign_id=str(_campaign_id),
+                    asset_type="VIDEO",
+                    generation_prompt=assembly_input.topic,
+                    content_type="video/mp4",
+                )
+            )
 
         metadata = {
             **assembly_input.model_dump(),

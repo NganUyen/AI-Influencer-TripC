@@ -116,11 +116,11 @@ async def generate_and_send_script_for_approval(config: Dict[str, Any]) -> Dict[
         ]
     )
     approval_msg = (
-        f"Script Review - {app_name}\n\n"
-        f"Topic: {topic}\n"
-        f"Duration: {contract.duration_estimate:.0f}s\n\n"
-        f"Script Preview:\n{contract.script[:300]}{'...' if len(contract.script) > 300 else ''}\n\n"
-        f"Scenes ({len(contract.scenes)}):\n{scenes_text}\n\n"
+        f"📝 *Script Review - {app_name}*\n\n"
+        f"• *Topic*: {topic}\n"
+        f"• *Duration*: {contract.duration_estimate:.0f}s\n\n"
+        f"📖 *Script Preview*:\n`{contract.script[:300]}{'...' if len(contract.script) > 300 else ''}`\n\n"
+        f"🎬 *Scenes* ({len(contract.scenes)}):\n```text\n{scenes_text}\n```\n"
         "Approve to start media generation? This will call TTS + fal.ai + HeyGen."
     )
 
@@ -178,15 +178,19 @@ async def send_preview_to_telegram(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     chat_id = config["telegram_chat_id"]
     video_url = config["video_url"]
-    topic = config.get("topic", "")
-    persona_id = config.get("persona_id", "")
+    topic = config.get("topic", "N/A")
+    persona_id = config.get("persona_id", "N/A")
+    tone = config.get("tone", "N/A")
+    platform = config.get("platform", "N/A")
 
     tg = TelegramService()
     preview_msg = (
-        f"Video Ready\n\n"
-        f"Topic: {topic}\n"
-        f"Persona: {persona_id}\n\n"
-        f"Watch Preview: {video_url}\n\n"
+        f"✨ *Final Video Ready!*\n\n"
+        f"• *Persona*: {persona_id}\n"
+        f"• *Topic*: {topic}\n"
+        f"• *Tone*: {tone}\n"
+        f"• *Platform*: {platform}\n\n"
+        f"🔗 *Watch Preview*: {video_url}\n\n"
         "Choose final action:"
     )
 

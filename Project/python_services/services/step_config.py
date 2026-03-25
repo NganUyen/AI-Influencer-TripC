@@ -10,35 +10,70 @@ def _options(*items: tuple[str, str]) -> List[Dict[str, str]]:
 
 
 MAIN_MENU: Dict[str, Any] = {
-    "text": "TripC Media Menu",
+    "text": "TripC Media Studio",
+    "description_lines": [
+        "Build images, videos, content assets, and operator tasks from one menu.",
+        "Choose a lane below.",
+    ],
     "rows": [
-        [("Create Image", "menu_image"), ("Create Video", "menu_video")],
-        [("Carousel", "skill_carousel"), ("Manage", "menu_manage")],
+        [("Images", "menu_image"), ("Video", "menu_video")],
+        [("Content", "menu_content"), ("Manage", "menu_manage")],
     ],
 }
 
 SUBMENUS: Dict[str, Dict[str, Any]] = {
     "menu_image": {
         "text": "Create Image",
+        "description_lines": [
+            "Generate marketing posters, scene batches, or review avatar tools.",
+        ],
         "rows": [
-            [("Scene/Slideshow", "skill_image-scene")],
+            [("Marketing Poster", "skill_image-poster"), ("Scene Batch", "skill_image-scene")],
+            [("Avatar Studio (Beta)", "info::image-avatar")],
             [("Back", "menu_main")],
         ],
     },
     "menu_video": {
         "text": "Create Video",
+        "description_lines": [
+            "Launch the AI influencer lane or preview upcoming video modes.",
+        ],
         "rows": [
-            [("AI Influencer", "skill_video-ai")],
+            [("AI Influencer", "skill_video-ai"), ("Tutorial (Soon)", "info::video-tutorial")],
+            [("Back", "menu_main")],
+        ],
+    },
+    "menu_content": {
+        "text": "Content Tools",
+        "description_lines": [
+            "Create publishing assets and inspect the current publish queue.",
+        ],
+        "rows": [
+            [("Carousel", "skill_carousel"), ("Publish Queue", "skill_publish-manager")],
+            [("Long Post (Soon)", "info::long-post")],
             [("Back", "menu_main")],
         ],
     },
     "menu_manage": {
         "text": "Manage",
+        "description_lines": [
+            "Work with personas, quota, planning, and operator utilities.",
+        ],
         "rows": [
-            [("Create Persona", "skill_persona-creator")],
-            [("Inspect Personas", "skill_persona-inspector")],
-            [("Quota", "skill_quota-inspector"), ("Weekly Plan", "skill_weekly-planner")],
+            [("Persona Studio", "menu_personas"), ("Quota", "skill_quota-inspector")],
+            [("Weekly Plan", "skill_weekly-planner")],
             [("Back", "menu_main")],
+        ],
+    },
+    "menu_personas": {
+        "text": "Persona Studio",
+        "description_lines": [
+            "Create, inspect, and plan persona-related work from one place.",
+        ],
+        "rows": [
+            [("Create Persona", "skill_persona-creator"), ("Inspect Personas", "skill_persona-inspector")],
+            [("Avatar Flow (Beta)", "info::image-avatar")],
+            [("Back", "menu_manage")],
         ],
     },
 }
@@ -55,8 +90,47 @@ IMAGE_SCENE_BATCH_ACTIONS = _options(
     ("Cancel", "cancel"),
 )
 
+PUBLISH_MANAGER_ACTIONS = _options(
+    ("Retry Publish", "retry_publish"),
+    ("Refresh Queue", "refresh_queue"),
+    ("Back to Queue", "back_to_queue"),
+    ("Cancel", "cancel"),
+)
+
 
 STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
+    "image-poster": {
+        "collect_brief": {
+            "input_type": "free_text",
+            "field": "topic_or_brief",
+            "prompt_text": "What should the poster promote?",
+        },
+        "choose_style": {
+            "input_type": "inline_keyboard",
+            "field": "style",
+            "prompt_text": "Choose a poster style.",
+            "options": _options(
+                ("Bold", "bold"),
+                ("Clean", "clean"),
+                ("Editorial", "editorial"),
+            ),
+        },
+        "choose_tone": {
+            "input_type": "inline_keyboard",
+            "field": "tone",
+            "prompt_text": "Choose a tone.",
+            "options": _options(
+                ("Premium", "premium"),
+                ("Friendly", "friendly"),
+                ("Urgent", "urgent"),
+            ),
+        },
+        "confirm_or_regenerate": {
+            "input_type": "preview_actions",
+            "prompt_text": "Poster preview ready. Use it, regenerate, or cancel.",
+            "options": PREVIEW_ACTIONS,
+        },
+    },
     "image-scene": {
         "collect_prompt": {
             "input_type": "free_text",
@@ -143,6 +217,22 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
             "input_type": "free_text",
             "field": "topic",
             "prompt_text": "What should the video be about?",
+        },
+    },
+    "publish-manager": {
+        "list_publish_queue": {
+            "input_type": "automatic",
+            "prompt_text": "",
+        },
+        "select_item": {
+            "input_type": "content_selector",
+            "field": "content_id",
+            "prompt_text": "Choose a publish item to inspect.",
+        },
+        "publish_or_schedule": {
+            "input_type": "content_actions",
+            "prompt_text": "Inspect the selected publish item.",
+            "options": PUBLISH_MANAGER_ACTIONS,
         },
     },
     "quota-inspector": {

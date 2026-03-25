@@ -160,6 +160,21 @@ class SkillDispatcher:
                 result = skill_cls.return_to_preview(session)
                 return await cls._save_or_clear(chat_id, result)
 
+        if session.skill_name == "publish-manager":
+            if action == "back_to_queue":
+                result = skill_cls.back_to_queue(session)
+                return await cls._save_or_clear(chat_id, result)
+            if action == "refresh_queue":
+                session.collected["content_id"] = None
+                session.artifacts["queue_items"] = []
+                session.artifacts["selected_item"] = None
+                session.artifacts["publish_result"] = None
+                session.step_key = "list_publish_queue"
+            elif action == "retry_publish":
+                async with cls._transport_client(app) as client:
+                    result = await skill_cls.retry_selected(session, "http://backend", client)
+                return await cls._save_or_clear(chat_id, result)
+
         if action == "regenerate":
             template = skill_cls.initial_session()
             session.artifacts = deepcopy(template.artifacts)

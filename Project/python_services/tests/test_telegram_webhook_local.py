@@ -243,10 +243,22 @@ async def test_option_callback_sends_photo_preview_and_keeps_controls(tg_calls):
 
     methods = [call["method"] for call in tg_calls]
     assert methods[:3] == ["answerCallbackQuery", "editMessageText", "sendPhoto"]
-    assert tg_calls[1]["payload"]["text"] == "Preview ready.\nReview the image below and choose an action."
+    expected_text = (
+        "🎨 *Image Generated Successfully!*\n\n"
+        "• *Style*: clean\n"
+        "• *Scene*: N/A\n"
+        "• *Aspect Ratio*: 16:9\n"
+        "• *Prompt*: beer scene\n\n"
+        "Review the image below and choose an action."
+    )
+    assert tg_calls[1]["payload"]["text"] == expected_text
     assert tg_calls[1]["payload"]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "action::use"
     assert tg_calls[2]["payload"]["photo"] == preview_url
-    assert tg_calls[2]["payload"]["caption"] == "Generated preview."
+    expected_caption = (
+        "🎨 Style: clean | 📐 Ratio: 16:9\n"
+        "Review the image and choose an action."
+    )
+    assert tg_calls[2]["payload"]["caption"] == expected_caption
 
 
 def test_receive_telegram_update_requires_matching_secret():

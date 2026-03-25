@@ -157,7 +157,7 @@ async def health_check():
 
 
 # Import API routes
-from api import workflows, media, accounts, analytics, content, quota, webhooks
+from api import workflows, media, accounts, analytics, content, quota, webhooks, telegram_webhook, personas
 
 app.include_router(workflows.router, prefix="/api/workflows", tags=["Workflows"])
 app.include_router(media.router, prefix="/api/media", tags=["Media"])
@@ -166,23 +166,12 @@ app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"]
 app.include_router(content.router, prefix="/api/content", tags=["Content"])
 app.include_router(quota.router, prefix="/api/quota", tags=["Quota"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
-
-
-@app.get("/api/personas", dependencies=[Depends(require_internal_api_token)])
-async def list_personas():
-    """List all AI personas"""
-    # TODO: Implement persona listing
-    return {"personas": []}
-
-
-@app.post("/api/personas", dependencies=[Depends(require_internal_api_token)])
-async def create_persona(name: str, description: str):
-    """Create a new AI persona"""
-    # TODO: Implement persona creation
-    return {
-        "message": f"Creating persona: {name}",
-        "persona_id": "pending",
-    }
+app.include_router(
+    telegram_webhook.router,
+    prefix="/api/webhooks",
+    tags=["Telegram"],
+)
+app.include_router(personas.router, prefix="/api/personas", tags=["Personas"])
 
 
 if __name__ == "__main__":

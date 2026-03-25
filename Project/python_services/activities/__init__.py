@@ -14,6 +14,8 @@ from .media_activities import (
     generate_video,
     generate_audio,
     upload_to_storage,
+    create_talking_head_video,
+    generate_scene_images,
 )
 from .distribution_activities import (
     schedule_posts,
@@ -29,6 +31,10 @@ from .approval_activities import (
     wait_for_publish_decision,
 )
 from .video_activities import build_split_screen_video
+from .story_activities import (
+    generate_daily_story,
+    send_story_for_approval,
+)
 
 __all__ = [
     # Strategy
@@ -42,6 +48,8 @@ __all__ = [
     "generate_video",
     "generate_audio",
     "upload_to_storage",
+    "create_talking_head_video",
+    "generate_scene_images",
     # Distribution
     "schedule_posts",
     "publish_to_platforms",
@@ -55,4 +63,7 @@ __all__ = [
     "wait_for_publish_decision",
     # Video Assembly
     "build_split_screen_video",
+    # Daily Story Bot
+    "generate_daily_story",
+    "send_story_for_approval",
 ]

@@ -6,6 +6,7 @@ Object storage with zero egress fees
 import boto3
 import asyncio
 import logging
+from io import BytesIO
 from typing import BinaryIO, Dict, Any
 from io import BytesIO
 from botocore.config import Config

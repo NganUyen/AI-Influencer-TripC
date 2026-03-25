@@ -145,6 +145,57 @@ class SkillDispatcher:
 
         skill_cls = SKILL_REGISTRY[session.skill_name]
 
+        # ── Persona-creator: Save action ─────────────────────────────────────
+        if action == "save" and session.skill_name == "persona-creator":
+            persona_id = session.artifacts.get("persona_id") or session.collected.get("persona_id")
+            avatar_url = session.artifacts.get("avatar_image_url") or session.artifacts.get("preview_image_url")
+
+            # 1. Mark persona status = ready via API
+            try:
+                async with cls._transport_client(app) as client:
+                    from skills.base import BaseSkill
+                    await client.patch(
+                        f"/api/personas/{persona_id}",
+                        json={"status": "ready"},
+                        headers=BaseSkill._auth_headers(),
+                    )
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning("Could not mark persona ready: %s", exc)
+
+            # 2. Upload avatar to Supabase media bucket (fire-and-forget)
+            if avatar_url:
+                try:
+                    import asyncio
+                    from services.media_storage_service import MediaStorageService
+
+                    async def _upload_persona_avatar() -> None:
+                        import logging as _log
+                        try:
+                            svc = MediaStorageService()
+                            result = await svc.upload_from_url(avatar_url, asset_type="image")
+                            if result:
+                                _log.getLogger(__name__).info(
+                                    "Persona avatar uploaded to storage: %s", result.get("public_url")
+                                )
+                        except Exception as e:
+                            _log.getLogger(__name__).warning("Persona avatar storage upload failed: %s", e)
+
+                    asyncio.create_task(_upload_persona_avatar())
+                except Exception:
+                    pass
+
+            await TelegramSkillSessionStore.clear_session(chat_id)
+            return SkillResult(
+                success=True,
+                next_step="done",
+                output={
+                    "status": "saved",
+                    "message": f"✅ Persona *{persona_id}* saved and marked as ready\\!",
+                    "persona_id": persona_id,
+                },
+            )
+
         if action == "regenerate":
             template = skill_cls.initial_session()
             session.artifacts = deepcopy(template.artifacts)
@@ -152,9 +203,13 @@ class SkillDispatcher:
                 session.step_key = "collect_prompt"
             elif session.skill_name == "carousel":
                 session.step_key = "pick_persona"
+            elif session.skill_name == "persona-creator":
+                # Re-run the full creation cycle with the same collected params
+                pass
 
         async with cls._transport_client(app) as client:
             result = await skill_cls.execute(session, "http://backend", client)
         if result.session is not None:
             await cls._prepare_prompt_session(app, result.session)
         return await cls._save_or_clear(chat_id, result)
+

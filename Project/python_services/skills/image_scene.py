@@ -45,7 +45,13 @@ class ImageSceneSkill(BaseSkill):
         current = cls._normalize_session(session)
         missing = cls._missing_required_params(current)
         if missing:
-            next_step = "choose_style" if "style" in missing else "collect_prompt"
+            if "topic_or_prompt" in missing:
+                next_step = "collect_prompt"
+            elif "style" in missing:
+                next_step = "choose_style"
+            else:
+                next_step = "choose_ratio"
+
             return cls._collecting_result(
                 current,
                 next_step=next_step,

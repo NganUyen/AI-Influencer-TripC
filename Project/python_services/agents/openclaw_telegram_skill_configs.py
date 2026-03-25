@@ -159,10 +159,9 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "kind": "leaf",
         "parent": "image-menu",
         "menu_options": [],
-        "required_params": ["topic_or_prompt", "style"],
+        "required_params": ["topic_or_prompt", "style", "aspect_ratio"],
         "optional_params": [
             "persona_id",
-            "aspect_ratio",
             "scene_type",
             "freeform_brief",
             "creative_notes",
@@ -189,6 +188,7 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "steps": [
             "collect_prompt",
             "choose_style",
+            "choose_ratio",
             "confirm_or_regenerate",
         ],
         "session_shape": {

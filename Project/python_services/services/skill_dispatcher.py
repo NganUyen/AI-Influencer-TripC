@@ -142,11 +142,29 @@ class SkillDispatcher:
 
         skill_cls = SKILL_REGISTRY[session.skill_name]
 
+        if session.skill_name == "image-scene":
+            if action == "use_images":
+                result = skill_cls.enter_selection_mode(session)
+                return await cls._save_or_clear(chat_id, result)
+            if action.startswith("toggle:"):
+                try:
+                    selected_index = int(action.split(":", 1)[1])
+                except (TypeError, ValueError):
+                    return SkillResult(success=False, error=f"Unsupported action: {action}", session=session)
+                result = skill_cls.toggle_selection(session, selected_index)
+                return await cls._save_or_clear(chat_id, result)
+            if action == "submit_selection":
+                result = skill_cls.submit_selection(session)
+                return await cls._save_or_clear(chat_id, result)
+            if action == "back_to_preview":
+                result = skill_cls.return_to_preview(session)
+                return await cls._save_or_clear(chat_id, result)
+
         if action == "regenerate":
             template = skill_cls.initial_session()
             session.artifacts = deepcopy(template.artifacts)
             if session.skill_name == "image-scene":
-                session.step_key = "collect_prompt"
+                session.step_key = "generating_candidates"
             elif session.skill_name == "carousel":
                 session.step_key = "pick_persona"
 

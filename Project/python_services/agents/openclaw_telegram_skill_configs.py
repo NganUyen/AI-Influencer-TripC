@@ -190,8 +190,8 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "collect_prompt",
             "choose_style",
             "generating_candidates",
-            "selecting_image",
             "confirm_or_regenerate",
+            "selecting_images",
         ],
         "session_shape": {
             "step_key": "collect_prompt",
@@ -207,9 +207,12 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "artifacts": {
                 "image_candidates": [],
                 "selected_candidate_index": None,
+                "selected_candidate_indexes": [],
                 "preview_image_url": None,
                 "final_image_url": None,
+                "final_image_urls": [],
                 "storage_key": None,
+                "final_storage_keys": [],
             },
         },
     },

@@ -21,7 +21,6 @@ class ImageSceneSkill(BaseSkill):
     steps = list(_DEFINITION.get("steps", []))
     session_shape = deepcopy(_DEFINITION.get("session_shape", BaseSkill.session_shape))
 
-    # Number of candidates to generate per batch
     DEFAULT_CANDIDATE_COUNT = 4
 
     @classmethod
@@ -81,7 +80,26 @@ class ImageSceneSkill(BaseSkill):
             for _ in range(count)
         ]
         results = await asyncio.gather(*tasks)
-        return [r for r in results if r is not None]
+        return [result for result in results if result is not None]
+
+    @classmethod
+    def _done_output(cls, session: SkillSession) -> Dict[str, Any]:
+        image_urls = list(session.artifacts.get("final_image_urls") or [])
+        storage_keys = list(session.artifacts.get("final_storage_keys") or [])
+
+        if not image_urls and session.artifacts.get("final_image_url"):
+            image_urls = [session.artifacts["final_image_url"]]
+        if not storage_keys and session.artifacts.get("storage_key"):
+            storage_keys = [session.artifacts["storage_key"]]
+
+        return {
+            "image_url": image_urls[0] if image_urls else None,
+            "image_urls": image_urls,
+            "storage_key": storage_keys[0] if storage_keys else None,
+            "storage_keys": storage_keys,
+            "selected_indexes": list(session.artifacts.get("selected_candidate_indexes") or []),
+            "candidates_count": len(session.artifacts.get("image_candidates", [])),
+        }
 
     @classmethod
     async def execute(
@@ -93,7 +111,6 @@ class ImageSceneSkill(BaseSkill):
         current = cls._normalize_session(session)
         missing = cls._missing_required_params(current)
 
-        # Step 1: Collect params
         if missing:
             next_step = "choose_style" if "style" in missing else "collect_prompt"
             return cls._collecting_result(
@@ -102,44 +119,39 @@ class ImageSceneSkill(BaseSkill):
                 output={"missing_params": missing},
             )
 
-        # Step 2: Check if user already selected an image → done
-        if current.artifacts.get("final_image_url"):
+        if current.artifacts.get("final_image_url") or current.artifacts.get("final_image_urls"):
             current.step_key = "done"
             current.control.status = SkillStatus.done
             return SkillResult(
                 success=True,
                 next_step="done",
+                output=cls._done_output(current),
+                session=current,
+            )
+
+        candidates = current.artifacts.get("image_candidates", [])
+        if candidates and current.step_key in {"confirm_or_regenerate", "selecting_images"}:
+            return SkillResult(
+                success=True,
+                next_step=current.step_key,
                 output={
-                    "image_url": current.artifacts.get("final_image_url"),
-                    "storage_key": current.artifacts.get("storage_key"),
-                    "candidates_count": len(current.artifacts.get("image_candidates", [])),
+                    "image_candidates": candidates,
+                    "candidate_count": len(candidates),
+                    "selected_candidate_indexes": list(
+                        current.artifacts.get("selected_candidate_indexes", [])
+                    ),
+                    "message": (
+                        "Use Images to choose one or more images, regenerate for a new batch,"
+                        " or cancel."
+                    ),
                 },
                 session=current,
             )
 
-        # Step 3: Check if we're in selection phase (candidates already generated)
-        candidates = current.artifacts.get("image_candidates", [])
-        if candidates and current.step_key == "selecting_image":
-            # User should select one candidate
-            # This is handled by the router/Telegram layer:
-            # They will respond with "select_candidate_{index}" or "regenerate"
-            return cls._collecting_result(
-                current,
-                next_step="selecting_image",
-                output={
-                    "image_candidates": candidates,
-                    "candidate_count": len(candidates),
-                    "message": "Choose your preferred image or regenerate for more options",
-                },
-            )
-
-        # Step 4: Generate image candidates (first time or regenerate)
         payload = {
             "prompt": cls._build_prompt(current.collected),
             "aspect_ratio": current.collected.get("aspect_ratio") or "16:9",
         }
-
-        # Generate multiple candidates in parallel
         candidates = await cls._generate_candidates(
             http_client,
             backend_url,
@@ -150,21 +162,152 @@ class ImageSceneSkill(BaseSkill):
         if not candidates:
             return cls._error_result(current, "Failed to generate any images. Please try again.")
 
-        # Store candidates in artifacts
         current.artifacts["image_candidates"] = candidates
         current.artifacts["selected_candidate_index"] = None
-        current.step_key = "selecting_image"
+        current.artifacts["selected_candidate_indexes"] = []
+        current.step_key = "confirm_or_regenerate"
         current.control.status = SkillStatus.preview_ready
 
         return SkillResult(
             success=True,
-            next_step="selecting_image",
+            next_step="confirm_or_regenerate",
             output={
                 "image_candidates": candidates,
                 "candidate_count": len(candidates),
-                "message": f"Generated {len(candidates)} image options. Choose your favorite!",
+                "selected_candidate_indexes": [],
+                "message": (
+                    f"Generated {len(candidates)} image options. "
+                    "Choose Use Images to select one or more."
+                ),
             },
             session=current,
+        )
+
+    @classmethod
+    def enter_selection_mode(cls, session: SkillSession) -> SkillResult:
+        candidates = session.artifacts.get("image_candidates", [])
+        if not candidates:
+            return cls._error_result(session, "No generated images available to select.")
+
+        session.step_key = "selecting_images"
+        session.control.status = SkillStatus.collecting
+        return SkillResult(
+            success=True,
+            next_step="selecting_images",
+            output={
+                "image_candidates": candidates,
+                "selected_candidate_indexes": list(
+                    session.artifacts.get("selected_candidate_indexes", [])
+                ),
+                "message": "Select one or more images, then press Submit.",
+            },
+            session=session,
+        )
+
+    @classmethod
+    def toggle_selection(
+        cls,
+        session: SkillSession,
+        selected_index: int,
+    ) -> SkillResult:
+        candidates = session.artifacts.get("image_candidates", [])
+        if not (0 <= selected_index < len(candidates)):
+            return cls._error_result(session, f"Invalid selection: {selected_index}")
+
+        selected_indexes = list(session.artifacts.get("selected_candidate_indexes", []))
+        if selected_index in selected_indexes:
+            selected_indexes.remove(selected_index)
+        else:
+            selected_indexes.append(selected_index)
+            selected_indexes.sort()
+
+        session.artifacts["selected_candidate_indexes"] = selected_indexes
+        session.step_key = "selecting_images"
+        session.control.status = SkillStatus.collecting
+
+        return SkillResult(
+            success=True,
+            next_step="selecting_images",
+            output={
+                "image_candidates": candidates,
+                "selected_candidate_indexes": selected_indexes,
+                "message": (
+                    "Select one or more images, then press Submit."
+                    if selected_indexes
+                    else "No images selected yet. Pick one or more images."
+                ),
+            },
+            session=session,
+        )
+
+    @classmethod
+    def return_to_preview(cls, session: SkillSession) -> SkillResult:
+        candidates = session.artifacts.get("image_candidates", [])
+        if not candidates:
+            return cls._error_result(session, "No generated images available to preview.")
+
+        session.step_key = "confirm_or_regenerate"
+        session.control.status = SkillStatus.preview_ready
+        return SkillResult(
+            success=True,
+            next_step="confirm_or_regenerate",
+            output={
+                "image_candidates": candidates,
+                "candidate_count": len(candidates),
+                "selected_candidate_indexes": list(
+                    session.artifacts.get("selected_candidate_indexes", [])
+                ),
+                "message": "Current batch is ready. Use Images, Regenerate, or Cancel.",
+            },
+            session=session,
+        )
+
+    @classmethod
+    def submit_selection(cls, session: SkillSession) -> SkillResult:
+        candidates = session.artifacts.get("image_candidates", [])
+        selected_indexes = list(session.artifacts.get("selected_candidate_indexes", []))
+
+        if not selected_indexes:
+            session.step_key = "selecting_images"
+            session.control.status = SkillStatus.collecting
+            return SkillResult(
+                success=True,
+                next_step="selecting_images",
+                output={
+                    "image_candidates": candidates,
+                    "selected_candidate_indexes": [],
+                    "message": "Choose at least one image before submitting.",
+                },
+                session=session,
+            )
+
+        selected_images = [candidates[index] for index in selected_indexes]
+        image_urls = [item["url"] for item in selected_images]
+        storage_keys = [item.get("storage_key") for item in selected_images]
+
+        session.artifacts["selected_candidate_index"] = selected_indexes[0]
+        session.artifacts["preview_image_url"] = image_urls[0]
+        session.artifacts["final_image_url"] = image_urls[0]
+        session.artifacts["final_image_urls"] = image_urls
+        session.artifacts["storage_key"] = storage_keys[0]
+        session.artifacts["final_storage_keys"] = storage_keys
+        session.step_key = "done"
+        session.control.status = SkillStatus.done
+
+        return SkillResult(
+            success=True,
+            next_step="done",
+            output={
+                "image_url": image_urls[0],
+                "image_urls": image_urls,
+                "storage_key": storage_keys[0],
+                "storage_keys": storage_keys,
+                "selected_index": selected_indexes[0],
+                "selected_indexes": selected_indexes,
+                "total_selected": len(selected_indexes),
+                "total_candidates": len(candidates),
+            },
+            session=session,
         )
 
     @classmethod
@@ -173,29 +316,13 @@ class ImageSceneSkill(BaseSkill):
         session: SkillSession,
         selected_index: int,
     ) -> SkillResult:
-        """Handle user's image selection (called by router after user picks)."""
+        """Backward-compatible single-image selection helper."""
         candidates = session.artifacts.get("image_candidates", [])
-
         if not (0 <= selected_index < len(candidates)):
             return cls._error_result(session, f"Invalid selection: {selected_index}")
 
-        selected = candidates[selected_index]
-        session.artifacts["selected_candidate_index"] = selected_index
-        session.artifacts["preview_image_url"] = selected["url"]
-        session.artifacts["final_image_url"] = selected["url"]
-        session.artifacts["storage_key"] = selected.get("storage_key")
-        session.step_key = "done"
-        session.control.status = SkillStatus.done
-
-        return SkillResult(
-            success=True,
-            next_step="done",
-            output={
-                "image_url": selected["url"],
-                "storage_key": selected.get("storage_key"),
-                "selected_index": selected_index,
-                "total_candidates": len(candidates),
-            },
-            session=session,
-        )
-
+        session.artifacts["selected_candidate_indexes"] = [selected_index]
+        result = cls.submit_selection(session)
+        if result.success and isinstance(result.output, dict):
+            result.output["selected_index"] = selected_index
+        return result

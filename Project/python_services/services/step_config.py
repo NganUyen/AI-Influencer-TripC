@@ -49,6 +49,12 @@ PREVIEW_ACTIONS = _options(
     ("Cancel", "cancel"),
 )
 
+IMAGE_SCENE_BATCH_ACTIONS = _options(
+    ("Use Images", "use_images"),
+    ("Regenerate", "regenerate"),
+    ("Cancel", "cancel"),
+)
+
 
 STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
     "image-scene": {
@@ -69,8 +75,12 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "confirm_or_regenerate": {
             "input_type": "preview_actions",
-            "prompt_text": "Use this image?",
-            "options": PREVIEW_ACTIONS,
+            "prompt_text": "Choose what to do with this batch.",
+            "options": IMAGE_SCENE_BATCH_ACTIONS,
+        },
+        "selecting_images": {
+            "input_type": "image_multi_select",
+            "prompt_text": "Select one or more images, then submit.",
         },
     },
     "carousel": {

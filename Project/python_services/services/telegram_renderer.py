@@ -128,16 +128,30 @@ class TelegramRenderer:
                     f"Slides: {len(slides)}\n"
                     f"Manifest: {output.get('manifest_url', '-')}"
                 )
-            else:
-                text = (
-                    f"Preview ready.\n"
-                    f"URL: {output.get('preview_image_url') or output.get('image_url') or '-'}"
-                )
-            return {
+                return {
+                    "text": text,
+                    "reply_markup": _inline_keyboard_from_options(PREVIEW_ACTIONS, prefix="action::"),
+                    "parse_mode": None,
+                }
+
+            image_url = (
+                output.get("preview_image_url")
+                or output.get("image_url")
+                or session.artifacts.get("preview_image_url")
+                or session.artifacts.get("final_image_url")
+            )
+            text = "Preview ready.\nReview the image below and choose an action."
+            payload = {
                 "text": text,
                 "reply_markup": _inline_keyboard_from_options(PREVIEW_ACTIONS, prefix="action::"),
                 "parse_mode": None,
             }
+            if image_url:
+                payload["photo_url"] = image_url
+                payload["photo_caption"] = "Generated preview."
+            else:
+                payload["text"] = "Preview ready.\nImage URL unavailable."
+            return payload
 
         if session.control.status == SkillStatus.waiting_approval or result.next_step == "poll_status":
             output = result.output or {}

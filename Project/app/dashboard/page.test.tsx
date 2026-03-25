@@ -213,6 +213,8 @@ describe("Customer dashboard", () => {
       expect(screen.getByText("Customer Workspace")).toBeInTheDocument();
       expect(screen.getByText("Brand Onboarding")).toBeInTheDocument();
       expect(screen.getByDisplayValue("TripC")).toBeInTheDocument();
+      expect(screen.getByText("Telegram Approvals")).toBeInTheDocument();
+      expect(screen.getByText("@tripc")).toBeInTheDocument();
       expect(screen.getByText("Connected Accounts")).toBeInTheDocument();
       expect(screen.getByText("In-App OpenClaw Assistant")).toBeInTheDocument();
       expect(screen.getByText("AI Backbone Access")).toBeInTheDocument();

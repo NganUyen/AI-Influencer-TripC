@@ -18,6 +18,7 @@ The source of truth for the env contract is `Project/.env.example`. This documen
 - `NEXT_PUBLIC_SUPABASE_URL`: browser Supabase project URL
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: browser anon key
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: browser publishable key
+- `NEXT_PUBLIC_TELEGRAM_BOT_URL`: optional public `t.me/...` link that lets the customer dashboard open the Telegram bot directly
 - `SUPABASE_URL`: server-side Supabase project URL
 - `SUPABASE_ANON_KEY`: server-side anon key when needed
 - `SUPABASE_KEY`: current backend auth-validation key input

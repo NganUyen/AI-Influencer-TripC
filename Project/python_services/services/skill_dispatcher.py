@@ -108,10 +108,13 @@ class SkillDispatcher:
         return await cls._save_or_clear(chat_id, result)
 
     @classmethod
-    async def handle_option(cls, chat_id: int, value: str, app: Any) -> Optional[SkillResult]:
+    async def handle_option(cls, chat_id: int, value: str, app: Any) -> SkillResult:
         session = await TelegramSkillSessionStore.get_session(chat_id)
         if session is None:
-            return None
+            return SkillResult(
+                success=False,
+                error="Skill session expired. Use /media to start again.",
+            )
 
         step = get_step_definition(session.skill_name, session.step_key)
         field = step.get("field")

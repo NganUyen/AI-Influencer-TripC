@@ -1,64 +1,66 @@
-import asyncio
-import logging
-import os
-from dotenv import load_dotenv
-from pathlib import Path
+import pytest
 
-from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
+from services.telegram_service import TelegramService
 
 
-# ====================== Find .env.local correctly ======================
-# This script is inside: .../python_services/tests/
-script_dir = Path(__file__).parent.absolute()
-
-# Go UP TWO levels to reach the Project folder
-project_dir = script_dir.parent.parent.absolute()   # ← This is the key change
-env_path = project_dir / ".env.local"
-
-print(f"Looking for .env.local at: {env_path}")
-
-if env_path.exists():
-    load_dotenv(dotenv_path=env_path, override=True)
-    print(f"✅ Successfully loaded .env.local from: {env_path}")
-else:
-    print(f"❌ Could not find .env.local at: {env_path}")
-    print("\nCurrent folder structure:")
-    print(f"   Script is in : {script_dir}")
-    print(f"   Looking in   : {project_dir}")
+@pytest.fixture(autouse=True)
+def reset_telegram_service_state():
+    TelegramService.approval_requests.clear()
+    TelegramService._redis_client = None
+    TelegramService._redis_enabled = False
+    TelegramService._redis_init_attempted = True
+    yield
+    TelegramService.approval_requests.clear()
 
 
-# ====================== Get Token ======================
-token = os.getenv("TELEGRAM_BOT_TOKEN")
+@pytest.mark.asyncio
+async def test_apply_callback_payload_marks_request_approved():
+    request_id = "123_456"
+    TelegramService.approval_requests[request_id] = {
+        "user_id": "123",
+        "message_id": 456,
+        "status": "pending",
+        "approved": False,
+        "feedback": "",
+    }
 
-if not token:
-    raise ValueError(
-        f"❌ TELEGRAM_BOT_TOKEN is missing!\n\n"
-        f"Please make sure the file exists here:\n"
-        f"   {project_dir}\\.env.local\n\n"
-        "and contains this line:\n"
-        "TELEGRAM_BOT_TOKEN=your_actual_bot_token_here"
-    )
+    response = await TelegramService.apply_callback_payload(request_id, "approve_123")
 
-print(f"✅ Token loaded successfully! (length: {len(token)})")
-
-
-# ====================== Initialize Bot ======================
-bot = Bot(
-    token=token,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-)
-
-dp = Dispatcher()
+    assert response == "Strategy approved! Proceeding with content generation."
+    assert TelegramService.approval_requests[request_id]["approved"] is True
+    assert TelegramService.approval_requests[request_id]["status"] == "approved"
 
 
-async def main() -> None:
-    logging.basicConfig(level=logging.INFO)
-    print("🚀 Bot is starting with long polling... (Press Ctrl+C to stop)")
+@pytest.mark.asyncio
+async def test_apply_callback_payload_marks_request_discarded():
+    request_id = "123_789"
+    TelegramService.approval_requests[request_id] = {
+        "user_id": "123",
+        "message_id": 789,
+        "status": "pending",
+        "approved": False,
+        "feedback": "",
+    }
 
-    await dp.start_polling(bot)
+    response = await TelegramService.apply_callback_payload(request_id, "discard_123")
+
+    assert response == "Discarded. Final video will not be used."
+    assert TelegramService.approval_requests[request_id]["approved"] is False
+    assert TelegramService.approval_requests[request_id]["status"] == "discard"
+    assert TelegramService.approval_requests[request_id]["feedback"] == "discard"
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+@pytest.mark.asyncio
+async def test_apply_callback_payload_returns_none_for_unknown_request():
+    response = await TelegramService.apply_callback_payload("missing_request", "approve_123")
+
+    assert response is None
+
+
+@pytest.mark.asyncio
+async def test_check_approval_status_reports_missing_request():
+    service = TelegramService()
+
+    status = await service.check_approval_status("missing_request")
+
+    assert status == {"approved": False, "feedback": "Request not found"}

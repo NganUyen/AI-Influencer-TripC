@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from api.security import require_internal_api_token
 from config.settings import settings
 from services.content_persistence_service import ContentPersistenceService
+from services.database_service import DatabaseService
 from services.proxy_manager_service import ProxyManagerService
 
 # Configure logging
@@ -56,6 +57,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down AI Influencer Factory Backend...")
     await ContentPersistenceService.close_pool()
+    await DatabaseService.close_pool()
     await ProxyManagerService.close_db_pool()
 
 
@@ -157,7 +159,18 @@ async def health_check():
 
 
 # Import API routes
-from api import workflows, media, accounts, analytics, content, quota, webhooks, telegram_webhook, personas
+from api import (
+    workflows,
+    media,
+    accounts,
+    analytics,
+    content,
+    quota,
+    webhooks,
+    telegram_webhook,
+    personas,
+    customer,
+)
 
 app.include_router(workflows.router, prefix="/api/workflows", tags=["Workflows"])
 app.include_router(media.router, prefix="/api/media", tags=["Media"])
@@ -172,6 +185,7 @@ app.include_router(
     tags=["Telegram"],
 )
 app.include_router(personas.router, prefix="/api/personas", tags=["Personas"])
+app.include_router(customer.router, prefix="/api/customer", tags=["Customer"])
 
 
 if __name__ == "__main__":

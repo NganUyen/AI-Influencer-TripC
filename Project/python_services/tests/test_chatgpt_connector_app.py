@@ -7,6 +7,8 @@ from chatgpt_connector.auth import ConnectorAuthService
 class FakeToolRunner:
     def __init__(self):
         self.calls = []
+        self.tasks = {}
+        self.counter = 0
 
     @staticmethod
     def manifest():
@@ -15,11 +17,43 @@ class FakeToolRunner:
                 "name": "openclaw_execute_task",
                 "description": "Run a safe OpenClaw task.",
                 "input_schema": {"type": "object"},
-            }
+            },
+            {
+                "name": "openclaw_get_task_status",
+                "description": "Fetch the status of an existing OpenClaw task.",
+                "input_schema": {"type": "object"},
+            },
         ]
 
     async def run(self, tool_name, arguments, session):
         self.calls.append((tool_name, arguments, session.session_id))
+        if tool_name == "openclaw_execute_task":
+            self.counter += 1
+            task_id = f"task-{self.counter}"
+            result = {
+                "tool": tool_name,
+                "arguments": arguments,
+                "session_id": session.session_id,
+            }
+            self.tasks[task_id] = {
+                "task_id": task_id,
+                "status": "completed",
+                "session_id": session.session_id,
+                "result": result,
+            }
+            return {
+                "task_id": task_id,
+                "status": "completed",
+                "result": result,
+            }
+
+        if tool_name == "openclaw_get_task_status":
+            task_id = arguments["task_id"]
+            task = self.tasks.get(task_id)
+            if task is None or task["session_id"] != session.session_id:
+                return {"task_id": task_id, "status": "not_found"}
+            return dict(task)
+
         return {"tool": tool_name, "arguments": arguments, "session_id": session.session_id}
 
 
@@ -75,7 +109,9 @@ def test_connector_app_oauth_and_tool_call_flow():
     assert call.status_code == 200
     call_json = call.json()
     assert call_json["ok"] is True
-    assert call_json["result"]["tool"] == "openclaw_execute_task"
+    assert call_json["result"]["task_id"].startswith("task-")
+    assert call_json["result"]["status"] == "completed"
+    assert call_json["result"]["result"]["tool"] == "openclaw_execute_task"
     assert tool_runner.calls[0][0] == "openclaw_execute_task"
 
     session_lookup = client.get(f"/sessions/{session_json['session_id']}")

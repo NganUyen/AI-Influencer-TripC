@@ -1,167 +1,125 @@
 # AI Influencer Factory Backend
 
-This directory contains the FastAPI application, Temporal worker, workflow definitions, activity modules, service integrations, tests, and helper scripts for the backend side of the project.
+This directory contains the FastAPI application, Temporal worker, workflows, activities, service integrations, and tests that power both the customer app and the internal ops surface.
 
 ## What Lives Here
 
 ```text
 python_services/
 |-- activities/         Workflow activity implementations
-|-- agents/             OpenClaw-related agent definitions
+|-- agents/             OpenClaw-related agent configuration
 |-- api/                FastAPI route modules
+|-- chatgpt_connector/  ChatGPT-facing OpenClaw connector
 |-- config/             Settings and runtime configuration
-|-- scripts/            Persona setup and smoke-test helpers
-|-- services/           External service wrappers
+|-- scripts/            Smoke and setup helpers
+|-- services/           External service wrappers and persistence logic
 |-- tests/              Pytest suite
-|-- workflows/          Temporal workflows
+|-- workflows/          Temporal workflow definitions
 |-- main.py             FastAPI app entry point
-|-- worker.py           Temporal worker entry point
-`-- requirements.txt    Python dependencies
+`-- worker.py           Temporal worker entry point
 ```
 
-## Implemented Surfaces
+## Current API Surface
 
-FastAPI routes currently mounted in `main.py`:
+Route groups mounted in `main.py`:
 
 - `/health`
-- `/api/workflows/start-weekly`
-- `/api/workflows/approve/{workflow_id}`
-- `/api/workflows/status/{workflow_id}`
-- `/api/workflows/list`
-- `/api/workflows/cancel/{workflow_id}`
-- `/api/content/list`
-- `/api/content/stats`
-- `/api/media/generate/image`
-- `/api/media/generate/video`
-- `/api/media/generate/audio`
-- `/api/media/voices`
-- `/api/media/storage/list`
-- `/api/media/carousel`
-- `/api/accounts/stealth/create`
-- `/api/accounts/stealth/{account_id}`
-- `/api/accounts/connect/{platform}` (placeholder response)
-- `/api/accounts/list` (placeholder response)
-- `/api/analytics/engagement/{platform}/{post_id}`
-- `/api/analytics/post/{post_id}`
-- `/api/analytics/summary` (placeholder response)
-- `/api/personas`
-- `/api/personas/{persona_id}`
-- `/api/personas/{persona_id}/readiness`
+- `/api/workflows/*`
+- `/api/media/*`
+- `/api/accounts/*`
+- `/api/analytics/*`
+- `/api/content/*`
+- `/api/quota/*`
+- `/api/webhooks/*`
+- `/api/personas/*`
+- `/api/customer/*`
 
-## Workflows
+The `/api/customer/*` routes back the customer workspace for:
 
-`workflows/weekly_marketing_workflow.py` currently defines:
+- brand profile management
+- social account connect/disconnect scaffolding
+- assistant threads and messages
+- campaign creation, approval, and launch
+- customer approvals and content views
+
+## Current Workflow Surface
+
+Registered worker workflows:
 
 - `WeeklyMarketingWorkflow`
 - `PostPublishingWorkflow`
 - `EngagementSyndicateWorkflow`
+- `ShortVideoWorkflow`
+- `DailyStoryWorkflow`
 
-The weekly workflow is the main implemented orchestration path:
-
-1. Generate strategy
-2. Request Telegram approval
-3. Wait for a Temporal signal
-4. Generate media
-5. Upload assets
-6. Schedule posts
-7. Start child publishing workflows
-8. Trigger engagement tracking
+The weekly workflow remains the main durable orchestration lane. The short-video and daily-story flows are present and wired into the worker, but still depend heavily on live provider configuration and operator validation.
 
 ## Setup
 
-### Prerequisites
+Prerequisites:
 
-- Python 3.11
-- A reachable Temporal server
-- Environment variables populated from `Project/.env.example`
+- Python `3.11`
+- reachable Temporal server for workflow execution
+- env values populated from `Project/.env.example`
 
-### Local Environment
-
-From this directory:
+Create the local environment:
 
 ```bash
+cd Project/python_services
 python -m venv .venv
-.venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Create `python_services/.env` with the values needed by `config/settings.py`. A practical way to do that is to copy values from `Project/.env.example`.
+The settings loader can read either:
 
-The settings loader also falls back to `Project/.env.local` when you run commands from `python_services`, so you can use the repo-level env file directly if that is where you keep your local secrets.
+- `Project/python_services/.env`
+- `Project/.env.local`
 
-Important:
-
-- `DEBUG` must be a boolean value such as `true` or `false`. Values like `release` will cause settings validation to fail before the app or tests start.
-- The local backend and worker environment should use Python `3.11` to match the Docker image and pinned dependency set. Python `3.13` currently fails on a clean install because several dependencies in this repo are pinned for the 3.11 runtime.
-
-## Run the API
+## Run The API
 
 ```bash
 cd Project/python_services
-.venv\Scripts\activate
+source .venv/bin/activate
 uvicorn main:app --reload --port 8000
 ```
 
-Docs will be available at `http://localhost:8000/docs`.
-
-From the `Project` root on Windows, you can also use:
-
-```bash
-run-backend.cmd
-```
-
-## Run the Worker
+## Run The Worker
 
 ```bash
 cd Project/python_services
-.venv\Scripts\activate
+source .venv/bin/activate
 python worker.py
-```
-
-The worker expects Temporal plus the required external service configuration to be reachable.
-
-From the `Project` root on Windows, you can also use:
-
-```bash
-run-worker.cmd
 ```
 
 ## Tests
 
-Run the backend test suite with:
+Run the backend suite with:
 
 ```bash
 cd Project/python_services
 pytest
 ```
 
-Current tests cover workflow APIs, content APIs, selected service wrappers, and distribution activities.
+Current tests cover customer APIs, connector auth/tools, quota monitoring, content/workflow routes, distribution logic, and selected services.
 
-## Helper Scripts
+## Current Limitations
 
-The `scripts/` folder includes smoke and setup helpers for areas that are still integration-heavy, including:
+- production-grade behavior still depends on external services such as OpenClaw, Postiz, GrowChief, Telegram, fal.ai, Google TTS, and HeyGen
+- customer social OAuth requires real provider registrations and secrets outside the repo
+- some publish paths still rely on the Postiz-backed bridge instead of direct native platform adapters
+- manual full-stack acceptance is still required after infra or provider changes
 
-- persona setup/check scripts
-- strategy smoke tests
-- storage smoke tests
-- script/TTS/HeyGen smoke tests
-- content assembly smoke tests
+## Related Docs
 
-Use them as targeted integration helpers once the related environment variables are configured.
-
-## Current Gaps
-
-- Persona endpoints are implemented and back the reusable persona registry/readiness flow.
-- Account connect/list endpoints are not fully wired to persistence yet.
-- Analytics summary is still a stub.
-- End-to-end behavior depends heavily on external services such as OpenClaw, Postiz, GrowChief, fal.ai, PlayHT, Telegram, and R2-compatible storage.
-
-## Local Docker Stack
-
-The repository root includes `docker-compose.yml`, which can run the backend API and worker alongside PostgreSQL, Temporal, Redis, the OpenClaw gateway/control UI, Postiz, GrowChief, and the frontend.
-
-From the repo root:
-
-```bash
-docker-compose up -d --build
-```
+- [../../Docs/README.md](../../Docs/README.md)
+- [../../Docs/CURRENT_REPO_STATUS.md](../../Docs/CURRENT_REPO_STATUS.md)
+- [../../Docs/ARCHITECTURE.md](../../Docs/ARCHITECTURE.md)
+- [../../Docs/REPOSITORY_MAP.md](../../Docs/REPOSITORY_MAP.md)
+- [../../Docs/FRONTEND.md](../../Docs/FRONTEND.md)
+- [../../Docs/BACKEND_API.md](../../Docs/BACKEND_API.md)
+- [../../Docs/WORKFLOWS_AND_AUTOMATION.md](../../Docs/WORKFLOWS_AND_AUTOMATION.md)
+- [../../Docs/INTEGRATIONS.md](../../Docs/INTEGRATIONS.md)
+- [../../Docs/db.md](../../Docs/db.md)
+- [../../Docs/ENVIRONMENT_REFERENCE.md](../../Docs/ENVIRONMENT_REFERENCE.md)
+- [../../Docs/OPERATIONS_RUNBOOK.md](../../Docs/OPERATIONS_RUNBOOK.md)

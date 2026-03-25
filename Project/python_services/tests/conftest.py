@@ -21,6 +21,8 @@ os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/tes
 os.environ.setdefault("SUPABASE_URL", "http://supabase.test")
 os.environ.setdefault("SUPABASE_KEY", "supabase-key")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "supabase-service-role-key")
+os.environ.setdefault("STORAGE_PROVIDER", "supabase")
+os.environ.setdefault("SUPABASE_STORAGE_BUCKET", "ai-influencer-media")
 os.environ.setdefault("OPENAI_API_KEY", "openai-key")
 os.environ.setdefault("ANTHROPIC_API_KEY", "anthropic-key")
 os.environ.setdefault("FAL_AI_API_KEY", "fal-key")

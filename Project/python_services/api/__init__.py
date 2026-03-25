@@ -13,4 +13,5 @@ __all__ = [
     "content",
     "quota",
     "webhooks",
+    "customer",
 ]

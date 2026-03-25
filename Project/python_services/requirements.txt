@@ -31,7 +31,7 @@ playwright==1.41.0
 camoufox==0.3.0
 python-telegram-bot==20.7
 
-# Storage (S3-compatible for Cloudflare R2)
+# Storage (Supabase Storage by default, legacy S3/R2 fallback)
 boto3==1.42.71
 botocore==1.42.71
 urllib3==2.6.3

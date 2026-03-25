@@ -3,6 +3,7 @@ import pytest
 from types import SimpleNamespace
 
 from services.ai_service import AIService
+from services.errors import GrowChiefAuthError, PostizRetryableError
 from services.fal_service import FalAIService
 from services.google_tts_service import GoogleTTSService
 from services.growchief_service import GrowChiefService
@@ -65,7 +66,7 @@ async def test_postiz_publish_builds_payload(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_postiz_publish_raises_http_error(monkeypatch):
+async def test_postiz_publish_raises_retryable_error_on_transport_failure(monkeypatch):
     monkeypatch.setenv("POSTIZ_INTEGRATION_MAP", '{"twitter":"integration-1"}')
 
     class StubClient:
@@ -80,7 +81,36 @@ async def test_postiz_publish_raises_http_error(monkeypatch):
     )
 
     service = PostizService()
-    with pytest.raises(httpx.HTTPError):
+    with pytest.raises(PostizRetryableError):
+        await service.publish(platform="twitter", content="hello")
+    await service.close()
+
+
+@pytest.mark.asyncio
+async def test_postiz_publish_treats_html_response_as_retryable(monkeypatch):
+    monkeypatch.setenv("POSTIZ_INTEGRATION_MAP", '{"twitter":"integration-1"}')
+
+    class StubResponse:
+        status_code = 200
+        headers = {"content-type": "text/html"}
+        text = "<html>bad gateway</html>"
+
+        def json(self):
+            raise ValueError("invalid json")
+
+    class StubClient:
+        async def post(self, _url, json):
+            return StubResponse()
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(
+        "services.postiz_service.httpx.AsyncClient", lambda **_: StubClient()
+    )
+
+    service = PostizService()
+    with pytest.raises(PostizRetryableError):
         await service.publish(platform="twitter", content="hello")
     await service.close()
 
@@ -127,6 +157,39 @@ async def test_growchief_trigger_engagement_builds_payload(monkeypatch):
     assert captured["json"] == {"urls": ["https://platform/post/1"]}
     assert result["account_count"] == 3
     assert result["delay_between_actions"] == 15
+    await service.close()
+
+
+@pytest.mark.asyncio
+async def test_growchief_trigger_engagement_raises_auth_error(monkeypatch):
+    monkeypatch.setenv("GROWCHIEF_WORKFLOW_MAP", '{"twitter":"wf-1"}')
+
+    class StubResponse:
+        status_code = 401
+        headers = {"content-type": "application/json"}
+        text = '{"msg":"Invalid API key"}'
+
+        def json(self):
+            return {"msg": "Invalid API key"}
+
+    class StubClient:
+        async def post(self, url, json):
+            return StubResponse()
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(
+        "services.growchief_service.httpx.AsyncClient", lambda **_: StubClient()
+    )
+
+    service = GrowChiefService()
+    with pytest.raises(GrowChiefAuthError):
+        await service.trigger_engagement(
+            post_url="https://platform/post/1",
+            platform="twitter",
+            engagement_type=["like"],
+        )
     await service.close()
 
 

@@ -1,88 +1,215 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuthStore } from "@/store/auth-store";
+
+import { useCustomerAuthStore } from "@/store/customer-auth-store";
 
 export default function AuthPage() {
   const router = useRouter();
-  const login = useAuthStore((state) => state.login);
+  const {
+    login,
+    signup,
+    isLoading,
+    error,
+    initialized,
+    initialize,
+    isAuthenticated,
+  } = useCustomerAuthStore((state) => ({
+    login: state.login,
+    signup: state.signup,
+    isLoading: state.isLoading,
+    error: state.error,
+    initialized: state.initialized,
+    initialize: state.initialize,
+    isAuthenticated: state.isAuthenticated,
+  }));
   const [email, setEmail] = useState("");
-  const [token, setToken] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void initialize();
+  }, [initialize]);
+
+  useEffect(() => {
+    if (initialized && isAuthenticated) {
+      router.replace("/dashboard");
+    }
+  }, [initialized, isAuthenticated, router]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError(null);
-    setIsSubmitting(true);
+    setLocalError(null);
 
     try {
-      await login(email, token);
+      if (mode === "signin") {
+        await login(email, password);
+      } else {
+        await signup({ email, password, name });
+      }
       router.push("/dashboard");
     } catch (submitError) {
-      setError(
-        submitError instanceof Error
-          ? submitError.message
-          : "Unable to sign in",
+      setLocalError(
+        submitError instanceof Error ? submitError.message : "Unable to continue",
       );
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-      <div className="bg-white dark:bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-md">
-        <h1 className="text-3xl font-bold mb-2 text-center text-gray-900 dark:text-white">
-          Admin Sign In
-        </h1>
-        <p className="text-sm text-center text-gray-600 dark:text-gray-400 mb-6">
-          Enter the shared admin access token configured for this deployment.
-        </p>
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#23443d_0%,#0c1220_40%,#07080c_100%)] px-6 py-10 text-stone-100">
+      <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[1.15fr_0.85fr]">
+        <div className="rounded-[34px] border border-white/10 bg-white/5 p-8 backdrop-blur">
+          <p className="text-xs uppercase tracking-[0.32em] text-emerald-200/80">
+            Customer-Facing Automation
+          </p>
+          <h1 className="mt-4 text-5xl font-semibold leading-tight text-white">
+            Turn one login into a guided marketing machine.
+          </h1>
+          <p className="mt-5 max-w-2xl text-base text-stone-300">
+            This workspace is built for real customer accounts: connect official socials,
+            brief OpenClaw in-app, review the plan, and launch the Temporal workflow with
+            review-first controls.
+          </p>
 
-        <form className="space-y-4" onSubmit={handleSubmit}>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-              placeholder="admin@yourdomain.com"
-              autoComplete="username"
+          <div className="mt-10 grid gap-4 sm:grid-cols-3">
+            <FeatureCard
+              title="Connect Official Accounts"
+              description="OAuth-first account linking for LinkedIn, Facebook, X, and YouTube."
+            />
+            <FeatureCard
+              title="Plan With OpenClaw"
+              description="Persistent strategy threads and artifacts live inside the workspace."
+            />
+            <FeatureCard
+              title="Review Before Launch"
+              description="Approve the campaign in the web app before anything is published."
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Admin Access Token
-            </label>
-            <input
-              type="password"
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-              placeholder="Enter your admin token"
-              autoComplete="current-password"
-            />
+          <p className="mt-8 text-sm text-stone-400">
+            Operators still use the internal console at{" "}
+            <a className="text-amber-200 underline underline-offset-4" href="/ops/login">
+              /ops/login
+            </a>
+            .
+          </p>
+        </div>
+
+        <div className="rounded-[34px] border border-white/10 bg-black/25 p-8 backdrop-blur">
+          <div className="mb-6 flex rounded-full border border-white/10 bg-white/5 p-1">
+            <button
+              type="button"
+              onClick={() => setMode("signin")}
+              className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition ${
+                mode === "signin"
+                  ? "bg-emerald-300 text-slate-950"
+                  : "text-stone-300"
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("signup")}
+              className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition ${
+                mode === "signup"
+                  ? "bg-emerald-300 text-slate-950"
+                  : "text-stone-300"
+              }`}
+            >
+              Create Account
+            </button>
           </div>
 
-          {error && (
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-          )}
+          <h2 className="text-3xl font-semibold text-white">
+            {mode === "signin" ? "Welcome back" : "Create your workspace"}
+          </h2>
+          <p className="mt-2 text-sm text-stone-400">
+            {mode === "signin"
+              ? "Sign in with your customer account to continue."
+              : "Create a customer account, then finish brand onboarding in the dashboard."}
+          </p>
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {isSubmitting ? "Signing In..." : "Sign In"}
-          </button>
-        </form>
+          <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
+            {mode === "signup" && (
+              <div>
+                <label className="mb-2 block text-sm font-medium text-stone-300">
+                  Name
+                </label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-emerald-300"
+                  placeholder="Alicia Founder"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-stone-300">
+                Email
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-emerald-300"
+                placeholder="founder@brand.com"
+                autoComplete="username"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-stone-300">
+                Password
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-emerald-300"
+                placeholder="Use a strong password"
+                autoComplete={mode === "signin" ? "current-password" : "new-password"}
+              />
+            </div>
+
+            {(localError || error) && (
+              <p className="text-sm text-rose-200">{localError || error}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={isLoading || !initialized}
+              className="w-full rounded-full bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isLoading
+                ? "Working..."
+                : mode === "signin"
+                  ? "Enter Dashboard"
+                  : "Create Account"}
+            </button>
+          </form>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function FeatureCard({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-[28px] border border-white/10 bg-black/20 p-5">
+      <p className="text-lg font-medium text-white">{title}</p>
+      <p className="mt-2 text-sm text-stone-400">{description}</p>
     </div>
   );
 }

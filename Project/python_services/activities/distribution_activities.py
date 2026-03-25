@@ -3,16 +3,18 @@ Distribution Activities
 Handles publishing to platforms via Postiz and browser automation
 """
 
+from temporalio.exceptions import ApplicationError
 from temporalio import activity
 from typing import Dict, Any, List
 import logging
 from datetime import datetime, timezone
 
-from services.postiz_service import PostizService
 from services.growchief_service import GrowChiefService
 from services.browser_automation import BrowserAutomationService
 from services.content_persistence_service import ContentPersistenceService
 from config.settings import settings
+from services.errors import SocialProviderError
+from services.publisher_service import PublisherService
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,15 @@ def _get_postiz_scheduled_time(post_config: Dict[str, Any]) -> str | None:
     if scheduled_time > datetime.now(timezone.utc):
         return scheduled_time.isoformat()
     return None
+
+
+def _temporal_provider_error(
+    context: str, exc: SocialProviderError
+) -> ApplicationError:
+    return ApplicationError(
+        f"{context}: {str(exc)}",
+        non_retryable=not getattr(exc, "retryable", False),
+    )
 
 
 @activity.defn
@@ -107,7 +118,7 @@ async def publish_to_platforms(post_config: Dict[str, Any]) -> Dict[str, Any]:
     logger.info(f"Publishing post {post_config['id']} to {post_config['platform']}")
 
     platform = post_config["platform"]
-    postiz_service = PostizService()
+    publisher_service: PublisherService | None = None
     browser_service = BrowserAutomationService()
 
     results = {
@@ -119,6 +130,7 @@ async def publish_to_platforms(post_config: Dict[str, Any]) -> Dict[str, Any]:
         "published_at": datetime.now(timezone.utc).isoformat(),
         "status": "pending",
     }
+    deferred_error: ApplicationError | None = None
 
     # Platforms supported by Postiz OAuth
     postiz_platforms = ["twitter", "facebook", "linkedin", "tiktok", "youtube"]
@@ -126,11 +138,12 @@ async def publish_to_platforms(post_config: Dict[str, Any]) -> Dict[str, Any]:
     try:
         if platform in postiz_platforms:
             # Use Postiz for official API distribution
-            result = await postiz_service.publish(
-                platform=platform,
-                content=post_config["content"],
-                media_urls=[m["storage_url"] for m in post_config.get("media", [])],
-                scheduled_time=_get_postiz_scheduled_time(post_config),
+            publisher_service = PublisherService()
+            result = await publisher_service.publish(
+                {
+                    **post_config,
+                    "scheduled_time": _get_postiz_scheduled_time(post_config),
+                }
             )
             results.update(
                 {
@@ -140,7 +153,7 @@ async def publish_to_platforms(post_config: Dict[str, Any]) -> Dict[str, Any]:
                     "post_url": result.get("post_url"),
                     "provider_status": result.get("status"),
                     "provider_response": result.get("raw"),
-                    "method": "postiz_oauth",
+                    "method": result.get("method", "postiz_oauth"),
                 }
             )
         else:
@@ -167,6 +180,13 @@ async def publish_to_platforms(post_config: Dict[str, Any]) -> Dict[str, Any]:
 
         if results.get("status") != "published":
             results["published_at"] = None
+    except SocialProviderError as exc:
+        logger.error("Provider publish failure for %s: %s", platform, exc)
+        results.update({"status": "failed", "error": str(exc), "published_at": None})
+        deferred_error = _temporal_provider_error(
+            f"Failed to publish to {platform}",
+            exc,
+        )
     except Exception as e:
         logger.error(f"Failed to publish to {platform}: {str(e)}")
         results.update({"status": "failed", "error": str(e), "published_at": None})
@@ -183,9 +203,12 @@ async def publish_to_platforms(post_config: Dict[str, Any]) -> Dict[str, Any]:
                 post_config["id"],
                 exc,
             )
-        await postiz_service.close()
+        if publisher_service is not None:
+            await publisher_service.close()
         await browser_service.close()
 
+    if deferred_error is not None:
+        raise deferred_error
     return results
 
 
@@ -202,6 +225,7 @@ async def track_engagement(post_data: Dict[str, Any]) -> Dict[str, Any]:
         "syndicate_triggered": False,
         "status": "pending",
     }
+    deferred_error: ApplicationError | None = None
 
     # Get current engagement metrics
     try:
@@ -236,6 +260,17 @@ async def track_engagement(post_data: Dict[str, Any]) -> Dict[str, Any]:
             )
 
         return engagement_result
+    except SocialProviderError as exc:
+        logger.error(
+            "Provider engagement failure for post %s: %s",
+            post_data.get("post_id"),
+            exc,
+        )
+        engagement_result.update({"status": "failed", "error": str(exc)})
+        deferred_error = _temporal_provider_error(
+            f"Failed to track engagement for post {post_data.get('post_id')}",
+            exc,
+        )
     except Exception as exc:
         logger.error(
             "Failed to track engagement for post %s: %s",
@@ -258,3 +293,6 @@ async def track_engagement(post_data: Dict[str, Any]) -> Dict[str, Any]:
                 exc,
             )
         await growchief.close()
+
+    if deferred_error is not None:
+        raise deferred_error

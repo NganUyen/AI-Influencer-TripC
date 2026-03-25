@@ -9,7 +9,7 @@ Setup flow:
 2. Validate trường bắt buộc (voice, appearance_prompt)
 3. Mark status = 'generating'
 4. fal.ai sinh ảnh avatar chất lượng cao
-5. Upload ảnh lên R2
+5. Upload anh len object storage
 6. Gửi ảnh tới HeyGen → nhận heygen_avatar_id
 7. Lưu: avatar_image_url, heygen_avatar_id, avatar_status='ready'
 8. In summary để operator xác nhận
@@ -109,24 +109,24 @@ async def setup_persona(persona_id: str, force: bool = False):
         assert avatar_image_url, "fal.ai không trả về URL ảnh"
         print(f"      ✅ Avatar image: {avatar_image_url}")
 
-        # 4. Upload lên R2 (backup copy)
-        print("\n[3/4] Upload avatar image lên R2...")
+        # 4. Upload len object storage (backup copy)
+        print("\n[3/4] Upload avatar image len object storage...")
         storage = StorageService()
         async with httpx.AsyncClient() as client:
             r = await client.get(avatar_image_url)
             r.raise_for_status()
 
-        r2_url = await storage.upload_bytes(
+        storage_url = await storage.upload_bytes(
             data=r.content,
             filename=f"personas/{persona_id}/avatar.jpg",
             content_type="image/jpeg",
         )
-        print(f"      ✅ R2 URL: {r2_url}")
+        print(f"      ✅ Storage URL: {storage_url}")
 
         # 5. Gửi tới HeyGen
         print("\n[4/4] Tạo HeyGen avatar...")
         heygen = HeyGenService()
-        heygen_result = await heygen.create_avatar(image_url=r2_url)
+        heygen_result = await heygen.create_avatar(image_url=storage_url)
         heygen_avatar_id = heygen_result.get("avatar_id")
         if not heygen_avatar_id:
             raise HeyGenAvatarSetupError("HeyGen không trả về avatar_id")
@@ -134,7 +134,7 @@ async def setup_persona(persona_id: str, force: bool = False):
 
         # 6. Lưu vào DB (thay bằng Supabase update thực tế)
         persona.update({
-            "avatar_image_url": r2_url,
+            "avatar_image_url": storage_url,
             "heygen_avatar_id": heygen_avatar_id,
             "avatar_status": "ready",
         })
@@ -144,7 +144,7 @@ async def setup_persona(persona_id: str, force: bool = False):
         print("=" * 60)
         print(f"\n📋 Summary:")
         print(f"   persona_id:       {persona_id}")
-        print(f"   avatar_image_url: {r2_url}")
+        print(f"   avatar_image_url: {storage_url}")
         print(f"   heygen_avatar_id: {heygen_avatar_id}")
         print(f"   avatar_status:    ready")
         print(f"\n   ⚠️  Lưu heygen_avatar_id này vào Supabase personas table!")

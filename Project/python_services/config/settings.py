@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_KEY: str
     SUPABASE_SERVICE_ROLE_KEY: str
+    SUPABASE_STORAGE_BUCKET: Optional[str] = None
+    SUPABASE_STORAGE_PUBLIC_URL: Optional[str] = None
+    CUSTOMER_TOKEN_ENCRYPTION_KEY: Optional[str] = None
 
     # AI APIs
     OPENAI_API_KEY: str
@@ -77,12 +80,21 @@ class Settings(BaseSettings):
     HEYGEN_API_KEY: Optional[str] = None
     GOOGLE_TTS_API_KEY: Optional[str] = None
 
-    # Cloudflare R2
-    R2_ACCOUNT_ID: str
-    R2_ACCESS_KEY_ID: str
-    R2_SECRET_ACCESS_KEY: str
-    R2_BUCKET_NAME: str
-    R2_PUBLIC_URL: str
+    # Object storage
+    STORAGE_PROVIDER: str = "supabase"
+    STORAGE_BUCKET_NAME: Optional[str] = None
+    STORAGE_PUBLIC_URL: Optional[str] = None
+    STORAGE_CACHE_CONTROL_SECONDS: int = 3600
+    STORAGE_SIGNED_URL_TTL_SECONDS: int = 3600
+    STORAGE_HTTP_TIMEOUT_SECONDS: int = 30
+    STORAGE_UPSERT: bool = True
+
+    # Legacy S3-compatible / Cloudflare R2 fallback
+    R2_ACCOUNT_ID: Optional[str] = None
+    R2_ACCESS_KEY_ID: Optional[str] = None
+    R2_SECRET_ACCESS_KEY: Optional[str] = None
+    R2_BUCKET_NAME: Optional[str] = None
+    R2_PUBLIC_URL: Optional[str] = None
 
     # Proxies
     IPROYAL_USERNAME: str
@@ -98,7 +110,10 @@ class Settings(BaseSettings):
 
     # Telegram
     TELEGRAM_BOT_TOKEN: str
-    TELEGRAM_CHAT_ID: str
+    # TELEGRAM_CHAT_ID is optional — chat IDs are discovered automatically when
+    # users send /start and are stored in the telegram_subscribers table.
+    # Only set this if you need a legacy hardcoded fallback.
+    TELEGRAM_CHAT_ID: Optional[str] = None
     TELEGRAM_WEBHOOK_SECRET: Optional[str] = None  # Set via setWebhook secret_token
 
     # Temporal
@@ -114,6 +129,17 @@ class Settings(BaseSettings):
     GROWCHIEF_API_URL: Optional[str] = "http://localhost:3200"
     GROWCHIEF_API_KEY: Optional[str] = None
     GROWCHIEF_WEBHOOK_SECRET: Optional[str] = None
+    CUSTOMER_POSTIZ_FALLBACK_ENABLED: bool = True
+
+    # Customer OAuth provider configuration
+    LINKEDIN_OAUTH_CLIENT_ID: Optional[str] = None
+    LINKEDIN_OAUTH_CLIENT_SECRET: Optional[str] = None
+    FACEBOOK_OAUTH_CLIENT_ID: Optional[str] = None
+    FACEBOOK_OAUTH_CLIENT_SECRET: Optional[str] = None
+    TWITTER_OAUTH_CLIENT_ID: Optional[str] = None
+    TWITTER_OAUTH_CLIENT_SECRET: Optional[str] = None
+    YOUTUBE_OAUTH_CLIENT_ID: Optional[str] = None
+    YOUTUBE_OAUTH_CLIENT_SECRET: Optional[str] = None
 
     # OpenClaw Configuration
     OPENCLAW_API_URL: str = "http://localhost:8081"
@@ -149,9 +175,9 @@ class Settings(BaseSettings):
     FAL_AI_MONTHLY_REQUEST_LIMIT: Optional[int] = None
     HEYGEN_MONTHLY_JOB_LIMIT: Optional[int] = None
 
-    # Storage Settings
-    R2_ENDPOINT_URL: str = ""
-    R2_PUBLIC_DOMAIN: str = ""
+    # Legacy S3-compatible storage settings
+    R2_ENDPOINT_URL: Optional[str] = None
+    R2_PUBLIC_DOMAIN: Optional[str] = None
 
     @field_validator("DEBUG", mode="before")
     @classmethod
@@ -176,11 +202,48 @@ class Settings(BaseSettings):
         "JWT_SECRET_KEY",
         "INTERNAL_API_TOKEN",
         "APP_ADMIN_TOKEN",
+        "CUSTOMER_TOKEN_ENCRYPTION_KEY",
+        "SUPABASE_STORAGE_BUCKET",
+        "SUPABASE_STORAGE_PUBLIC_URL",
+        "STORAGE_BUCKET_NAME",
+        "STORAGE_PUBLIC_URL",
+        "LINKEDIN_OAUTH_CLIENT_ID",
+        "LINKEDIN_OAUTH_CLIENT_SECRET",
+        "FACEBOOK_OAUTH_CLIENT_ID",
+        "FACEBOOK_OAUTH_CLIENT_SECRET",
+        "TWITTER_OAUTH_CLIENT_ID",
+        "TWITTER_OAUTH_CLIENT_SECRET",
+        "YOUTUBE_OAUTH_CLIENT_ID",
+        "YOUTUBE_OAUTH_CLIENT_SECRET",
+        "R2_ACCOUNT_ID",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "R2_BUCKET_NAME",
+        "R2_PUBLIC_URL",
+        "R2_ENDPOINT_URL",
+        "R2_PUBLIC_DOMAIN",
         mode="before",
     )
     @classmethod
     def normalize_optional_strings(cls, value):
         return _normalize_optional_string(value)
+
+    @field_validator("STORAGE_PROVIDER", mode="before")
+    @classmethod
+    def normalize_storage_provider(cls, value):
+        normalized = _normalize_optional_string(value)
+        if not normalized:
+            return "supabase"
+
+        lowered = normalized.lower()
+        if lowered in {"supabase", "supabase_storage"}:
+            return "supabase"
+        if lowered in {"s3", "s3_compatible", "r2", "cloudflare_r2", "cloudflare-r2"}:
+            return "s3"
+
+        raise ValueError(
+            "STORAGE_PROVIDER must be one of: supabase, s3, r2, s3_compatible"
+        )
 
     @field_validator("ENVIRONMENT", mode="before")
     @classmethod
@@ -264,12 +327,74 @@ class Settings(BaseSettings):
                 "APP_ADMIN_TOKEN": self.APP_ADMIN_TOKEN,
                 "POSTIZ_WEBHOOK_SECRET": self.POSTIZ_WEBHOOK_SECRET,
                 "GROWCHIEF_WEBHOOK_SECRET": self.GROWCHIEF_WEBHOOK_SECRET,
+                "CUSTOMER_TOKEN_ENCRYPTION_KEY": self.CUSTOMER_TOKEN_ENCRYPTION_KEY,
             }
             for key, value in required_secrets.items():
                 if not value or self.is_placeholder_secret(value):
                     raise ValueError(
                         f"{key} must be set to a non-default value in production-like environments"
                     )
+            required_provider_keys = {
+                "POSTIZ_API_KEY": self.POSTIZ_API_KEY,
+                "GROWCHIEF_API_KEY": self.GROWCHIEF_API_KEY,
+            }
+            for key, value in required_provider_keys.items():
+                if not value:
+                    raise ValueError(
+                        f"{key} must be configured in production-like environments"
+                    )
+
+        if self.STORAGE_PROVIDER == "supabase":
+            resolved_bucket = (
+                self.STORAGE_BUCKET_NAME
+                or self.SUPABASE_STORAGE_BUCKET
+                or self.R2_BUCKET_NAME
+            )
+        else:
+            resolved_bucket = (
+                self.STORAGE_BUCKET_NAME
+                or self.R2_BUCKET_NAME
+                or self.SUPABASE_STORAGE_BUCKET
+            )
+        if not resolved_bucket:
+            raise ValueError(
+                "STORAGE_BUCKET_NAME or SUPABASE_STORAGE_BUCKET must be configured"
+            )
+        self.STORAGE_BUCKET_NAME = resolved_bucket
+
+        if self.STORAGE_PROVIDER == "supabase":
+            public_base_url = self.STORAGE_PUBLIC_URL or self.SUPABASE_STORAGE_PUBLIC_URL
+            if not public_base_url:
+                public_base_url = (
+                    f"{self.SUPABASE_URL.rstrip('/')}/storage/v1/object/public/"
+                    f"{quote(resolved_bucket, safe='')}"
+                )
+            self.STORAGE_PUBLIC_URL = public_base_url.rstrip("/")
+        else:
+            missing_legacy_config = [
+                key
+                for key, value in {
+                    "R2_ENDPOINT_URL": self.R2_ENDPOINT_URL,
+                    "R2_ACCESS_KEY_ID": self.R2_ACCESS_KEY_ID,
+                    "R2_SECRET_ACCESS_KEY": self.R2_SECRET_ACCESS_KEY,
+                }.items()
+                if not value
+            ]
+            if missing_legacy_config:
+                raise ValueError(
+                    "Missing S3-compatible storage configuration: "
+                    + ", ".join(missing_legacy_config)
+                )
+
+            public_base_url = (
+                self.STORAGE_PUBLIC_URL or self.R2_PUBLIC_DOMAIN or self.R2_PUBLIC_URL
+            )
+            if not public_base_url:
+                raise ValueError(
+                    "STORAGE_PUBLIC_URL, R2_PUBLIC_DOMAIN, or R2_PUBLIC_URL must be configured for STORAGE_PROVIDER=s3"
+                )
+            self.STORAGE_PUBLIC_URL = public_base_url.rstrip("/")
+
         return self
 
     class Config:

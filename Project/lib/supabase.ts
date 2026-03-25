@@ -7,8 +7,12 @@ const supabaseAnonKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
   "";
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("Missing public Supabase environment variables");
-}
+export const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const fallbackUrl = "https://example.supabase.local";
+const fallbackAnonKey = "public-anon-placeholder";
+
+export const supabase = createClient(
+  hasSupabaseConfig ? supabaseUrl : fallbackUrl,
+  hasSupabaseConfig ? supabaseAnonKey : fallbackAnonKey,
+);

@@ -13,6 +13,12 @@ from uuid import uuid4
 import httpx
 
 from config.settings import settings
+from services.errors import (
+    GrowChiefAuthError,
+    GrowChiefConfigurationError,
+    GrowChiefRetryableError,
+    GrowChiefServiceError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +73,18 @@ def _parse_json_map(raw: str | None) -> Dict[str, str]:
     return {str(key).strip().lower(): str(value).strip() for key, value in parsed.items() if str(value).strip()}
 
 
+def _response_content_type(response: Any) -> str:
+    headers = getattr(response, "headers", {}) or {}
+    return str(headers.get("content-type") or headers.get("Content-Type") or "").lower()
+
+
+def _response_preview(response: Any) -> str:
+    text = getattr(response, "text", None)
+    if isinstance(text, str):
+        return text.strip()[:200]
+    return ""
+
+
 class GrowChiefService:
     """
     Adapter around the current workflow-based GrowChief public API.
@@ -86,6 +104,68 @@ class GrowChiefService:
             headers={"Authorization": self.api_key},
             timeout=120.0,
         )
+
+    @staticmethod
+    def _raise_for_http_status(response: Any, operation: str) -> None:
+        status_code = int(getattr(response, "status_code", 0) or 0)
+        if status_code < 400:
+            return
+
+        if status_code == 401:
+            raise GrowChiefAuthError(
+                "GrowChief API key was rejected or the GrowChief admin bootstrap is incomplete."
+            )
+        if status_code == 429 or status_code >= 500:
+            raise GrowChiefRetryableError(
+                f"GrowChief {operation} failed with status {status_code}."
+            )
+        raise GrowChiefServiceError(
+            f"GrowChief {operation} failed with status {status_code}."
+        )
+
+    @classmethod
+    def _decode_json(cls, response: Any, operation: str) -> Any:
+        cls._raise_for_http_status(response, operation)
+        try:
+            return response.json()
+        except ValueError as exc:
+            preview = _response_preview(response)
+            content_type = _response_content_type(response)
+            if "html" in content_type or preview.startswith("<"):
+                raise GrowChiefRetryableError(
+                    f"GrowChief {operation} returned HTML instead of JSON."
+                ) from exc
+            raise GrowChiefRetryableError(
+                f"GrowChief {operation} returned invalid JSON."
+            ) from exc
+
+    @staticmethod
+    def _classify_transport_error(
+        exc: httpx.HTTPError, operation: str
+    ) -> GrowChiefServiceError:
+        response = getattr(exc, "response", None)
+        if response is not None:
+            try:
+                GrowChiefService._raise_for_http_status(response, operation)
+            except GrowChiefServiceError as provider_exc:
+                return provider_exc
+        return GrowChiefRetryableError(f"GrowChief {operation} request failed.")
+
+    async def _get_json(self, path: str, *, operation: str) -> Any:
+        try:
+            response = await self.client.get(path)
+        except httpx.HTTPError as exc:
+            raise self._classify_transport_error(exc, operation) from exc
+        return self._decode_json(response, operation)
+
+    async def _post_json(
+        self, path: str, *, json_payload: Dict[str, Any], operation: str
+    ) -> Any:
+        try:
+            response = await self.client.post(path, json=json_payload)
+        except httpx.HTTPError as exc:
+            raise self._classify_transport_error(exc, operation) from exc
+        return self._decode_json(response, operation)
 
     @staticmethod
     def normalize_webhook_event(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -167,9 +247,7 @@ class GrowChiefService:
         }
 
     async def list_workflows(self) -> List[Dict[str, Any]]:
-        response = await self.client.get("/workflows")
-        response.raise_for_status()
-        workflows = response.json()
+        workflows = await self._get_json("/workflows", operation="list workflows")
         return workflows if isinstance(workflows, list) else []
 
     async def _resolve_workflow_id(self, platform: str) -> str:
@@ -181,7 +259,7 @@ class GrowChiefService:
         if len(workflows) == 1 and workflows[0].get("id"):
             return str(workflows[0]["id"])
 
-        raise ValueError(
+        raise GrowChiefConfigurationError(
             f"No GrowChief workflow mapping configured for platform '{platform}'. "
             "Set GROWCHIEF_WORKFLOW_MAP or leave exactly one active workflow in GrowChief."
         )
@@ -199,9 +277,11 @@ class GrowChiefService:
         workflow_id = await self._resolve_workflow_id(platform)
         payload = {"urls": [post_url]}
 
-        response = await self.client.post(f"/workflows/{workflow_id}", json=payload)
-        response.raise_for_status()
-        raw = response.json()
+        raw = await self._post_json(
+            f"/workflows/{workflow_id}",
+            json_payload=payload,
+            operation=f"trigger workflow {workflow_id}",
+        )
 
         first_item = raw[0] if isinstance(raw, list) and raw else raw
         if not isinstance(first_item, dict):

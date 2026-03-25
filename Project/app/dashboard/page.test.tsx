@@ -1,252 +1,269 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import DashboardPage from "@/app/dashboard/page";
-import apiClient from "@/lib/api-client";
+import { customerApiRequest } from "@/lib/customer-api";
 
-const fetchItemsMock = jest.fn();
-
-jest.mock("@/lib/api-client", () => ({
-  __esModule: true,
-  default: {
-    get: jest.fn(),
-    post: jest.fn(),
-  },
+jest.mock("@/lib/customer-api", () => ({
+  customerApiRequest: jest.fn(),
 }));
 
-jest.mock("@/store/content-store", () => ({
-  useContentStore: () => ({
-    items: [
-      {
-        id: "wf-1",
-        workflowId: "wf-1",
-        title: "Workflow wf-1",
-        content: "Status: waiting_approval",
-        platform: [],
-        status: "pending_approval",
-        workflowStatus: "waiting_approval",
-        currentStep: "wait_for_approval",
-        createdAt: new Date("2026-03-16T09:00:00.000Z"),
-        updatedAt: new Date("2026-03-16T09:00:00.000Z"),
-      },
-      {
-        id: "content-2",
-        workflowId: "wf-2",
-        title: "Twitter published post",
-        content: "Launch teaser",
-        platform: ["twitter"],
-        status: "published",
-        postUrl: "https://twitter.com/post/2",
-        publishMethod: "postiz_oauth",
-        engagementMetrics: {
-          likes: 10,
-          comments: 2,
-          engagement_rate: 3.4,
-        },
-        lastEngagementCheckedAt: new Date("2026-03-17T08:30:00.000Z"),
-        syndicateTriggered: true,
-        syndicateJobId: "job-2",
-        publishedAt: new Date("2026-03-17T08:00:00.000Z"),
-        createdAt: new Date("2026-03-16T11:00:00.000Z"),
-        updatedAt: new Date("2026-03-17T08:30:00.000Z"),
-      },
-      {
-        id: "content-1",
-        workflowId: "wf-2",
-        title: "Twitter scheduled post",
-        content: "Launch teaser",
-        platform: ["twitter"],
-        status: "scheduled",
-        scheduledAt: new Date("2026-03-17T10:00:00.000Z"),
-        createdAt: new Date("2026-03-16T10:00:00.000Z"),
-        updatedAt: new Date("2026-03-16T10:00:00.000Z"),
-      },
-      {
-        id: "content-3",
-        workflowId: "wf-3",
-        title: "TikTok failed post",
-        content: "Promo clip",
-        platform: ["tiktok"],
-        status: "failed",
-        publishError: "publish failed",
-        createdAt: new Date("2026-03-16T12:00:00.000Z"),
-        updatedAt: new Date("2026-03-16T12:15:00.000Z"),
-      },
-    ],
-    fetchItems: fetchItemsMock,
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+  }),
+  useSearchParams: () => ({
+    get: jest.fn(() => null),
   }),
 }));
 
-describe("DashboardPage", () => {
+jest.mock("@/store/customer-auth-store", () => ({
+  useCustomerAuthStore: (selector: (state: unknown) => unknown) =>
+    selector({
+      user: {
+        id: "user-1",
+        email: "founder@example.com",
+        name: "Founder",
+      },
+      isAuthenticated: true,
+      isLoading: false,
+      initialized: true,
+      error: null,
+      initialize: jest.fn(),
+      logout: jest.fn(() => Promise.resolve()),
+    }),
+}));
+
+describe("Customer dashboard", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    fetchItemsMock.mockResolvedValue(undefined);
 
-    (apiClient.get as jest.Mock).mockImplementation((url: string) => {
-      if (url === "/api/workflows/list") {
+    (customerApiRequest as jest.Mock).mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/api/customer/brand") {
         return Promise.resolve({
-          data: {
-            workflows: [
-              {
-                workflow_id: "wf-1",
-                run_id: "run-1",
-                status: "waiting_approval",
+          brand_profile: {
+            product_name: "TripC",
+            website_url: "https://tripc.ai",
+            audience: "Travel operators",
+            offer_summary: "AI media production",
+            tone_voice: "clear",
+            campaign_goals: ["launch", "signups"],
+            asset_urls: ["https://cdn.example/logo.png"],
+            timezone: "UTC",
+            telegram_contact: "@tripc",
+          },
+        });
+      }
+      if (path === "/api/customer/social-accounts") {
+        return Promise.resolve({
+          accounts: [
+            {
+              id: "account-1",
+              platform: "linkedin",
+              display_name: "TripC Company",
+              account_handle: "tripc",
+              connection_status: "connected",
+            },
+          ],
+        });
+      }
+      if (path === "/api/customer/ai-backbone") {
+        if (init?.method === "PUT") {
+          return Promise.resolve({
+            settings: {
+              access_mode: "customer_api_key",
+              workspace_default: {
+                api_url: "https://openclaw.example",
+                has_api_key: true,
               },
-            ],
-          },
-        });
-      }
-
-      if (url === "/api/content/stats") {
-        return Promise.resolve({
-          data: {
-            total_content: 1,
-            active_campaigns: 1,
-            published: 0,
-          },
-        });
-      }
-
-      if (url === "/api/analytics/summary") {
-        return Promise.resolve({
-          data: {
-            average_engagement_rate: 3.4,
-          },
-        });
-      }
-
-      if (url === "/api/quota/summary") {
-        return Promise.resolve({
-          data: {
-            total_cost_usd: 6.25,
-            time_period: "30_days",
-            providers: [
-              {
-                provider: "openai",
-                label: "OpenAI",
-                status: "warning",
-                usage_unit: "tokens",
-                monthly_limit: 10000,
-                usage: { tokens: 9200 },
-                usage_value: 9200,
-                remaining_value: 800,
-                remaining_limit: 10000,
-                remaining_unit: "tokens",
-                remaining_exact: true,
-                remaining_source: "provider_response_headers",
-                remaining_message:
-                  "Exact remaining quota captured from the latest provider API response handled by this app.",
-                remaining_requests: 12,
-                remaining_requests_limit: 60,
-                remaining_requests_reset_after: "1m0s",
-                cost_usd: 6.25,
-                snapshot_count: 3,
+              customer_api: {
+                api_url: "https://customer-openclaw.example",
+                has_api_key: true,
               },
-            ],
-          },
-        });
-      }
-
-      if (url === "/api/workflows/status/wf-1") {
+              chatgpt_oauth: {
+                linked: false,
+                session_ready: false,
+              },
+              effective_status: {
+                ready: true,
+                message: "Using the customer-provided OpenClaw API key.",
+              },
+            },
+          });
+        }
         return Promise.resolve({
-          data: {
-            workflow_id: "wf-1",
-            status: {
-              status: "waiting_approval",
-              current_step: "wait_for_approval",
+          settings: {
+            access_mode: "platform_managed",
+            workspace_default: {
+              api_url: "https://openclaw.example",
+              has_api_key: true,
+            },
+            customer_api: {
+              api_url: "https://customer-openclaw.example",
+              has_api_key: true,
+            },
+            chatgpt_oauth: {
+              linked: false,
+              session_ready: false,
+              chatgpt_subject: "",
+              display_name: "",
+              subscription_tier: "plus",
+            },
+            effective_status: {
+              ready: true,
+              message: "Using workspace-managed OpenClaw access.",
             },
           },
         });
       }
-
-      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      if (path === "/api/customer/assistant/threads") {
+        if (init?.method === "POST") {
+          return Promise.resolve({
+            thread: {
+              id: "thread-2",
+              title: "Campaign Planning",
+              last_message_preview: "",
+            },
+          });
+        }
+        return Promise.resolve({
+          threads: [
+            {
+              id: "thread-1",
+              title: "Launch Plan",
+              last_message_preview: "Plan the launch",
+            },
+          ],
+        });
+      }
+      if (path === "/api/customer/assistant/threads/thread-1/messages") {
+        return Promise.resolve({
+          messages: [
+            { id: "m1", role: "user", content: "Plan a launch week." },
+            { id: "m2", role: "assistant", content: "Use a review-first weekly plan." },
+          ],
+          artifacts: [
+            {
+              id: "a1",
+              title: "OpenClaw strategy result",
+              payload: { target_platforms: ["linkedin", "facebook"] },
+            },
+          ],
+        });
+      }
+      if (path === "/api/customer/campaigns") {
+        if (init?.method === "POST") {
+          return Promise.resolve({
+            campaign: {
+              id: "campaign-2",
+              name: "Launch Week",
+              status: "draft",
+              approval_status: "pending",
+              target_platforms: ["linkedin", "facebook"],
+            },
+          });
+        }
+        return Promise.resolve({
+          campaigns: [
+            {
+              id: "campaign-1",
+              name: "Q2 Launch",
+              status: "active",
+              approval_status: "approved",
+              target_platforms: ["linkedin", "facebook"],
+              active_workflow_id: "wf-1",
+            },
+          ],
+        });
+      }
+      if (path === "/api/customer/approvals") {
+        return Promise.resolve({
+          approvals: [
+            {
+              id: "campaign-3",
+              name: "Pending Launch",
+              status: "draft",
+              approval_status: "pending",
+              target_platforms: ["twitter"],
+            },
+          ],
+        });
+      }
+      if (path === "/api/customer/content") {
+        return Promise.resolve({
+          items: [
+            {
+              id: "content-1",
+              title: "Launch teaser",
+              status: "scheduled",
+              platform: ["linkedin"],
+              scheduled_at: "2026-03-25T10:00:00Z",
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected path: ${path}`);
     });
   });
 
-  it("renders fetched dashboard data", async () => {
+  it("renders the customer workspace", async () => {
     render(<DashboardPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Total Content")).toBeInTheDocument();
-      expect(
-        screen.getByText("Content Status: Pending Approval"),
-      ).toBeInTheDocument();
-      expect(screen.getByText("3.4%")).toBeInTheDocument();
-      expect(screen.getByText("Open post")).toBeInTheDocument();
-      expect(
-        screen.getByText("Engagement: Likes 10 | Comments 2 | Rate 3.4%"),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText("Publish error: publish failed"),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByRole("button", { name: "Retry Publish" }),
-      ).toBeInTheDocument();
-      expect(screen.getAllByText("Twitter scheduled post")).toHaveLength(2);
-      expect(
-        screen.getAllByText("Scheduled: 2026-03-17 10:00 UTC"),
-      ).toHaveLength(2);
-      expect(
-        screen.getByText("1 workflow(s) waiting for approval."),
-      ).toBeInTheDocument();
-      expect(screen.getByText("API Usage")).toBeInTheDocument();
-      expect(screen.getByText("OpenAI")).toBeInTheDocument();
-      expect(
-        screen.getByText("Remaining: 800 / 10,000 tokens left"),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText(
-          "Exact remaining quota captured from the latest provider API response handled by this app.",
-        ),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText("Requests left: 12 / 60 (resets in 1m0s)"),
-      ).toBeInTheDocument();
-      expect(screen.getByText("Used: 9,200 / 10,000 tokens")).toBeInTheDocument();
-      expect(screen.getByText("Warning")).toBeInTheDocument();
-      expect(screen.getByText("Total cost tracked: $6.25")).toBeInTheDocument();
+      expect(screen.getByText("Customer Workspace")).toBeInTheDocument();
+      expect(screen.getByText("Brand Onboarding")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("TripC")).toBeInTheDocument();
+      expect(screen.getByText("Connected Accounts")).toBeInTheDocument();
+      expect(screen.getByText("In-App OpenClaw Assistant")).toBeInTheDocument();
+      expect(screen.getByText("AI Backbone Access")).toBeInTheDocument();
+      expect(screen.getByText("Campaign Control")).toBeInTheDocument();
+      expect(screen.getByText("Q2 Launch")).toBeInTheDocument();
+      expect(screen.getByText("Launch teaser")).toBeInTheDocument();
     });
-
-    expect(fetchItemsMock).toHaveBeenCalled();
   });
 
-  it("starts a retry publish action when retry is clicked", async () => {
-    (apiClient.post as jest.Mock).mockResolvedValue({
-      data: { status: "retry_started" },
-    });
-
+  it("saves customer-provided AI backbone settings", async () => {
     render(<DashboardPage />);
 
-    const retryButton = await screen.findByRole("button", {
-      name: "Retry Publish",
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /Bring Your API/i }),
+    );
+    fireEvent.change(screen.getByLabelText("Customer OpenClaw URL"), {
+      target: { value: "https://customer-openclaw.example" },
     });
-    fireEvent.click(retryButton);
+    fireEvent.change(screen.getByLabelText("Customer OpenClaw API Key"), {
+      target: { value: "oc_customer_key" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save AI Backbone" }));
 
     await waitFor(() => {
-      expect(apiClient.post).toHaveBeenCalledWith(
-        "/api/content/retry/content-3",
+      expect(customerApiRequest).toHaveBeenCalledWith(
+        "/api/customer/ai-backbone",
+        expect.objectContaining({
+          method: "PUT",
+        }),
       );
     });
   });
 
-  it("sends approval action when approve is clicked", async () => {
-    (apiClient.post as jest.Mock).mockResolvedValue({
-      data: { status: "signal_sent" },
-    });
-
+  it("creates a campaign draft from the dashboard", async () => {
     render(<DashboardPage />);
 
-    const approveButton = await screen.findByRole("button", {
-      name: "Approve",
-    });
-    fireEvent.click(approveButton);
+    const nameInput = await screen.findByLabelText("Campaign Name");
+    fireEvent.change(nameInput, { target: { value: "Launch Week" } });
+
+    const description = screen.getByLabelText("Description");
+    fireEvent.change(description, { target: { value: "A launch sprint." } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Draft" }));
 
     await waitFor(() => {
-      expect(apiClient.post).toHaveBeenCalledWith(
-        "/api/workflows/approve/wf-1",
-        {
-          approved: true,
-          feedback: "Approved from dashboard",
-        },
+      expect(customerApiRequest).toHaveBeenCalledWith(
+        "/api/customer/campaigns",
+        expect.objectContaining({
+          method: "POST",
+        }),
       );
     });
   });

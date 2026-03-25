@@ -99,11 +99,14 @@ def test_growchief_webhook_accepts_bearer_secret(monkeypatch):
     assert captured["target_url"] == "https://twitter.com/post/1"
 
 
-def test_webhook_allows_unsigned_requests_when_secret_not_configured(monkeypatch):
+def test_webhook_rejects_unsigned_requests_when_secret_not_configured_in_production(
+    monkeypatch,
+):
     async def fake_sync_postiz_webhook(_event):
         return {"matched": False, "status": "scheduled"}
 
     monkeypatch.setattr(webhooks.settings, "POSTIZ_WEBHOOK_SECRET", None)
+    monkeypatch.setattr(webhooks.settings, "ENVIRONMENT", "production")
     monkeypatch.setattr(
         webhooks.ContentPersistenceService,
         "sync_postiz_webhook",
@@ -113,5 +116,5 @@ def test_webhook_allows_unsigned_requests_when_secret_not_configured(monkeypatch
     client = _build_client()
     response = client.post("/api/webhooks/postiz", json={"status": "scheduled"})
 
-    assert response.status_code == 200
-    assert response.json()["received"] is True
+    assert response.status_code == 503
+    assert response.json()["detail"] == "postiz webhook secret is not configured"

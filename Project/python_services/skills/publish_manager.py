@@ -174,3 +174,129 @@ class PublishManagerSkill(BaseSkill):
             },
             session=session,
         )
+
+    @classmethod
+    async def inspect_provider_wiring(
+        cls,
+        session: SkillSession,
+        backend_url: str,
+        http_client: Any,
+    ) -> SkillResult:
+        selected_item = session.artifacts.get("selected_item") or {}
+        content_id = selected_item.get("id")
+        if not content_id:
+            return cls._error_result(session, "Pick a publish item before inspecting provider wiring.")
+
+        wiring = await cls._request_json(
+            http_client,
+            "GET",
+            backend_url,
+            f"/api/content/providers/{content_id}",
+        )
+
+        session.artifacts["selected_item"] = {
+            **selected_item,
+            "postUrl": wiring.get("post_url") or selected_item.get("postUrl"),
+            "platformPostId": wiring.get("platform_post_id") or selected_item.get("platformPostId"),
+            "providerPostId": wiring.get("provider_post_id") or selected_item.get("providerPostId"),
+            "publishMethod": wiring.get("publish_method") or selected_item.get("publishMethod"),
+            "syndicateTriggered": wiring.get("syndicate_triggered"),
+            "syndicateJobId": wiring.get("syndicate_job_id"),
+            "engagementMetrics": wiring.get("engagement_metrics") or selected_item.get("engagementMetrics"),
+        }
+        session.artifacts["provider_wiring"] = wiring
+        session.step_key = "publish_or_schedule"
+        session.control.status = SkillStatus.collecting
+        return SkillResult(
+            success=True,
+            next_step="publish_or_schedule",
+            output={
+                "content_item": session.artifacts["selected_item"],
+                "provider_wiring": wiring,
+                "message": "Provider wiring refreshed for this item.",
+            },
+            session=session,
+        )
+
+    @classmethod
+    async def refresh_selected_engagement(
+        cls,
+        session: SkillSession,
+        backend_url: str,
+        http_client: Any,
+    ) -> SkillResult:
+        selected_item = session.artifacts.get("selected_item") or {}
+        content_id = selected_item.get("id")
+        if not content_id:
+            return cls._error_result(session, "Pick a publish item before checking engagement.")
+
+        snapshot = await cls._request_json(
+            http_client,
+            "GET",
+            backend_url,
+            f"/api/content/engagement/{content_id}",
+        )
+
+        metrics = snapshot.get("metrics") or {}
+        session.artifacts["selected_item"] = {
+            **selected_item,
+            "engagementMetrics": metrics,
+            "lastEngagementCheckedAt": snapshot.get("checked_at") or snapshot.get("status"),
+        }
+        session.artifacts["engagement_result"] = snapshot
+        session.step_key = "publish_or_schedule"
+        session.control.status = SkillStatus.collecting
+        return SkillResult(
+            success=True,
+            next_step="publish_or_schedule",
+            output={
+                "content_item": session.artifacts["selected_item"],
+                "engagement": snapshot,
+                "message": "Engagement snapshot refreshed.",
+            },
+            session=session,
+        )
+
+    @classmethod
+    async def boost_selected_engagement(
+        cls,
+        session: SkillSession,
+        backend_url: str,
+        http_client: Any,
+    ) -> SkillResult:
+        selected_item = session.artifacts.get("selected_item") or {}
+        content_id = selected_item.get("id")
+        if not content_id:
+            return cls._error_result(session, "Pick a publish item before triggering engagement.")
+
+        trigger = await cls._request_json(
+            http_client,
+            "POST",
+            backend_url,
+            f"/api/content/engagement/{content_id}/trigger",
+            json={
+                "action_types": ["like", "comment", "share"],
+                "account_count": 5,
+                "delay_minutes": 30,
+            },
+        )
+
+        session.artifacts["selected_item"] = {
+            **selected_item,
+            "syndicateTriggered": True,
+            "syndicateJobId": (trigger.get("job") or {}).get("job_id"),
+            "postUrl": trigger.get("post_url") or selected_item.get("postUrl"),
+        }
+        session.artifacts["engagement_trigger_result"] = trigger
+        session.step_key = "publish_or_schedule"
+        session.control.status = SkillStatus.collecting
+        return SkillResult(
+            success=True,
+            next_step="publish_or_schedule",
+            output={
+                "content_item": session.artifacts["selected_item"],
+                "engagement_trigger": trigger,
+                "message": "GrowChief engagement boost has been triggered.",
+            },
+            session=session,
+        )

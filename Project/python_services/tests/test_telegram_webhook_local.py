@@ -108,16 +108,59 @@ async def test_url_message_acknowledges_link_payload(tg_calls):
 
 
 @pytest.mark.asyncio
-async def test_plain_text_prompts_structured_flow(tg_calls):
+async def test_plain_text_is_forwarded_to_openclaw(tg_calls):
     message = {
         "text": "Hello bot!",
         "chat": {"id": 123456789, "type": "private"},
     }
 
-    await _handle_message(None, message)
+    mock_service = AsyncMock()
+    mock_service.execute_task = AsyncMock(return_value={"text": "Hi from OpenClaw"})
+    mock_service.close = AsyncMock()
+
+    with patch("api.telegram_webhook.OpenClawService", return_value=mock_service):
+        await _handle_message(None, message)
 
     send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
-    assert "Use /media to start a structured skill flow." in send_call["payload"]["text"]
+    assert send_call["payload"]["text"] == "Hi from OpenClaw"
+    assert "parse_mode" not in send_call["payload"]
+    mock_service.execute_task.assert_awaited_once()
+    mock_service.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_plain_text_agent_can_start_skill(tg_calls):
+    message = {
+        "text": "create a weekly marketing plan for this week",
+        "chat": {"id": 123456789, "type": "private"},
+    }
+
+    mock_service = AsyncMock()
+    mock_service.execute_task = AsyncMock(
+        return_value={
+            "action": "start_skill",
+            "skill_name": "weekly-planner",
+            "reply": "Starting weekly planner",
+        }
+    )
+    mock_service.close = AsyncMock()
+
+    mock_skill_result = SkillResult(
+        success=False,
+        error="brand_config is required.",
+    )
+
+    with patch("api.telegram_webhook.OpenClawService", return_value=mock_service), patch.object(
+        telegram_webhook.SkillDispatcher,
+        "start_skill",
+        AsyncMock(return_value=mock_skill_result),
+    ) as start_skill:
+        await _handle_message(None, message)
+
+    start_skill.assert_awaited_once_with(123456789, "weekly-planner", None)
+    send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
+    assert send_call["payload"]["text"] == "brand_config is required."
+    mock_service.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -136,7 +179,7 @@ async def test_status_button_edits_message_with_help_text(tg_calls):
 
     methods = [call["method"] for call in tg_calls]
     assert methods[:2] == ["answerCallbackQuery", "editMessageText"]
-    assert "AI Influencer Bot Help" in tg_calls[1]["payload"]["text"]
+    assert "TripC Bot Status" in tg_calls[1]["payload"]["text"]
     assert "parse_mode" not in tg_calls[1]["payload"]
 
 

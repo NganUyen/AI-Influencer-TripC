@@ -385,3 +385,126 @@ async def test_retry_content_publish_returns_503_when_temporal_unavailable(monke
 
     assert exc.value.status_code == 503
     assert "temporal unavailable" in str(exc.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_get_content_provider_wiring(monkeypatch):
+    async def fake_get_retry_post_config(content_id: str):
+        assert content_id == "content-1"
+        return {
+            "id": "content-1",
+            "logical_post_id": "logical-1",
+            "workflow_id": "wf-1",
+            "platform": "twitter",
+            "status": "published",
+            "publish_method": "postiz_oauth",
+            "platform_post_id": "platform-1",
+            "provider_post_id": "provider-1",
+            "post_url": "https://x.com/post/1",
+            "publish_error": None,
+            "syndicate_triggered": True,
+            "syndicate_job_id": "growchief-job-1",
+            "engagement_metrics": {"engagement_rate": 2.5},
+        }
+
+    monkeypatch.setattr(
+        content.ContentPersistenceService,
+        "get_retry_post_config",
+        fake_get_retry_post_config,
+    )
+
+    response = await content.get_content_provider_wiring("content-1")
+
+    assert response["publish_method"] == "postiz_oauth"
+    assert response["platform_post_id"] == "platform-1"
+    assert response["syndicate_triggered"] is True
+
+
+@pytest.mark.asyncio
+async def test_check_content_engagement_records_snapshot(monkeypatch):
+    async def fake_get_retry_post_config(content_id: str):
+        assert content_id == "content-1"
+        return {
+            "id": "content-1",
+            "logical_post_id": "logical-1",
+            "workflow_id": "wf-1",
+            "content_record_id": "content-1",
+            "platform": "twitter",
+            "platform_post_id": "platform-1",
+            "provider_post_id": "provider-1",
+            "post_url": "https://x.com/post/1",
+            "syndicate_triggered": False,
+        }
+
+    fake_growchief = AsyncMock()
+    fake_growchief.get_engagement_metrics.return_value = {
+        "engagement_rate": 1.8,
+        "source": "growchief_public_api_fallback",
+    }
+
+    monkeypatch.setattr(
+        content.ContentPersistenceService,
+        "get_retry_post_config",
+        fake_get_retry_post_config,
+    )
+    monkeypatch.setattr(content, "GrowChiefService", lambda: fake_growchief)
+    record_mock = AsyncMock()
+    monkeypatch.setattr(
+        content.ContentPersistenceService,
+        "record_engagement_result",
+        record_mock,
+    )
+
+    response = await content.check_content_engagement("content-1")
+
+    assert response["status"] == "engagement_snapshot_recorded"
+    assert response["metrics"]["engagement_rate"] == 1.8
+    record_mock.assert_awaited_once()
+    fake_growchief.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_trigger_content_engagement_records_job(monkeypatch):
+    async def fake_get_retry_post_config(content_id: str):
+        assert content_id == "content-1"
+        return {
+            "id": "content-1",
+            "logical_post_id": "logical-1",
+            "workflow_id": "wf-1",
+            "content_record_id": "content-1",
+            "platform": "twitter",
+            "platform_post_id": "platform-1",
+            "provider_post_id": "provider-1",
+            "post_url": "https://x.com/post/1",
+        }
+
+    fake_growchief = AsyncMock()
+    fake_growchief.trigger_engagement.return_value = {
+        "job_id": "growchief-job-1",
+        "status": "pending",
+    }
+
+    monkeypatch.setattr(
+        content.ContentPersistenceService,
+        "get_retry_post_config",
+        fake_get_retry_post_config,
+    )
+    monkeypatch.setattr(content, "GrowChiefService", lambda: fake_growchief)
+    record_mock = AsyncMock()
+    monkeypatch.setattr(
+        content.ContentPersistenceService,
+        "record_engagement_result",
+        record_mock,
+    )
+
+    payload = content.EngagementTriggerRequest(
+        action_types=["like", "comment"],
+        account_count=4,
+        delay_minutes=15,
+    )
+    response = await content.trigger_content_engagement("content-1", payload)
+
+    assert response["status"] == "engagement_triggered"
+    assert response["job"]["job_id"] == "growchief-job-1"
+    record_mock.assert_awaited_once()
+    fake_growchief.close.assert_awaited_once()

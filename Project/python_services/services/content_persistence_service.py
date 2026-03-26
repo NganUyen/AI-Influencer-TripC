@@ -1093,8 +1093,14 @@ class ContentPersistenceService:
                 if url
             ],
             "status": row["status"],
+            "platform_post_id": metadata.get("platform_post_id"),
+            "provider_post_id": metadata.get("provider_post_id"),
+            "publish_method": metadata.get("publish_method"),
             "post_url": metadata.get("post_url"),
             "publish_error": metadata.get("publish_error"),
+            "engagement_metrics": metadata.get("engagement_metrics"),
+            "syndicate_triggered": metadata.get("syndicate_triggered"),
+            "syndicate_job_id": metadata.get("syndicate_job_id"),
         }
 
     @classmethod

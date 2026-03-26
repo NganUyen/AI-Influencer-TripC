@@ -8,14 +8,43 @@ from typing import Dict, Any, List
 import logging
 from datetime import datetime
 from temporalio.client import Client
+from pydantic import BaseModel, Field
 
 from api.security import require_internal_api_token
 from config.settings import settings
 from services.content_persistence_service import ContentPersistenceService
+from services.growchief_service import GrowChiefService
 from api.workflows import TemporalUnavailableError
 
 router = APIRouter(dependencies=[Depends(require_internal_api_token)])
 logger = logging.getLogger(__name__)
+
+
+class EngagementTriggerRequest(BaseModel):
+    action_types: List[str] = Field(default_factory=lambda: ["like", "comment", "share"])
+    account_count: int = Field(default=5, ge=1, le=50)
+    delay_minutes: int = Field(default=30, ge=0, le=240)
+
+
+async def _get_content_item_or_404(content_id: str) -> Dict[str, Any]:
+    item = await ContentPersistenceService.get_retry_post_config(content_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Content item not found")
+    return item
+
+
+def _build_post_data_for_engagement(item: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": item.get("id") or item.get("content_record_id"),
+        "post_id": item.get("id") or item.get("content_record_id"),
+        "logical_post_id": item.get("logical_post_id") or item.get("id"),
+        "content_record_id": item.get("content_record_id"),
+        "workflow_id": item.get("workflow_id"),
+        "platform": item.get("platform"),
+        "platform_post_id": item.get("platform_post_id") or item.get("provider_post_id"),
+        "provider_post_id": item.get("provider_post_id") or item.get("platform_post_id"),
+        "post_url": item.get("post_url"),
+    }
 
 
 async def get_temporal_client(request: Request) -> Client:
@@ -219,6 +248,135 @@ async def retry_content_publish(request: Request, content_id: str) -> Dict[str, 
     except Exception as e:
         logger.error(f"Failed to retry content publish: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/providers/{content_id}")
+async def get_content_provider_wiring(content_id: str) -> Dict[str, Any]:
+    """Inspect Postiz/GrowChief linkage metadata for a content item."""
+    try:
+        item = await _get_content_item_or_404(content_id)
+        return {
+            "content_id": content_id,
+            "logical_post_id": item.get("logical_post_id") or item.get("id"),
+            "workflow_id": item.get("workflow_id"),
+            "platform": item.get("platform"),
+            "status": item.get("status"),
+            "publish_method": item.get("publish_method"),
+            "platform_post_id": item.get("platform_post_id"),
+            "provider_post_id": item.get("provider_post_id"),
+            "post_url": item.get("post_url"),
+            "publish_error": item.get("publish_error"),
+            "syndicate_triggered": bool(item.get("syndicate_triggered")),
+            "syndicate_job_id": item.get("syndicate_job_id"),
+            "engagement_metrics": item.get("engagement_metrics") or {},
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to inspect provider wiring: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/engagement/{content_id}")
+async def check_content_engagement(content_id: str) -> Dict[str, Any]:
+    """Fetch and persist the latest GrowChief engagement snapshot for a content item."""
+    growchief = GrowChiefService()
+    try:
+        item = await _get_content_item_or_404(content_id)
+        platform = item.get("platform")
+        post_id = item.get("platform_post_id") or item.get("provider_post_id") or item.get("id")
+        if not platform:
+            raise HTTPException(status_code=400, detail="Content item platform is missing")
+
+        metrics = await growchief.get_engagement_metrics(platform=platform, post_id=str(post_id))
+        engagement_result = {
+            "status": "completed",
+            "metrics": metrics,
+            "syndicate_triggered": bool(item.get("syndicate_triggered")),
+        }
+        await ContentPersistenceService.record_engagement_result(
+            workflow_id=item.get("workflow_id"),
+            post_data=_build_post_data_for_engagement(item),
+            engagement_result=engagement_result,
+        )
+        return {
+            "content_id": content_id,
+            "platform": platform,
+            "post_id": post_id,
+            "metrics": metrics,
+            "status": "engagement_snapshot_recorded",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to check content engagement: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await growchief.close()
+
+
+@router.post("/engagement/{content_id}/trigger")
+async def trigger_content_engagement(
+    content_id: str,
+    payload: EngagementTriggerRequest,
+) -> Dict[str, Any]:
+    """Trigger GrowChief engagement actions for a content item and persist the outcome."""
+    growchief = GrowChiefService()
+    try:
+        item = await _get_content_item_or_404(content_id)
+        platform = item.get("platform")
+        if not platform:
+            raise HTTPException(status_code=400, detail="Content item platform is missing")
+
+        post_url = item.get("post_url")
+        post_id = item.get("platform_post_id") or item.get("provider_post_id") or item.get("id")
+        if not post_url and post_id:
+            post_url = f"{platform}://{post_id}"
+        if not post_url:
+            raise HTTPException(
+                status_code=400,
+                detail="Content item does not have a publish URL or provider post id for engagement",
+            )
+
+        trigger_result = await growchief.trigger_engagement(
+            post_url=post_url,
+            platform=platform,
+            engagement_type=payload.action_types,
+            account_count=payload.account_count,
+            delay_minutes=payload.delay_minutes,
+        )
+
+        engagement_result = {
+            "status": "completed",
+            "metrics": {},
+            "syndicate_triggered": True,
+            "syndicate_result": trigger_result,
+            "action_types": payload.action_types,
+        }
+        post_data = _build_post_data_for_engagement(item)
+        post_data["post_url"] = post_url
+        await ContentPersistenceService.record_engagement_result(
+            workflow_id=item.get("workflow_id"),
+            post_data=post_data,
+            engagement_result=engagement_result,
+        )
+
+        return {
+            "content_id": content_id,
+            "platform": platform,
+            "post_url": post_url,
+            "action_types": payload.action_types,
+            "account_count": payload.account_count,
+            "status": "engagement_triggered",
+            "job": trigger_result,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to trigger content engagement: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await growchief.close()
 
 
 @router.get("/stats")

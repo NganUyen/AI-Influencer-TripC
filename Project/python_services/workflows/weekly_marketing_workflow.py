@@ -7,6 +7,7 @@ from datetime import timedelta, datetime
 from typing import List, Dict, Any
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, TimeoutError as TemporalTimeoutError
 
 with workflow.unsafe.imports_passed_through():
     from activities.strategy_activities import (
@@ -84,7 +85,17 @@ class WeeklyMarketingWorkflow:
                     start_to_close_timeout=timedelta(days=8),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
-            except TimeoutError:
+            except ActivityError as exc:
+                if not isinstance(exc.cause, (TemporalTimeoutError, TimeoutError)):
+                    raise
+                workflow.logger.warning("Approval timeout - canceling workflow")
+                self.current_step = "approval_timed_out"
+                self.workflow_status = "timed_out"
+                return {
+                    "status": "timed_out",
+                    "message": "Approval not received within 7 days",
+                }
+            except (TemporalTimeoutError, TimeoutError):
                 workflow.logger.warning("Approval timeout - canceling workflow")
                 self.current_step = "approval_timed_out"
                 self.workflow_status = "timed_out"

@@ -164,6 +164,18 @@ class SkillDispatcher:
                 session.artifacts["selected_item"] = None
                 session.artifacts["publish_result"] = None
                 session.step_key = "list_publish_queue"
+            elif action == "inspect_provider_wiring":
+                async with cls._transport_client(app) as client:
+                    result = await skill_cls.inspect_provider_wiring(session, "http://backend", client)
+                return await cls._save_or_clear(chat_id, result)
+            elif action == "check_engagement":
+                async with cls._transport_client(app) as client:
+                    result = await skill_cls.refresh_selected_engagement(session, "http://backend", client)
+                return await cls._save_or_clear(chat_id, result)
+            elif action == "boost_engagement":
+                async with cls._transport_client(app) as client:
+                    result = await skill_cls.boost_selected_engagement(session, "http://backend", client)
+                return await cls._save_or_clear(chat_id, result)
             elif action == "retry_publish":
                 async with cls._transport_client(app) as client:
                     result = await skill_cls.retry_selected(session, "http://backend", client)

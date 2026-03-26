@@ -56,6 +56,9 @@ IMAGE_SCENE_BATCH_ACTIONS = _options(
 )
 
 PUBLISH_MANAGER_ACTIONS = _options(
+    ("Inspect Provider", "inspect_provider_wiring"),
+    ("Check Engagement", "check_engagement"),
+    ("Boost Engagement", "boost_engagement"),
     ("Retry Publish", "retry_publish"),
     ("Refresh Queue", "refresh_queue"),
     ("Back to Queue", "back_to_queue"),

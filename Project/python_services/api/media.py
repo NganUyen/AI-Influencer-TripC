@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from api.security import require_internal_api_token
 from services import FalAIService, GoogleTTSService, StorageService
 from services.carousel_service import CarouselService
 

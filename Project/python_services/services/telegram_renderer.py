@@ -180,6 +180,10 @@ def _format_publish_queue(items: List[Dict[str, Any]], *, intro: str) -> str:
 
 def _publish_item_actions_keyboard(item: Dict[str, Any]) -> Dict[str, Any]:
     rows: List[List[tuple[str, str]]] = []
+    rows.append([("Inspect Provider", "action::inspect_provider_wiring")])
+    rows.append([("Check Engagement", "action::check_engagement")])
+    if item.get("status") in {"published", "scheduled"} or item.get("postUrl"):
+        rows.append([("Boost Engagement", "action::boost_engagement")])
     if item.get("status") == "failed":
         rows.append([("Retry Publish", "action::retry_publish")])
     rows.append([("Refresh Queue", "action::refresh_queue"), ("Back", "action::back_to_queue")])
@@ -198,10 +202,26 @@ def _format_publish_item_details(item: Dict[str, Any], *, intro: str) -> str:
         lines.append(f"Published: {item['publishedAt']}")
     if item.get("workflowId"):
         lines.append(f"Workflow ID: {item['workflowId']}")
+    if item.get("publishMethod"):
+        lines.append(f"Publish method: {item['publishMethod']}")
+    if item.get("platformPostId"):
+        lines.append(f"Platform post ID: {item['platformPostId']}")
+    if item.get("providerPostId"):
+        lines.append(f"Provider post ID: {item['providerPostId']}")
     if item.get("publishError"):
         lines.append(f"Publish error: {item['publishError']}")
     if item.get("postUrl"):
         lines.append(f"Post URL: {item['postUrl']}")
+    if item.get("syndicateTriggered") is not None:
+        lines.append(f"Syndicate triggered: {'yes' if item.get('syndicateTriggered') else 'no'}")
+    if item.get("syndicateJobId"):
+        lines.append(f"Syndicate job ID: {item['syndicateJobId']}")
+    metrics = item.get("engagementMetrics") or {}
+    if isinstance(metrics, dict) and metrics:
+        engagement_rate = metrics.get("engagement_rate")
+        if engagement_rate is not None:
+            lines.append(f"Engagement rate: {engagement_rate}")
+        lines.append(f"Metrics source: {metrics.get('source') or 'provider'}")
     return "\n".join(lines)
 
 
@@ -420,6 +440,12 @@ class TelegramRenderer:
 
         if session.control.status == SkillStatus.preview_ready:
             output = result.output or {}
+            image_url = (
+                output.get("preview_image_url")
+                or output.get("final_image_url")
+                or session.artifacts.get("preview_image_url")
+                or session.artifacts.get("final_image_url")
+            )
             if session.skill_name == "carousel":
                 slides = output.get("slides") or []
                 topic = session.collected.get("topic", "N/A")

@@ -928,7 +928,7 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "command": "/media",
         "role": "Inspect or manage publish queue",
         "description": (
-            "Inspect pending publish items and trigger publish or schedule actions."
+            "Inspect Postiz wiring, retry failed publishes, and manage GrowChief engagement actions."
         ),
         "status": "partial",
         "kind": "leaf",
@@ -938,14 +938,19 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "optional_params": ["content_id"],
         "internal_skills": [
             "postiz-publish",
+            "growchief-engagement",
         ],
         "api_call": {
-            "target": "GET /api/content/list + POST /api/content/retry/{content_id}",
+            "target": (
+                "GET /api/content/list + GET /api/content/providers/{content_id} + "
+                "POST /api/content/retry/{content_id} + "
+                "GET /api/content/engagement/{content_id} + "
+                "POST /api/content/engagement/{content_id}/trigger"
+            ),
             "current_repo_support": True,
             "note": (
-                "Queue inspection and failed-post retry are available through the"
-                " content APIs. Broader schedule/publish controls can be layered on"
-                " top later."
+                "Queue inspection, provider wiring checks, retry, and manual"
+                " engagement controls are available through content APIs."
             ),
         },
         "output": "Publish queue cards and publish actions",

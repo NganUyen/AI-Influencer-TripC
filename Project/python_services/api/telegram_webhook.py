@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import json
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
@@ -16,6 +17,9 @@ from services.skill_session_store import TelegramSkillSessionStore
 from services.telegram_renderer import TelegramRenderer
 from services.telegram_service import TelegramService
 from services.telegram_subscriber_service import TelegramSubscriberService
+from services.openclaw_service import OpenClawService
+from skills import SKILL_REGISTRY
+from skills.definitions import get_skill_definition
 
 try:
     from temporalio.client import Client as TemporalClient
@@ -307,12 +311,147 @@ def _help_text() -> str:
     return (
         "TripC Bot Help\n\n"
         "Use /media to open the studio menu.\n"
+        "Or send a normal message to chat with OpenClaw AI.\n"
         "Images: poster or scene batch.\n"
         "Video: AI influencer lane.\n"
         "Content: carousel and publish queue.\n"
         "Manage: personas, quota, weekly planning.\n\n"
         "Telegram also stays active for workflow approvals and daily story actions."
     )
+
+
+def _extract_openclaw_reply(result: Any) -> str:
+    if isinstance(result, dict):
+        text = result.get("text")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+
+        output = result.get("output")
+        if isinstance(output, str) and output.strip():
+            return output.strip()
+
+        nested_result = result.get("result")
+        if isinstance(nested_result, str) and nested_result.strip():
+            return nested_result.strip()
+        if isinstance(nested_result, dict):
+            nested_text = nested_result.get("text")
+            if isinstance(nested_text, str) and nested_text.strip():
+                return nested_text.strip()
+
+        return json.dumps(result, ensure_ascii=False, indent=2, default=str)
+
+    if isinstance(result, str) and result.strip():
+        return result.strip()
+
+    return "I could not generate a response. Please try again."
+
+
+def _skill_catalog_for_agent() -> list[Dict[str, str]]:
+    catalog: list[Dict[str, str]] = []
+    for skill_name in sorted(SKILL_REGISTRY.keys()):
+        definition = get_skill_definition(skill_name) or {}
+        catalog.append(
+            {
+                "skill_name": skill_name,
+                "description": str(definition.get("description") or "").strip(),
+            }
+        )
+    return catalog
+
+
+def _extract_agent_decision(result: Any) -> Optional[Dict[str, str]]:
+    payload: Dict[str, Any] | None = result if isinstance(result, dict) else None
+
+    if payload is None and isinstance(result, str):
+        try:
+            parsed = json.loads(result)
+            if isinstance(parsed, dict):
+                payload = parsed
+        except json.JSONDecodeError:
+            payload = None
+
+    if payload is None:
+        return None
+
+    action = payload.get("action")
+    skill_name = payload.get("skill_name")
+    reply = payload.get("reply")
+
+    if isinstance(action, str) and action in {"chat", "start_skill"}:
+        return {
+            "action": action,
+            "skill_name": str(skill_name or "").strip(),
+            "reply": str(reply or "").strip(),
+        }
+
+    text = payload.get("text")
+    if isinstance(text, str):
+        try:
+            parsed_text = json.loads(text)
+            if isinstance(parsed_text, dict):
+                parsed_action = parsed_text.get("action")
+                if isinstance(parsed_action, str) and parsed_action in {"chat", "start_skill"}:
+                    return {
+                        "action": parsed_action,
+                        "skill_name": str(parsed_text.get("skill_name") or "").strip(),
+                        "reply": str(parsed_text.get("reply") or "").strip(),
+                    }
+        except json.JSONDecodeError:
+            return None
+
+    return None
+
+
+async def _handle_openclaw_message(chat_id: int, text: str, app: Any) -> None:
+    service = OpenClawService()
+    try:
+        catalog_json = json.dumps(_skill_catalog_for_agent(), ensure_ascii=False)
+        agent_prompt = (
+            "You are the Telegram orchestrator for TripC. "
+            "Decide whether to start one of the available skills or answer in chat.\n\n"
+            "Return ONLY strict JSON with this exact schema:\n"
+            "{\"action\":\"chat|start_skill\",\"skill_name\":\"<skill-or-empty>\",\"reply\":\"<short-plain-text-reply>\"}\n\n"
+            "Rules:\n"
+            "- Use action=start_skill only when user clearly asks for task execution/content generation.\n"
+            "- If starting skill, choose one from available_skills exactly.\n"
+            "- Keep reply concise and plain text.\n"
+            "- Never output markdown fences.\n\n"
+            f"available_skills={catalog_json}\n"
+            f"user_message={text}"
+        )
+        result = await service.execute_task(
+            task_type="telegram_agent_router",
+            prompt=agent_prompt,
+            user_id=f"telegram:{chat_id}",
+            context={"source": "telegram", "chat_id": str(chat_id)},
+        )
+
+        decision = _extract_agent_decision(result)
+        if decision and decision.get("action") == "start_skill":
+            skill_name = decision.get("skill_name", "")
+            if skill_name in SKILL_REGISTRY:
+                skill_result = await SkillDispatcher.start_skill(chat_id, skill_name, app)
+                rendered = TelegramRenderer.render_skill_result(skill_result)
+                await _send_rendered_message(chat_id, rendered)
+                return
+
+        if decision and decision.get("reply"):
+            reply = decision["reply"]
+        else:
+            reply = _extract_openclaw_reply(result)
+
+        if len(reply) > 3500:
+            reply = f"{reply[:3500]}\n\n…(truncated)"
+        await send_message(chat_id, reply, parse_mode=None)
+    except Exception:
+        logger.exception("OpenClaw Telegram chat failed for chat_id=%s", chat_id)
+        await send_message(
+            chat_id,
+            "AI assistant is temporarily unavailable. Please try again in a moment.",
+            parse_mode=None,
+        )
+    finally:
+        await service.close()
 
 
 async def _handle_system_callback(
@@ -525,11 +664,11 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         )
         return
 
-    await send_message(
-        chat_id,
-        "Message received. Use /media to start a structured skill flow.",
-        parse_mode=None,
-    )
+    if text.strip():
+        await _handle_openclaw_message(chat_id, text.strip(), app)
+        return
+
+    await send_message(chat_id, "Please send a text message.", parse_mode=None)
 
 
 @router.post("/telegram")

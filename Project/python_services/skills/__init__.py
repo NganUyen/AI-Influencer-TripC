@@ -3,20 +3,24 @@
 from .base import BaseSkill, SkillControl, SkillResult, SkillSession, SkillStatus
 from .carousel import CarouselSkill
 from .image_scene import ImageSceneSkill
+from .image_poster import ImagePosterSkill
 from .long_post import LongPostSkill
 from .persona_creator import PersonaCreatorSkill
 from .persona_inspector import PersonaInspectorSkill
+from .publish_manager import PublishManagerSkill
 from .quota_inspector import QuotaInspectorSkill
 from .video_ai import VideoAISkill
 from .weekly_planner import WeeklyPlannerSkill
 
 # Active Phase 1 skills for the current OpenClaw integration pass.
 SKILL_REGISTRY = {
+    "image-poster": ImagePosterSkill,
     "image-scene": ImageSceneSkill,
     "carousel": CarouselSkill,
     "quota-inspector": QuotaInspectorSkill,
     "persona-inspector": PersonaInspectorSkill,
     "persona-creator": PersonaCreatorSkill,
+    "publish-manager": PublishManagerSkill,
     "video-ai": VideoAISkill,
     "weekly-planner": WeeklyPlannerSkill,
 }
@@ -32,10 +36,12 @@ __all__ = [
     "SkillResult",
     "SkillSession",
     "SkillStatus",
+    "ImagePosterSkill",
     "ImageSceneSkill",
     "QuotaInspectorSkill",
     "PersonaInspectorSkill",
     "PersonaCreatorSkill",
+    "PublishManagerSkill",
     "VideoAISkill",
     "WeeklyPlannerSkill",
     "CarouselSkill",

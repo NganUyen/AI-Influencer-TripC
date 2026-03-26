@@ -274,6 +274,76 @@ async def _handle_skill_callback(
         await _send_rendered_message(chat_id, rendered, message_id=message_id)
         return True
 
+    if data.startswith("info::"):
+        skill_name = data.split("::", 1)[1]
+        rendered = TelegramRenderer.render_catalog_info(skill_name)
+        await _send_rendered_message(chat_id, rendered, message_id=message_id)
+        return True
+
+    return False
+
+
+def _system_status_text() -> str:
+    return (
+        "TripC Bot Status\n\n"
+        "Live now:\n"
+        "- Marketing Poster\n"
+        "- Scene Batch\n"
+        "- Carousel\n"
+        "- Publish Queue\n"
+        "- Persona create / inspect\n"
+        "- Quota and Weekly Plan\n\n"
+        "Beta / partial:\n"
+        "- AI Influencer video\n"
+        "- Avatar-related persona tooling\n\n"
+        "Planned next:\n"
+        "- Tutorial video\n"
+        "- Long post workflow\n\n"
+        "Use /media to open the studio."
+    )
+
+
+def _help_text() -> str:
+    return (
+        "TripC Bot Help\n\n"
+        "Use /media to open the studio menu.\n"
+        "Images: poster or scene batch.\n"
+        "Video: AI influencer lane.\n"
+        "Content: carousel and publish queue.\n"
+        "Manage: personas, quota, weekly planning.\n\n"
+        "Telegram also stays active for workflow approvals and daily story actions."
+    )
+
+
+async def _handle_system_callback(
+    chat_id: int,
+    message_id: int,
+    data: str,
+) -> bool:
+    if data == "status_check":
+        await edit_message_text(
+            chat_id,
+            message_id,
+            _system_status_text(),
+            parse_mode=None,
+            reply_markup=inline_keyboard(
+                [("Open Studio", "menu_main"), ("Help", "help")],
+            ),
+        )
+        return True
+
+    if data == "help":
+        await edit_message_text(
+            chat_id,
+            message_id,
+            _help_text(),
+            parse_mode=None,
+            reply_markup=inline_keyboard(
+                [("Open Studio", "menu_main"), ("Status", "status_check")],
+            ),
+        )
+        return True
+
     return False
 
 
@@ -364,6 +434,8 @@ async def _handle_callback_query(app: Any, callback_query: Dict[str, Any]) -> No
 
     if await _handle_skill_callback(app, chat_id, message_id, data):
         return
+    if await _handle_system_callback(chat_id, message_id, data):
+        return
     if await _handle_approval_callback(chat_id, message_id, data):
         return
     if await _handle_story_callback(chat_id, message_id, data):
@@ -418,11 +490,11 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
             chat_id,
             (
                 f"{greeting} AI Influencer Bot is online.\n\n"
-                "Use /media to open the media menu, or wait for daily story approvals."
+                "Use /media to open the studio menu, or wait for daily story approvals."
             ),
             parse_mode=None,
             reply_markup=inline_keyboard(
-                [("Media Menu", "menu_main"), ("Status", "status_check")],
+                [("Open Studio", "menu_main"), ("Status", "status_check")],
                 [("Help", "help")],
             ),
         )

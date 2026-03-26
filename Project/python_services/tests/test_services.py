@@ -408,7 +408,7 @@ async def test_google_tts_service_records_usage(monkeypatch):
     )
     monkeypatch.setattr(
         "services.google_tts_service.settings.GOOGLE_TTS_API_KEY",
-        "google-tts-key",
+        "test_google_tts_key",
     )
 
     service = GoogleTTSService()
@@ -456,7 +456,7 @@ async def test_heygen_service_records_video_job_usage(monkeypatch):
     )
     monkeypatch.setattr(
         "services.heygen_service.settings.HEYGEN_API_KEY",
-        "heygen-key",
+        "test_heygen_key",
     )
 
     service = HeyGenService()
@@ -506,7 +506,7 @@ async def test_heygen_service_records_remaining_quota(monkeypatch):
     )
     monkeypatch.setattr(
         "services.heygen_service.settings.HEYGEN_API_KEY",
-        "heygen-key",
+        "test_heygen_key",
     )
 
     service = HeyGenService()

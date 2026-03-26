@@ -63,7 +63,7 @@ def _configure_supabase_settings(monkeypatch):
     monkeypatch.setattr(
         storage_service_module.settings,
         "SUPABASE_SERVICE_ROLE_KEY",
-        "supabase-service-role-key",
+        "test_service_role_key",
     )
     monkeypatch.setattr(storage_service_module.settings, "STORAGE_CACHE_CONTROL_SECONDS", 3600)
     monkeypatch.setattr(storage_service_module.settings, "STORAGE_HTTP_TIMEOUT_SECONDS", 30)
@@ -74,15 +74,15 @@ def test_settings_default_to_supabase_storage_with_bucket_fallback():
     settings = Settings(
         DATABASE_URL="postgresql://test:test@localhost:5432/test",
         SUPABASE_URL="http://supabase.test",
-        SUPABASE_KEY="supabase-key",
-        SUPABASE_SERVICE_ROLE_KEY="supabase-service-role-key",
-        OPENAI_API_KEY="openai-key",
-        ANTHROPIC_API_KEY="anthropic-key",
-        FAL_AI_API_KEY="fal-key",
-        IPROYAL_USERNAME="ipro-user",
-        IPROYAL_PASSWORD="ipro-pass",
-        TELEGRAM_BOT_TOKEN="telegram-token",
-        TELEGRAM_CHAT_ID="telegram-chat",
+        SUPABASE_KEY="test_supabase_key",
+        SUPABASE_SERVICE_ROLE_KEY="test_service_role_key",
+        OPENAI_API_KEY="test_openai_key",
+        ANTHROPIC_API_KEY="test_anthropic_key",
+        FAL_AI_API_KEY="test_fal_key",
+        IPROYAL_USERNAME="test_ipro_user",
+        IPROYAL_PASSWORD="test_ipro_password",
+        TELEGRAM_BOT_TOKEN="test_telegram_token",
+        TELEGRAM_CHAT_ID="test_telegram_chat",
         SUPABASE_STORAGE_BUCKET="",
         R2_BUCKET_NAME="legacy-media-bucket",
     )
@@ -99,21 +99,21 @@ def test_settings_s3_prefers_legacy_bucket_over_supabase_bucket():
     settings = Settings(
         DATABASE_URL="postgresql://test:test@localhost:5432/test",
         SUPABASE_URL="http://supabase.test",
-        SUPABASE_KEY="supabase-key",
-        SUPABASE_SERVICE_ROLE_KEY="supabase-service-role-key",
+        SUPABASE_KEY="test_supabase_key",
+        SUPABASE_SERVICE_ROLE_KEY="test_service_role_key",
         SUPABASE_STORAGE_BUCKET="supabase-media-bucket",
         STORAGE_PROVIDER="r2",
-        OPENAI_API_KEY="openai-key",
-        ANTHROPIC_API_KEY="anthropic-key",
-        FAL_AI_API_KEY="fal-key",
-        IPROYAL_USERNAME="ipro-user",
-        IPROYAL_PASSWORD="ipro-pass",
-        TELEGRAM_BOT_TOKEN="telegram-token",
-        TELEGRAM_CHAT_ID="telegram-chat",
+        OPENAI_API_KEY="test_openai_key",
+        ANTHROPIC_API_KEY="test_anthropic_key",
+        FAL_AI_API_KEY="test_fal_key",
+        IPROYAL_USERNAME="test_ipro_user",
+        IPROYAL_PASSWORD="test_ipro_password",
+        TELEGRAM_BOT_TOKEN="test_telegram_token",
+        TELEGRAM_CHAT_ID="test_telegram_chat",
         R2_BUCKET_NAME="legacy-media-bucket",
         R2_ENDPOINT_URL="http://r2.test",
-        R2_ACCESS_KEY_ID="r2-access",
-        R2_SECRET_ACCESS_KEY="r2-secret",
+        R2_ACCESS_KEY_ID="test_r2_access",
+        R2_SECRET_ACCESS_KEY="test_r2_secret",
         R2_PUBLIC_DOMAIN="http://cdn.example",
     )
 
@@ -149,8 +149,8 @@ async def test_upload_bytes_supabase_uses_storage_rest_api(monkeypatch):
     assert calls[0]["url"] == (
         "http://supabase.test/storage/v1/object/ai-influencer-media/path/to/file.png"
     )
-    assert calls[0]["headers"]["Authorization"] == "Bearer supabase-service-role-key"
-    assert calls[0]["headers"]["apikey"] == "supabase-service-role-key"
+    assert calls[0]["headers"]["Authorization"] == "Bearer test_service_role_key"
+    assert calls[0]["headers"]["apikey"] == "test_service_role_key"
     assert calls[0]["headers"]["content-type"] == "image/png"
     assert calls[0]["headers"]["cache-control"] == "max-age=3600"
     assert calls[0]["headers"]["x-upsert"] == "true"

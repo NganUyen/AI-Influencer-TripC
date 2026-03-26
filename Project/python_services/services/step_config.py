@@ -10,68 +10,15 @@ def _options(*items: tuple[str, str]) -> List[Dict[str, str]]:
 
 
 MAIN_MENU: Dict[str, Any] = {
-<<<<<<< HEAD
-    "text": "TripC Media Studio",
-    "description_lines": [
-        "Build images, videos, content assets, and operator tasks from one menu.",
-        "Choose a lane below.",
-    ],
-    "rows": [
-        [("Images", "menu_image"), ("Video", "menu_video")],
-        [("Content", "menu_content"), ("Manage", "menu_manage")],
-=======
     "text": "🎨 Welcome to the TripC Media Editor!\n\nWhat would you like to create today? Please select an option below:",
     "rows": [
         [("🖼️ Create Image", "menu_image"), ("🎬 Create Video", "menu_video")],
         [("🎠 Carousel", "skill_carousel"), ("⚙️ Manage", "menu_manage")],
->>>>>>> b050c74e89f952c2cbaca0229dcb1cd44208d1a9
     ],
 }
 
 SUBMENUS: Dict[str, Dict[str, Any]] = {
     "menu_image": {
-<<<<<<< HEAD
-        "text": "Create Image",
-        "description_lines": [
-            "Generate marketing posters, scene batches, or review avatar tools.",
-        ],
-        "rows": [
-            [("Marketing Poster", "skill_image-poster"), ("Scene Batch", "skill_image-scene")],
-            [("Avatar Studio (Beta)", "info::image-avatar")],
-            [("Back", "menu_main")],
-        ],
-    },
-    "menu_video": {
-        "text": "Create Video",
-        "description_lines": [
-            "Launch the AI influencer lane or preview upcoming video modes.",
-        ],
-        "rows": [
-            [("AI Influencer", "skill_video-ai"), ("Tutorial (Soon)", "info::video-tutorial")],
-            [("Back", "menu_main")],
-        ],
-    },
-    "menu_content": {
-        "text": "Content Tools",
-        "description_lines": [
-            "Create publishing assets and inspect the current publish queue.",
-        ],
-        "rows": [
-            [("Carousel", "skill_carousel"), ("Publish Queue", "skill_publish-manager")],
-            [("Long Post (Soon)", "info::long-post")],
-            [("Back", "menu_main")],
-        ],
-    },
-    "menu_manage": {
-        "text": "Manage",
-        "description_lines": [
-            "Work with personas, quota, planning, and operator utilities.",
-        ],
-        "rows": [
-            [("Persona Studio", "menu_personas"), ("Quota", "skill_quota-inspector")],
-            [("Weekly Plan", "skill_weekly-planner")],
-            [("Back", "menu_main")],
-=======
         "text": "🖼️ Select Image Creation Mode:",
         "rows": [
             [("🌄 Scene/Slideshow", "skill_image-scene")],
@@ -92,18 +39,6 @@ SUBMENUS: Dict[str, Dict[str, Any]] = {
             [("📋 Inspect Personas", "skill_persona-inspector")],
             [("📊 Quota", "skill_quota-inspector"), ("📅 Weekly Plan", "skill_weekly-planner")],
             [("🔙 Back", "menu_main")],
->>>>>>> b050c74e89f952c2cbaca0229dcb1cd44208d1a9
-        ],
-    },
-    "menu_personas": {
-        "text": "Persona Studio",
-        "description_lines": [
-            "Create, inspect, and plan persona-related work from one place.",
-        ],
-        "rows": [
-            [("Create Persona", "skill_persona-creator"), ("Inspect Personas", "skill_persona-inspector")],
-            [("Avatar Flow (Beta)", "info::image-avatar")],
-            [("Back", "menu_manage")],
         ],
     },
 }
@@ -190,17 +125,12 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "confirm_or_regenerate": {
             "input_type": "preview_actions",
-<<<<<<< HEAD
-            "prompt_text": "Choose what to do with this batch.",
+            "prompt_text": "✨ Here's your preview! How does it look?",
             "options": IMAGE_SCENE_BATCH_ACTIONS,
         },
         "selecting_images": {
             "input_type": "image_multi_select",
             "prompt_text": "Select one or more images, then submit.",
-=======
-            "prompt_text": "✨ Here's your preview! How does it look?",
-            "options": PREVIEW_ACTIONS,
->>>>>>> b050c74e89f952c2cbaca0229dcb1cd44208d1a9
         },
     },
     "carousel": {
@@ -213,7 +143,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_topic": {
             "input_type": "free_text",
             "field": "topic",
-            "prompt_text": "🎠 What topic should this carousel cover?",
+            "prompt_text": "Carousel topic.",
         },
         "choose_platform": {
             "input_type": "inline_keyboard",

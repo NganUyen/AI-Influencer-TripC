@@ -145,7 +145,6 @@ class SkillDispatcher:
 
         skill_cls = SKILL_REGISTRY[session.skill_name]
 
-<<<<<<< HEAD
         if session.skill_name == "image-scene":
             if action == "use_images":
                 result = skill_cls.enter_selection_mode(session)
@@ -178,7 +177,7 @@ class SkillDispatcher:
                 async with cls._transport_client(app) as client:
                     result = await skill_cls.retry_selected(session, "http://backend", client)
                 return await cls._save_or_clear(chat_id, result)
-=======
+
         # ── Persona-creator: Save action ─────────────────────────────────────
         if action == "save" and session.skill_name == "persona-creator":
             persona_id = session.artifacts.get("persona_id") or session.collected.get("persona_id")
@@ -229,7 +228,6 @@ class SkillDispatcher:
                     "persona_id": persona_id,
                 },
             )
->>>>>>> b050c74e89f952c2cbaca0229dcb1cd44208d1a9
 
         if action == "regenerate":
             template = skill_cls.initial_session()

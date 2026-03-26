@@ -188,11 +188,8 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "steps": [
             "collect_prompt",
             "choose_style",
-<<<<<<< HEAD
-            "generating_candidates",
-=======
             "choose_ratio",
->>>>>>> b050c74e89f952c2cbaca0229dcb1cd44208d1a9
+            "generating_candidates",
             "confirm_or_regenerate",
             "selecting_images",
         ],

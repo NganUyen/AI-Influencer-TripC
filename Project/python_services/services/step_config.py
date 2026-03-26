@@ -49,8 +49,53 @@ PREVIEW_ACTIONS = _options(
     ("❌ Cancel", "cancel"),
 )
 
+IMAGE_SCENE_BATCH_ACTIONS = _options(
+    ("Use Images", "use_images"),
+    ("Regenerate", "regenerate"),
+    ("Cancel", "cancel"),
+)
+
+PUBLISH_MANAGER_ACTIONS = _options(
+    ("Retry Publish", "retry_publish"),
+    ("Refresh Queue", "refresh_queue"),
+    ("Back to Queue", "back_to_queue"),
+    ("Cancel", "cancel"),
+)
+
 
 STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
+    "image-poster": {
+        "collect_brief": {
+            "input_type": "free_text",
+            "field": "topic_or_brief",
+            "prompt_text": "What should the poster promote?",
+        },
+        "choose_style": {
+            "input_type": "inline_keyboard",
+            "field": "style",
+            "prompt_text": "Choose a poster style.",
+            "options": _options(
+                ("Bold", "bold"),
+                ("Clean", "clean"),
+                ("Editorial", "editorial"),
+            ),
+        },
+        "choose_tone": {
+            "input_type": "inline_keyboard",
+            "field": "tone",
+            "prompt_text": "Choose a tone.",
+            "options": _options(
+                ("Premium", "premium"),
+                ("Friendly", "friendly"),
+                ("Urgent", "urgent"),
+            ),
+        },
+        "confirm_or_regenerate": {
+            "input_type": "preview_actions",
+            "prompt_text": "Poster preview ready. Use it, regenerate, or cancel.",
+            "options": PREVIEW_ACTIONS,
+        },
+    },
     "image-scene": {
         "collect_prompt": {
             "input_type": "free_text",
@@ -81,7 +126,11 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "confirm_or_regenerate": {
             "input_type": "preview_actions",
             "prompt_text": "✨ Here's your preview! How does it look?",
-            "options": PREVIEW_ACTIONS,
+            "options": IMAGE_SCENE_BATCH_ACTIONS,
+        },
+        "selecting_images": {
+            "input_type": "image_multi_select",
+            "prompt_text": "Select one or more images, then submit.",
         },
     },
     "carousel": {
@@ -94,7 +143,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_topic": {
             "input_type": "free_text",
             "field": "topic",
-            "prompt_text": "🎠 What topic should this carousel cover?",
+            "prompt_text": "Carousel topic.",
         },
         "choose_platform": {
             "input_type": "inline_keyboard",
@@ -144,6 +193,22 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
             "input_type": "free_text",
             "field": "topic",
             "prompt_text": "🎬 What should the AI influencer talk about in this video?",
+        },
+    },
+    "publish-manager": {
+        "list_publish_queue": {
+            "input_type": "automatic",
+            "prompt_text": "",
+        },
+        "select_item": {
+            "input_type": "content_selector",
+            "field": "content_id",
+            "prompt_text": "Choose a publish item to inspect.",
+        },
+        "publish_or_schedule": {
+            "input_type": "content_actions",
+            "prompt_text": "Inspect the selected publish item.",
+            "options": PUBLISH_MANAGER_ACTIONS,
         },
     },
     "quota-inspector": {

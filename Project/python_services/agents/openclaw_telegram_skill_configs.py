@@ -119,7 +119,7 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         },
         "output": "Poster image URL returned to Telegram",
         "implementation_priority": 1,
-        "integration_note": "Skill is defined first. Telegram integration comes later.",
+        "integration_note": "Backend and Telegram poster flow are wired for the studio menu.",
         "steps": [
             "collect_brief",
             "choose_style",
@@ -184,12 +184,14 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         },
         "output": "Scene image URL returned to Telegram",
         "implementation_priority": 1,
-        "integration_note": "Backend exists. Menu/router still needs to be built.",
+        "integration_note": "Backend and Telegram batch-selection flow are wired.",
         "steps": [
             "collect_prompt",
             "choose_style",
             "choose_ratio",
+            "generating_candidates",
             "confirm_or_regenerate",
+            "selecting_images",
         ],
         "session_shape": {
             "step_key": "collect_prompt",
@@ -203,9 +205,14 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "creative_notes": None,
             },
             "artifacts": {
+                "image_candidates": [],
+                "selected_candidate_index": None,
+                "selected_candidate_indexes": [],
                 "preview_image_url": None,
                 "final_image_url": None,
+                "final_image_urls": [],
                 "storage_key": None,
+                "final_storage_keys": [],
             },
         },
     },
@@ -933,16 +940,17 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "postiz-publish",
         ],
         "api_call": {
-            "target": "Future publish queue endpoints",
-            "current_repo_support": False,
+            "target": "GET /api/content/list + POST /api/content/retry/{content_id}",
+            "current_repo_support": True,
             "note": (
-                "Publish capabilities exist, but a dedicated Telegram-facing queue"
-                " management endpoint is not yet defined."
+                "Queue inspection and failed-post retry are available through the"
+                " content APIs. Broader schedule/publish controls can be layered on"
+                " top later."
             ),
         },
         "output": "Publish queue cards and publish actions",
         "implementation_priority": 3,
-        "integration_note": "Define now. Integrate after queue/list endpoints exist.",
+        "integration_note": "Telegram queue inspection is wired; deeper publish controls can come later.",
         "steps": [
             "list_publish_queue",
             "select_item",

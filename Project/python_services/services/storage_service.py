@@ -12,11 +12,8 @@ import base64
 import json
 import logging
 from io import BytesIO
-from typing import Any, BinaryIO, Dict
-from urllib.parse import quote
-
-import boto3
-import httpx
+from typing import BinaryIO, Dict, Any
+from io import BytesIO
 from botocore.config import Config
 
 from config.settings import settings
@@ -87,9 +84,21 @@ class StorageService:
         content_type: str = "application/octet-stream",
         metadata: Dict[str, str] | None = None,
     ) -> str:
-        """Upload raw bytes while keeping the same public interface for callers."""
+        """
+        Upload raw bytes to R2 storage (convenience method)
+
+        Args:
+            data: Raw bytes data
+            filename: Target filename/path in bucket
+            content_type: MIME type of the file
+            metadata: Optional metadata tags
+
+        Returns:
+            Public URL of the uploaded file
+        """
+        file_obj = BytesIO(data)
         return await self.upload(
-            file_data=BytesIO(data),
+            file_data=file_obj,
             filename=filename,
             content_type=content_type,
             metadata=metadata,

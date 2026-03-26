@@ -10,7 +10,6 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from api.security import require_internal_api_token
 from services import FalAIService, GoogleTTSService, StorageService
 from services.carousel_service import CarouselService
 
@@ -22,6 +21,7 @@ class ImageGenerateRequest(BaseModel):
     prompt: str
     model: str = "fal-ai/nano-banana-2"
     aspect_ratio: str = "16:9"
+    num_images: int = 1
 
 class VideoGenerateRequest(BaseModel):
     prompt: str
@@ -29,7 +29,9 @@ class VideoGenerateRequest(BaseModel):
 
 class AudioGenerateRequest(BaseModel):
     text: str
-    voice_id: str
+    voice: str = "vi-VN-Wavenet-D"  # Default to friendly male voice ("Minh")
+    speaking_rate: float = 1.05     # Slightly faster, natural pacing
+    pitch: float = 0.0              # Standard pitch
 
 
 class CarouselGenerateRequest(BaseModel):
@@ -58,10 +60,11 @@ async def generate_image(request: ImageGenerateRequest):
         fal_service = FalAIService()
 
         result = await fal_service.generate_image(
-            prompt=request.prompt, model=request.model, aspect_ratio=request.aspect_ratio
+            prompt=request.prompt, 
+            model=request.model, 
+            aspect_ratio=request.aspect_ratio,
+            num_images=request.num_images
         )
-
-        await fal_service.close()
 
         return result
 
@@ -78,8 +81,6 @@ async def generate_video(request: VideoGenerateRequest):
 
         result = await fal_service.generate_video(prompt=request.prompt, duration=request.duration)
 
-        await fal_service.close()
-
         return result
 
     except Exception as e:
@@ -89,22 +90,23 @@ async def generate_video(request: VideoGenerateRequest):
 
 @router.post("/generate/audio")
 async def generate_audio(request: AudioGenerateRequest):
-    """Generate audio using Google Cloud Text-to-Speech."""
+    """Generate audio using Google Cloud TTS (Vietnamese Wavenet voices)"""
     try:
         tts_service = GoogleTTSService()
-        available_voices = tts_service.get_voices()
-        voice = available_voices.get(request.voice_id, request.voice_id)
 
         audio_bytes = await tts_service.generate_audio(
             text=request.text,
-            voice=voice,
+            voice=request.voice,
+            speaking_rate=request.speaking_rate,
+            pitch=request.pitch,
         )
 
         return {
-            "voice": voice,
-            "format": "mp3",
-            "byte_length": len(audio_bytes),
-            "audio_base64": base64.b64encode(audio_bytes).decode("utf-8"),
+            "status": "success",
+            "audio_bytes_length": len(audio_bytes),
+            "voice": request.voice,
+            "text_length": len(request.text),
+            "note": "Audio bytes available for download or further processing",
         }
 
     except Exception as e:
@@ -113,18 +115,19 @@ async def generate_audio(request: AudioGenerateRequest):
 
 
 @router.get("/voices")
-async def list_voices(language: str = None):
-    """List available voices from Google TTS."""
+async def list_voices():
+    """List available Vietnamese voices from Google Cloud TTS"""
     try:
-        voices = GoogleTTSService().get_voices()
-        if language:
-            normalized_language = language.lower()
-            voices = {
-                name: voice
-                for name, voice in voices.items()
-                if normalized_language in voice.lower()
-            }
-        return {"voices": voices}
+        tts_service = GoogleTTSService()
+
+        voices = tts_service.get_voices()
+
+        return {
+            "status": "success",
+            "voices": voices,
+            "default_voice": "vi-VN-Wavenet-D",
+            "note": "All voices support Vietnamese language"
+        }
 
     except Exception as e:
         logger.error(f"Failed to list voices: {str(e)}")

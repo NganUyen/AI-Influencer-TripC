@@ -32,11 +32,11 @@ def disable_live_refresh(monkeypatch):
 async def test_provider_overview_reads_environment_limits(monkeypatch):
     monkeypatch.setattr(
         "services.quota_monitor_service.settings.OPENAI_API_KEY",
-        "openai-key",
+        "test_openai_key",
     )
     monkeypatch.setattr(
         "services.quota_monitor_service.settings.ANTHROPIC_API_KEY",
-        "anthropic-key",
+        "test_anthropic_key",
     )
     monkeypatch.setenv("QUOTA_OPENAI_MONTHLY_LIMIT_USD", "120.5")
     monkeypatch.setenv("QUOTA_OPENAI_WARN_AT_PERCENT", "75")
@@ -89,11 +89,11 @@ async def test_record_snapshot_uses_memory_fallback_when_db_unavailable(monkeypa
 async def test_summary_aggregates_cost_and_usage(monkeypatch):
     monkeypatch.setattr(
         "services.quota_monitor_service.settings.OPENAI_API_KEY",
-        "openai-key",
+        "test_openai_key",
     )
     monkeypatch.setattr(
         "services.quota_monitor_service.settings.FAL_AI_API_KEY",
-        "fal-key",
+        "test_fal_key",
     )
 
     await QuotaMonitorService.record_snapshot(
@@ -128,7 +128,7 @@ async def test_summary_aggregates_cost_and_usage(monkeypatch):
 async def test_summary_prefers_provider_reported_remaining(monkeypatch):
     monkeypatch.setattr(
         "services.quota_monitor_service.settings.OPENAI_API_KEY",
-        "openai-key",
+        "test_openai_key",
     )
 
     await QuotaMonitorService.record_snapshot(
@@ -162,7 +162,7 @@ async def test_summary_prefers_provider_reported_remaining(monkeypatch):
 async def test_summary_derives_tracked_remaining_from_limit(monkeypatch):
     monkeypatch.setattr(
         "services.quota_monitor_service.settings.GOOGLE_AI_API_KEY",
-        "google-ai-key",
+        "test_google_ai_key",
     )
     monkeypatch.setattr(
         "services.quota_monitor_service.settings.GOOGLE_AI_MONTHLY_TOKEN_LIMIT",
@@ -188,7 +188,7 @@ async def test_summary_derives_tracked_remaining_from_limit(monkeypatch):
 async def test_summary_parses_stringified_jsonb_quota_snapshots(monkeypatch):
     monkeypatch.setattr(
         "services.quota_monitor_service.settings.HEYGEN_API_KEY",
-        "heygen-key",
+        "test_heygen_key",
     )
 
     payload = {
@@ -252,7 +252,7 @@ async def test_summary_parses_stringified_jsonb_quota_snapshots(monkeypatch):
 async def test_summary_marks_configured_provider_without_quota_data(monkeypatch):
     monkeypatch.setattr(
         "services.quota_monitor_service.settings.GOOGLE_AI_API_KEY",
-        "google-ai-key",
+        "test_google_ai_key",
     )
 
     summary = await QuotaMonitorService.get_summary(days=30)

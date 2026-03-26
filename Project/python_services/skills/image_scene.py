@@ -74,13 +74,31 @@ class ImageSceneSkill(BaseSkill):
         payload: Dict[str, Any],
         count: int = DEFAULT_CANDIDATE_COUNT,
     ) -> List[Dict[str, Any]]:
-        """Generate multiple image candidates in parallel."""
-        tasks = [
-            cls._generate_single_image(http_client, backend_url, payload)
-            for _ in range(count)
-        ]
-        results = await asyncio.gather(*tasks)
-        return [result for result in results if result is not None]
+        """Generate multiple image candidates in a single batch call."""
+        batch_payload = deepcopy(payload)
+        batch_payload["num_images"] = count
+        
+        try:
+            response = await cls._request_json(
+                http_client,
+                "POST",
+                backend_url,
+                cls._extract_path(),
+                json=batch_payload,
+            )
+            candidates = response.get("images", [])
+            # Map necessary fields if the internal image structure differs
+            return [
+                {
+                    "url": img.get("url"),
+                    "storage_key": img.get("storage_key"),
+                    "model": response.get("model"),
+                    "prompt": response.get("prompt"),
+                }
+                for img in candidates
+            ]
+        except Exception:
+            return []
 
     @classmethod
     def _done_output(cls, session: SkillSession) -> Dict[str, Any]:

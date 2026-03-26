@@ -9,22 +9,26 @@ from typing import Dict, Any, Optional
 from config.settings import settings
 from services.quota_monitor_service import QuotaMonitorService
 
-logger = logging.getLogger(__name__)
-
-
 class FalAIService:
     """
     Integration with fal.ai for AI-powered image and video generation
     Provides access to models like Flux.1 Pro/Schnell, SDXL, and video models
     """
+    _client: Optional[httpx.AsyncClient] = None
+
+    @classmethod
+    def _get_client(cls) -> httpx.AsyncClient:
+        if cls._client is None or cls._client.is_closed:
+            cls._client = httpx.AsyncClient(
+                base_url="https://fal.run",
+                headers={"Authorization": f"Key {settings.FAL_AI_API_KEY}"},
+                timeout=300.0,
+            )
+        return cls._client
 
     def __init__(self):
         self.api_key = settings.FAL_AI_API_KEY
-        self.client = httpx.AsyncClient(
-            base_url="https://fal.run",
-            headers={"Authorization": f"Key {self.api_key}"},
-            timeout=300.0,  # 5 minutes for generation
-        )
+        self.client = self._get_client()
 
     async def _record_usage(
         self,
@@ -94,10 +98,14 @@ class FalAIService:
                 metadata={"aspect_ratio": aspect_ratio},
             )
 
+            images = result.get("images", [])
+            first_img = images[0] if images else {}
+            
             return {
-                "url": result.get("images", [{}])[0].get("url"),
-                "width": result.get("images", [{}])[0].get("width"),
-                "height": result.get("images", [{}])[0].get("height"),
+                "url": first_img.get("url"),
+                "width": first_img.get("width"),
+                "height": first_img.get("height"),
+                "images": images,
                 "model": model,
                 "prompt": prompt,
             }

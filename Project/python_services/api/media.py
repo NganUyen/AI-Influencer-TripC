@@ -21,6 +21,7 @@ class ImageGenerateRequest(BaseModel):
     prompt: str
     model: str = "fal-ai/nano-banana-2"
     aspect_ratio: str = "16:9"
+    num_images: int = 1
 
 class VideoGenerateRequest(BaseModel):
     prompt: str
@@ -59,10 +60,11 @@ async def generate_image(request: ImageGenerateRequest):
         fal_service = FalAIService()
 
         result = await fal_service.generate_image(
-            prompt=request.prompt, model=request.model, aspect_ratio=request.aspect_ratio
+            prompt=request.prompt, 
+            model=request.model, 
+            aspect_ratio=request.aspect_ratio,
+            num_images=request.num_images
         )
-
-        await fal_service.close()
 
         return result
 
@@ -78,8 +80,6 @@ async def generate_video(request: VideoGenerateRequest):
         fal_service = FalAIService()
 
         result = await fal_service.generate_video(prompt=request.prompt, duration=request.duration)
-
-        await fal_service.close()
 
         return result
 

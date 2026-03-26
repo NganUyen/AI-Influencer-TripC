@@ -29,22 +29,9 @@ class SkillDispatcher:
         *,
         ready_only: bool,
     ) -> list[Dict[str, Any]]:
-        from skills.base import BaseSkill
-
-        params = {"status": "ready"} if ready_only else None
-        async with cls._transport_client(app) as client:
-            response = await client.get(
-                "/api/personas",
-                params=params,
-                headers=BaseSkill._auth_headers(),
-            )
-            response.raise_for_status()
-            payload = response.json()
-        if isinstance(payload, list):
-            return payload
-        if isinstance(payload, dict) and isinstance(payload.get("items"), list):
-            return payload["items"]
-        return []
+        from services.persona_registry_service import PersonaRegistryService
+        status = "ready" if ready_only else None
+        return await PersonaRegistryService.list_personas(status=status)
 
     @classmethod
     async def _prepare_prompt_session(cls, app: Any, session: SkillSession) -> SkillSession:

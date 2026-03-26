@@ -10,6 +10,7 @@ def _options(*items: tuple[str, str]) -> List[Dict[str, str]]:
 
 
 MAIN_MENU: Dict[str, Any] = {
+<<<<<<< HEAD
     "text": "TripC Media Studio",
     "description_lines": [
         "Build images, videos, content assets, and operator tasks from one menu.",
@@ -18,11 +19,18 @@ MAIN_MENU: Dict[str, Any] = {
     "rows": [
         [("Images", "menu_image"), ("Video", "menu_video")],
         [("Content", "menu_content"), ("Manage", "menu_manage")],
+=======
+    "text": "🎨 Welcome to the TripC Media Editor!\n\nWhat would you like to create today? Please select an option below:",
+    "rows": [
+        [("🖼️ Create Image", "menu_image"), ("🎬 Create Video", "menu_video")],
+        [("🎠 Carousel", "skill_carousel"), ("⚙️ Manage", "menu_manage")],
+>>>>>>> b050c74e89f952c2cbaca0229dcb1cd44208d1a9
     ],
 }
 
 SUBMENUS: Dict[str, Dict[str, Any]] = {
     "menu_image": {
+<<<<<<< HEAD
         "text": "Create Image",
         "description_lines": [
             "Generate marketing posters, scene batches, or review avatar tools.",
@@ -63,6 +71,28 @@ SUBMENUS: Dict[str, Dict[str, Any]] = {
             [("Persona Studio", "menu_personas"), ("Quota", "skill_quota-inspector")],
             [("Weekly Plan", "skill_weekly-planner")],
             [("Back", "menu_main")],
+=======
+        "text": "🖼️ Select Image Creation Mode:",
+        "rows": [
+            [("🌄 Scene/Slideshow", "skill_image-scene")],
+            [("🔙 Back", "menu_main")],
+        ],
+    },
+    "menu_video": {
+        "text": "🎬 Select Video Creation Mode:",
+        "rows": [
+            [("🎭 AI Influencer", "skill_video-ai")],
+            [("🔙 Back", "menu_main")],
+        ],
+    },
+    "menu_manage": {
+        "text": "⚙️ Manage Your Content:",
+        "rows": [
+            [("➕ Create Persona", "skill_persona-creator")],
+            [("📋 Inspect Personas", "skill_persona-inspector")],
+            [("📊 Quota", "skill_quota-inspector"), ("📅 Weekly Plan", "skill_weekly-planner")],
+            [("🔙 Back", "menu_main")],
+>>>>>>> b050c74e89f952c2cbaca0229dcb1cd44208d1a9
         ],
     },
     "menu_personas": {
@@ -79,9 +109,9 @@ SUBMENUS: Dict[str, Dict[str, Any]] = {
 }
 
 PREVIEW_ACTIONS = _options(
-    ("Use", "use"),
-    ("Regenerate", "regenerate"),
-    ("Cancel", "cancel"),
+    ("✅ Use", "use"),
+    ("🔄 Regenerate", "regenerate"),
+    ("❌ Cancel", "cancel"),
 )
 
 IMAGE_SCENE_BATCH_ACTIONS = _options(
@@ -135,44 +165,60 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_prompt": {
             "input_type": "free_text",
             "field": "topic_or_prompt",
-            "prompt_text": "What scene image should be generated?",
+            "prompt_text": "🌅 What would you like to see in the scene? Please describe it:",
         },
         "choose_style": {
             "input_type": "inline_keyboard",
             "field": "style",
-            "prompt_text": "Choose a style.",
+            "prompt_text": "🎨 Please choose an artistic style for your image:",
             "options": _options(
                 ("Clean", "clean"),
                 ("Cinematic", "cinematic"),
                 ("Minimal", "minimal"),
             ),
         },
+        "choose_ratio": {
+            "input_type": "inline_keyboard",
+            "field": "aspect_ratio",
+            "prompt_text": "📐 Select the aspect ratio for your image:",
+            "options": _options(
+                ("16:9", "16:9"),
+                ("9:16", "9:16"),
+                ("1:1", "1:1"),
+                ("4:3", "4:3"),
+            ),
+        },
         "confirm_or_regenerate": {
             "input_type": "preview_actions",
+<<<<<<< HEAD
             "prompt_text": "Choose what to do with this batch.",
             "options": IMAGE_SCENE_BATCH_ACTIONS,
         },
         "selecting_images": {
             "input_type": "image_multi_select",
             "prompt_text": "Select one or more images, then submit.",
+=======
+            "prompt_text": "✨ Here's your preview! How does it look?",
+            "options": PREVIEW_ACTIONS,
+>>>>>>> b050c74e89f952c2cbaca0229dcb1cd44208d1a9
         },
     },
     "carousel": {
         "pick_persona": {
             "input_type": "persona_picker",
             "field": "persona_id",
-            "prompt_text": "Choose a persona or skip.",
+            "prompt_text": "👤 Who will be the star? Choose a persona (or skip):",
             "allow_skip": True,
         },
         "collect_topic": {
             "input_type": "free_text",
             "field": "topic",
-            "prompt_text": "What should the carousel explain?",
+            "prompt_text": "🎠 What topic should this carousel cover?",
         },
         "choose_platform": {
             "input_type": "inline_keyboard",
             "field": "platform",
-            "prompt_text": "Choose a platform.",
+            "prompt_text": "📱 Which platform is this carousel for?",
             "options": _options(
                 ("Instagram", "instagram"),
                 ("LinkedIn", "linkedin"),
@@ -182,7 +228,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "choose_slide_count": {
             "input_type": "inline_keyboard",
             "field": "num_slides",
-            "prompt_text": "How many slides?",
+            "prompt_text": "🔢 How many slides do you want?",
             "options": _options(
                 ("4", "4"),
                 ("6", "6"),
@@ -193,7 +239,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "choose_tone": {
             "input_type": "inline_keyboard",
             "field": "tone",
-            "prompt_text": "Choose a tone.",
+            "prompt_text": "🎭 What tone should we use for the content?",
             "options": _options(
                 ("Educational", "educational"),
                 ("Bold", "bold"),
@@ -202,7 +248,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "preview": {
             "input_type": "preview_actions",
-            "prompt_text": "Use this carousel?",
+            "prompt_text": "🎡 Carousel preview is ready! Should we keep it?",
             "options": PREVIEW_ACTIONS,
         },
     },
@@ -210,13 +256,13 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "pick_persona": {
             "input_type": "persona_picker",
             "field": "persona_id",
-            "prompt_text": "Choose a ready persona.",
+            "prompt_text": "👤 Please select a ready persona:",
             "allow_skip": False,
         },
         "collect_topic": {
             "input_type": "free_text",
             "field": "topic",
-            "prompt_text": "What should the video be about?",
+            "prompt_text": "🎬 What should the AI influencer talk about in this video?",
         },
     },
     "publish-manager": {
@@ -239,7 +285,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "choose_provider_or_summary": {
             "input_type": "inline_keyboard",
             "field": "provider",
-            "prompt_text": "View summary or one provider?",
+            "prompt_text": "📊 Would you like a general summary, or view quota for a specific provider?",
             "options": _options(
                 ("Summary", "__summary__"),
                 ("fal_ai", "fal_ai"),
@@ -257,7 +303,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "select_persona": {
             "input_type": "persona_selector",
             "field": "persona_id",
-            "prompt_text": "Choose a persona to inspect.",
+            "prompt_text": "🔍 Which persona would you like to inspect?",
             "allow_skip": False,
         },
     },
@@ -265,12 +311,12 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_persona_id": {
             "input_type": "free_text",
             "field": "persona_id",
-            "prompt_text": "Enter a persona ID.",
+            "prompt_text": "🆔 Please enter a unique ID for your new persona:",
         },
         "choose_language": {
             "input_type": "inline_keyboard",
             "field": "language",
-            "prompt_text": "Choose a language.",
+            "prompt_text": "🌐 What language will your persona speak?",
             "options": _options(
                 ("Vietnamese", "Vietnamese"),
                 ("English", "English"),
@@ -279,23 +325,23 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "choose_voice": {
             "input_type": "inline_keyboard",
             "field": "voice",
-            "prompt_text": "Choose a voice.",
+            "prompt_text": "🗣️ Please select a voice for your persona:",
             "options": _options(
-                ("male_friendly", "male_friendly"),
-                ("female_warm", "female_warm"),
+                ("Male Friendly", "male_friendly"),
+                ("Female Warm", "female_warm"),
             ),
         },
         "collect_appearance": {
             "input_type": "free_text",
             "field": "appearance_prompt_or_photo",
-            "prompt_text": "Describe the avatar or upload a photo reference.",
+            "prompt_text": "📸 Please describe the persona's appearance, or upload a photo reference:",
         },
     },
     "weekly-planner": {
         "collect_brand_config": {
             "input_type": "free_text",
             "field": "brand_config",
-            "prompt_text": "Send brand config JSON or paste a preset object.",
+            "prompt_text": "📅 Let's plan! Please send your brand config JSON or preset object:",
         },
     },
 }

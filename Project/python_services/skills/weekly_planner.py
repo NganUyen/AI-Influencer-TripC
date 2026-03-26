@@ -56,6 +56,11 @@ class WeeklyPlannerSkill(BaseSkill):
             brand_config = deepcopy(brand_config)
             brand_config["planning_brief"] = current.collected["freeform_brief"]
 
+        telegram_chat_id = current.artifacts.get("telegram_chat_id")
+        if telegram_chat_id and not brand_config.get("telegram_chat_id"):
+            brand_config = deepcopy(brand_config)
+            brand_config["telegram_chat_id"] = str(telegram_chat_id)
+
         user_id = current.collected.get("user_id") or "telegram-openclaw"
         response = await cls._request_json(
             http_client,

@@ -75,12 +75,14 @@ class WeeklyMarketingWorkflow:
                 start_to_close_timeout=timedelta(minutes=2),
             )
 
-            # Step 3: Wait for approval signal (can wait indefinitely)
+            # Step 3: Wait for Telegram callback decision persisted by TelegramService
             workflow.logger.info(f"Waiting for approval on request: {approval_request_id}")
             try:
-                await workflow.wait_condition(
-                    lambda: self.approval_received,
-                    timeout=timedelta(days=7),  # Maximum 7 days to approve
+                approval_result = await workflow.execute_activity(
+                    wait_for_approval,
+                    args=[approval_request_id],
+                    start_to_close_timeout=timedelta(days=8),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
                 )
             except TimeoutError:
                 workflow.logger.warning("Approval timeout - canceling workflow")
@@ -90,6 +92,10 @@ class WeeklyMarketingWorkflow:
                     "status": "timed_out",
                     "message": "Approval not received within 7 days",
                 }
+
+            self.approval_received = True
+            self.approval_approved = bool(approval_result.get("approved", False))
+            self.approval_feedback = approval_result.get("feedback", "")
 
             if not self.approval_approved:
                 workflow.logger.info("Strategy rejected by operator")

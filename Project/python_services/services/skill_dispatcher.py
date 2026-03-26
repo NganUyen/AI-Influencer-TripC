@@ -60,6 +60,7 @@ class SkillDispatcher:
         if skill_cls is None:
             return SkillResult(success=False, error=f"Unsupported skill: {skill_name}")
         session = skill_cls.initial_session()
+        session.artifacts.setdefault("telegram_chat_id", str(chat_id))
         await cls._prepare_prompt_session(app, session)
 
         step = get_step_definition(skill_name, session.step_key)
@@ -78,6 +79,7 @@ class SkillDispatcher:
         session = await TelegramSkillSessionStore.get_session(chat_id)
         if session is None:
             return None
+        session.artifacts.setdefault("telegram_chat_id", str(chat_id))
 
         step = get_step_definition(session.skill_name, session.step_key)
         if step.get("input_type") != "free_text":
@@ -102,6 +104,7 @@ class SkillDispatcher:
                 success=False,
                 error="Skill session expired. Use /media to start again.",
             )
+        session.artifacts.setdefault("telegram_chat_id", str(chat_id))
 
         step = get_step_definition(session.skill_name, session.step_key)
         field = step.get("field")
@@ -125,6 +128,7 @@ class SkillDispatcher:
         session = await TelegramSkillSessionStore.get_session(chat_id)
         if session is None:
             return SkillResult(success=False, error="No active skill session.")
+        session.artifacts.setdefault("telegram_chat_id", str(chat_id))
 
         if action == "cancel":
             await TelegramSkillSessionStore.clear_session(chat_id)

@@ -77,6 +77,9 @@ class VideoAISkill(BaseSkill):
             "tone": current.collected["tone"],
             "platform": current.collected.get("platform") or "tiktok",
         }
+        telegram_chat_id = current.artifacts.get("telegram_chat_id")
+        if telegram_chat_id:
+            payload["telegram_chat_id"] = str(telegram_chat_id)
         response = await cls._request_json(
             http_client,
             "POST",

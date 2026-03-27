@@ -31,9 +31,6 @@ async def generate_weekly_strategy(
     """
     logger.info(f"Generating weekly strategy for user: {user_id}")
 
-    openclaw = OpenClawService()
-    ai_service = AIService()
-
     # Get brand voice and preferences
     brand_voice = brand_config.get("voice", "professional and engaging")
     target_platforms = brand_config.get(
@@ -59,9 +56,10 @@ async def generate_weekly_strategy(
     Return as JSON structure.
     """
 
-    strategy = await openclaw.execute_task(
-        task_type="content_strategy", prompt=strategy_prompt, user_id=user_id
-    )
+    async with OpenClawService() as openclaw:
+        strategy = await openclaw.execute_task(
+            task_type="content_strategy", prompt=strategy_prompt, user_id=user_id
+        )
 
     return {
         "user_id": user_id,
@@ -81,7 +79,6 @@ async def generate_media_prompts(strategy: Dict[str, Any]) -> List[Dict[str, Any
     """
     logger.info("Generating media prompts from strategy")
 
-    ai_service = AIService()
     prompts = []
 
     daily_content = strategy.get("strategy", {}).get("daily_content", [])
@@ -94,11 +91,12 @@ async def generate_media_prompts(strategy: Dict[str, Any]) -> List[Dict[str, Any
 
             if media_type in ["image", "video"]:
                 # Generate prompt for fal.ai
-                prompt = await ai_service.generate_visual_prompt(
-                    content_description=day_content.get("theme"),
-                    style=media.get("style", "modern"),
-                    platform=media.get("platform"),
-                )
+                async with AIService() as ai_service:
+                    prompt = await ai_service.generate_visual_prompt(
+                        content_description=day_content.get("theme"),
+                        style=media.get("style", "modern"),
+                        platform=media.get("platform"),
+                    )
 
                 prompts.append(
                     {
@@ -114,10 +112,11 @@ async def generate_media_prompts(strategy: Dict[str, Any]) -> List[Dict[str, Any
 
             elif media_type == "audio":
                 # Generate script for PlayHT
-                script = await ai_service.generate_audio_script(
-                    content=day_content.get("message"),
-                    voice_persona=media.get("voice_persona", "professional"),
-                )
+                async with AIService() as ai_service:
+                    script = await ai_service.generate_audio_script(
+                        content=day_content.get("message"),
+                        voice_persona=media.get("voice_persona", "professional"),
+                    )
 
                 prompts.append(
                     {
@@ -150,15 +149,15 @@ async def generate_daily_content(
     """
     logger.info(f"Generating content for day {day_number}")
 
-    ai_service = AIService()
     daily_strategy = strategy["strategy"]["daily_content"][day_number - 1]
 
     # Generate platform-specific copy
-    content = await ai_service.generate_platform_copy(
-        theme=daily_strategy.get("theme"),
-        platforms=strategy.get("platforms"),
-        brand_voice=strategy.get("brand_config", {}).get("voice"),
-    )
+    async with AIService() as ai_service:
+        content = await ai_service.generate_platform_copy(
+            theme=daily_strategy.get("theme"),
+            platforms=strategy.get("platforms"),
+            brand_voice=strategy.get("brand_config", {}).get("voice"),
+        )
 
     return {
         "day": day_number,
@@ -227,12 +226,12 @@ Return ONLY valid JSON:
   "hashtags": ["#tag1", "#tag2"]
 }}
 
-Slide 1: Hook/Problem. Slides 2-7: Features/Benefits. Slide 8: CTA to download {app_name}.
-Keep each slide visually distinct and suitable for text overlay on top of the image.
-"""
+    Slide 1: Hook/Problem. Slides 2-7: Features/Benefits. Slide 8: CTA to download {app_name}.
+    Keep each slide visually distinct and suitable for text overlay on top of the image.
+    """
 
-    ai = AIService()
-    raw = await ai.generate_text(prompt=CAROUSEL_PROMPT, model=model, temperature=0.7, max_tokens=3000)
+    async with AIService() as ai:
+        raw = await ai.generate_text(prompt=CAROUSEL_PROMPT, model=model, temperature=0.7, max_tokens=3000)
 
     cleaned = raw.strip()
     if cleaned.startswith("```"):
@@ -295,8 +294,8 @@ Return ONLY valid JSON:
 Structure: intro hook → problem → solution (features) → social proof → CTA to download {app_name}.
 """
 
-    ai = AIService()
-    raw = await ai.generate_text(prompt=LONG_POST_PROMPT, model=model, temperature=0.7, max_tokens=4000)
+    async with AIService() as ai:
+        raw = await ai.generate_text(prompt=LONG_POST_PROMPT, model=model, temperature=0.7, max_tokens=4000)
 
     cleaned = raw.strip()
     if cleaned.startswith("```"):

@@ -162,10 +162,10 @@ async def generate_content_scenes(
 
     if use_ai_captions:
         # Gọi AI sinh captions tùy chỉnh theo topic
-        ai = AIService()
-        for template in DA_NANG_SCENE_TEMPLATES:
-            caption = await _ai_caption(ai, template["role"], topic, location)
-            scenes.append({**template, "caption": caption, "platform": platform})
+        async with AIService() as ai:
+            for template in DA_NANG_SCENE_TEMPLATES:
+                caption = await _ai_caption(ai, template["role"], topic, location)
+                scenes.append({**template, "caption": caption, "platform": platform})
     else:
         # Dùng template sẵn, thêm platform
         for template in DA_NANG_SCENE_TEMPLATES:
@@ -214,29 +214,36 @@ async def generate_app_tutorial_scenes(
     persona = CONTINENT_PERSONAS.get(continent, CONTINENT_PERSONAS["asia"])
     scenes = []
     
-    ai = AIService() if use_ai_captions else None
-    
-    for template in GLOBAL_APP_TUTORIAL_SCENES:
-        scene = template.copy()
-        # Tạo image prompt hướng dẫn UI app có kèm mô tả skin_color của persona để đồng nhất
-        scene["image_prompt"] = (
-            f"High quality screenshot of {app_name} web application UI, "
-            f"showing {scene['role']} feature. In foreground, hand of a person with "
-            f"{persona['skin_color']} skin is interacting with the screen. "
-            f"clean modern design, software demo style, professional, 9:16 vertical"
-        )
-        
-        if use_ai_captions and ai:
-            prompt = (
-                f"Viết 1 câu hướng dẫn ngắn (<8 từ) cho tính năng '{scene['role']}' "
-                f"của app '{app_name}'. Sử dụng ngôn ngữ '{persona['language_name']}'. "
-                f"Giữ giọng điệu chuyên nghiệp."
+    if use_ai_captions:
+        async with AIService() as ai:
+            for template in GLOBAL_APP_TUTORIAL_SCENES:
+                scene = template.copy()
+                scene["image_prompt"] = (
+                    f"High quality screenshot of {app_name} web application UI, "
+                    f"showing {scene['role']} feature. In foreground, hand of a person with "
+                    f"{persona['skin_color']} skin is interacting with the screen. "
+                    f"clean modern design, software demo style, professional, 9:16 vertical"
+                )
+                prompt = (
+                    f"Viết 1 câu hướng dẫn ngắn (<8 từ) cho tính năng '{scene['role']}' "
+                    f"của app '{app_name}'. Sử dụng ngôn ngữ '{persona['language_name']}'. "
+                    f"Giữ giọng điệu chuyên nghiệp."
+                )
+                try:
+                    scene["caption"] = await ai.generate_text(prompt=prompt)
+                except: pass
+                scene["persona_config"] = persona
+                scenes.append(scene)
+    else:
+        for template in GLOBAL_APP_TUTORIAL_SCENES:
+            scene = template.copy()
+            scene["image_prompt"] = (
+                f"High quality screenshot of {app_name} web application UI, "
+                f"showing {scene['role']} feature. In foreground, hand of a person with "
+                f"{persona['skin_color']} skin is interacting with the screen. "
+                f"clean modern design, software demo style, professional, 9:16 vertical"
             )
-            try:
-                scene["caption"] = await ai.generate_text(prompt=prompt)
-            except: pass
-            
-        scene["persona_config"] = persona
-        scenes.append(scene)
+            scene["persona_config"] = persona
+            scenes.append(scene)
         
     return scenes

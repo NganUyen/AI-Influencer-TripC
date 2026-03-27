@@ -310,5 +310,11 @@ class OpenClawService:
             "message": "Current public OpenClaw HTTP APIs do not expose a native REST task cancel endpoint.",
         }
 
-    async def close(self):
+    async def close(self) -> None:
         await self.client.aclose()
+
+    async def __aenter__(self) -> 'OpenClawService':
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        await self.close()

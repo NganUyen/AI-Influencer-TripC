@@ -126,6 +126,86 @@ def _truncate(text: str, max_length: int = 30) -> str:
     return f"{value[: max_length - 3]}..."
 
 
+def _humanize_token(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "-"
+    return text.replace("_", " ").strip().title()
+
+
+def _video_ai_concept_text(concept: Dict[str, Any], persona_snapshot: Dict[str, Any]) -> str:
+    persona_label = (
+        persona_snapshot.get("display_name")
+        or persona_snapshot.get("persona_id")
+        or concept.get("persona_id")
+        or "-"
+    )
+    lines = [
+        "Video Concept Ready",
+        "",
+        f"Persona: {persona_label}",
+        f"Feature Focus: {concept.get('feature_focus') or '-'}",
+        f"Goal: {_humanize_token(concept.get('video_goal'))}",
+        f"Audience: {concept.get('audience') or '-'}",
+        f"CTA: {concept.get('cta') or '-'}",
+        f"Source URL: {concept.get('reference_url') or '-'}",
+        f"Access: {_humanize_token(concept.get('access_level'))}",
+        f"Tone: {concept.get('tone_resolved') or persona_snapshot.get('tone_resolved') or '-'}",
+    ]
+    source_summary = str(concept.get("source_summary") or "").strip()
+    if source_summary:
+        lines.extend(["", f"Source Summary: {source_summary}"])
+    lines.extend(["", "Approve this brief, edit the inputs, or regenerate it."])
+    return "\n".join(lines)
+
+
+def _video_ai_beats_text(beat_sheet: Dict[str, Any], concept: Dict[str, Any]) -> str:
+    lines = [
+        "Beat Plan Ready",
+        "",
+        f"Feature Focus: {concept.get('feature_focus') or '-'}",
+        f"Goal: {_humanize_token(concept.get('video_goal'))}",
+        "",
+    ]
+    for beat in beat_sheet.get("beats") or []:
+        idx = beat.get("idx") or "?"
+        purpose = _humanize_token(beat.get("purpose"))
+        bottom = beat.get("bottom_half_message") or "-"
+        target = beat.get("top_half_target") or "-"
+        source_type = _humanize_token(beat.get("top_half_source_type"))
+        lines.append(f"{idx}. {purpose}: {bottom}")
+        lines.append(f"   Top Half: {target} ({source_type})")
+    lines.extend(["", "Approve this beat plan, edit the inputs, or regenerate it."])
+    return "\n".join(lines)
+
+
+def _video_ai_retry_options(
+    options: List[Dict[str, str]],
+    *,
+    allow_approve: bool,
+) -> List[Dict[str, str]]:
+    if allow_approve:
+        return options
+    return [option for option in options if option.get("value") != "approve"]
+
+
+def _video_ai_retry_text(
+    *,
+    error: str,
+    concept: Dict[str, Any] | None = None,
+    beat_sheet: Dict[str, Any] | None = None,
+    persona_snapshot: Dict[str, Any] | None = None,
+) -> str:
+    lines = [error]
+    if beat_sheet:
+        lines.extend(["", _video_ai_beats_text(beat_sheet, concept or {})])
+    elif concept:
+        lines.extend(["", _video_ai_concept_text(concept, persona_snapshot or {})])
+    else:
+        lines.extend(["", "Use Regenerate to try again, or Edit to revise the inputs."])
+    return "\n".join(lines)
+
+
 def _status_badge(status: str) -> str:
     normalized = str(status or "unknown").strip().lower()
     return {
@@ -281,6 +361,32 @@ class TelegramRenderer:
 
     @classmethod
     def render_skill_prompt(cls, session: SkillSession) -> Dict[str, Any]:
+        if session.skill_name == "video-ai" and session.step_key == "confirm_concept":
+            step = get_step_definition(session.skill_name, session.step_key)
+            concept = session.artifacts.get("concept_brief") or {}
+            persona_snapshot = session.artifacts.get("persona_snapshot") or {}
+            return {
+                "text": _video_ai_concept_text(concept, persona_snapshot),
+                "reply_markup": _inline_keyboard_from_options(
+                    step.get("options", []),
+                    prefix="action::",
+                ),
+                "parse_mode": None,
+            }
+
+        if session.skill_name == "video-ai" and session.step_key == "confirm_beats":
+            step = get_step_definition(session.skill_name, session.step_key)
+            beat_sheet = session.artifacts.get("beat_sheet") or {}
+            concept = session.artifacts.get("concept_brief") or {}
+            return {
+                "text": _video_ai_beats_text(beat_sheet, concept),
+                "reply_markup": _inline_keyboard_from_options(
+                    step.get("options", []),
+                    prefix="action::",
+                ),
+                "parse_mode": None,
+            }
+
         if session.skill_name == "image-scene" and session.step_key == "selecting_images":
             candidates = session.artifacts.get("image_candidates") or []
             selected_indexes = list(session.artifacts.get("selected_candidate_indexes") or [])
@@ -385,10 +491,65 @@ class TelegramRenderer:
             }
 
         if not result.success:
+            if session.skill_name == "video-ai" and session.step_key in {"confirm_concept", "confirm_beats"}:
+                output = result.output or {}
+                concept = output.get("concept_brief") or session.artifacts.get("concept_brief") or {}
+                beat_sheet = output.get("beat_sheet") or session.artifacts.get("beat_sheet") or {}
+                persona_snapshot = (
+                    output.get("persona_snapshot") or session.artifacts.get("persona_snapshot") or {}
+                )
+                step = get_step_definition(session.skill_name, session.step_key)
+                allow_approve = bool(concept) if session.step_key == "confirm_concept" else bool(beat_sheet)
+                return {
+                    "text": _video_ai_retry_text(
+                        error=result.error or "Pre-production step failed.",
+                        concept=concept,
+                        beat_sheet=beat_sheet,
+                        persona_snapshot=persona_snapshot,
+                    ),
+                    "reply_markup": _inline_keyboard_from_options(
+                        _video_ai_retry_options(
+                            step.get("options", []),
+                            allow_approve=allow_approve,
+                        ),
+                        prefix="action::",
+                    ),
+                    "parse_mode": None,
+                }
             return {
                 "text": result.error or "❌ Skill execution failed. Please try again.",
                 "reply_markup": _inline_keyboard_from_options(
                     [{"label": "Cancel", "value": "cancel"}],
+                    prefix="action::",
+                ),
+                "parse_mode": None,
+            }
+
+        if session.skill_name == "video-ai" and session.step_key == "confirm_concept":
+            output = result.output or {}
+            concept = output.get("concept_brief") or session.artifacts.get("concept_brief") or {}
+            persona_snapshot = (
+                output.get("persona_snapshot") or session.artifacts.get("persona_snapshot") or {}
+            )
+            step = get_step_definition(session.skill_name, session.step_key)
+            return {
+                "text": _video_ai_concept_text(concept, persona_snapshot),
+                "reply_markup": _inline_keyboard_from_options(
+                    step.get("options", []),
+                    prefix="action::",
+                ),
+                "parse_mode": None,
+            }
+
+        if session.skill_name == "video-ai" and session.step_key == "confirm_beats":
+            output = result.output or {}
+            beat_sheet = output.get("beat_sheet") or session.artifacts.get("beat_sheet") or {}
+            concept = output.get("concept_brief") or session.artifacts.get("concept_brief") or {}
+            step = get_step_definition(session.skill_name, session.step_key)
+            return {
+                "text": _video_ai_beats_text(beat_sheet, concept),
+                "reply_markup": _inline_keyboard_from_options(
+                    step.get("options", []),
                     prefix="action::",
                 ),
                 "parse_mode": None,
@@ -577,6 +738,31 @@ class TelegramRenderer:
 
         if session.control.status == SkillStatus.done or result.next_step == "done":
             output = result.output or {}
+            if session.skill_name == "video-ai":
+                package = (
+                    output.get("approved_production_package")
+                    or session.artifacts.get("approved_production_package")
+                    or {}
+                )
+                concept = package.get("concept_brief") or session.artifacts.get("concept_brief") or {}
+                beat_sheet = package.get("beat_sheet") or session.artifacts.get("beat_sheet") or {}
+                beat_count = len(beat_sheet.get("beats") or [])
+                lines = [
+                    "Pre-production package ready.",
+                    "No production workflow has started yet.",
+                    "",
+                    f"Persona: {concept.get('persona_id') or '-'}",
+                    f"Feature Focus: {concept.get('feature_focus') or '-'}",
+                    f"Goal: {_humanize_token(concept.get('video_goal'))}",
+                    f"Beats: {beat_count}",
+                    "",
+                    "This package is ready for the next production integration step.",
+                ]
+                return {
+                    "text": "\n".join(lines),
+                    "reply_markup": None,
+                    "parse_mode": None,
+                }
             lines = [f"✅ `{session.skill_name}` completed successfully!"]
             if isinstance(output, dict):
                 if output.get("message"):

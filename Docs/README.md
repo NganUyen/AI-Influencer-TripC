@@ -17,6 +17,7 @@ This folder is the canonical documentation set for the repo as it exists today.
 9. [db.md](./db.md) for the application database and Supabase/Auth split
 10. [ENVIRONMENT_REFERENCE.md](./ENVIRONMENT_REFERENCE.md) for the env contract used across local and production runtime
 11. [OPERATIONS_RUNBOOK.md](./OPERATIONS_RUNBOOK.md) for VPS deployment, migrations, provider bootstrap, and routine operations
+12. [PREPRODUCTION_VIDEO_V1.md](./PREPRODUCTION_VIDEO_V1.md) for the approved v1 pre-production design for Telegram-driven AI influencer video creation
 
 ## How To Use This Set
 
@@ -26,6 +27,7 @@ This folder is the canonical documentation set for the repo as it exists today.
 - use `FRONTEND.md`, `BACKEND_API.md`, and `WORKFLOWS_AND_AUTOMATION.md` as the implementation reference set
 - use `db.md` and `ENVIRONMENT_REFERENCE.md` when changing persistence or config
 - use `OPERATIONS_RUNBOOK.md` for anything production-facing
+- use `PREPRODUCTION_VIDEO_V1.md` when working on creative direction, concept approval, and the pre-production handoff to video generation
 
 ## Related Entry Points Outside This Folder
 

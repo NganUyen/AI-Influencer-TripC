@@ -18,6 +18,7 @@ from .content_persistence_service import ContentPersistenceService
 from .quota_monitor_service import QuotaMonitorService
 from .proxy_manager_service import ProxyManagerService
 from .persona_registry_service import PersonaRegistryService
+from .creative_director_service import CreativeDirectorService
 
 __all__ = [
     "OpenClawService",
@@ -36,5 +37,5 @@ __all__ = [
     "QuotaMonitorService",
     "ProxyManagerService",
     "PersonaRegistryService",
+    "CreativeDirectorService",
 ]
-

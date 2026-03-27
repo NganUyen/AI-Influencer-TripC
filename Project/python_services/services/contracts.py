@@ -2,9 +2,10 @@
 Pipeline internal contracts.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
+from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class SceneContract(BaseModel):
@@ -141,3 +142,125 @@ class CarouselArtifact(BaseModel):
     hashtags: List[str] = Field(default_factory=list)
     status: str = "completed"
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+_VIDEO_GOALS = {
+    "feature_demo",
+    "conversion",
+    "awareness",
+    "walkthrough",
+}
+_ACCESS_LEVELS = {
+    "public_page_only",
+    "has_logged_in_access",
+    "login_required_but_not_available",
+    "unknown",
+}
+_BEAT_PURPOSES = {
+    "hook",
+    "problem",
+    "solution_intro",
+    "feature_demo",
+    "product_positioning",
+    "proof",
+    "benefit",
+    "expectation_setting",
+    "cta",
+}
+_TOP_HALF_SOURCE_TYPES = {
+    "public_page_capture",
+    "authenticated_capture_later",
+    "ai_visual_fallback",
+    "hybrid_candidate",
+}
+
+
+class ConceptBriefContract(BaseModel):
+    persona_id: str
+    creative_input_mode: Literal["idea_brief"] = "idea_brief"
+    feature_focus: str
+    video_goal: str
+    audience: str
+    angle: str
+    platform: str = "tiktok"
+    cta: str
+    reference_url: str
+    access_level: str
+    source_summary: str
+    tone_resolved: str
+
+    @field_validator("video_goal")
+    @classmethod
+    def validate_video_goal(cls, value: str) -> str:
+        normalized = str(value).strip().lower()
+        if normalized not in _VIDEO_GOALS:
+            raise ValueError(f"Unsupported video_goal: {value}")
+        return normalized
+
+    @field_validator("access_level")
+    @classmethod
+    def validate_access_level(cls, value: str) -> str:
+        normalized = str(value).strip()
+        if normalized not in _ACCESS_LEVELS:
+            raise ValueError(f"Unsupported access_level: {value}")
+        return normalized
+
+    @field_validator("reference_url")
+    @classmethod
+    def validate_reference_url(cls, value: str) -> str:
+        normalized = str(value).strip()
+        if not normalized.startswith(("http://", "https://")):
+            raise ValueError("reference_url must start with http:// or https://")
+        return normalized
+
+
+class BeatContract(BaseModel):
+    idx: int
+    purpose: str
+    bottom_half_message: str
+    top_half_source_type: str
+    top_half_target: str
+    top_half_capture_hint: str
+    source_ref: Optional[str] = None
+    overlay_text: str
+    duration_sec: int
+
+    @field_validator("purpose")
+    @classmethod
+    def validate_purpose(cls, value: str) -> str:
+        normalized = str(value).strip().lower()
+        if normalized not in _BEAT_PURPOSES:
+            raise ValueError(f"Unsupported beat purpose: {value}")
+        return normalized
+
+    @field_validator("top_half_source_type")
+    @classmethod
+    def validate_top_half_source_type(cls, value: str) -> str:
+        normalized = str(value).strip()
+        if normalized not in _TOP_HALF_SOURCE_TYPES:
+            raise ValueError(f"Unsupported top_half_source_type: {value}")
+        return normalized
+
+    @field_validator("duration_sec")
+    @classmethod
+    def validate_duration_sec(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("duration_sec must be positive")
+        return value
+
+
+class BeatSheetContract(BaseModel):
+    concept_id: str = Field(default_factory=lambda: f"concept_{uuid4().hex[:8]}")
+    beats: List[BeatContract]
+
+    @model_validator(mode="after")
+    def validate_beat_count(self) -> "BeatSheetContract":
+        if len(self.beats) not in {5, 6}:
+            raise ValueError("BeatSheet must contain 5 beats by default, or 6 for complex demos")
+        return self
+
+
+class ApprovedProductionPackageContract(BaseModel):
+    concept_brief: ConceptBriefContract
+    beat_sheet: BeatSheetContract
+    persona_snapshot: Dict[str, Any] = Field(default_factory=dict)

@@ -43,4 +43,5 @@ async def main():
     print("   Go to your Telegram bot/group and wait ~10-30 seconds...")
     print("   You should receive the story with 3 buttons.")
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

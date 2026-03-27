@@ -11,6 +11,7 @@ from .publish_manager import PublishManagerSkill
 from .quota_inspector import QuotaInspectorSkill
 from .video_ai import VideoAISkill
 from .weekly_planner import WeeklyPlannerSkill
+from .daily_story import DailyStorySkill
 
 # Active Phase 1 skills for the current OpenClaw integration pass.
 SKILL_REGISTRY = {
@@ -23,6 +24,7 @@ SKILL_REGISTRY = {
     "publish-manager": PublishManagerSkill,
     "video-ai": VideoAISkill,
     "weekly-planner": WeeklyPlannerSkill,
+    "daily-story": DailyStorySkill,
 }
 
 # Backend-pending skills are documented for the Telegram layer but intentionally inactive.
@@ -44,6 +46,7 @@ __all__ = [
     "PublishManagerSkill",
     "VideoAISkill",
     "WeeklyPlannerSkill",
+    "DailyStorySkill",
     "CarouselSkill",
     "LongPostSkill",
     "SKILL_REGISTRY",

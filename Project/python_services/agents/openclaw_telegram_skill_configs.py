@@ -51,6 +51,50 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "Define the skill first. Integrate with Telegram command routing later."
         ),
     },
+    "daily-story": {
+        "name": "DailyStory",
+        "command": "/media",
+        "role": "Generate daily story draft and transition to media",
+        "description": "Interactive flow to generate a daily story draft and select the media format.",
+        "status": "implemented_backing",
+        "kind": "leaf",
+        "parent": "media",
+        "menu_options": [],
+        "required_params": ["persona_id", "topic"],
+        "optional_params": ["app_name", "feedback", "media_action"],
+        "input_contract": {
+            "mode": "structured_with_optional_freeform",
+            "freeform_fields": ["feedback"],
+            "note": "Collects topic and optional feedback to regenerate the text."
+        },
+        "internal_skills": ["persona-picker"],
+        "api_call": {
+            "target": "Direct AIService Prompt",
+            "current_repo_support": True,
+        },
+        "output": "A generated story draft and a transition action",
+        "implementation_priority": 1,
+        "integration_note": "A custom flow added to bridge the Daily Story with the other media modes.",
+        "steps": [
+            "pick_persona",
+            "collect_content",
+            "generate_draft",
+            "choose_media_action"
+        ],
+        "session_shape": {
+            "step_key": "pick_persona",
+            "collected": {
+                "persona_id": None,
+                "topic": None,
+                "feedback": None,
+                "media_action": None
+            },
+            "artifacts": {
+                "story_draft": None,
+                "story_body": None
+            }
+        }
+    },
     "image-menu": {
         "name": "ImageMenu",
         "command": "/media",

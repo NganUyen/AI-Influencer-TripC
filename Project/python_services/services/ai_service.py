@@ -129,6 +129,17 @@ class AIService:
             
         self.default_model = settings.DEFAULT_AI_MODEL or "models/gemini-2.0-flash"
 
+    async def close(self) -> None:
+        """Close underlying HTTP clients to prevent resource leaks."""
+        await self.openai_client.close()
+        await self.anthropic_client.close()
+
+    async def __aenter__(self) -> 'AIService':
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        await self.close()
+
     @staticmethod
     def _provider_for_model(model: str) -> str:
         if model.startswith("gpt"):

@@ -62,9 +62,6 @@ class ScriptService:
     Follows the v2 pattern: service → contract validation → pipeline.
     """
 
-    def __init__(self):
-        self.ai = AIService()
-
     async def generate_script(
         self,
         app_name: str,
@@ -103,13 +100,14 @@ class ScriptService:
         logger.info(f"Generating script | app={app_name} | topic={topic} | lang={language}")
 
         try:
-            raw = await self.ai.generate_text(
-                prompt=user_prompt,
-                system_prompt=SYSTEM_PROMPT,
-                model=model,
-                temperature=0.7,
-                max_tokens=2000,
-            )
+            async with AIService() as ai:
+                raw = await ai.generate_text(
+                    prompt=user_prompt,
+                    system_prompt=SYSTEM_PROMPT,
+                    model=model,
+                    temperature=0.7,
+                    max_tokens=2000,
+                )
         except Exception as e:
             raise ScriptGenerationError(f"AI call failed: {e}") from e
 

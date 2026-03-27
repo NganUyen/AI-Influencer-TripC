@@ -12,6 +12,7 @@ def _options(*items: tuple[str, str]) -> List[Dict[str, str]]:
 MAIN_MENU: Dict[str, Any] = {
     "text": "🎨 Welcome to the TripC Media Editor!\n\nWhat would you like to create today? Please select an option below:",
     "rows": [
+        [("📖 Daily Story", "skill_daily-story")],
         [("🖼️ Create Image", "menu_image"), ("🎬 Create Video", "menu_video")],
         [("🎠 Carousel", "skill_carousel"), ("⚙️ Manage", "menu_manage")],
     ],
@@ -275,6 +276,36 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
             "input_type": "free_text",
             "field": "brand_config",
             "prompt_text": "📅 Let's plan! Please send your brand config JSON or preset object:",
+        },
+    },
+    "daily-story": {
+        "pick_persona": {
+            "input_type": "persona_picker",
+            "field": "persona_id",
+            "prompt_text": "👤 Who is narrating this story? Choose a persona:",
+            "allow_skip": False,
+        },
+        "collect_content": {
+            "input_type": "free_text",
+            "field": "topic",
+            "prompt_text": "📝 What kind of content do you want for today's story?",
+        },
+        "collect_feedback": {
+            "input_type": "free_text",
+            "field": "feedback",
+            "prompt_text": "🔄 What should be improved? (e.g. 'Make it funnier, talk more about food')",
+        },
+        "choose_media_action": {
+            "input_type": "inline_keyboard",
+            "field": "media_action",
+            "prompt_text": "Story draft is ready! What would you like to do next?",
+            "options": _options(
+                ("🔄 Regenerate Story", "regenerate_story"),
+                ("🖼️ Create Image", "forward_image"),
+                ("🎬 Create Video", "forward_video"),
+                ("🎠 Create Carousel", "forward_carousel"),
+                ("❌ Cancel", "cancel"),
+            ),
         },
     },
 }

@@ -108,14 +108,14 @@ async def generate_daily_story(config: Dict[str, Any]) -> Dict[str, Any]:
         audience=audience,
     )
 
-    ai = AIService()
-    raw = await ai.generate_text(
-        prompt=user_prompt,
-        system_prompt=_STORY_SYSTEM_PROMPT,
-        model=model,
-        temperature=0.75,
-        max_tokens=800,
-    )
+    async with AIService() as ai:
+        raw = await ai.generate_text(
+            prompt=user_prompt,
+            system_prompt=_STORY_SYSTEM_PROMPT,
+            model=model,
+            temperature=0.75,
+            max_tokens=800,
+        )
 
     # Strip markdown fences if Gemini wraps JSON in ```
     cleaned = raw.strip()

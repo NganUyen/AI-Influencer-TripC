@@ -6,7 +6,7 @@ The current repo intentionally splits responsibilities:
 
 - app data lives in PostgreSQL and is accessed through `DATABASE_URL`
 - customer sign-in and session validation use Supabase Auth
-- generated media defaults to a public Supabase Storage bucket named `ai-influencer-media`
+- generated media defaults to a public Supabase Storage bucket named `media`
 - the same SQL assets can be used against local Postgres or a Supabase-hosted Postgres database
 
 ## Files
@@ -21,7 +21,10 @@ supabase/
     |-- 20260320_chatgpt_connector_links.sql
     |-- 20260324_customer_product_v1.sql
     |-- 20260324_live_db_backfill.sql
-    `-- 20260324_zz_supabase_storage_bucket.sql
+    |-- 20260324_zz_supabase_storage_bucket.sql
+    |-- 20260326_persona_media_contract.sql
+    |-- 20260326_personas_user_scoped_unique.sql
+    `-- 20260326_telegram_owner_links_and_avatar_assets.sql
 ```
 
 ## Runtime Model
@@ -30,9 +33,12 @@ Use this mental model when wiring environments:
 
 - `DATABASE_URL` points at the primary application database
 - `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, and related keys are still required for customer auth/session flows
-- `SUPABASE_STORAGE_BUCKET` defaults to `ai-influencer-media`; if you change it, create the bucket to match and update your env
+- `SUPABASE_STORAGE_BUCKET` now prefers `media`; older installs can keep using `ai-influencer-media` if their env already points there
 - `schema.sql` includes an `auth.uid()` compatibility shim so the same base SQL works on plain Postgres and on Supabase-hosted Postgres
 - `migrations/*.sql` are for upgrading existing databases; `schema.sql` is for bootstrapping a fresh one
+- persona-owned assets are recorded in `public.media_assets` with explicit `persona_id`, `bucket_name`, and `storage_path` columns in addition to legacy `metadata`
+- Telegram/customer ownership links live in `public.telegram_link_tokens` and `public.telegram_user_links`
+- persona avatars can now be attached directly to `public.media_assets` through `public.personas.avatar_media_asset_id`
 
 ## Fresh Local Postgres
 
@@ -80,10 +86,11 @@ If you want Supabase to host the application tables as well as auth:
 3. apply the incremental migrations for any environments created before the latest base file
 4. keep the frontend/backend auth env vars pointed at that Supabase project
 
-When the project is actually hosted on Supabase, the checked-in migration
-`migrations/20260324_zz_supabase_storage_bucket.sql` also provisions the default
-public media bucket used by the backend upload pipeline. The migration is a no-op
-on plain PostgreSQL because the `storage` schema does not exist there.
+When the project is actually hosted on Supabase, the checked-in storage
+migrations provision the public media buckets used by the backend upload
+pipeline. The preferred bucket is now `media`, while `ai-influencer-media`
+remains supported for backward compatibility. These migrations are no-ops on
+plain PostgreSQL because the `storage` schema does not exist there.
 
 You can use Supabase CLI if you prefer:
 

@@ -121,7 +121,7 @@ async def generate_and_send_script_for_approval(config: Dict[str, Any]) -> Dict[
         f"• *Duration*: {contract.duration_estimate:.0f}s\n\n"
         f"📖 *Script Preview*:\n`{contract.script[:300]}{'...' if len(contract.script) > 300 else ''}`\n\n"
         f"🎬 *Scenes* ({len(contract.scenes)}):\n```text\n{scenes_text}\n```\n"
-        "Approve to start media generation? This will call TTS + fal.ai + HeyGen."
+        "Approve to start media generation? This will call TTS + fal.ai, and use HeyGen when a talking-head avatar is available."
     )
 
     tg = TelegramService()

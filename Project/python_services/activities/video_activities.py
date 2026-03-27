@@ -249,15 +249,21 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
 
         # ── media bucket hook (non-blocking) ─────────────────────────────────
         _campaign_id = config.get("campaign_id")
-        if _campaign_id:
+        _owner_key = config.get("owner_key")
+        _user_id = config.get("user_id")
+        if _campaign_id or assembly_input.persona_id or _owner_key or _user_id:
             asyncio.create_task(
                 MediaStorageService().upload_from_url(
                     url=video_url,
-                    destination_path=f"video/{assembly_input.persona_id}/{safe_topic}_final_{str(id(video_bytes))[-6:]}.mp4",
-                    campaign_id=str(_campaign_id),
+                    campaign_id=str(_campaign_id) if _campaign_id else None,
                     asset_type="VIDEO",
                     generation_prompt=assembly_input.topic,
                     content_type="video/mp4",
+                    user_id=_user_id,
+                    owner_key=_owner_key,
+                    persona_id=assembly_input.persona_id,
+                    metadata={"topic": assembly_input.topic, "source": "split_screen"},
+                    file_name_hint=f"{safe_topic}-final",
                 )
             )
 

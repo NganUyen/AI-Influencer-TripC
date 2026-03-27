@@ -53,11 +53,11 @@ class _StubAsyncClient:
 
 def _configure_supabase_settings(monkeypatch):
     monkeypatch.setattr(storage_service_module.settings, "STORAGE_PROVIDER", "supabase")
-    monkeypatch.setattr(storage_service_module.settings, "STORAGE_BUCKET_NAME", "ai-influencer-media")
+    monkeypatch.setattr(storage_service_module.settings, "STORAGE_BUCKET_NAME", "media")
     monkeypatch.setattr(
         storage_service_module.settings,
         "STORAGE_PUBLIC_URL",
-        "http://supabase.test/storage/v1/object/public/ai-influencer-media",
+        "http://supabase.test/storage/v1/object/public/media",
     )
     monkeypatch.setattr(storage_service_module.settings, "SUPABASE_URL", "http://supabase.test")
     monkeypatch.setattr(
@@ -70,7 +70,7 @@ def _configure_supabase_settings(monkeypatch):
     monkeypatch.setattr(storage_service_module.settings, "STORAGE_UPSERT", True)
 
 
-def test_settings_default_to_supabase_storage_with_bucket_fallback():
+def test_settings_default_to_supabase_storage_uses_supabase_bucket():
     settings = Settings(
         DATABASE_URL="postgresql://test:test@localhost:5432/test",
         SUPABASE_URL="http://supabase.test",
@@ -83,16 +83,35 @@ def test_settings_default_to_supabase_storage_with_bucket_fallback():
         IPROYAL_PASSWORD="test_ipro_password",
         TELEGRAM_BOT_TOKEN="test_telegram_token",
         TELEGRAM_CHAT_ID="test_telegram_chat",
-        SUPABASE_STORAGE_BUCKET="",
+        SUPABASE_STORAGE_BUCKET="media",
         R2_BUCKET_NAME="legacy-media-bucket",
     )
 
     assert settings.STORAGE_PROVIDER == "supabase"
-    assert settings.STORAGE_BUCKET_NAME == "legacy-media-bucket"
-    assert (
-        settings.STORAGE_PUBLIC_URL
-        == "http://supabase.test/storage/v1/object/public/legacy-media-bucket"
-    )
+    assert settings.STORAGE_BUCKET_NAME == "media"
+    assert settings.STORAGE_PUBLIC_URL == "http://supabase.test/storage/v1/object/public/media"
+
+
+def test_settings_default_to_supabase_storage_requires_supabase_bucket():
+    with pytest.raises(
+        ValueError,
+        match="SUPABASE_STORAGE_BUCKET or STORAGE_BUCKET_NAME must be configured",
+    ):
+        Settings(
+            DATABASE_URL="postgresql://test:test@localhost:5432/test",
+            SUPABASE_URL="http://supabase.test",
+            SUPABASE_KEY="test_supabase_key",
+            SUPABASE_SERVICE_ROLE_KEY="test_service_role_key",
+            OPENAI_API_KEY="test_openai_key",
+            ANTHROPIC_API_KEY="test_anthropic_key",
+            FAL_AI_API_KEY="test_fal_key",
+            IPROYAL_USERNAME="test_ipro_user",
+            IPROYAL_PASSWORD="test_ipro_password",
+            TELEGRAM_BOT_TOKEN="test_telegram_token",
+            TELEGRAM_CHAT_ID="test_telegram_chat",
+            SUPABASE_STORAGE_BUCKET="",
+            R2_BUCKET_NAME="legacy-media-bucket",
+        )
 
 
 def test_settings_s3_prefers_legacy_bucket_over_supabase_bucket():
@@ -127,7 +146,7 @@ async def test_upload_bytes_supabase_uses_storage_rest_api(monkeypatch):
     _configure_supabase_settings(monkeypatch)
 
     calls = []
-    responses = [_StubResponse({"Id": "file-1", "Key": "ai-influencer-media/path/to/file.png"})]
+    responses = [_StubResponse({"Id": "file-1", "Key": "media/path/to/file.png"})]
     monkeypatch.setattr(
         storage_service_module.httpx,
         "AsyncClient",
@@ -143,11 +162,11 @@ async def test_upload_bytes_supabase_uses_storage_rest_api(monkeypatch):
     )
 
     assert public_url == (
-        "http://supabase.test/storage/v1/object/public/ai-influencer-media/path/to/file.png"
+        "http://supabase.test/storage/v1/object/public/media/path/to/file.png"
     )
     assert calls[0]["method"] == "POST"
     assert calls[0]["url"] == (
-        "http://supabase.test/storage/v1/object/ai-influencer-media/path/to/file.png"
+        "http://supabase.test/storage/v1/object/media/path/to/file.png"
     )
     assert calls[0]["headers"]["Authorization"] == "Bearer test_service_role_key"
     assert calls[0]["headers"]["apikey"] == "test_service_role_key"
@@ -168,7 +187,7 @@ async def test_get_presigned_url_supabase_formats_full_url(monkeypatch):
     calls = []
     responses = [
         _StubResponse(
-            {"signedURL": "/object/sign/ai-influencer-media/private/video.mp4?token=abc123"}
+            {"signedURL": "/object/sign/media/private/video.mp4?token=abc123"}
         )
     ]
     monkeypatch.setattr(
@@ -181,7 +200,7 @@ async def test_get_presigned_url_supabase_formats_full_url(monkeypatch):
     signed_url = await service.get_presigned_url("private/video.mp4", expiration=90)
 
     assert signed_url == (
-        "http://supabase.test/storage/v1/object/sign/ai-influencer-media/private/video.mp4?token=abc123"
+        "http://supabase.test/storage/v1/object/sign/media/private/video.mp4?token=abc123"
     )
     assert calls[0]["method"] == "POST"
     assert calls[0]["json"] == {"expiresIn": 90}

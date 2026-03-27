@@ -28,8 +28,16 @@ class PersonaInspectorSkill(BaseSkill):
         cls,
         backend_url: str,
         http_client: Any,
+        owner_key: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        response = await cls._request_json(http_client, "GET", backend_url, "/api/personas")
+        params = {"owner_key": owner_key} if owner_key else None
+        response = await cls._request_json(
+            http_client,
+            "GET",
+            backend_url,
+            "/api/personas",
+            params=params,
+        )
         items = response.get("items")
         if isinstance(items, list):
             return items
@@ -46,9 +54,11 @@ class PersonaInspectorSkill(BaseSkill):
     ) -> SkillResult:
         current = cls._normalize_session(session)
         persona_id = current.collected.get("persona_id")
+        telegram_chat_id = current.artifacts.get("telegram_chat_id")
+        owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
 
         if not persona_id:
-            personas = await cls._list_personas(backend_url, http_client)
+            personas = await cls._list_personas(backend_url, http_client, owner_key=owner_key)
             current.artifacts["available_personas"] = personas
             current.step_key = "select_persona"
             current.control.status = SkillStatus.collecting
@@ -64,13 +74,16 @@ class PersonaInspectorSkill(BaseSkill):
             "GET",
             backend_url,
             f"/api/personas/{persona_id}",
+            params={"owner_key": owner_key} if owner_key else None,
         )
         readiness = await cls._request_json(
             http_client,
             "GET",
             backend_url,
             f"/api/personas/{persona_id}/readiness",
+            params={"owner_key": owner_key} if owner_key else None,
         )
+        current.artifacts["preview_image_url"] = persona.get("avatar_image_url")
         current.artifacts["persona_summary"] = {
             "persona": persona,
             "readiness": readiness,
@@ -83,6 +96,7 @@ class PersonaInspectorSkill(BaseSkill):
             output={
                 "persona": persona,
                 "readiness": readiness,
+                "preview_image_url": persona.get("avatar_image_url"),
                 "available_personas": current.artifacts.get("available_personas", []),
             },
             session=current,

@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from api import workflows
+from skills.video_ai import VideoAISkill
 
 
 class _WorkflowStatus:
@@ -136,3 +137,185 @@ async def test_workflow_api_converts_exceptions(monkeypatch):
     response = await workflows.list_workflows(request)
     assert response["workflows"] == []
     assert response["temporal_available"] is False
+
+
+@pytest.mark.asyncio
+async def test_start_video_workflow_allows_missing_heygen_avatar(monkeypatch):
+    handle = SimpleNamespace(id="run-video-1")
+    mock_client = AsyncMock()
+    mock_client.start_workflow.return_value = handle
+
+    async def fake_get_temporal_client(_request):
+        return mock_client
+
+    async def fake_get_persona(_persona_id, user_id=None, owner_key=None):
+        return {
+            "persona_id": "persona-1",
+            "status": "ready",
+            "tts_voice": "male_friendly",
+            "heygen_avatar_id": None,
+        }
+
+    monkeypatch.setattr(workflows, "get_temporal_client", fake_get_temporal_client)
+    monkeypatch.setattr(workflows.PersonaRegistryService, "get_persona", fake_get_persona)
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    payload = workflows.StartVideoRequest(
+        persona_id="persona-1",
+        topic="Da Nang travel tips",
+        tone="natural",
+        platform="tiktok",
+        telegram_chat_id="123456",
+    )
+
+    response = await workflows.start_video_workflow(request, payload)
+
+    assert response["status"] == "started"
+    mock_client.start_workflow.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_start_video_workflow_passes_talking_head_optional(monkeypatch):
+    handle = SimpleNamespace(id="run-video-2")
+    mock_client = AsyncMock()
+    mock_client.start_workflow.return_value = handle
+
+    async def fake_get_temporal_client(_request):
+        return mock_client
+
+    async def fake_get_persona(_persona_id, user_id=None, owner_key=None):
+        return {
+            "persona_id": "persona-2",
+            "status": "ready",
+            "tts_voice": "male_friendly",
+            "heygen_avatar_id": None,
+        }
+
+    monkeypatch.setattr(workflows, "get_temporal_client", fake_get_temporal_client)
+    monkeypatch.setattr(workflows.PersonaRegistryService, "get_persona", fake_get_persona)
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    payload = workflows.StartVideoRequest(
+        persona_id="persona-2",
+        topic="Hoi An cafe guide",
+        telegram_chat_id="999",
+        talking_head_optional=True,
+    )
+
+    response = await workflows.start_video_workflow(request, payload)
+
+    assert response["status"] == "started"
+    started_payload = mock_client.start_workflow.await_args.kwargs["args"][0]
+    assert started_payload["talking_head_optional"] is True
+
+
+@pytest.mark.asyncio
+async def test_video_ai_skill_allows_fallback_when_heygen_missing(monkeypatch):
+    session = VideoAISkill.initial_session()
+    session.collected["persona_id"] = "persona-1"
+    session.collected["topic"] = "Weekend beach trip"
+    session.artifacts["telegram_chat_id"] = "123456"
+
+    monkeypatch.setattr(
+        VideoAISkill,
+        "_request_json",
+        AsyncMock(
+        side_effect=[
+            {
+                "ready": False,
+                "blocking_reason": "Missing heygen_avatar_id. Run persona avatar setup first.",
+                "checks": {
+                    "status_ready": True,
+                    "has_tts_voice": True,
+                    "has_avatar_asset": True,
+                    "has_heygen_avatar_id": False,
+                },
+            },
+            {
+                "workflow_id": "video-wf-1",
+                "run_id": "run-1",
+                "status": "started",
+            },
+        ]
+    ),
+    )
+
+    result = await VideoAISkill.execute(session, "http://backend", AsyncMock())
+
+    assert result.success is True
+    assert result.session is not None
+    assert result.session.control.approval_required is True
+    assert result.session.artifacts["talking_head_optional"] is True
+    assert result.output["workflow_id"] == "video-wf-1"
+
+
+@pytest.mark.asyncio
+async def test_video_ai_skill_accepts_legacy_avatar_image_fallback_flag(monkeypatch):
+    session = VideoAISkill.initial_session()
+    session.collected["persona_id"] = "persona-legacy"
+    session.collected["topic"] = "Sunset cruise"
+    session.artifacts["telegram_chat_id"] = "654321"
+
+    monkeypatch.setattr(
+        VideoAISkill,
+        "_request_json",
+        AsyncMock(
+            side_effect=[
+                {
+                    "ready": False,
+                    "blocking_reason": "Missing heygen_avatar_id. Run persona avatar setup first.",
+                    "checks": {
+                        "status_ready": True,
+                        "has_tts_voice": True,
+                        "has_avatar_image": True,
+                        "has_heygen_avatar_id": False,
+                    },
+                },
+                {
+                    "workflow_id": "video-wf-legacy",
+                    "run_id": "run-legacy",
+                    "status": "started",
+                },
+            ]
+        ),
+    )
+
+    result = await VideoAISkill.execute(session, "http://backend", AsyncMock())
+
+    assert result.success is True
+    assert result.output["workflow_id"] == "video-wf-legacy"
+
+
+@pytest.mark.asyncio
+async def test_video_ai_skill_errors_when_workflow_id_missing(monkeypatch):
+    session = VideoAISkill.initial_session()
+    session.collected["persona_id"] = "persona-1"
+    session.collected["topic"] = "Weekend beach trip"
+    session.artifacts["telegram_chat_id"] = "123456"
+
+    monkeypatch.setattr(
+        VideoAISkill,
+        "_request_json",
+        AsyncMock(
+            side_effect=[
+                {
+                    "ready": True,
+                    "checks": {
+                        "status_ready": True,
+                        "has_tts_voice": True,
+                        "has_avatar_asset": True,
+                        "has_heygen_avatar_id": True,
+                    },
+                },
+                {
+                    "run_id": "run-1",
+                    "status": "started",
+                },
+            ]
+        ),
+    )
+
+    result = await VideoAISkill.execute(session, "http://backend", AsyncMock())
+
+    assert result.success is False
+    assert result.error == "Video workflow started without a workflow_id. Please try again."

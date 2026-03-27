@@ -350,19 +350,30 @@ class Settings(BaseSettings):
             resolved_bucket = (
                 self.STORAGE_BUCKET_NAME
                 or self.SUPABASE_STORAGE_BUCKET
-                or self.R2_BUCKET_NAME
             )
         else:
             resolved_bucket = (
                 self.STORAGE_BUCKET_NAME
                 or self.R2_BUCKET_NAME
-                or self.SUPABASE_STORAGE_BUCKET
             )
         if not resolved_bucket:
+            if self.STORAGE_PROVIDER == "supabase":
+                raise ValueError(
+                    "SUPABASE_STORAGE_BUCKET or STORAGE_BUCKET_NAME must be configured for STORAGE_PROVIDER=supabase"
+                )
             raise ValueError(
-                "STORAGE_BUCKET_NAME or SUPABASE_STORAGE_BUCKET must be configured"
+                "R2_BUCKET_NAME or STORAGE_BUCKET_NAME must be configured for STORAGE_PROVIDER=s3"
             )
         self.STORAGE_BUCKET_NAME = resolved_bucket
+
+        if (
+            self.is_production_like
+            and self.STORAGE_PROVIDER == "supabase"
+            and resolved_bucket != "media"
+        ):
+            raise ValueError(
+                "SUPABASE_STORAGE_BUCKET/STORAGE_BUCKET_NAME must be set to 'media' in production-like environments"
+            )
 
         if self.STORAGE_PROVIDER == "supabase":
             public_base_url = self.STORAGE_PUBLIC_URL or self.SUPABASE_STORAGE_PUBLIC_URL

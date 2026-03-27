@@ -58,6 +58,8 @@ class ImageSceneSkill(BaseSkill):
             if image_url:
                 return {
                     "url": image_url,
+                    "source_url": response.get("source_url"),
+                    "storage_url": response.get("storage_url"),
                     "storage_key": response.get("storage_key"),
                     "model": response.get("model"),
                     "prompt": response.get("prompt"),
@@ -91,6 +93,8 @@ class ImageSceneSkill(BaseSkill):
             return [
                 {
                     "url": img.get("url"),
+                    "source_url": img.get("source_url"),
+                    "storage_url": img.get("storage_url"),
                     "storage_key": img.get("storage_key"),
                     "model": response.get("model"),
                     "prompt": response.get("prompt"),
@@ -127,22 +131,6 @@ class ImageSceneSkill(BaseSkill):
         http_client: Any,
     ) -> SkillResult:
         current = cls._normalize_session(session)
-        missing = cls._missing_required_params(current)
-
-        if missing:
-            if "topic_or_prompt" in missing:
-                next_step = "collect_prompt"
-            elif "style" in missing:
-                next_step = "choose_style"
-            else:
-                next_step = "choose_ratio"
-
-            return cls._collecting_result(
-                current,
-                next_step=next_step,
-                output={"missing_params": missing},
-            )
-
         if current.artifacts.get("final_image_url") or current.artifacts.get("final_image_urls"):
             current.step_key = "done"
             current.control.status = SkillStatus.done
@@ -172,9 +160,34 @@ class ImageSceneSkill(BaseSkill):
                 session=current,
             )
 
+        missing = cls._missing_required_params(current)
+
+        if missing:
+            if "topic_or_prompt" in missing:
+                next_step = "collect_prompt"
+            elif "style" in missing:
+                next_step = "choose_style"
+            else:
+                next_step = "choose_ratio"
+
+            return cls._collecting_result(
+                current,
+                next_step=next_step,
+                output={"missing_params": missing},
+            )
+
+        telegram_chat_id = current.artifacts.get("telegram_chat_id")
+        owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
         payload = {
             "prompt": cls._build_prompt(current.collected),
             "aspect_ratio": current.collected.get("aspect_ratio") or "16:9",
+            "owner_key": owner_key,
+            "persona_id": current.collected.get("persona_id"),
+            "metadata": {
+                "source": "telegram_skill",
+                "skill_name": cls.name,
+                "persona_id": current.collected.get("persona_id"),
+            },
         }
         candidates = await cls._generate_candidates(
             http_client,

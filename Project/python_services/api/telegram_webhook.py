@@ -18,6 +18,7 @@ from services.telegram_renderer import TelegramRenderer
 from services.telegram_service import TelegramService
 from services.telegram_subscriber_service import TelegramSubscriberService
 from services.openclaw_service import OpenClawService
+from services.telegram_link_service import TelegramLinkError, TelegramLinkService
 from skills import SKILL_REGISTRY
 from skills.definitions import get_skill_definition
 
@@ -159,6 +160,52 @@ async def send_photo(
     except Exception as exc:
         logger.warning("Telegram sendPhoto URL fallback download/upload failed: %s", exc)
         return response
+
+
+def _telegram_file_download_url(file_path: str) -> str:
+    return f"https://api.telegram.org/file/bot{settings.TELEGRAM_BOT_TOKEN}/{file_path.lstrip('/')}"
+
+
+async def _download_telegram_image(
+    message: Dict[str, Any],
+) -> Optional[tuple[bytes, str, str]]:
+    photo_entries = message.get("photo") or []
+    document = message.get("document")
+
+    file_id: Optional[str] = None
+    filename = "telegram-upload.jpg"
+    content_type = "image/jpeg"
+
+    if isinstance(photo_entries, list) and photo_entries:
+        largest = photo_entries[-1]
+        file_id = largest.get("file_id")
+        unique_id = largest.get("file_unique_id") or largest.get("file_id") or "upload"
+        filename = f"telegram-{unique_id}.jpg"
+        content_type = "image/jpeg"
+    elif isinstance(document, dict):
+        document_mime = str(document.get("mime_type") or "").strip().lower()
+        if not document_mime.startswith("image/"):
+            return None
+        file_id = document.get("file_id")
+        filename = document.get("file_name") or "telegram-upload"
+        content_type = document_mime or "image/jpeg"
+    else:
+        return None
+
+    if not file_id:
+        return None
+
+    file_response = await _tg_call("getFile", {"file_id": file_id})
+    file_path = file_response.get("result", {}).get("file_path")
+    if not file_path:
+        logger.warning("Telegram getFile returned no file_path for file_id=%s", file_id)
+        return None
+
+    download_url = _telegram_file_download_url(file_path)
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        response = await client.get(download_url)
+    response.raise_for_status()
+    return response.content, content_type, filename
 
 
 def inline_keyboard(*rows: list[tuple[str, str]]) -> Dict[str, Any]:
@@ -600,9 +647,49 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         await TelegramSubscriberService.touch(chat_id)
     except Exception:
         pass
+    try:
+        await TelegramLinkService.touch_link(
+            chat_id=chat_id,
+            telegram_username=username,
+        )
+    except Exception:
+        pass
 
     has_file = any(key in message for key in ("document", "photo", "video", "audio"))
     if has_file:
+        try:
+            telegram_image = await _download_telegram_image(message)
+        except Exception as exc:
+            logger.warning("Telegram image download failed for chat_id=%s: %s", chat_id, exc)
+            telegram_image = None
+
+        if telegram_image is not None:
+            image_bytes, content_type, filename = telegram_image
+            skill_result = await SkillDispatcher.handle_image_upload(
+                chat_id,
+                data=image_bytes,
+                content_type=content_type,
+                filename=filename,
+                app=app,
+            )
+            if skill_result is not None:
+                rendered = TelegramRenderer.render_skill_result(skill_result)
+                await _send_rendered_message(chat_id, rendered)
+                return
+
+        active_session = await TelegramSkillSessionStore.get_session(chat_id)
+        if (
+            active_session is not None
+            and active_session.skill_name == "persona-creator"
+            and active_session.step_key == "collect_appearance"
+        ):
+            await send_message(
+                chat_id,
+                "Please send a photo or image file for the persona appearance step, or type a description.",
+                parse_mode=None,
+            )
+            return
+
         await send_message(
             chat_id,
             "File received. Content pipelines coming soon.",
@@ -611,6 +698,9 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         return
 
     if text.startswith("/start"):
+        await TelegramSkillSessionStore.clear_session(chat_id)
+        start_parts = text.split(maxsplit=1)
+        start_token = start_parts[1].strip() if len(start_parts) > 1 else None
         is_new = False
         try:
             existing = await TelegramSubscriberService.get_by_chat_id(chat_id)
@@ -623,6 +713,40 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
             is_new = existing is None
         except Exception as exc:
             logger.warning("Failed to upsert subscriber chat_id=%s: %s", chat_id, exc)
+
+        if start_token:
+            try:
+                link_result = await TelegramLinkService.consume_link_token(
+                    token=start_token,
+                    chat_id=chat_id,
+                    telegram_username=username,
+                )
+                await send_message(
+                    chat_id,
+                    (
+                        "Telegram is now linked to your customer workspace.\n\n"
+                        f"Linked user: {link_result['user_id']}\n"
+                        "You can return to the dashboard and continue persona setup."
+                    ),
+                    parse_mode=None,
+                    reply_markup=inline_keyboard(
+                        [("Open Studio", "menu_main"), ("Status", "status_check")],
+                    ),
+                )
+                return
+            except TelegramLinkError as exc:
+                await send_message(
+                    chat_id,
+                    (
+                        f"Telegram link failed: {exc}\n\n"
+                        "Open the dashboard and generate a fresh link token."
+                    ),
+                    parse_mode=None,
+                    reply_markup=inline_keyboard(
+                        [("Open Studio", "menu_main"), ("Status", "status_check")],
+                    ),
+                )
+                return
 
         greeting = "Welcome!" if is_new else "Welcome back!"
         await send_message(

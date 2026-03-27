@@ -81,13 +81,26 @@ CREATE TABLE IF NOT EXISTS public.content (
 CREATE TABLE IF NOT EXISTS public.personas (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
     description TEXT,
     voice_profile TEXT, -- Voice characteristics and tone
-    platforms TEXT[] NOT NULL,
+    platforms TEXT[] NOT NULL DEFAULT '{}'::text[],
     is_active BOOLEAN DEFAULT true,
     avatar_url TEXT,
     proxy_config JSONB, -- Proxy settings for this persona
+    persona_id TEXT,
+    display_name TEXT,
+    language TEXT DEFAULT 'English',
+    tts_voice TEXT,
+    avatar_image_url TEXT,
+    avatar_source_type TEXT,
+    avatar_prompt TEXT,
+    heygen_avatar_id TEXT,
+    status TEXT DEFAULT 'draft', -- draft, ready, failed, archived
+    video_count INTEGER DEFAULT 0,
+    tone_default TEXT,
+    market_default TEXT,
+    thumbnail_url TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -97,9 +110,19 @@ CREATE TABLE IF NOT EXISTS public.media_assets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     content_id UUID REFERENCES public.content(id) ON DELETE SET NULL,
+    persona_id TEXT,
+    owner_key TEXT,
     url TEXT NOT NULL,
+    source_url TEXT,
     type TEXT NOT NULL, -- image, video, audio, document
     filename TEXT NOT NULL,
+    bucket_name TEXT,
+    storage_path TEXT,
+    storage_provider TEXT NOT NULL DEFAULT 'supabase',
+    visibility TEXT NOT NULL DEFAULT 'private',
+    asset_origin TEXT NOT NULL DEFAULT 'generated',
+    status TEXT NOT NULL DEFAULT 'available',
+    provider_job_id TEXT,
     size INTEGER,
     mime_type TEXT,
     metadata JSONB DEFAULT '{}',
@@ -230,6 +253,7 @@ CREATE INDEX IF NOT EXISTS idx_content_campaign_id ON public.content(campaign_id
 CREATE INDEX IF NOT EXISTS idx_content_status ON public.content(status);
 CREATE INDEX IF NOT EXISTS idx_content_scheduled_at ON public.content(scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_personas_user_id ON public.personas(user_id);
+CREATE INDEX IF NOT EXISTS idx_personas_user_status ON public.personas(user_id, status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_workflows_user_id ON public.workflows(user_id);
 CREATE INDEX IF NOT EXISTS idx_workflows_status ON public.workflows(status);
 CREATE INDEX IF NOT EXISTS idx_social_accounts_user_id ON public.social_accounts(user_id);
@@ -241,6 +265,12 @@ CREATE INDEX IF NOT EXISTS idx_brand_profiles_user_id ON public.brand_profiles(u
 CREATE INDEX IF NOT EXISTS idx_assistant_threads_user_id ON public.assistant_threads(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread_id ON public.assistant_messages(thread_id, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_assistant_artifacts_thread_id ON public.assistant_artifacts(thread_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_media_assets_user_created_at ON public.media_assets(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_media_assets_user_persona_created_at ON public.media_assets(user_id, persona_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_media_assets_content_id ON public.media_assets(content_id);
+CREATE INDEX IF NOT EXISTS idx_media_assets_bucket_path ON public.media_assets(bucket_name, storage_path);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_media_assets_storage_identity
+    ON public.media_assets(storage_provider, bucket_name, storage_path);
 
 -- Create updated_at trigger function
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -494,6 +524,7 @@ ALTER TABLE public.personas
     ADD COLUMN IF NOT EXISTS avatar_source_type TEXT,
     ADD COLUMN IF NOT EXISTS avatar_prompt TEXT,
     ADD COLUMN IF NOT EXISTS heygen_avatar_id TEXT,
+    ADD COLUMN IF NOT EXISTS avatar_media_asset_id UUID REFERENCES public.media_assets(id) ON DELETE SET NULL,
     ADD COLUMN IF NOT EXISTS status TEXT,
     ADD COLUMN IF NOT EXISTS video_count INTEGER,
     ADD COLUMN IF NOT EXISTS tone_default TEXT,
@@ -524,11 +555,161 @@ WHERE
     OR status IS NULL
     OR video_count IS NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_personas_persona_id
-    ON public.personas(persona_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_personas_user_persona_id
+    ON public.personas(user_id, persona_id);
 
 CREATE INDEX IF NOT EXISTS idx_personas_registry_status
     ON public.personas(status);
+
+CREATE INDEX IF NOT EXISTS idx_personas_avatar_media_asset_id
+    ON public.personas(avatar_media_asset_id);
+
+-- Final media asset contract used by the owner/persona-scoped storage pipeline.
+ALTER TABLE public.media_assets
+    ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS persona_id TEXT,
+    ADD COLUMN IF NOT EXISTS owner_key TEXT,
+    ADD COLUMN IF NOT EXISTS source_url TEXT,
+    ADD COLUMN IF NOT EXISTS bucket_name TEXT,
+    ADD COLUMN IF NOT EXISTS storage_path TEXT,
+    ADD COLUMN IF NOT EXISTS storage_provider TEXT NOT NULL DEFAULT 'supabase',
+    ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private',
+    ADD COLUMN IF NOT EXISTS asset_origin TEXT NOT NULL DEFAULT 'generated',
+    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'available',
+    ADD COLUMN IF NOT EXISTS provider_job_id TEXT;
+
+UPDATE public.media_assets
+SET
+    persona_id = COALESCE(persona_id, NULLIF(metadata->>'persona_id', '')),
+    owner_key = COALESCE(owner_key, NULLIF(metadata->>'owner_key', '')),
+    source_url = COALESCE(source_url, NULLIF(metadata->>'source_url', '')),
+    bucket_name = COALESCE(bucket_name, NULLIF(metadata->>'storage_bucket', '')),
+    storage_path = COALESCE(storage_path, NULLIF(metadata->>'storage_path', '')),
+    storage_provider = COALESCE(NULLIF(metadata->>'storage_provider', ''), storage_provider, 'supabase'),
+    visibility = COALESCE(NULLIF(metadata->>'visibility', ''), visibility, 'private'),
+    asset_origin = COALESCE(NULLIF(metadata->>'asset_origin', ''), asset_origin, 'generated'),
+    status = CASE
+        WHEN LOWER(COALESCE(NULLIF(metadata->>'status', ''), status, 'available')) IN ('completed', 'stored', 'success')
+            THEN 'available'
+        ELSE LOWER(COALESCE(NULLIF(metadata->>'status', ''), status, 'available'))
+    END,
+    provider_job_id = COALESCE(provider_job_id, NULLIF(metadata->>'provider_job_id', ''))
+WHERE
+    persona_id IS NULL
+    OR owner_key IS NULL
+    OR source_url IS NULL
+    OR bucket_name IS NULL
+    OR storage_path IS NULL
+    OR storage_provider IS NULL
+    OR visibility IS NULL
+    OR asset_origin IS NULL
+    OR status IS NULL
+    OR provider_job_id IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_media_assets_user_persona_created_at
+    ON public.media_assets(user_id, persona_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_media_assets_bucket_path
+    ON public.media_assets(bucket_name, storage_path);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_media_assets_storage_identity
+    ON public.media_assets(storage_provider, bucket_name, storage_path);
+
+-- Telegram/customer ownership linking for persona and media routing.
+CREATE TABLE IF NOT EXISTS public.telegram_link_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_telegram_link_tokens_user_id
+    ON public.telegram_link_tokens(user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_telegram_link_tokens_expires_at
+    ON public.telegram_link_tokens(expires_at);
+
+DROP TRIGGER IF EXISTS update_telegram_link_tokens_updated_at
+    ON public.telegram_link_tokens;
+CREATE TRIGGER update_telegram_link_tokens_updated_at
+    BEFORE UPDATE ON public.telegram_link_tokens
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+ALTER TABLE public.telegram_link_tokens ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own telegram link tokens"
+    ON public.telegram_link_tokens;
+CREATE POLICY "Users can view own telegram link tokens"
+    ON public.telegram_link_tokens
+    FOR ALL USING (auth.uid() = user_id);
+
+CREATE TABLE IF NOT EXISTS public.telegram_user_links (
+    chat_id BIGINT PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    telegram_username TEXT,
+    linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_verified_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    revoked_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_telegram_user_links_user_id
+    ON public.telegram_user_links(user_id, linked_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_telegram_user_links_active_user
+    ON public.telegram_user_links(user_id)
+    WHERE revoked_at IS NULL;
+
+ALTER TABLE public.telegram_user_links ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own telegram links"
+    ON public.telegram_user_links;
+CREATE POLICY "Users can view own telegram links"
+    ON public.telegram_user_links
+    FOR ALL USING (auth.uid() = user_id);
+
+-- Preferred Supabase public bucket for persona and generated media. The older
+-- `ai-influencer-media` bucket remains supported for existing installs.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.schemata
+    WHERE schema_name = 'storage'
+  ) THEN
+    INSERT INTO storage.buckets (
+      id,
+      name,
+      public,
+      file_size_limit,
+      allowed_mime_types
+    )
+    VALUES (
+      'media',
+      'media',
+      TRUE,
+      104857600,
+      ARRAY[
+        'application/json',
+        'audio/mpeg',
+        'audio/mp3',
+        'audio/wav',
+        'audio/x-wav',
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'video/mp4'
+      ]
+    )
+    ON CONFLICT (id) DO UPDATE
+    SET
+      name = EXCLUDED.name,
+      public = EXCLUDED.public,
+      file_size_limit = EXCLUDED.file_size_limit,
+      allowed_mime_types = EXCLUDED.allowed_mime_types;
+  END IF;
+END $$;
 
 -- Final connector-link contract used by the ChatGPT connector runtime.
 UPDATE public.chatgpt_oauth_links

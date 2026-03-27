@@ -64,6 +64,8 @@ class ImagePosterSkill(BaseSkill):
             return cls._collecting_result(current, next_step="choose_style")
         if not cls._has_value(current.collected.get("tone")):
             return cls._collecting_result(current, next_step="choose_tone")
+        if not cls._has_value(current.collected.get("aspect_ratio")):
+            return cls._collecting_result(current, next_step="choose_ratio")
 
         if current.artifacts.get("final_image_url"):
             current.step_key = "done"
@@ -89,6 +91,8 @@ class ImagePosterSkill(BaseSkill):
             )
 
         prompt = cls._build_prompt(current.collected)
+        telegram_chat_id = current.artifacts.get("telegram_chat_id")
+        owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
         response = await cls._request_json(
             http_client,
             "POST",
@@ -97,6 +101,11 @@ class ImagePosterSkill(BaseSkill):
             json={
                 "prompt": prompt,
                 "aspect_ratio": current.collected.get("aspect_ratio") or "4:5",
+                "owner_key": owner_key,
+                "metadata": {
+                    "source": "telegram_skill",
+                    "skill_name": cls.name,
+                },
             },
         )
         image_url = response.get("url")
@@ -105,6 +114,8 @@ class ImagePosterSkill(BaseSkill):
 
         generated_image = {
             "url": image_url,
+            "source_url": response.get("source_url"),
+            "storage_url": response.get("storage_url"),
             "storage_key": response.get("storage_key"),
             "model": response.get("model"),
             "prompt": response.get("prompt") or prompt,
@@ -125,6 +136,7 @@ class ImagePosterSkill(BaseSkill):
                 "prompt": generated_image["prompt"],
                 "style": current.collected.get("style"),
                 "tone": current.collected.get("tone"),
+                "aspect_ratio": current.collected.get("aspect_ratio") or "4:5",
             },
             session=current,
         )

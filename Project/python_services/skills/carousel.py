@@ -67,6 +67,10 @@ class CarouselSkill(BaseSkill):
             if cls._has_value(value):
                 payload[field] = value
 
+        telegram_chat_id = current.artifacts.get("telegram_chat_id")
+        if telegram_chat_id:
+            payload["owner_key"] = f"telegram:{telegram_chat_id}"
+
         artifact = await cls._request_json(
             http_client,
             "POST",

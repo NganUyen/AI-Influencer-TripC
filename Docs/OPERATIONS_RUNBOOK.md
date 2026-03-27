@@ -35,6 +35,7 @@ Private or localhost-only services in both cases:
 - `deploy/vps/deploy-production.sh`
 - `deploy/vps/apply-db-migrations.sh`
 - `deploy/vps/check-provider-apis.sh`
+- `deploy/vps/check-telegram-openclaw.sh`
 - `deploy/vps/healthcheck.sh`
 - `deploy/vps/backup-stack.sh`
 - `deploy/vps/restore-stack.sh`
@@ -178,11 +179,12 @@ Then use:
 Bootstrap checklist:
 
 1. run `healthcheck.sh` and `check-provider-apis.sh`
-2. create or confirm the operator admin account in Postiz and GrowChief
-3. rotate or create the Postiz and GrowChief API keys
-4. register webhook targets on the public backend
-5. set `POSTIZ_INTEGRATION_MAP` and `GROWCHIEF_WORKFLOW_MAP` when multiple active integrations/workflows exist
-6. rerun the provider checks
+2. run `check-telegram-openclaw.sh` to verify OpenClaw health and Telegram webhook wiring
+3. create or confirm the operator admin account in Postiz and GrowChief
+4. rotate or create the Postiz and GrowChief API keys
+5. register webhook targets on the public backend
+6. set `POSTIZ_INTEGRATION_MAP` and `GROWCHIEF_WORKFLOW_MAP` when multiple active integrations/workflows exist
+7. rerun the provider checks
 
 Webhook targets:
 
@@ -227,6 +229,13 @@ Provider API check:
 ```bash
 cd /opt/ai-influencer/repo
 PROJECT_ENV_FILE=./Project/.env.production ./deploy/vps/check-provider-apis.sh
+
+Telegram/OpenClaw check:
+
+```bash
+cd /opt/ai-influencer/repo
+PROJECT_ENV_FILE=./Project/.env.production ./deploy/vps/check-telegram-openclaw.sh
+```
 ```
 
 ## First Live Acceptance

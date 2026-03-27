@@ -223,6 +223,36 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
+INSERT INTO public.media_assets (
+    id,
+    user_id,
+    persona_id,
+    url,
+    source_url,
+    type,
+    filename,
+    bucket_name,
+    storage_path,
+    size,
+    mime_type,
+    metadata
+)
+VALUES (
+    '990e8400-e29b-41d4-a716-446655440000',
+    '00000000-0000-0000-0000-000000000001',
+    'demo-travel-host',
+    'https://cdn.example.com/media/users/00000000-0000-0000-0000-000000000001/personas/demo-travel-host/image/2026-03/avatar.png',
+    'https://fal.example.com/generated/demo-travel-host-avatar.png',
+    'image',
+    'users/00000000-0000-0000-0000-000000000001/personas/demo-travel-host/image/2026-03/avatar.png',
+    'media',
+    'users/00000000-0000-0000-0000-000000000001/personas/demo-travel-host/image/2026-03/avatar.png',
+    182044,
+    'image/png',
+    '{"seed": true, "owner_key": "demo-seed", "generation_prompt": "demo persona avatar"}'::jsonb
+)
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO public.telegram_subscribers (
     chat_id,
     chat_type,

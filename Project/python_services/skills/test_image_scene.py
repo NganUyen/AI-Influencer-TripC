@@ -27,6 +27,7 @@ def session_with_candidates():
     session = ImageSceneSkill.initial_session()
     session.collected["topic_or_prompt"] = "sunset landscape"
     session.collected["style"] = "realistic"
+    session.collected["aspect_ratio"] = "16:9"
     session.artifacts["image_candidates"] = [
         {
             "url": f"https://r2.example.com/img{i}.jpg",
@@ -47,24 +48,27 @@ async def test_collects_missing_params(initial_session):
     result = await ImageSceneSkill.execute(initial_session, "http://localhost:8000", AsyncMock())
 
     assert result.success is True
-    assert result.next_step == "choose_style"
+    assert result.next_step == "collect_prompt"
     assert "topic_or_prompt" in result.output["missing_params"]
     assert "style" in result.output["missing_params"]
 
 
 @pytest.mark.asyncio
 async def test_generates_candidate_batch(session_with_params):
-    mock_responses = [
-        {
-            "url": f"https://r2.example.com/img{i}.jpg",
-            "storage_key": f"scenes/img{i}",
+    ImageSceneSkill._request_json = AsyncMock(
+        return_value={
             "model": "fal-ai/flux-pro",
             "prompt": "A beautiful sunset landscape",
+            "images": [
+                {
+                    "url": f"https://r2.example.com/img{i}.jpg",
+                    "storage_key": f"scenes/img{i}",
+                    "source_url": f"https://fal.example.com/img{i}.jpg",
+                }
+                for i in range(4)
+            ],
         }
-        for i in range(4)
-    ]
-
-    ImageSceneSkill._request_json = AsyncMock(side_effect=mock_responses)
+    )
 
     result = await ImageSceneSkill.execute(session_with_params, "http://localhost:8000", AsyncMock())
 
@@ -153,21 +157,28 @@ async def test_done_status_returns_immediately(session_with_candidates):
 @pytest.mark.asyncio
 async def test_full_flow_generate_select_multiple_and_finish():
     session = ImageSceneSkill.initial_session()
+    session.artifacts["telegram_chat_id"] = "123456"
     session.collected["topic_or_prompt"] = "mountain landscape"
     session.collected["style"] = "oil painting"
+    session.collected["aspect_ratio"] = "16:9"
 
-    mock_responses = [
-        {
-            "url": f"https://r2.example.com/mountain{i}.jpg",
-            "storage_key": f"scenes/mountain{i}",
+    ImageSceneSkill._request_json = AsyncMock(
+        return_value={
             "model": "fal-ai/flux-pro",
+            "images": [
+                {
+                    "url": f"https://r2.example.com/mountain{i}.jpg",
+                    "storage_key": f"scenes/mountain{i}",
+                }
+                for i in range(4)
+            ],
         }
-        for i in range(4)
-    ]
-    ImageSceneSkill._request_json = AsyncMock(side_effect=mock_responses)
+    )
 
     generate_result = await ImageSceneSkill.execute(session, "http://localhost:8000", AsyncMock())
     assert generate_result.next_step == "confirm_or_regenerate"
+    request_payload = ImageSceneSkill._request_json.await_args.kwargs["json"]
+    assert request_payload["owner_key"] == "telegram:123456"
 
     selection_result = ImageSceneSkill.enter_selection_mode(generate_result.session)
     selection_result = ImageSceneSkill.toggle_selection(selection_result.session, 1)

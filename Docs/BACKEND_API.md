@@ -100,6 +100,7 @@ This is the main product API used by the customer dashboard.
 - analytics: post-level and summary analytics views
 - quota: provider usage, limits, and snapshot endpoints
 - media: generate image, video, audio, carousel, and inspect storage
+- `POST /api/media/generate/image` now preserves backward compatibility (`url`, `images`) while also returning provider/source URLs and stable storage metadata when persistence succeeds
 
 ### Accounts and personas
 
@@ -133,6 +134,7 @@ This is the main product API used by the customer dashboard.
 
 - `ai_service.py`: direct model/provider calls and quota extraction
 - `fal_service.py`: fal.ai media generation integration
+- `image_generation_service.py`: canonical image-generation pipeline used by the media API and worker/skill callers
 - `google_tts_service.py`: text-to-speech
 - `heygen_service.py`: talking-head video generation
 - `script_service.py`: structured script generation

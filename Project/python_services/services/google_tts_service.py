@@ -20,6 +20,28 @@ VIETNAMESE_VOICES = {
     "female_clear": "vi-VN-Wavenet-C",          # Giọng nữ rõ ràng, phổ thông
 }
 
+ENGLISH_VOICES = {
+    "male_professional": "en-GB-Wavenet-B",
+    "male_friendly": "en-US-Studio-O",
+    "female_warm": "en-US-Neural2-F",
+    "female_clear": "en-AU-Wavenet-C",
+}
+
+VOICE_LABELS = {
+    "male_professional": "Male Professional",
+    "male_friendly": "Male Friendly",
+    "female_warm": "Female Warm",
+    "female_clear": "Female Clear",
+    "vi-VN-Wavenet-A": "Vietnamese Female Warm",
+    "vi-VN-Wavenet-B": "Vietnamese Male Professional",
+    "vi-VN-Wavenet-C": "Vietnamese Female Clear",
+    "vi-VN-Wavenet-D": "Vietnamese Male Friendly",
+    "en-GB-Wavenet-B": "English UK Male Professional",
+    "en-US-Studio-O": "English US Male Friendly",
+    "en-US-Neural2-F": "English US Female Warm",
+    "en-AU-Wavenet-C": "English AU Female Clear",
+}
+
 GOOGLE_TTS_ENDPOINT = "https://texttospeech.googleapis.com/v1/text:synthesize"
 
 
@@ -33,6 +55,55 @@ class GoogleTTSService:
         self.api_key = settings.GOOGLE_TTS_API_KEY
         if not self.api_key:
             raise ValueError("GOOGLE_TTS_API_KEY không được cấu hình trong .env")
+
+    @staticmethod
+    def _normalize_language_name(language: str | None) -> str:
+        normalized = str(language or "").strip().lower()
+        if normalized.startswith("vi") or "viet" in normalized:
+            return "vi"
+        if normalized.startswith("en") or "english" in normalized:
+            return "en"
+        return ""
+
+    @classmethod
+    def resolve_voice_name(cls, voice: str | None, *, language: str | None = None) -> str:
+        requested = str(voice or "").strip()
+        language_key = cls._normalize_language_name(language)
+
+        if requested in VIETNAMESE_VOICES.values() or requested in ENGLISH_VOICES.values():
+            return requested
+
+        alias = requested.lower()
+        if language_key == "en" and alias in ENGLISH_VOICES:
+            return ENGLISH_VOICES[alias]
+        if alias in VIETNAMESE_VOICES:
+            return VIETNAMESE_VOICES[alias]
+        if alias in ENGLISH_VOICES:
+            return ENGLISH_VOICES[alias]
+
+        return requested or VIETNAMESE_VOICES["male_friendly"]
+
+    @classmethod
+    def infer_language_code(cls, voice: str | None, *, fallback_language: str | None = None) -> str:
+        resolved_voice = cls.resolve_voice_name(voice, language=fallback_language)
+        parts = [part for part in resolved_voice.split("-") if part]
+        if len(parts) >= 2:
+            return f"{parts[0]}-{parts[1]}"
+        if cls._normalize_language_name(fallback_language) == "en":
+            return "en-US"
+        return "vi-VN"
+
+    @classmethod
+    def describe_voice(cls, voice: str | None, *, language: str | None = None) -> str:
+        requested = str(voice or "").strip()
+        if not requested:
+            return "Unconfigured"
+        if requested in VOICE_LABELS:
+            return VOICE_LABELS[requested]
+        if requested.lower() in VOICE_LABELS:
+            return VOICE_LABELS[requested.lower()]
+        resolved = cls.resolve_voice_name(requested, language=language)
+        return VOICE_LABELS.get(resolved, resolved)
 
     async def _record_usage(
         self,
@@ -73,6 +144,7 @@ class GoogleTTSService:
         speaking_rate: float = 1.05,       # Nhịp nói hơi nhanh, tự nhiên hơn
         pitch: float = 0.0,               # Giọng chuẩn (0 = không thay đổi)
         output_format: str = "MP3",
+        language: str | None = None,
     ) -> bytes:
         """
         Gọi Google TTS API và trả về MP3 bytes.
@@ -87,11 +159,12 @@ class GoogleTTSService:
         Returns:
             bytes: Dữ liệu audio MP3 thô
         """
+        resolved_voice = self.resolve_voice_name(voice, language=language)
         payload = {
             "input": {"text": text},
             "voice": {
-                "languageCode": "vi-VN",
-                "name": voice,
+                "languageCode": self.infer_language_code(resolved_voice, fallback_language=language),
+                "name": resolved_voice,
             },
             "audioConfig": {
                 "audioEncoding": output_format,
@@ -102,7 +175,7 @@ class GoogleTTSService:
         }
 
         url = f"{GOOGLE_TTS_ENDPOINT}?key={self.api_key}"
-        logger.info(f"Gọi Google TTS | Voice: {voice} | {len(text)} ký tự")
+        logger.info(f"Gọi Google TTS | Voice: {resolved_voice} | {len(text)} ký tự")
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
@@ -111,7 +184,7 @@ class GoogleTTSService:
             except Exception as exc:
                 await self._record_usage(
                     text=text,
-                    voice=voice,
+                    voice=resolved_voice,
                     output_format=output_format,
                     error=exc,
                 )
@@ -126,7 +199,7 @@ class GoogleTTSService:
         logger.info(f"Google TTS thành công | {len(audio_bytes):,} bytes MP3")
         await self._record_usage(
             text=text,
-            voice=voice,
+            voice=resolved_voice,
             output_format=output_format,
             audio_bytes=audio_bytes,
         )

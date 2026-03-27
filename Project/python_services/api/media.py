@@ -3,7 +3,6 @@ Media API Routes
 Endpoints for media generation and management
 """
 
-import base64
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -11,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.security import require_internal_api_token
-from services import FalAIService, GoogleTTSService, StorageService
+from services import FalAIService, GoogleTTSService, ImageGenerationService, StorageService
 from services.carousel_service import CarouselService
 
 router = APIRouter(dependencies=[Depends(require_internal_api_token)])
@@ -22,7 +21,12 @@ class ImageGenerateRequest(BaseModel):
     prompt: str
     model: str = "fal-ai/nano-banana-2"
     aspect_ratio: str = "16:9"
-    num_images: int = 1
+    num_images: int = Field(default=1, ge=1, le=8)
+    safety_tolerance: int = Field(default=2, ge=1, le=6)
+    user_id: Optional[str] = None
+    owner_key: Optional[str] = None
+    persona_id: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class VideoGenerateRequest(BaseModel):
     prompt: str
@@ -52,26 +56,31 @@ class CarouselGenerateRequest(BaseModel):
     language: Optional[str] = None
     skin_color: Optional[str] = None
     include_text_overlay: bool = True
+    user_id: Optional[str] = None
+    owner_key: Optional[str] = None
 
 
 @router.post("/generate/image")
 async def generate_image(request: ImageGenerateRequest):
     """Generate an image using fal.ai"""
+    service = ImageGenerationService()
     try:
-        fal_service = FalAIService()
-
-        result = await fal_service.generate_image(
-            prompt=request.prompt, 
-            model=request.model, 
+        return await service.generate_images(
+            prompt=request.prompt,
+            model=request.model,
             aspect_ratio=request.aspect_ratio,
-            num_images=request.num_images
+            safety_tolerance=request.safety_tolerance,
+            num_images=request.num_images,
+            user_id=request.user_id,
+            owner_key=request.owner_key,
+            persona_id=request.persona_id,
+            metadata=request.metadata,
         )
-
-        return result
-
     except Exception as e:
         logger.error(f"Image generation failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await service.close()
 
 
 @router.post("/generate/video")
@@ -94,10 +103,12 @@ async def generate_audio(request: AudioGenerateRequest):
     """Generate audio using Google Cloud TTS (Vietnamese Wavenet voices)"""
     try:
         tts_service = GoogleTTSService()
+        resolver = getattr(tts_service, "resolve_voice_name", None)
+        resolved_voice = resolver(request.voice) if callable(resolver) else request.voice
 
         audio_bytes = await tts_service.generate_audio(
             text=request.text,
-            voice=request.voice,
+            voice=resolved_voice,
             speaking_rate=request.speaking_rate,
             pitch=request.pitch,
         )
@@ -105,7 +116,7 @@ async def generate_audio(request: AudioGenerateRequest):
         return {
             "status": "success",
             "audio_bytes_length": len(audio_bytes),
-            "voice": request.voice,
+            "voice": resolved_voice,
             "text_length": len(request.text),
             "note": "Audio bytes available for download or further processing",
         }
@@ -127,7 +138,7 @@ async def list_voices():
             "status": "success",
             "voices": voices,
             "default_voice": "vi-VN-Wavenet-D",
-            "note": "All voices support Vietnamese language"
+            "note": "Voice presets map to provider voices; aliases are normalized automatically."
         }
 
     except Exception as e:

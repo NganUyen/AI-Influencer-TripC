@@ -1,28 +1,55 @@
-import base64
 from io import BytesIO
 
 import pytest
+import httpx
 from fastapi import FastAPI
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 from PIL import Image
 
 from api import media
-from services.carousel_service import CarouselService
 
 
-def _build_client() -> TestClient:
-    app = FastAPI()
-    app.include_router(media.router, prefix="/api/media")
-    return TestClient(app)
+class _StubImageGenerationService:
+    def __init__(self, response):
+        self.calls = []
+        self.response = response
+        self.closed = False
+
+    async def generate_images(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.response
+
+    async def close(self):
+        self.closed = True
 
 
 class _StubGoogleTTSService:
     def __init__(self):
         self.calls = []
 
-    async def generate_audio(self, text: str, voice: str):
-        self.calls.append({"text": text, "voice": voice})
+    @staticmethod
+    def resolve_voice_name(voice: str, language: str | None = None):
+        mapping = {
+            "male_friendly": "vi-VN-Wavenet-D",
+            "female_warm": "vi-VN-Wavenet-A",
+        }
+        return mapping.get(voice, voice)
+
+    async def generate_audio(
+        self,
+        text: str,
+        voice: str,
+        speaking_rate: float = 1.0,
+        pitch: float = 0.0,
+    ):
+        self.calls.append(
+            {
+                "text": text,
+                "voice": voice,
+                "speaking_rate": speaking_rate,
+                "pitch": pitch,
+            }
+        )
         return b"mp3-bytes"
 
     def get_voices(self):
@@ -33,56 +60,121 @@ class _StubGoogleTTSService:
 
 
 @pytest.mark.asyncio
-async def test_generate_audio_maps_named_voice(monkeypatch):
+async def test_generate_image_route_uses_shared_service_and_preserves_contract(monkeypatch):
+    stub = _StubImageGenerationService(
+        {
+            "url": "https://storage.example/images/primary.png",
+            "source_url": "https://fal.example/images/primary.png",
+            "storage_url": "https://storage.example/images/primary.png",
+            "storage_key": "users/demo/personas/hero/image/2026-03/primary.png",
+            "images": [
+                {
+                    "url": "https://storage.example/images/primary.png",
+                    "source_url": "https://fal.example/images/primary.png",
+                    "storage_url": "https://storage.example/images/primary.png",
+                    "storage_key": "users/demo/personas/hero/image/2026-03/primary.png",
+                    "storage_status": "stored",
+                }
+            ],
+            "source_images": [{"url": "https://fal.example/images/primary.png"}],
+            "model": "fal-ai/nano-banana-2",
+            "prompt": "TripC hero image",
+            "storage_status": "stored",
+            "metadata": {"owner_key": "telegram:123", "persona_id": "hero"},
+        }
+    )
+
+    monkeypatch.setattr(media, "ImageGenerationService", lambda: stub)
+
+    result = await media.generate_image(
+        media.ImageGenerateRequest(
+            prompt="TripC hero image",
+            owner_key="telegram:123",
+            persona_id="hero",
+            num_images=1,
+            metadata={"source": "test"},
+        )
+    )
+
+    assert result["url"] == "https://storage.example/images/primary.png"
+    assert result["source_url"] == "https://fal.example/images/primary.png"
+    assert result["storage_url"] == "https://storage.example/images/primary.png"
+    assert result["images"][0]["storage_status"] == "stored"
+    assert stub.calls[0]["owner_key"] == "telegram:123"
+    assert stub.calls[0]["persona_id"] == "hero"
+    assert stub.calls[0]["metadata"] == {"source": "test"}
+    assert stub.closed is True
+
+
+@pytest.mark.asyncio
+async def test_generate_image_route_returns_source_url_when_storage_falls_back(monkeypatch):
+    stub = _StubImageGenerationService(
+        {
+            "url": "https://fal.example/images/fallback.png",
+            "source_url": "https://fal.example/images/fallback.png",
+            "storage_url": None,
+            "storage_key": None,
+            "images": [
+                {
+                    "url": "https://fal.example/images/fallback.png",
+                    "source_url": "https://fal.example/images/fallback.png",
+                    "storage_url": None,
+                    "storage_key": None,
+                    "storage_status": "source_only",
+                }
+            ],
+            "source_images": [{"url": "https://fal.example/images/fallback.png"}],
+            "model": "fal-ai/nano-banana-2",
+            "prompt": "Fallback image",
+            "storage_status": "source_only",
+            "metadata": {"persisted_count": 0},
+        }
+    )
+
+    monkeypatch.setattr(media, "ImageGenerationService", lambda: stub)
+
+    result = await media.generate_image(
+        media.ImageGenerateRequest(prompt="Fallback image")
+    )
+
+    assert result["url"] == "https://fal.example/images/fallback.png"
+    assert result["storage_url"] is None
+    assert result["images"][0]["storage_status"] == "source_only"
+    assert stub.closed is True
+
+
+@pytest.mark.asyncio
+async def test_generate_audio_returns_summary(monkeypatch):
     stub_service = _StubGoogleTTSService()
     monkeypatch.setattr(media, "GoogleTTSService", lambda: stub_service)
 
     result = await media.generate_audio(
-        media.AudioGenerateRequest(text="Xin chao", voice_id="male_friendly")
+        media.AudioGenerateRequest(text="Xin chao", voice="male_friendly")
     )
 
     assert stub_service.calls == [
-        {"text": "Xin chao", "voice": "vi-VN-Wavenet-D"}
+        {
+            "text": "Xin chao",
+            "voice": "vi-VN-Wavenet-D",
+            "speaking_rate": 1.05,
+            "pitch": 0.0,
+        }
     ]
     assert result["voice"] == "vi-VN-Wavenet-D"
-    assert result["format"] == "mp3"
-    assert result["byte_length"] == len(b"mp3-bytes")
-    assert base64.b64decode(result["audio_base64"]) == b"mp3-bytes"
-
-
-@pytest.mark.asyncio
-async def test_generate_audio_accepts_direct_voice_name(monkeypatch):
-    stub_service = _StubGoogleTTSService()
-    monkeypatch.setattr(media, "GoogleTTSService", lambda: stub_service)
-
-    result = await media.generate_audio(
-        media.AudioGenerateRequest(text="Xin chao", voice_id="vi-VN-Wavenet-C")
-    )
-
-    assert stub_service.calls == [
-        {"text": "Xin chao", "voice": "vi-VN-Wavenet-C"}
-    ]
-    assert result["voice"] == "vi-VN-Wavenet-C"
-
-
-@pytest.mark.asyncio
-async def test_list_voices_filters_by_language(monkeypatch):
-    monkeypatch.setattr(media, "GoogleTTSService", lambda: _StubGoogleTTSService())
-
-    result = await media.list_voices(language="vi-vn")
-
-    assert result == {
-        "voices": {
-            "male_friendly": "vi-VN-Wavenet-D",
-            "female_warm": "vi-VN-Wavenet-A",
-        }
-    }
+    assert result["audio_bytes_length"] == len(b"mp3-bytes")
+    assert result["text_length"] == len("Xin chao")
 
 
 @pytest.mark.asyncio
 async def test_generate_audio_converts_errors(monkeypatch):
     class _FailingGoogleTTSService:
-        async def generate_audio(self, text: str, voice: str):
+        async def generate_audio(
+            self,
+            text: str,
+            voice: str,
+            speaking_rate: float = 1.0,
+            pitch: float = 0.0,
+        ):
             raise RuntimeError("tts unavailable")
 
         def get_voices(self):
@@ -92,7 +184,7 @@ async def test_generate_audio_converts_errors(monkeypatch):
 
     with pytest.raises(HTTPException) as exc:
         await media.generate_audio(
-            media.AudioGenerateRequest(text="Xin chao", voice_id="voice")
+            media.AudioGenerateRequest(text="Xin chao", voice="vi-VN-Wavenet-D")
         )
 
     assert exc.value.status_code == 500
@@ -180,7 +272,7 @@ async def test_carousel_service_builds_slide_assets(monkeypatch):
     monkeypatch.setattr("services.carousel_service.httpx.AsyncClient", lambda **_: _StubDownloadClient())
     monkeypatch.setattr("services.carousel_service.PersonaRegistryService.get_persona", fake_get_persona)
 
-    service = CarouselService()
+    service = media.CarouselService()
     result = await service.generate_carousel(
         {
             "app_name": "TripC",
@@ -211,9 +303,8 @@ async def test_carousel_service_builds_slide_assets(monkeypatch):
     assert uploaded[2]["filename"].endswith("manifest.json")
 
 
-def test_generate_carousel_endpoint_returns_artifact(monkeypatch):
-    client = _build_client()
-
+@pytest.mark.asyncio
+async def test_generate_carousel_endpoint_returns_artifact(monkeypatch):
     async def fake_generate_carousel(self, payload):
         return {
             "type": "carousel",
@@ -240,14 +331,21 @@ def test_generate_carousel_endpoint_returns_artifact(monkeypatch):
 
     monkeypatch.setattr(media.CarouselService, "generate_carousel", fake_generate_carousel)
 
-    response = client.post(
-        "/api/media/carousel",
-        json={
-            "topic": "Launch smart route planning",
-            "platform": "instagram",
-            "num_slides": 3,
-        },
-    )
+    app = FastAPI()
+    app.include_router(media.router, prefix="/api/media")
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/api/media/carousel",
+            json={
+                "topic": "Launch smart route planning",
+                "platform": "instagram",
+                "num_slides": 3,
+            },
+            headers={"x-internal-api-token": "test-internal-token"},
+        )
 
     assert response.status_code == 200
     payload = response.json()

@@ -19,7 +19,6 @@ with workflow.unsafe.imports_passed_through():
         generate_image,
         generate_video,
         generate_audio,
-        upload_to_storage,
     )
     from activities.distribution_activities import (
         schedule_posts,
@@ -156,31 +155,19 @@ class WeeklyMarketingWorkflow:
                 )
             media_tasks.append(task)
 
-        media_assets = await workflow.gather(*media_tasks)
-        self.current_step = "uploading_media"
-
-        # Step 6: Upload all assets to the configured object storage backend
-        uploaded_assets = []
-        for asset in media_assets:
-            uploaded = await workflow.execute_activity(
-                upload_to_storage,
-                args=[asset],
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            uploaded_assets.append(uploaded)
+        uploaded_assets = await workflow.gather(*media_tasks)
 
         strategy["workflow_id"] = workflow.info().workflow_id
 
-        # Step 7: Schedule posts across the week
+        # Step 6: Schedule posts across the week
+        self.current_step = "scheduling_distribution"
         schedule = await workflow.execute_activity(
             schedule_posts,
             args=[strategy, uploaded_assets],
             start_to_close_timeout=timedelta(minutes=5),
         )
-        self.current_step = "scheduling_distribution"
 
-        # Step 8: Execute publishing workflow for each scheduled post
+        # Step 7: Execute publishing workflow for each scheduled post
         for post in schedule:
             await workflow.start_child_workflow(
                 PostPublishingWorkflow.run,

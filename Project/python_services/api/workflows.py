@@ -37,6 +37,9 @@ class StartVideoRequest(BaseModel):
     tone: str = "natural"
     platform: str = "tiktok"
     telegram_chat_id: Optional[str] = None
+    user_id: Optional[str] = None
+    owner_key: Optional[str] = None
+    talking_head_optional: bool = False
 
 
 async def get_temporal_client(request: Request) -> Client:
@@ -93,7 +96,15 @@ async def start_video_workflow(request: Request, payload: StartVideoRequest):
     """
     Start a new short-video workflow.
     """
-    persona = await PersonaRegistryService.get_persona(payload.persona_id)
+    owner_key = payload.owner_key
+    if not owner_key and payload.telegram_chat_id:
+        owner_key = f"telegram:{payload.telegram_chat_id}"
+
+    persona = await PersonaRegistryService.get_persona(
+        payload.persona_id,
+        user_id=payload.user_id,
+        owner_key=owner_key,
+    )
     if not persona:
         raise HTTPException(
             status_code=400,
@@ -103,11 +114,6 @@ async def start_video_workflow(request: Request, payload: StartVideoRequest):
         raise HTTPException(
             status_code=400,
             detail=f"Persona '{payload.persona_id}' is not ready.",
-        )
-    if not persona.get("heygen_avatar_id"):
-        raise HTTPException(
-            status_code=400,
-            detail="Persona is missing heygen_avatar_id.",
         )
     if not persona.get("tts_voice"):
         raise HTTPException(
@@ -133,6 +139,9 @@ async def start_video_workflow(request: Request, payload: StartVideoRequest):
                     "tone": payload.tone,
                     "platform": payload.platform,
                     "telegram_chat_id": payload.telegram_chat_id,
+                    "user_id": payload.user_id,
+                    "owner_key": owner_key,
+                    "talking_head_optional": payload.talking_head_optional,
                 }
             ],
             id=workflow_id,

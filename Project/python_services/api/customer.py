@@ -27,6 +27,8 @@ from services.customer_auth_service import (
 )
 from services.customer_campaign_service import CustomerCampaignService
 from services.database_service import DatabaseService
+from services.customer_media_service import CustomerMediaService
+from services.telegram_link_service import TelegramLinkService
 
 router = APIRouter()
 
@@ -95,6 +97,10 @@ class ChatGPTOAuthLinkRequest(BaseModel):
     subscription_tier: str = "plus"
 
 
+class TelegramLinkStartRequest(BaseModel):
+    expires_in_minutes: int = 15
+
+
 @router.get("/brand")
 async def get_brand_profile(
     session: CustomerSession = Depends(require_customer_session),
@@ -120,6 +126,45 @@ async def put_brand_profile(
         payload.model_dump(),
     )
     return {"brand_profile": brand}
+
+
+@router.get("/telegram/link")
+async def get_telegram_link_status(
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    link = await TelegramLinkService.get_link_for_user(session.user_id)
+    return {
+        "linked": link is not None,
+        "link": link,
+    }
+
+
+@router.post("/telegram/link/start")
+async def start_telegram_link(
+    payload: TelegramLinkStartRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    token = await TelegramLinkService.create_link_token(
+        user_id=session.user_id,
+        expires_in_minutes=payload.expires_in_minutes,
+    )
+    return token
+
+
+@router.get("/media/{asset_id}/access-url")
+async def get_media_access_url(
+    asset_id: str,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    try:
+        return await CustomerMediaService.get_access_url(
+            user_id=session.user_id,
+            asset_id=asset_id,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/social-accounts")

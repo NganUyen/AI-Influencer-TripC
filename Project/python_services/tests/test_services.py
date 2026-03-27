@@ -337,6 +337,7 @@ async def test_ai_service_records_openai_usage(monkeypatch):
 @pytest.mark.asyncio
 async def test_fal_service_records_generation_usage(monkeypatch):
     captured = {}
+    requests = []
 
     class StubResponse:
         def raise_for_status(self):
@@ -347,6 +348,7 @@ async def test_fal_service_records_generation_usage(monkeypatch):
 
     class StubClient:
         async def post(self, url, json):
+            requests.append((url, json))
             return StubResponse()
 
         async def aclose(self):
@@ -371,12 +373,16 @@ async def test_fal_service_records_generation_usage(monkeypatch):
     assert captured["usage"]["requests"] == 1
     assert captured["usage"]["images"] == 2
     assert captured["metadata"]["operation"] == "generate_image"
+    assert requests[0][0] == "/fal-ai/nano-banana-2"
+    assert requests[0][1]["aspect_ratio"] == "16:9"
+    assert "image_size" not in requests[0][1]
     await service.close()
 
 
 @pytest.mark.asyncio
 async def test_google_tts_service_records_usage(monkeypatch):
     captured = {}
+    requests = []
 
     class StubResponse:
         def raise_for_status(self):
@@ -393,6 +399,7 @@ async def test_google_tts_service_records_usage(monkeypatch):
             return None
 
         async def post(self, url, json):
+            requests.append((url, json))
             return StubResponse()
 
     async def fake_record_runtime_usage(**kwargs):
@@ -412,14 +419,17 @@ async def test_google_tts_service_records_usage(monkeypatch):
     )
 
     service = GoogleTTSService()
-    audio = await service.generate_audio(text="Xin chao", voice="vi-VN-Wavenet-D")
+    audio = await service.generate_audio(text="Hello there", voice="male_friendly", language="English")
 
     assert audio == b"hello"
     assert captured["provider"] == "google_tts"
     assert captured["usage"]["requests"] == 1
-    assert captured["usage"]["characters"] == len("Xin chao")
+    assert captured["usage"]["characters"] == len("Hello there")
     assert captured["usage"]["bytes"] == len(b"hello")
     assert captured["metadata"]["operation"] == "generate_audio"
+    assert captured["metadata"]["voice"] == "en-US-Studio-O"
+    assert requests[0][1]["voice"]["name"] == "en-US-Studio-O"
+    assert requests[0][1]["voice"]["languageCode"] == "en-US"
 
 
 @pytest.mark.asyncio

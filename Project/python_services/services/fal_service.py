@@ -9,6 +9,8 @@ from typing import Dict, Any, Optional
 from config.settings import settings
 from services.quota_monitor_service import QuotaMonitorService
 
+logger = logging.getLogger(__name__)
+
 class FalAIService:
     """
     Integration with fal.ai for AI-powered image and video generation
@@ -29,6 +31,26 @@ class FalAIService:
     def __init__(self):
         self.api_key = settings.FAL_AI_API_KEY
         self.client = self._get_client()
+
+    @staticmethod
+    def _build_image_payload(
+        *,
+        model: str,
+        prompt: str,
+        aspect_ratio: str,
+        safety_tolerance: int,
+        num_images: int,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "prompt": prompt,
+            "safety_tolerance": safety_tolerance,
+            "num_images": num_images,
+        }
+        if "nano-banana" in str(model or ""):
+            payload["aspect_ratio"] = aspect_ratio
+        else:
+            payload["image_size"] = {"aspect_ratio": aspect_ratio}
+        return payload
 
     async def _record_usage(
         self,
@@ -76,12 +98,13 @@ class FalAIService:
         """
         logger.info(f"Generating image with {model}")
 
-        payload = {
-            "prompt": prompt,
-            "image_size": {"aspect_ratio": aspect_ratio},
-            "safety_tolerance": safety_tolerance,
-            "num_images": num_images,
-        }
+        payload = self._build_image_payload(
+            model=model,
+            prompt=prompt,
+            aspect_ratio=aspect_ratio,
+            safety_tolerance=safety_tolerance,
+            num_images=num_images,
+        )
 
         try:
             response = await self.client.post(f"/{model}", json=payload)

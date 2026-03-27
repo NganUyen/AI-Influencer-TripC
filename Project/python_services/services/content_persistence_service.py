@@ -251,9 +251,9 @@ class ContentPersistenceService:
         logical_post_id = post_config["id"]
         scheduled_at = _parse_timestamp(post_config.get("scheduled_time"))
         media_urls = [
-            media.get("storage_url")
+            media.get("storage_url") or media.get("url")
             for media in post_config.get("media", [])
-            if media.get("storage_url")
+            if media.get("storage_url") or media.get("url")
         ]
         metadata = {
             "workflow_id": workflow_id,

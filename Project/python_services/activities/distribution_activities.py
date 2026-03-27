@@ -161,7 +161,11 @@ async def publish_to_platforms(post_config: Dict[str, Any]) -> Dict[str, Any]:
             result = await browser_service.publish(
                 platform=platform,
                 content=post_config["content"],
-                media_urls=[m["storage_url"] for m in post_config.get("media", [])],
+                media_urls=[
+                    m.get("storage_url") or m.get("url")
+                    for m in post_config.get("media", [])
+                    if m.get("storage_url") or m.get("url")
+                ],
                 user_id=post_config["user_id"],
             )
             results.update(

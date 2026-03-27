@@ -153,10 +153,23 @@ def _render_text_overlay(
 class CarouselService:
     """Generate complete carousel artifacts for feature/post workflows."""
 
-    async def _resolve_persona(self, persona_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    async def _resolve_persona(
+        self,
+        persona_id: Optional[str],
+        *,
+        user_id: Optional[str] = None,
+        owner_key: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         if not persona_id:
             return None
-        persona = await PersonaRegistryService.get_persona(persona_id)
+        if user_id or owner_key:
+            persona = await PersonaRegistryService.get_persona(
+                persona_id,
+                user_id=user_id,
+                owner_key=owner_key,
+            )
+        else:
+            persona = await PersonaRegistryService.get_persona(persona_id)
         if not persona:
             raise ValueError(f"Persona '{persona_id}' was not found.")
         return persona
@@ -178,7 +191,11 @@ class CarouselService:
     async def generate_carousel(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         from activities.strategy_activities import generate_carousel_strategy
 
-        persona = await self._resolve_persona(payload.get("persona_id"))
+        persona = await self._resolve_persona(
+            payload.get("persona_id"),
+            user_id=payload.get("user_id"),
+            owner_key=payload.get("owner_key"),
+        )
         persona_config = self._build_persona_config(persona, payload)
 
         planning_input = {

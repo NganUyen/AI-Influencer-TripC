@@ -168,6 +168,7 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "collect_brief",
             "choose_style",
             "choose_tone",
+            "choose_ratio",
             "generate_preview",
             "confirm_or_regenerate",
             "store_asset",

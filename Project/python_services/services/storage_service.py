@@ -11,9 +11,13 @@ import asyncio
 import base64
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
-from typing import BinaryIO, Dict, Any
-from io import BytesIO
+from typing import Any, BinaryIO, Dict, Optional
+from urllib.parse import quote
+
+import boto3
+import httpx
 from botocore.config import Config
 
 from config.settings import settings
@@ -57,7 +61,7 @@ class StorageService:
         content_type: str = "application/octet-stream",
         metadata: Dict[str, str] | None = None,
     ) -> str:
-        """Upload file data and return the public URL."""
+        """Upload file data and return an access URL."""
         normalized_filename = self._normalize_path(filename)
         logger.info("Uploading file to %s storage: %s", self.provider, normalized_filename)
 
@@ -85,7 +89,7 @@ class StorageService:
         metadata: Dict[str, str] | None = None,
     ) -> str:
         """
-        Upload raw bytes to R2 storage (convenience method)
+        Upload raw bytes and return an access URL.
 
         Args:
             data: Raw bytes data
@@ -94,7 +98,7 @@ class StorageService:
             metadata: Optional metadata tags
 
         Returns:
-            Public URL of the uploaded file
+            Access URL of the uploaded file
         """
         file_obj = BytesIO(data)
         return await self.upload(
@@ -152,6 +156,31 @@ class StorageService:
             ExpiresIn=expires_in,
         )
 
+    async def get_access_url(
+        self,
+        filename: str,
+        *,
+        expiration: int | None = None,
+    ) -> str:
+        normalized_filename = self._normalize_path(filename)
+        if self.provider == "supabase":
+            return await self.get_presigned_url(normalized_filename, expiration=expiration)
+        return self.get_public_url(normalized_filename)
+
+    def get_public_url(self, filename: str) -> str:
+        """Build the stable public object URL for the configured bucket."""
+        normalized_filename = self._normalize_path(filename)
+        return self._build_public_url(normalized_filename)
+
+    def signed_url_expires_at(
+        self,
+        expiration: Optional[int] = None,
+    ) -> Optional[datetime]:
+        if self.provider != "supabase":
+            return None
+        ttl_seconds = int(expiration or settings.STORAGE_SIGNED_URL_TTL_SECONDS)
+        return datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+
     async def list_files(self, prefix: str = "") -> list[str]:
         """List file keys in the configured storage backend."""
         normalized_prefix = self._normalize_path(prefix)
@@ -189,9 +218,9 @@ class StorageService:
             headers=headers,
             data=data,
         )
-        public_url = self._build_public_url(filename)
-        logger.info("File uploaded successfully: %s", public_url)
-        return public_url
+        access_url = self.get_public_url(filename)
+        logger.info("File uploaded successfully: %s", filename)
+        return access_url
 
     async def _upload_s3(
         self,
@@ -214,7 +243,7 @@ class StorageService:
             filename,
             ExtraArgs=extra_args,
         )
-        public_url = self._build_public_url(filename)
+        public_url = self.get_public_url(filename)
         logger.info("File uploaded successfully: %s", public_url)
         return public_url
 

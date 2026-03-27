@@ -16,6 +16,7 @@ from services.google_tts_service import GoogleTTSService
 from services.heygen_service import HeyGenService
 from services.storage_service import StorageService
 from services.media_storage_service import MediaStorageService
+from services.image_generation_service import ImageGenerationService
 from services.contracts import AudioInput, ImageInput, VideoInput
 from .video_activities import build_split_screen_video
 from services.content_scenes_service import (
@@ -37,7 +38,9 @@ def _prompt_metadata(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
 
 def _prompt_voice(prompt_config: Dict[str, Any]) -> str:
     config = prompt_config.get("config") or {}
-    return config.get("voice") or prompt_config.get("voice_id") or "vi-VN-Wavenet-D"
+    language = config.get("language") or prompt_config.get("language")
+    requested = config.get("voice") or prompt_config.get("voice_id") or "vi-VN-Wavenet-D"
+    return GoogleTTSService.resolve_voice_name(requested, language=language)
 
 
 @activity.defn
@@ -53,14 +56,25 @@ async def generate_image(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
     )
     logger.info(f"Generating image for day {image_input.metadata.day}")
 
-    fal_service = FalAIService()
-
+    metadata = _prompt_metadata(prompt_config)
+    campaign_id = prompt_config.get("campaign_id") or metadata.get("campaign_id")
+    persona_id = prompt_config.get("persona_id") or metadata.get("persona_id")
+    owner_key = prompt_config.get("owner_key") or metadata.get("owner_key")
+    user_id = prompt_config.get("user_id") or metadata.get("user_id")
+    image_service = ImageGenerationService()
     try:
-        result = await fal_service.generate_image(
+        result = await image_service.generate_images(
             prompt=image_input.prompt,
             model=image_input.config.model or "fal-ai/flux-pro",
             aspect_ratio=image_input.config.aspect_ratio or "16:9",
             safety_tolerance=image_input.config.safety_tolerance or 2,
+            num_images=1,
+            campaign_id=str(campaign_id) if campaign_id else None,
+            user_id=user_id,
+            owner_key=owner_key,
+            persona_id=persona_id,
+            metadata=metadata,
+            file_name_hint=f"{metadata.get('platform', 'image')}-{metadata.get('day', '1')}",
         )
     except httpx.HTTPStatusError as e:
         logger.error(f"Failed to generate image HTTP error: {str(e)}")
@@ -71,33 +85,19 @@ async def generate_image(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"Failed to generate image: {str(e)}")
         raise ApplicationError(f"Image generation failed: {str(e)}", non_retryable=False)
     finally:
-        await fal_service.close()
-
-    # ── media bucket hook (non-blocking) ─────────────────────────────────────
-    _campaign_id = prompt_config.get("campaign_id") or (
-        prompt_config.get("metadata") or {}
-    ).get("campaign_id")
-    if result.get("url") and _campaign_id:
-        _day = image_input.metadata.day or "unknown"
-        _platform = image_input.metadata.platform or "default"
-        asyncio.create_task(
-            MediaStorageService().upload_from_url(
-                url=result["url"],
-                destination_path=f"image/{_day}/{_platform}_{str(id(result))[-8:]}.png",
-                campaign_id=str(_campaign_id),
-                asset_type="IMAGE",
-                generation_prompt=image_input.prompt,
-                provider_job_id=result.get("request_id"),
-            )
-        )
+        await image_service.close()
 
     return {
         "type": "image",
         "service": "fal_ai",
         "url": result.get("url"),
+        "source_url": result.get("source_url"),
+        "storage_url": result.get("storage_url") or result.get("url"),
+        "storage_key": result.get("storage_key"),
         "status": "completed",
         "data": result,
-        "metadata": image_input.model_dump(),
+        "images": result.get("images", []),
+        "metadata": metadata,
     }
 
 
@@ -113,8 +113,12 @@ async def generate_video(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
     )
     logger.info(f"Generating video for day {video_input.metadata.day}")
 
+    metadata = _prompt_metadata(prompt_config)
+    campaign_id = prompt_config.get("campaign_id") or metadata.get("campaign_id")
+    persona_id = prompt_config.get("persona_id") or metadata.get("persona_id")
+    owner_key = prompt_config.get("owner_key") or metadata.get("owner_key")
+    user_id = prompt_config.get("user_id") or metadata.get("user_id")
     fal_service = FalAIService()
-
     try:
         result = await fal_service.generate_video(
             prompt=video_input.prompt,
@@ -131,31 +135,41 @@ async def generate_video(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
     finally:
         await fal_service.close()
 
-    # ── media bucket hook (non-blocking) ─────────────────────────────────────
-    _campaign_id = prompt_config.get("campaign_id") or (
-        prompt_config.get("metadata") or {}
-    ).get("campaign_id")
-    if result.get("url") and _campaign_id:
-        _day = video_input.metadata.day or "unknown"
-        _platform = video_input.metadata.platform or "default"
-        asyncio.create_task(
-            MediaStorageService().upload_from_url(
-                url=result["url"],
-                destination_path=f"video/{_day}/{_platform}_{str(id(result))[-8:]}.mp4",
-                campaign_id=str(_campaign_id),
-                asset_type="VIDEO",
-                generation_prompt=video_input.prompt,
-                provider_job_id=result.get("request_id"),
-            )
+    storage_result = None
+    if result.get("url"):
+        storage_result = await MediaStorageService().upload_from_url(
+            url=result["url"],
+            campaign_id=str(campaign_id) if campaign_id else None,
+            asset_type="VIDEO",
+            generation_prompt=video_input.prompt,
+            provider_job_id=result.get("request_id"),
+            user_id=user_id,
+            owner_key=owner_key,
+            persona_id=persona_id,
+            metadata=metadata,
+            file_name_hint=f"{metadata.get('platform', 'video')}-{metadata.get('day', '1')}",
         )
+    storage_url = None
+    if storage_result:
+        if isinstance(storage_result, dict):
+            storage_url = storage_result.get("access_url") or storage_result.get("url")
+        else:
+            storage_url = str(storage_result)
+    effective_url = storage_url or result.get("url")
 
     return {
         "type": "video",
         "service": "fal_ai",
-        "url": result.get("url"),
+        "url": effective_url,
+        "source_url": result.get("url"),
+        "storage_url": effective_url,
+        "storage_key": storage_result.get("storage_path") if isinstance(storage_result, dict) else None,
         "status": "completed",
         "data": result,
-        "metadata": video_input.model_dump(),
+        "metadata": {
+            **metadata,
+            "storage_status": "stored" if storage_url else "source_only",
+        },
     }
 
 
@@ -173,7 +187,12 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
     logger.info(f"Generating audio for platform: {audio_input.metadata.platform}")
 
     tts_service = GoogleTTSService()
-    voice_mapped = audio_input.config.voice or "vi-VN-Wavenet-D"
+    voice_language = (prompt_config.get("config") or {}).get("language") or prompt_config.get("language")
+    voice_mapped = GoogleTTSService.resolve_voice_name(
+        audio_input.config.voice or "vi-VN-Wavenet-D",
+        language=voice_language,
+    )
+    metadata = _prompt_metadata(prompt_config)
 
     text_to_speak = audio_input.script
     if not text_to_speak:
@@ -183,6 +202,7 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
         audio_bytes = await tts_service.generate_audio(
             text=text_to_speak,
             voice=voice_mapped,
+            language=voice_language,
         )
         
         storage_service = StorageService()
@@ -198,13 +218,36 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
         )
         
         logger.info(f"Audio generated and uploaded successfully")
-        
+
+        campaign_id = prompt_config.get("campaign_id") or metadata.get("campaign_id")
+        persona_id = prompt_config.get("persona_id") or metadata.get("persona_id")
+        owner_key = prompt_config.get("owner_key") or metadata.get("owner_key")
+        user_id = prompt_config.get("user_id") or metadata.get("user_id")
+        if campaign_id or persona_id or user_id or owner_key:
+            asyncio.create_task(
+                MediaStorageService().record_asset(
+                    campaign_id=str(campaign_id) if campaign_id else None,
+                    asset_type="AUDIO",
+                    generation_prompt=text_to_speak,
+                    storage_path=filename,
+                    public_url=public_url,
+                    mime_type=f"audio/{file_extension}",
+                    file_size=len(audio_bytes),
+                    status="COMPLETED",
+                    user_id=user_id,
+                    owner_key=owner_key,
+                    persona_id=persona_id,
+                    metadata=metadata,
+                )
+            )
+
         return {
             "type": "audio",
             "service": "google_tts",
             "url": public_url,
+            "storage_url": public_url,
             "voice": voice_mapped,
-            "metadata": audio_input.model_dump(),
+            "metadata": metadata,
             "status": "completed"
         }
 
@@ -263,13 +306,16 @@ async def upload_to_storage(media_asset: Dict[str, Any]) -> Dict[str, Any]:
 
     # ── media bucket hook (non-blocking) ─────────────────────────────────────
     _campaign_id = media_asset.get("campaign_id") or asset_metadata.get("campaign_id")
-    if _campaign_id:
+    _persona_id = media_asset.get("persona_id") or asset_metadata.get("persona_id")
+    _owner_key = media_asset.get("owner_key") or asset_metadata.get("owner_key")
+    _user_id = media_asset.get("user_id") or asset_metadata.get("user_id")
+    if _campaign_id or _persona_id or _user_id or _owner_key:
         _asset_type = media_asset["type"].upper()      # IMAGE | AUDIO | VIDEO
         _mime = f"{media_asset['type']}/{file_extension}"
         _size = media_data.seek(0, 2)                  # seek to end → byte count
         asyncio.create_task(
             MediaStorageService().record_asset(
-                campaign_id=str(_campaign_id),
+                campaign_id=str(_campaign_id) if _campaign_id else None,
                 asset_type=_asset_type,
                 generation_prompt=media_asset.get("prompt", ""),
                 storage_path=filename,
@@ -277,6 +323,10 @@ async def upload_to_storage(media_asset: Dict[str, Any]) -> Dict[str, Any]:
                 mime_type=_mime,
                 file_size=_size or 0,
                 status="COMPLETED",
+                user_id=_user_id,
+                owner_key=_owner_key,
+                persona_id=_persona_id,
+                metadata={"day": asset_metadata.get("day"), "platform": asset_metadata.get("platform")},
             )
         )
 
@@ -337,6 +387,9 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
     background: str = config.get("background", "blur")
     day: int = config.get("day", 1)
     topic: str = config.get("topic", "episode")
+    persona_id: str = config.get("persona_id", "legacy")
+    owner_key = config.get("owner_key")
+    user_id = config.get("user_id")
 
     if not avatar_id or not audio_url:
         raise ApplicationError(
@@ -368,12 +421,30 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
         response.raise_for_status()
         video_bytes = response.content
 
-    filename = f"videos/talking_head/day{day}/{topic.replace(' ', '_')[:30]}.mp4"
+    filename = f"videos/{persona_id}/talking_head/day{day}/{topic.replace(' ', '_')[:30]}.mp4"
     public_url = await storage.upload_bytes(
         data=video_bytes,
         filename=filename,
         content_type="video/mp4",
     )
+
+    if persona_id or user_id or owner_key:
+        asyncio.create_task(
+            MediaStorageService().record_asset(
+                campaign_id=config.get("campaign_id"),
+                asset_type="VIDEO",
+                generation_prompt=topic,
+                storage_path=filename,
+                public_url=public_url,
+                mime_type="video/mp4",
+                file_size=len(video_bytes),
+                status="COMPLETED",
+                user_id=user_id,
+                owner_key=owner_key,
+                persona_id=persona_id,
+                metadata={"day": day, "source": "talking_head"},
+            )
+        )
 
     return {
         "type": "talking_head_video",
@@ -438,16 +509,32 @@ async def generate_web_tutorial_activity(config: Dict[str, Any]) -> List[Dict[st
 @activity.defn
 async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Generate scene images in parallel and return enriched scene payloads."""
-    fal = FalAIService()
+    image_service = ImageGenerationService()
 
     async def gen_one(scene: dict) -> dict:
-        result = await fal.generate_image(
+        scene_metadata = dict(scene.get("metadata") or {})
+        result = await image_service.generate_images(
             prompt=scene["image_prompt"],
             model=scene.get("config", {}).get("model", "fal-ai/flux/schnell"),
             aspect_ratio="9:16",
             safety_tolerance=2,
+            num_images=1,
+            campaign_id=scene.get("campaign_id") or scene_metadata.get("campaign_id"),
+            user_id=scene.get("user_id") or scene_metadata.get("user_id"),
+            owner_key=scene.get("owner_key") or scene_metadata.get("owner_key"),
+            persona_id=scene.get("persona_id") or scene_metadata.get("persona_id"),
+            metadata=scene_metadata,
+            file_name_hint=f"scene-{scene.get('id', 'image')}",
         )
-        return {**scene, "image_url": result.get("url"), "status": "completed"}
+        return {
+            **scene,
+            "image_url": result.get("url"),
+            "source_image_url": result.get("source_url"),
+            "storage_image_url": result.get("storage_url"),
+            "image_storage_key": result.get("storage_key"),
+            "image_media_asset_id": result.get("images", [{}])[0].get("media_asset_id"),
+            "status": "completed",
+        }
 
     logger.info(f"Generating {len(scenes)} scene images in parallel...")
     try:
@@ -456,7 +543,7 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
         logger.info("Scene image generation completed")
         return list(enriched)
     finally:
-        await fal.close()
+        await image_service.close()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -5,13 +5,14 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Dict, Optional
 
-from services.creative_director_service import CreativeDirectorService
+from pydantic import ValidationError
+
 from services.contracts import (
     ApprovedProductionPackageContract,
     BeatSheetContract,
     ConceptBriefContract,
 )
-from pydantic import ValidationError
+from services.creative_director_service import CreativeDirectorService
 
 from .base import BaseSkill, SkillResult, SkillSession, SkillStatus
 from .definitions import get_skill_definition
@@ -53,6 +54,7 @@ class VideoAISkill(BaseSkill):
         session = super().initial_session()
         session.collected["platform"] = session.collected.get("platform") or "tiktok"
         session.artifacts.setdefault("persona_snapshot", None)
+        session.artifacts.setdefault("persona_readiness", None)
         session.artifacts.setdefault("concept_brief", None)
         session.artifacts.setdefault("beat_sheet", None)
         session.artifacts.setdefault("approved_production_package", None)
@@ -85,6 +87,7 @@ class VideoAISkill(BaseSkill):
             backend_url,
             f"/api/personas/{persona_id}/readiness",
         )
+        session.artifacts["persona_readiness"] = readiness
         if not readiness.get("ready"):
             raise ValueError(
                 readiness.get("blocking_reason") or "Selected persona is not ready."
@@ -255,6 +258,7 @@ class VideoAISkill(BaseSkill):
             return cls._error_result(current, str(exc))
 
         concept_payload = current.artifacts.get("concept_brief")
+        concept: Optional[ConceptBriefContract] = None
         if concept_payload:
             try:
                 concept = ConceptBriefContract.model_validate(concept_payload)
@@ -305,6 +309,7 @@ class VideoAISkill(BaseSkill):
             )
 
         beat_payload = current.artifacts.get("beat_sheet")
+        beat_sheet: Optional[BeatSheetContract] = None
         if beat_payload:
             try:
                 beat_sheet = BeatSheetContract.model_validate(beat_payload)

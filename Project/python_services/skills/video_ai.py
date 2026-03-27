@@ -39,6 +39,19 @@ class VideoAISkill(BaseSkill):
         return "\n".join(lines)
 
     @classmethod
+    def _can_fallback_without_heygen(cls, readiness: Dict[str, Any]) -> bool:
+        checks = readiness.get("checks") or {}
+        has_avatar_asset = bool(
+            checks.get("has_avatar_asset") or checks.get("has_avatar_image")
+        )
+        return (
+            bool(checks.get("status_ready"))
+            and bool(checks.get("has_tts_voice"))
+            and has_avatar_asset
+            and not bool(checks.get("has_heygen_avatar_id"))
+        )
+
+    @classmethod
     async def execute(
         cls,
         session: Optional[SkillSession | Dict[str, Any]],
@@ -46,6 +59,8 @@ class VideoAISkill(BaseSkill):
         http_client: Any,
     ) -> SkillResult:
         current = cls._normalize_session(session)
+        telegram_chat_id = current.artifacts.get("telegram_chat_id")
+        owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
         missing = cls._missing_required_params(current)
         if missing:
             next_step = "pick_persona"
@@ -64,12 +79,15 @@ class VideoAISkill(BaseSkill):
             "GET",
             backend_url,
             f"/api/personas/{current.collected['persona_id']}/readiness",
+            params={"owner_key": owner_key} if owner_key else None,
         )
+        current.artifacts["persona_readiness"] = readiness
         if not readiness.get("ready"):
-            return cls._error_result(
-                current,
-                readiness.get("blocking_reason") or "Selected persona is not ready.",
-            )
+            if not cls._can_fallback_without_heygen(readiness):
+                return cls._error_result(
+                    current,
+                    readiness.get("blocking_reason") or "Selected persona is not ready.",
+                )
 
         payload = {
             "persona_id": current.collected["persona_id"],
@@ -77,9 +95,12 @@ class VideoAISkill(BaseSkill):
             "tone": current.collected["tone"],
             "platform": current.collected.get("platform") or "tiktok",
         }
-        telegram_chat_id = current.artifacts.get("telegram_chat_id")
         if telegram_chat_id:
             payload["telegram_chat_id"] = str(telegram_chat_id)
+            payload["owner_key"] = owner_key
+        if readiness.get("checks") and not readiness["checks"].get("has_heygen_avatar_id"):
+            payload["talking_head_optional"] = True
+            current.artifacts["talking_head_optional"] = True
         response = await cls._request_json(
             http_client,
             "POST",
@@ -89,6 +110,11 @@ class VideoAISkill(BaseSkill):
         )
 
         workflow_id = response.get("workflow_id")
+        if not workflow_id:
+            return cls._error_result(
+                current,
+                "Video workflow started without a workflow_id. Please try again.",
+            )
         current.artifacts["workflow_id"] = workflow_id
         current.artifacts["run_id"] = response.get("run_id")
         current.control.status = SkillStatus.waiting_approval

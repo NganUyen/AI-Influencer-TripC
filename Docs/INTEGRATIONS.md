@@ -15,14 +15,14 @@ This repo is integration-heavy. The main product logic depends on several extern
 ### Supabase Storage
 
 - default storage backend for generated media
-- expects a public bucket, usually `ai-influencer-media`
+- expects a public bucket named `media`
 - can be replaced with S3-compatible storage when `STORAGE_PROVIDER=s3`
 
 ### S3-Compatible / R2 Fallback
 
 - supported through `storage_service.py`
 - requires the `R2_*` env contract
-- useful when media should not live in Supabase Storage
+- useful only when media intentionally should not live in Supabase Storage
 
 ## OpenClaw And ChatGPT Connector
 

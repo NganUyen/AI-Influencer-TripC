@@ -21,6 +21,7 @@ SUBMENUS: Dict[str, Dict[str, Any]] = {
     "menu_image": {
         "text": "🖼️ Select Image Creation Mode:",
         "rows": [
+            [("🎨 Marketing Poster", "skill_image-poster")],
             [("🌄 Scene/Slideshow", "skill_image-scene")],
             [("🔙 Back", "menu_main")],
         ],
@@ -91,6 +92,17 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
                 ("Premium", "premium"),
                 ("Friendly", "friendly"),
                 ("Urgent", "urgent"),
+            ),
+        },
+        "choose_ratio": {
+            "input_type": "inline_keyboard",
+            "field": "aspect_ratio",
+            "prompt_text": "Choose the poster aspect ratio.",
+            "options": _options(
+                ("4:5", "4:5"),
+                ("1:1", "1:1"),
+                ("9:16", "9:16"),
+                ("16:9", "16:9"),
             ),
         },
         "confirm_or_regenerate": {
@@ -244,7 +256,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_persona_id": {
             "input_type": "free_text",
             "field": "persona_id",
-            "prompt_text": "🆔 Please enter a unique ID for your new persona:",
+            "prompt_text": "🆔 Send a unique ID for the new persona.\nExample: ray-aus",
         },
         "choose_language": {
             "input_type": "inline_keyboard",
@@ -262,12 +274,14 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
             "options": _options(
                 ("Male Friendly", "male_friendly"),
                 ("Female Warm", "female_warm"),
+                ("Male Professional", "male_professional"),
+                ("Female Clear", "female_clear"),
             ),
         },
         "collect_appearance": {
             "input_type": "free_text",
             "field": "appearance_prompt_or_photo",
-            "prompt_text": "📸 Please describe the persona's appearance, or upload a photo reference:",
+            "prompt_text": "📸 Describe the persona's appearance, or upload a reference photo.\nTip: include style, outfit, age range, and setting.",
         },
     },
     "weekly-planner": {

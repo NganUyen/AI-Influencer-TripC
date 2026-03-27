@@ -20,6 +20,8 @@ _TEST_ENV = {
     "SUPABASE_URL": "https://test.supabase.co",
     "SUPABASE_KEY": "test-key",
     "SUPABASE_SERVICE_ROLE_KEY": "test-service-key",
+    "STORAGE_PROVIDER": "supabase",
+    "SUPABASE_STORAGE_BUCKET": "media",
     "OPENAI_API_KEY": "sk-test",
     "ANTHROPIC_API_KEY": "sk-ant-test",
     "FAL_AI_API_KEY": "fal-test",
@@ -95,6 +97,29 @@ async def test_start_command_sends_welcome_message(tg_calls):
 
 
 @pytest.mark.asyncio
+async def test_start_command_clears_active_session(tg_calls):
+    session = SkillSession(
+        skill_name="persona-creator",
+        step_key="choose_language",
+        collected={"persona_id": "tmp-persona"},
+        artifacts={},
+        control=SkillControl(status=SkillStatus.collecting),
+    )
+    await TelegramSkillSessionStore.set_session(123456789, session)
+
+    message = {
+        "text": "/start",
+        "chat": {"id": 123456789, "type": "private"},
+        "from": {"first_name": "TripC", "username": "tripc"},
+    }
+
+    await _handle_message(None, message)
+
+    restored = await TelegramSkillSessionStore.get_session(123456789)
+    assert restored is None
+
+
+@pytest.mark.asyncio
 async def test_url_message_acknowledges_link_payload(tg_calls):
     message = {
         "text": "https://someapp.ai/landing",
@@ -161,6 +186,99 @@ async def test_plain_text_agent_can_start_skill(tg_calls):
     send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
     assert send_call["payload"]["text"] == "brand_config is required."
     mock_service.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_typed_text_can_advance_inline_keyboard_step(tg_calls):
+    session = SkillSession(
+        skill_name="persona-creator",
+        step_key="choose_language",
+        collected={"persona_id": "ronaldo-portugal"},
+        artifacts={},
+        control=SkillControl(status=SkillStatus.collecting),
+    )
+    await TelegramSkillSessionStore.set_session(123456789, session)
+
+    message = {
+        "text": "Vietnamese",
+        "chat": {"id": 123456789, "type": "private"},
+    }
+
+    app = FastAPI()
+    await _handle_message(app, message)
+
+    updated = await TelegramSkillSessionStore.get_session(123456789)
+    assert updated is not None
+    assert updated.collected.get("language") == "Vietnamese"
+    assert updated.step_key == "choose_voice"
+
+    send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
+    assert "select a voice" in send_call["payload"]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_photo_message_routes_into_persona_creator_upload_flow(tg_calls):
+    preview_url = "https://storage.example/persona-avatar.png"
+    session = SkillSession(
+        skill_name="persona-creator",
+        step_key="collect_appearance",
+        collected={
+            "persona_id": "demo-persona",
+            "language": "English",
+            "voice": "male_friendly",
+        },
+        artifacts={},
+        control=SkillControl(status=SkillStatus.collecting),
+    )
+    await TelegramSkillSessionStore.set_session(123456789, session)
+
+    preview_result = SkillResult(
+        success=True,
+        next_step="preview",
+        output={"preview_image_url": preview_url},
+        session=SkillSession(
+            skill_name="persona-creator",
+            step_key="preview",
+            collected={"persona_id": "demo-persona"},
+            artifacts={
+                "preview_image_url": preview_url,
+                "avatar_image_url": preview_url,
+                "avatar_media_asset_id": "asset-123",
+                "persona_id": "demo-persona",
+            },
+            control=SkillControl(status=SkillStatus.preview_ready),
+        ),
+    )
+
+    message = {
+        "chat": {"id": 123456789, "type": "private"},
+        "photo": [{"file_id": "photo-1"}],
+        "from": {"first_name": "TripC", "username": "tripc"},
+    }
+
+    with patch.object(
+        telegram_webhook,
+        "_download_telegram_image",
+        AsyncMock(return_value=(b"image-bytes", "image/png", "avatar.png")),
+    ), patch.object(
+        telegram_webhook.SkillDispatcher,
+        "handle_image_upload",
+        AsyncMock(return_value=preview_result),
+    ) as handle_image_upload:
+        await _handle_message(None, message)
+
+    handle_image_upload.assert_awaited_once_with(
+        123456789,
+        data=b"image-bytes",
+        content_type="image/png",
+        filename="avatar.png",
+        app=None,
+    )
+    methods = [call["method"] for call in tg_calls]
+    assert methods[:2] == ["sendPhoto", "sendMessage"]
+    assert tg_calls[0]["payload"]["photo"] == preview_url
+    assert "Persona Preview Ready" in tg_calls[1]["payload"]["text"]
+    assert "not production-ready until you save it" in tg_calls[1]["payload"]["text"]
 
 
 @pytest.mark.asyncio
@@ -295,7 +413,7 @@ async def test_option_callback_sends_photo_preview_and_keeps_controls(tg_calls):
         "Review the image below and choose an action."
     )
     assert tg_calls[1]["payload"]["text"] == expected_text
-    assert tg_calls[1]["payload"]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "action::use"
+    assert tg_calls[1]["payload"]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "action::use_images"
     assert tg_calls[2]["payload"]["photo"] == preview_url
     expected_caption = (
         "🎨 Style: clean | 📐 Ratio: 16:9\n"

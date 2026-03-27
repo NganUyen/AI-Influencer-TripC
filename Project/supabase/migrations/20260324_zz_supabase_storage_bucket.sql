@@ -17,8 +17,8 @@ BEGIN
       allowed_mime_types
     )
     VALUES (
-      'ai-influencer-media',
-      'ai-influencer-media',
+      'media',
+      'media',
       TRUE,
       104857600,
       ARRAY[

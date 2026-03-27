@@ -1,6 +1,6 @@
 # Database Model
 
-Last verified: 2026-03-24 (UTC)
+Last verified: 2026-03-26 (UTC)
 
 This repo uses a one-database-plus-Supabase-Auth model.
 
@@ -71,6 +71,8 @@ Typical flow:
 - `public.brand_profiles`: brand, audience, cadence, and onboarding state
 - `public.customer_ai_backbone_settings`: platform-managed versus customer-managed AI access settings
 - `public.chatgpt_oauth_links`: connector identity and session link state
+- `public.telegram_link_tokens`: short-lived dashboard-to-Telegram link bootstrap tokens
+- `public.telegram_user_links`: active Telegram chat to customer workspace ownership mapping
 
 ### Campaigns, Content, And Approval
 
@@ -89,9 +91,9 @@ These back the customer-facing strategy and assistant workflow.
 
 ### Personas, Accounts, And Operations
 
-- `public.personas`: persona registry
+- `public.personas`: persona registry, now including `avatar_media_asset_id` for stored persona avatars
 - `public.social_accounts`: connected account metadata, token refs, scopes, and connection health
-- `public.media_assets`: stored media references
+- `public.media_assets`: stored media references, including bucket/path/provider ownership fields for persona-scoped storage
 - `public.workflows`: orchestration state plus approval metadata
 - `public.engagement_actions`: engagement tasks
 - `public.engagement_action_logs`: engagement execution logs

@@ -166,6 +166,18 @@ class OpenClawService:
             f"OpenClaw request failed: {cls._extract_error_message(exc)}"
         ) from exc
 
+    @staticmethod
+    def _raise_network_error(exc: httpx.RequestError, transport: str) -> None:
+        endpoint = str(exc.request.url) if exc.request is not None else "OpenClaw endpoint"
+        if transport == "connector":
+            raise ValueError(
+                f"Connector-backed GPT OAuth request could not reach {endpoint}: {exc}"
+            ) from exc
+
+        raise ValueError(
+            f"OpenClaw service is unreachable at {endpoint}: {exc}"
+        ) from exc
+
     async def execute_task(
         self,
         task_type: str,
@@ -186,6 +198,8 @@ class OpenClawService:
             try:
                 response = await self.client.post("mcp", json=payload)
                 response.raise_for_status()
+            except httpx.RequestError as exc:
+                self._raise_network_error(exc, transport="connector")
             except httpx.HTTPStatusError as exc:
                 self._raise_provider_error(exc, transport="connector")
 
@@ -218,6 +232,8 @@ class OpenClawService:
         try:
             response = await self.client.post("v1/responses", json=payload)
             response.raise_for_status()
+        except httpx.RequestError as exc:
+            self._raise_network_error(exc, transport="responses")
         except httpx.HTTPStatusError as exc:
             self._raise_provider_error(exc, transport="responses")
 
@@ -255,6 +271,8 @@ class OpenClawService:
         try:
             response = await self.client.post("tools/invoke", json=payload)
             response.raise_for_status()
+        except httpx.RequestError as exc:
+            self._raise_network_error(exc, transport="responses")
         except httpx.HTTPStatusError as exc:
             self._raise_provider_error(exc, transport="responses")
         return response.json()

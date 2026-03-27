@@ -32,10 +32,24 @@ async def test_collects_style_after_brief(initial_session):
 
 
 @pytest.mark.asyncio
-async def test_generates_preview_after_required_inputs(initial_session):
+async def test_collects_ratio_after_tone(initial_session):
     initial_session.collected["topic_or_brief"] = "Weekend hotel sale"
     initial_session.collected["style"] = "bold"
     initial_session.collected["tone"] = "premium"
+
+    result = await ImagePosterSkill.execute(initial_session, "http://backend", AsyncMock())
+
+    assert result.success is True
+    assert result.next_step == "choose_ratio"
+
+
+@pytest.mark.asyncio
+async def test_generates_preview_after_required_inputs(initial_session):
+    initial_session.artifacts["telegram_chat_id"] = "123456"
+    initial_session.collected["topic_or_brief"] = "Weekend hotel sale"
+    initial_session.collected["style"] = "bold"
+    initial_session.collected["tone"] = "premium"
+    initial_session.collected["aspect_ratio"] = "1:1"
 
     ImagePosterSkill._request_json = AsyncMock(
         return_value={
@@ -51,6 +65,9 @@ async def test_generates_preview_after_required_inputs(initial_session):
     assert result.next_step == "confirm_or_regenerate"
     assert result.session.control.status == SkillStatus.preview_ready
     assert result.output["preview_image_url"] == "https://cdn.example.com/poster.jpg"
+    request_payload = ImagePosterSkill._request_json.await_args.kwargs["json"]
+    assert request_payload["owner_key"] == "telegram:123456"
+    assert request_payload["aspect_ratio"] == "1:1"
 
 
 @pytest.mark.asyncio
@@ -58,6 +75,7 @@ async def test_use_after_preview_marks_done(initial_session):
     initial_session.collected["topic_or_brief"] = "Weekend hotel sale"
     initial_session.collected["style"] = "bold"
     initial_session.collected["tone"] = "premium"
+    initial_session.collected["aspect_ratio"] = "1:1"
     initial_session.artifacts["generated_image"] = {
         "url": "https://cdn.example.com/poster.jpg",
         "storage_key": "posters/poster.jpg",

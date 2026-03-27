@@ -53,9 +53,17 @@ class ShortVideoWorkflow:
             tone = payload.get("tone", "natural")
             platform = payload.get("platform", "tiktok")
             telegram_chat_id = payload.get("telegram_chat_id") or settings.TELEGRAM_CHAT_ID
+            owner_key = payload.get("owner_key")
+            talking_head_optional = bool(payload.get("talking_head_optional"))
+            if not owner_key and telegram_chat_id:
+                owner_key = f"telegram:{telegram_chat_id}"
 
             # FIX 3: resolve persona fields only — no duplicate status/heygen check
-            persona = await PersonaRegistryService.get_persona(persona_id)
+            persona = await PersonaRegistryService.get_persona(
+                persona_id,
+                user_id=payload.get("user_id"),
+                owner_key=owner_key,
+            )
             if not persona:
                 raise PersonaConfigurationError(f"Persona '{persona_id}' was not found.")
             language = persona.get("language") or "English"
@@ -125,7 +133,16 @@ class ShortVideoWorkflow:
                     args=[
                         {
                             "script": script_json.get("script", ""),
-                            "metadata": {"day": 1, "platform": platform},
+                            "metadata": {
+                                "day": 1,
+                                "platform": platform,
+                                "persona_id": persona_id,
+                                "owner_key": owner_key,
+                                "user_id": payload.get("user_id"),
+                            },
+                            "persona_id": persona_id,
+                            "owner_key": owner_key,
+                            "user_id": payload.get("user_id"),
                             "config": {"voice": tts_voice},
                         }
                     ],
@@ -134,30 +151,63 @@ class ShortVideoWorkflow:
                 ),
                 workflow.execute_activity(
                     generate_scene_images,
-                    args=[scene_payloads],
+                    args=[
+                        [
+                            {
+                                **scene,
+                                "metadata": {
+                                    **(scene.get("metadata") or {}),
+                                    "persona_id": persona_id,
+                                    "owner_key": owner_key,
+                                    "user_id": payload.get("user_id"),
+                                    "day": 1,
+                                    "platform": platform,
+                                },
+                            }
+                            for scene in scene_payloads
+                        ]
+                    ],
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=MEDIA_RETRY_POLICY,
                 ),
             )
 
             # FIX 1: Stage B — talking head starts as soon as audio is ready
-            try:
-                talking_head_result = await workflow.execute_activity(
-                    create_talking_head_video,
-                    args=[
-                        {
-                            "avatar_id": heygen_avatar_id,
-                            "audio_url": audio_result["url"],
-                            "day": 1,
-                            "topic": topic,
-                        }
-                    ],
-                    start_to_close_timeout=timedelta(minutes=20),
-                    retry_policy=MEDIA_RETRY_POLICY,
+            if not heygen_avatar_id:
+                workflow.logger.info(
+                    "Skipping talking-head generation for persona %s because heygen_avatar_id is missing.",
+                    persona_id,
                 )
-            except Exception as exc:  # Fallback to slideshow+audio lane
-                workflow.logger.warning("Talking head generation failed: %s", exc)
-                talking_head_result = {"url": "", "status": "failed"}
+                talking_head_result = {
+                    "url": "",
+                    "status": "skipped",
+                    "reason": (
+                        "talking_head_optional"
+                        if talking_head_optional
+                        else "missing_heygen_avatar_id"
+                    ),
+                }
+            else:
+                try:
+                    talking_head_result = await workflow.execute_activity(
+                        create_talking_head_video,
+                        args=[
+                            {
+                                "avatar_id": heygen_avatar_id,
+                                "audio_url": audio_result["url"],
+                                "day": 1,
+                                "topic": topic,
+                                "persona_id": persona_id,
+                                "owner_key": owner_key,
+                                "user_id": payload.get("user_id"),
+                            }
+                        ],
+                        start_to_close_timeout=timedelta(minutes=20),
+                        retry_policy=MEDIA_RETRY_POLICY,
+                    )
+                except Exception as exc:  # Fallback to slideshow+audio lane
+                    workflow.logger.warning("Talking head generation failed: %s", exc)
+                    talking_head_result = {"url": "", "status": "failed"}
 
             self.workflow_status = "assembling"
             self.current_step = "assembling"
@@ -176,6 +226,8 @@ class ShortVideoWorkflow:
                             scene.get("caption", "") for scene in scenes_result
                         ],
                         "persona_id": persona_id,
+                        "owner_key": owner_key,
+                        "user_id": payload.get("user_id"),
                         "topic": topic,
                         "duration_per_image": 4.0,
                     }

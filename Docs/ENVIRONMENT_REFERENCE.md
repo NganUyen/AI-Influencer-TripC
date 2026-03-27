@@ -46,7 +46,8 @@ The source of truth for the env contract is `Project/.env.example`. This documen
 ## Storage
 
 - `STORAGE_PROVIDER`: `supabase` or `s3`
-- `SUPABASE_STORAGE_BUCKET`: default Supabase Storage bucket
+- `SUPABASE_STORAGE_BUCKET`: default Supabase Storage bucket, expected to be `media` in production
+- `SUPABASE_STORAGE_PUBLIC_URL`: optional explicit public base URL for the Supabase bucket
 - `STORAGE_CACHE_CONTROL_SECONDS`: cache-control seconds for uploaded assets
 - `STORAGE_SIGNED_URL_TTL_SECONDS`: signed-URL lifetime
 - `STORAGE_HTTP_TIMEOUT_SECONDS`: storage HTTP timeout
@@ -54,6 +55,7 @@ The source of truth for the env contract is `Project/.env.example`. This documen
 
 ### S3-Compatible Storage Extras
 
+- Only needed when `STORAGE_PROVIDER=s3`.
 - `R2_ACCOUNT_ID`: Cloudflare account identifier
 - `R2_ACCESS_KEY_ID`: S3-compatible access key
 - `R2_SECRET_ACCESS_KEY`: S3-compatible secret

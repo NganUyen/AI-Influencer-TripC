@@ -38,4 +38,7 @@ curl -fsS http://127.0.0.1:3200 > /dev/null
 echo "Checking private provider APIs from inside the backend network..."
 "${SCRIPT_DIR}/check-provider-apis.sh"
 
+echo "Checking Telegram webhook + OpenClaw readiness..."
+bash "${SCRIPT_DIR}/check-telegram-openclaw.sh"
+
 echo "All smoke checks passed."

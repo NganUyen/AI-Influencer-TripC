@@ -8,6 +8,7 @@ from skills import SKILL_REGISTRY
 from skills.base import SkillResult, SkillSession, SkillStatus
 from skills.definitions import get_skill_definition
 
+from .google_tts_service import GoogleTTSService
 from .step_config import PREVIEW_ACTIONS, get_menu, get_step_definition
 
 _STATUS_LABELS = {
@@ -29,6 +30,37 @@ _INFO_BACK_MENU_BY_PARENT = {
     "video-menu": "menu_video",
     "manage-menu": "menu_manage",
     "persona-manager": "menu_personas",
+}
+
+_CANCELLATION_COPY = {
+    "persona-creator": (
+        "🛑 Persona creation cancelled.\n"
+        "Your current preview was not saved, so this persona is still just a draft. "
+        "Start again anytime when you're ready."
+    ),
+    "image-scene": (
+        "🛑 Image generation cancelled.\n"
+        "No new image was selected or saved from this run. "
+        "You can generate another set whenever you want."
+    ),
+    "image_generation": (
+        "🛑 Image generation cancelled.\n"
+        "No new image was selected or saved from this run. "
+        "You can generate another set whenever you want."
+    ),
+    "image-poster": (
+        "🛑 Poster creation cancelled.\n"
+        "This preview was discarded and nothing new was saved. "
+        "You can create another poster anytime."
+    ),
+    "video-ai": (
+        "🛑 Video workflow cancelled.\n"
+        "No further generation steps will run for this request."
+    ),
+    "video_generation": (
+        "🛑 Video workflow cancelled.\n"
+        "No further generation steps will run for this request."
+    ),
 }
 
 
@@ -119,6 +151,17 @@ def _format_image_scene_candidates(
     return "\n".join(lines)
 
 
+def _render_cancelled_result(session: SkillSession, output: Dict[str, Any]) -> Dict[str, Any]:
+    text = _CANCELLATION_COPY.get(
+        session.skill_name,
+        "🛑 Action cancelled.\nNothing else will run for this request.",
+    )
+    workflow_id = output.get("workflow_id")
+    if workflow_id:
+        text = f"{text}\nWorkflow ID: `{workflow_id}`"
+    return {"text": text, "reply_markup": None, "parse_mode": "Markdown" if workflow_id else None}
+
+
 def _truncate(text: str, max_length: int = 30) -> str:
     value = str(text or "").strip()
     if len(value) <= max_length:
@@ -135,6 +178,91 @@ def _status_badge(status: str) -> str:
         "pending_approval": "PENDING",
         "draft": "DRAFT",
     }.get(normalized, normalized.upper() or "UNKNOWN")
+
+
+def _persona_check_badge(value: bool) -> str:
+    return "YES" if value else "NO"
+
+
+def _render_persona_inspector_result(
+    *,
+    session: SkillSession,
+    output: Dict[str, Any],
+) -> Dict[str, Any]:
+    persona = (
+        output.get("persona")
+        or (session.artifacts.get("persona_summary") or {}).get("persona")
+        or {}
+    )
+    readiness = (
+        output.get("readiness")
+        or (session.artifacts.get("persona_summary") or {}).get("readiness")
+        or {}
+    )
+    persona_id = (
+        persona.get("persona_id")
+        or session.collected.get("persona_id")
+        or session.artifacts.get("persona_id")
+        or "unknown"
+    )
+    display_name = persona.get("display_name") or persona_id
+    language = persona.get("language") or "—"
+    tts_voice = GoogleTTSService.describe_voice(
+        persona.get("tts_voice"),
+        language=persona.get("language"),
+    )
+    status = persona.get("status") or "unknown"
+    avatar_image_url = (
+        output.get("preview_image_url")
+        or persona.get("avatar_image_url")
+        or session.artifacts.get("preview_image_url")
+    )
+    readiness_checks = readiness.get("checks") or {}
+    lines = [
+        "✅ Persona inspection completed.",
+        "",
+        f"👤 Persona: {display_name}",
+        f"• ID: {persona_id}",
+        f"• Status: {status}",
+        f"• Language: {language}",
+        f"• TTS Voice: {tts_voice}",
+        f"• Avatar Media Asset: {persona.get('avatar_media_asset_id') or 'missing'}",
+        f"• HeyGen Avatar ID: {persona.get('heygen_avatar_id') or 'missing'}",
+        f"• Readiness: {'READY' if readiness.get('ready') else 'NOT READY'}",
+        f"• Blocking Reason: {readiness.get('blocking_reason') or 'None'}",
+        "",
+        "Checks:",
+        f"• Status ready: {_persona_check_badge(bool(readiness_checks.get('status_ready')))}",
+        f"• TTS voice: {_persona_check_badge(bool(readiness_checks.get('has_tts_voice')))}",
+        f"• Avatar image URL: {_persona_check_badge(bool(avatar_image_url))}",
+        f"• Avatar media asset: {_persona_check_badge(bool(readiness_checks.get('has_avatar_asset')))}",
+        f"• HeyGen avatar: {_persona_check_badge(bool(readiness_checks.get('has_heygen_avatar_id')))}",
+    ]
+    if persona.get("thumbnail_url"):
+        lines.append(f"• Thumbnail: {persona.get('thumbnail_url')}")
+    if persona.get("description"):
+        lines.extend(["", f"Description: {persona.get('description')}"])
+    if not avatar_image_url:
+        lines.extend(
+            [
+                "",
+                "⚠️ Avatar preview image is not available yet.",
+                "The persona currently has no renderable image URL to show in Telegram.",
+            ]
+        )
+
+    payload: Dict[str, Any] = {
+        "text": "\n".join(lines),
+        "reply_markup": None,
+        "parse_mode": None,
+    }
+    if avatar_image_url:
+        payload["photo_url"] = avatar_image_url
+        payload["photo_caption"] = (
+            f"👤 {display_name}\n"
+            f"Status: {status} | Readiness: {'READY' if readiness.get('ready') else 'NOT READY'}"
+        )
+    return payload
 
 
 def _publish_queue_keyboard(items: List[Dict[str, Any]]) -> Dict[str, Any] | None:
@@ -373,6 +501,8 @@ class TelegramRenderer:
                 status = ""
                 if isinstance(result.output, dict):
                     status = result.output.get("message") or result.output.get("status") or ""
+                    if result.output.get("status") == "cancelled":
+                        status = "🛑 Action cancelled.\nNothing else will run for this request."
                 return {
                     "text": status or "✨ Skill flow completed successfully.",
                     "reply_markup": None,
@@ -474,22 +604,32 @@ class TelegramRenderer:
                 )
                 persona_id = persona.get("persona_id") or session.artifacts.get("persona_id", "—")
                 language = persona.get("language", "—")
-                tts_voice = persona.get("tts_voice", "—")
+                tts_voice = GoogleTTSService.describe_voice(
+                    persona.get("tts_voice"),
+                    language=persona.get("language"),
+                )
                 status = persona.get("status", "—")
                 ready_emoji = "✅" if readiness.get("ready") else "⚠️"
                 blocking = readiness.get("blocking_reason") or "All checks passed"
+                avatar_persisted = bool(persona.get("avatar_media_asset_id"))
+                persistence_label = (
+                    "saved to project media"
+                    if avatar_persisted
+                    else "temporary preview only"
+                )
                 text = (
-                    f"👤 *Persona Created Successfully\\!*\n\n"
-                    f"• *ID*: `{persona_id}`\n"
-                    f"• *Language*: {language}\n"
-                    f"• *TTS Voice*: {tts_voice}\n"
-                    f"• *Status*: {status}\n"
-                    f"• *Readiness*: {ready_emoji} {blocking}\n\n"
-                    "Review the avatar below and choose an action\\."
+                    "👤 Persona Preview Ready\n\n"
+                    f"• ID: {persona_id}\n"
+                    f"• Language: {language}\n"
+                    f"• TTS Voice: {tts_voice}\n"
+                    f"• Status: {status}\n"
+                    f"• Avatar: {persistence_label}\n"
+                    f"• Ready to use: {ready_emoji} {blocking}\n\n"
+                    "This preview is not saved yet. Tap Save Persona to keep it and make the persona ready for later workflows."
                 )
                 photo_caption = (
                     f"👤 {persona_id} | {language} | {tts_voice}\n"
-                    f"{ready_emoji} {blocking}"
+                    f"{'Saved' if avatar_persisted else 'Unsaved preview'} | {ready_emoji} {blocking}"
                 )
                 image_url = (
                     output.get("preview_image_url")
@@ -503,7 +643,7 @@ class TelegramRenderer:
                 payload: Dict[str, Any] = {
                     "text": text,
                     "reply_markup": _inline_keyboard_from_options(persona_actions, prefix="action::"),
-                    "parse_mode": "MarkdownV2",
+                    "parse_mode": None,
                 }
                 if image_url:
                     payload["photo_url"] = image_url
@@ -513,6 +653,10 @@ class TelegramRenderer:
 
 
             if session.skill_name in ("image-scene", "image_generation"):
+                if not image_url:
+                    candidates = output.get("image_candidates") or session.artifacts.get("image_candidates") or []
+                    if candidates:
+                        image_url = candidates[0].get("url")
                 style = session.collected.get("style", "N/A")
                 scene = session.collected.get("scene_type", "N/A")
                 ratio = session.collected.get("aspect_ratio", "16:9")
@@ -529,13 +673,34 @@ class TelegramRenderer:
                     f"🎨 Style: {style} | 📐 Ratio: {ratio}\n"
                     "Review the image and choose an action."
                 )
+            elif session.skill_name == "image-poster":
+                style = session.collected.get("style", "N/A")
+                tone = session.collected.get("tone", "N/A")
+                ratio = session.collected.get("aspect_ratio", "4:5")
+                brief = session.collected.get("topic_or_brief", "N/A")
+                text = (
+                    f"🖼️ *Poster Preview Ready!*\n\n"
+                    f"• *Brief*: {brief}\n"
+                    f"• *Style*: {style}\n"
+                    f"• *Tone*: {tone}\n"
+                    f"• *Aspect Ratio*: {ratio}\n\n"
+                    "Review the poster below and choose an action."
+                )
+                photo_caption = (
+                    f"🖼️ {style.title()} poster | {tone.title()} | {ratio}\n"
+                    "Review the poster and choose an action."
+                )
             else:
                 text = "✨ Preview ready!\nReview the image below and choose an action."
                 photo_caption = "Generated preview 🖼️."
 
             payload = {
                 "text": text,
-                "reply_markup": _inline_keyboard_from_options(PREVIEW_ACTIONS, prefix="action::"),
+                "reply_markup": (
+                    _image_scene_batch_keyboard()
+                    if session.skill_name in ("image-scene", "image_generation")
+                    else _inline_keyboard_from_options(PREVIEW_ACTIONS, prefix="action::")
+                ),
                 "parse_mode": "Markdown",
             }
             if image_url:
@@ -561,7 +726,7 @@ class TelegramRenderer:
                     f"• *Tone*: {tone}\n"
                     f"• *Platform*: {platform}\n\n"
                     f"Workflow ID: `{workflow_id}`\n"
-                    "Waiting for approval/status updates."
+                    "Script review and the final preview will arrive in this chat."
                 )
             else:
                 text = f"🚀 Workflow started.\nWorkflow ID: `{workflow_id}`\n⏳ Waiting for approval or status updates..."
@@ -577,6 +742,10 @@ class TelegramRenderer:
 
         if session.control.status == SkillStatus.done or result.next_step == "done":
             output = result.output or {}
+            if output.get("status") == "cancelled":
+                return _render_cancelled_result(session, output)
+            if session.skill_name == "persona-inspector":
+                return _render_persona_inspector_result(session=session, output=output)
             lines = [f"✅ `{session.skill_name}` completed successfully!"]
             if isinstance(output, dict):
                 if output.get("message"):

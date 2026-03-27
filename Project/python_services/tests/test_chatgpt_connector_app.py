@@ -58,7 +58,7 @@ class FakeToolRunner:
 
 
 def test_connector_app_exposes_manifest_and_tool_surface():
-    auth = ConnectorAuthService(public_url="http://connector.test", secret="unit-test-secret")
+    auth = ConnectorAuthService(public_url="http://localhost:8010", secret="unit-test-secret")
     tool_runner = FakeToolRunner()
     app = create_app(auth_service=auth, tool_runner=tool_runner)
     client = TestClient(app)
@@ -71,7 +71,7 @@ def test_connector_app_exposes_manifest_and_tool_surface():
 
 
 def test_connector_app_oauth_and_tool_call_flow():
-    auth = ConnectorAuthService(public_url="http://connector.test", secret="unit-test-secret")
+    auth = ConnectorAuthService(public_url="http://localhost:8010", secret="unit-test-secret")
     tool_runner = FakeToolRunner()
     app = create_app(auth_service=auth, tool_runner=tool_runner)
     client = TestClient(app)
@@ -127,7 +127,7 @@ def test_connector_app_oauth_and_tool_call_flow():
 
 
 def test_connector_task_registry_is_scoped_to_the_current_session():
-    auth = ConnectorAuthService(public_url="http://connector.test", secret="unit-test-secret")
+    auth = ConnectorAuthService(public_url="http://localhost:8010", secret="unit-test-secret")
     tool_runner = FakeToolRunner()
     app = create_app(auth_service=auth, tool_runner=tool_runner)
     client = TestClient(app)

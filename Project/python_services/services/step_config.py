@@ -10,11 +10,12 @@ def _options(*items: tuple[str, str]) -> List[Dict[str, str]]:
 
 
 MAIN_MENU: Dict[str, Any] = {
-    "text": "🎨 Welcome to the TripC Media Editor!\n\nWhat would you like to create today? Please select an option below:",
+    "text": "🎨 Welcome to the TripC Media Studio!\n\nWhat would you like to create today? Please select an option below:",
     "rows": [
         [("📖 Daily Story", "skill_daily-story")],
         [("🖼️ Create Image", "menu_image"), ("🎬 Create Video", "menu_video")],
-        [("🎠 Carousel", "skill_carousel"), ("⚙️ Manage", "menu_manage")],
+        [("📝 Content", "menu_content"), ("🎠 Carousel", "skill_carousel")],
+        [("⚙️ Manage", "menu_manage")],
     ],
 }
 
@@ -31,6 +32,13 @@ SUBMENUS: Dict[str, Dict[str, Any]] = {
         "text": "🎬 Select Video Creation Mode:",
         "rows": [
             [("🎭 AI Influencer", "skill_video-ai")],
+            [("🔙 Back", "menu_main")],
+        ],
+    },
+    "menu_content": {
+        "text": "📝 Select Content Creation Mode:",
+        "rows": [
+            [("📝 Long Post", "skill_long-post")],
             [("🔙 Back", "menu_main")],
         ],
     },
@@ -64,6 +72,13 @@ PUBLISH_MANAGER_ACTIONS = _options(
     ("Retry Publish", "retry_publish"),
     ("Refresh Queue", "refresh_queue"),
     ("Back to Queue", "back_to_queue"),
+    ("Cancel", "cancel"),
+)
+
+PREPRO_APPROVAL_ACTIONS = _options(
+    ("Approve", "approve"),
+    ("Edit", "edit"),
+    ("Regenerate", "regenerate"),
     ("Cancel", "cancel"),
 )
 
@@ -202,13 +217,65 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "pick_persona": {
             "input_type": "persona_picker",
             "field": "persona_id",
-            "prompt_text": "👤 Please select a ready persona:",
+            "prompt_text": "Select a ready persona for this video concept.",
             "allow_skip": False,
         },
-        "collect_topic": {
+        "collect_idea_brief": {
             "input_type": "free_text",
-            "field": "topic",
-            "prompt_text": "🎬 What should the AI influencer talk about in this video?",
+            "field": "idea_brief",
+            "prompt_text": "What is the core idea for this influencer video?",
+        },
+        "collect_feature_focus": {
+            "input_type": "free_text",
+            "field": "feature_focus",
+            "prompt_text": "Which feature or product angle should the video focus on?",
+        },
+        "choose_video_goal": {
+            "input_type": "inline_keyboard",
+            "field": "video_goal",
+            "prompt_text": "What is the main goal of this video?",
+            "options": _options(
+                ("Feature Demo", "feature_demo"),
+                ("Conversion", "conversion"),
+                ("Awareness", "awareness"),
+                ("Walkthrough", "walkthrough"),
+            ),
+        },
+        "collect_audience": {
+            "input_type": "free_text",
+            "field": "audience",
+            "prompt_text": "Who is this video for?",
+        },
+        "collect_cta": {
+            "input_type": "free_text",
+            "field": "cta",
+            "prompt_text": "What CTA should the video end with?",
+        },
+        "collect_reference_url": {
+            "input_type": "free_text",
+            "field": "reference_url",
+            "prompt_text": "Send the product or app URL this video should be grounded on.",
+        },
+        "choose_access_level": {
+            "input_type": "inline_keyboard",
+            "field": "access_level",
+            "prompt_text": "What access do you have for that source?",
+            "options": _options(
+                ("Public Page Only", "public_page_only"),
+                ("Has Logged-in Access", "has_logged_in_access"),
+                ("Login Needed But Not Available", "login_required_but_not_available"),
+                ("Not Sure", "unknown"),
+            ),
+        },
+        "confirm_concept": {
+            "input_type": "preview_actions",
+            "prompt_text": "Review the concept brief before continuing.",
+            "options": PREPRO_APPROVAL_ACTIONS,
+        },
+        "confirm_beats": {
+            "input_type": "preview_actions",
+            "prompt_text": "Review the beat plan before packaging the concept.",
+            "options": PREPRO_APPROVAL_ACTIONS,
         },
     },
     "publish-manager": {

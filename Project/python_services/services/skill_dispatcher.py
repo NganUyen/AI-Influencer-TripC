@@ -327,6 +327,18 @@ class SkillDispatcher:
                     result = await skill_cls.retry_selected(session, "http://backend", client)
                 return await cls._save_or_clear(chat_id, result)
 
+        if session.skill_name == "video-ai" and action in {"approve", "edit", "regenerate"}:
+            async with cls._transport_client(app) as client:
+                result = await skill_cls.handle_preproduction_action(
+                    session,
+                    action,
+                    "http://backend",
+                    client,
+                )
+            if result.session is not None:
+                await cls._prepare_prompt_session(app, result.session)
+            return await cls._save_or_clear(chat_id, result)
+
         # ── Persona-creator: Save action ─────────────────────────────────────
         if action == "save" and session.skill_name == "persona-creator":
             persona_id = session.artifacts.get("persona_id") or session.collected.get("persona_id")

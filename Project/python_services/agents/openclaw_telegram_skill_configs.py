@@ -353,84 +353,85 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
     "video-ai": {
         "name": "VideoAI",
         "command": "/media",
-        "role": "Generate AI influencer videos",
+        "role": "Prepare AI influencer video concepts before production",
         "description": (
-            "Run the full AI influencer video lane after collecting persona"
-            " and topic. Tone/platform defaults are injected by the skill layer."
+            "Collect a video idea brief, normalize it into an approved concept,"
+            " generate an approved beat sheet, and store a production-ready"
+            " package in the Telegram session without starting the workflow yet."
         ),
         "status": "partial",
         "kind": "leaf",
         "parent": "video-menu",
         "menu_options": [],
-        "required_params": ["persona_id", "topic"],
+        "required_params": [
+            "persona_id",
+            "idea_brief",
+            "feature_focus",
+            "video_goal",
+            "audience",
+            "cta",
+            "reference_url",
+            "access_level",
+        ],
         "optional_params": [
-            "tone",
             "platform",
-            "duration_target",
-            "hook_idea",
-            "freeform_brief",
-            "creative_notes",
         ],
         "input_contract": {
-            "mode": "structured_with_optional_freeform",
-            "freeform_fields": ["hook_idea", "freeform_brief", "creative_notes"],
+            "mode": "structured_idea_brief",
+            "freeform_fields": ["idea_brief", "feature_focus", "audience", "cta"],
             "note": (
-                "Persona, topic, and tone stay structured. The operator may still"
-                " add hook ideas or extra prompt notes before script generation."
+                "The Telegram flow remains deterministic. OpenClaw is used only"
+                " to normalize the collected brief into a ConceptBrief and"
+                " BeatSheet after the required fields are collected."
             ),
         },
         "internal_skills": [
             "persona-picker",
-            "script-gen",
-            "google-tts",
-            "image",
-            "heygen-video",
-            "ffmpeg-assembly",
-            "r2-storage",
-            "telegram-approval",
-            "postiz-publish",
+            "creative-director",
         ],
         "api_call": {
-            "target": "POST /api/workflows/start-video",
-            "current_repo_support": True,
+            "target": "Internal CreativeDirectorService + Telegram session store",
+            "current_repo_support": False,
             "note": (
-                "Canonical short-video workflow entrypoint. It validates persona"
-                " readiness and starts ShortVideoWorkflow."
+                "V1 stops at an ApprovedProductionPackage stored in the current"
+                " Telegram session. Production workflow integration comes later."
             ),
         },
-        "output": "Final video URL returned to Telegram",
-        "implementation_priority": 5,
-        "integration_note": "Highest complexity. Define first, integrate last.",
+        "output": "Approved production package stored in Telegram session",
+        "implementation_priority": 3,
+        "integration_note": "Pre-production only in v1. No workflow starts from this skill.",
         "steps": [
             "pick_persona",
-            "collect_topic",
-            "generate_script",
-            "approve_script",
-            "generate_media",
-            "assemble_video",
-            "approve_video",
-            "publish_or_finish",
+            "collect_idea_brief",
+            "collect_feature_focus",
+            "choose_video_goal",
+            "collect_audience",
+            "collect_cta",
+            "collect_reference_url",
+            "choose_access_level",
+            "confirm_concept",
+            "confirm_beats",
         ],
         "session_shape": {
             "step_key": "pick_persona",
             "collected": {
                 "persona_id": None,
-                "topic": None,
-                "tone": "natural",
+                "idea_brief": None,
+                "feature_focus": None,
+                "video_goal": None,
+                "audience": None,
+                "cta": None,
+                "reference_url": None,
+                "access_level": None,
                 "platform": "tiktok",
-                "duration_target": None,
-                "hook_idea": None,
-                "freeform_brief": None,
-                "creative_notes": None,
             },
             "artifacts": {
-                "script_id": None,
-                "script_preview": None,
-                "audio_url": None,
-                "scene_image_urls": [],
-                "heygen_video_url": None,
-                "final_video_url": None,
-                "storage_key": None,
+                "persona_snapshot": None,
+                "concept_brief": None,
+                "beat_sheet": None,
+                "approved_production_package": None,
+                "concept_approved": False,
+                "beat_sheet_approved": False,
             },
         },
     },

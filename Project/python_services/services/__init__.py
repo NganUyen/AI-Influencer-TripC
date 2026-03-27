@@ -19,6 +19,7 @@ from .content_persistence_service import ContentPersistenceService
 from .quota_monitor_service import QuotaMonitorService
 from .proxy_manager_service import ProxyManagerService
 from .persona_registry_service import PersonaRegistryService
+from .creative_director_service import CreativeDirectorService
 from .customer_media_service import CustomerMediaService
 from .telegram_link_service import TelegramLinkService, TelegramLinkError
 
@@ -40,6 +41,7 @@ __all__ = [
     "QuotaMonitorService",
     "ProxyManagerService",
     "PersonaRegistryService",
+    "CreativeDirectorService",
     "CustomerMediaService",
     "TelegramLinkService",
     "TelegramLinkError",

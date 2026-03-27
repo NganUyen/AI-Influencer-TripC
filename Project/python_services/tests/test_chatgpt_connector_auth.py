@@ -8,7 +8,7 @@ from chatgpt_connector.store import ConnectorLinkRecord
 
 @pytest.mark.asyncio
 async def test_connector_auth_service_creates_and_resolves_session():
-    auth = ConnectorAuthService(public_url="http://connector.test", secret="unit-test-secret")
+    auth = ConnectorAuthService(public_url="http://localhost:8010", secret="unit-test-secret")
 
     start = await auth.begin_oauth(
         chatgpt_subject="chatgpt-user-1",
@@ -17,7 +17,7 @@ async def test_connector_auth_service_creates_and_resolves_session():
     )
 
     assert start.chatgpt_subject == "chatgpt-user-1"
-    assert start.authorization_url.startswith("http://connector.test/oauth/callback")
+    assert start.authorization_url.startswith("http://localhost:8010/oauth/callback")
 
     session = await auth.complete_oauth(
         state=start.state,
@@ -78,7 +78,7 @@ async def test_connector_auth_service_resolves_persisted_session_across_instance
     monkeypatch.setattr("chatgpt_connector.auth.ConnectorLinkStore", SharedLinkStore)
 
     issuing_auth = ConnectorAuthService(
-        public_url="http://connector.test",
+        public_url="http://localhost:8010",
         secret="unit-test-secret",
         persist_links=True,
     )
@@ -96,7 +96,7 @@ async def test_connector_auth_service_resolves_persisted_session_across_instance
     await issuing_auth.close()
 
     resolving_auth = ConnectorAuthService(
-        public_url="http://connector.test",
+        public_url="http://localhost:8010",
         secret="unit-test-secret",
         persist_links=True,
     )

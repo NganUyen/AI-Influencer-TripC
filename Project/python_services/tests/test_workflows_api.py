@@ -6,6 +6,8 @@ import pytest
 from fastapi import HTTPException
 
 from api import workflows
+from services.contracts import ConceptBriefContract
+from skills import video_ai as video_ai_module
 from skills.video_ai import VideoAISkill
 
 
@@ -210,112 +212,106 @@ async def test_start_video_workflow_passes_talking_head_optional(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_video_ai_skill_allows_fallback_when_heygen_missing(monkeypatch):
+async def test_video_ai_skill_legacy_topic_payload_no_longer_starts_workflow(monkeypatch):
     session = VideoAISkill.initial_session()
     session.collected["persona_id"] = "persona-1"
     session.collected["topic"] = "Weekend beach trip"
-    session.artifacts["telegram_chat_id"] = "123456"
 
-    monkeypatch.setattr(
-        VideoAISkill,
-        "_request_json",
-        AsyncMock(
-        side_effect=[
-            {
-                "ready": False,
-                "blocking_reason": "Missing heygen_avatar_id. Run persona avatar setup first.",
-                "checks": {
-                    "status_ready": True,
-                    "has_tts_voice": True,
-                    "has_avatar_asset": True,
-                    "has_heygen_avatar_id": False,
-                },
-            },
-            {
-                "workflow_id": "video-wf-1",
-                "run_id": "run-1",
-                "status": "started",
-            },
-        ]
-    ),
-    )
+    request_mock = AsyncMock(side_effect=AssertionError("Legacy workflow start should not run"))
+    monkeypatch.setattr(VideoAISkill, "_request_json", request_mock)
 
     result = await VideoAISkill.execute(session, "http://backend", AsyncMock())
 
     assert result.success is True
+    assert result.next_step == "collect_idea_brief"
     assert result.session is not None
-    assert result.session.control.approval_required is True
-    assert result.session.artifacts["talking_head_optional"] is True
-    assert result.output["workflow_id"] == "video-wf-1"
+    assert result.session.control.approval_required is False
+    assert request_mock.await_count == 0
 
 
 @pytest.mark.asyncio
-async def test_video_ai_skill_accepts_legacy_avatar_image_fallback_flag(monkeypatch):
+async def test_video_ai_skill_requires_reference_url_before_generation(monkeypatch):
     session = VideoAISkill.initial_session()
-    session.collected["persona_id"] = "persona-legacy"
-    session.collected["topic"] = "Sunset cruise"
-    session.artifacts["telegram_chat_id"] = "654321"
+    session.collected.update(
+        {
+            "persona_id": "persona-legacy",
+            "idea_brief": "Sunset cruise concept",
+            "feature_focus": "Trip planning",
+            "video_goal": "feature_demo",
+            "audience": "young travelers",
+            "cta": "Try TripC free",
+        }
+    )
 
+    request_mock = AsyncMock(side_effect=AssertionError("Persona lookup should wait for full brief"))
+    monkeypatch.setattr(VideoAISkill, "_request_json", request_mock)
+
+    result = await VideoAISkill.execute(session, "http://backend", AsyncMock())
+
+    assert result.success is True
+    assert result.next_step == "collect_reference_url"
+    assert request_mock.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_video_ai_skill_builds_concept_preview_instead_of_starting_workflow(monkeypatch):
+    session = VideoAISkill.initial_session()
+    session.collected.update(
+        {
+            "persona_id": "persona-1",
+            "idea_brief": "Weekend beach trip planner",
+            "feature_focus": "AI itinerary planner",
+            "video_goal": "feature_demo",
+            "audience": "young travelers",
+            "cta": "Try TripC free",
+            "reference_url": "https://tripc.ai",
+            "access_level": "public_page_only",
+        }
+    )
+
+    async def fake_request_json(cls, http_client, method, backend_url, path, **kwargs):
+        if path.endswith("/readiness"):
+            return {"ready": True}
+        if path.endswith("/api/personas/persona-1"):
+            return {
+                "persona_id": "persona-1",
+                "display_name": "Persona 1",
+                "language": "English",
+                "tts_voice": "en-US-Neural2-A",
+                "tone_default": "confident",
+                "status": "ready",
+                "heygen_avatar_id": "avatar-1",
+            }
+        raise AssertionError(f"Unexpected path: {path}")
+
+    async def fake_build_concept_brief(cls, collected, persona_snapshot):
+        return ConceptBriefContract(
+            persona_id="persona-1",
+            feature_focus=collected["feature_focus"],
+            video_goal=collected["video_goal"],
+            audience=collected["audience"],
+            angle="problem_solution",
+            platform="tiktok",
+            cta=collected["cta"],
+            reference_url=collected["reference_url"],
+            access_level=collected["access_level"],
+            source_summary="TripC is presented as a trip planning product.",
+            tone_resolved=persona_snapshot["tone_resolved"],
+        )
+
+    monkeypatch.setattr(VideoAISkill, "_request_json", classmethod(fake_request_json))
     monkeypatch.setattr(
-        VideoAISkill,
-        "_request_json",
-        AsyncMock(
-            side_effect=[
-                {
-                    "ready": False,
-                    "blocking_reason": "Missing heygen_avatar_id. Run persona avatar setup first.",
-                    "checks": {
-                        "status_ready": True,
-                        "has_tts_voice": True,
-                        "has_avatar_image": True,
-                        "has_heygen_avatar_id": False,
-                    },
-                },
-                {
-                    "workflow_id": "video-wf-legacy",
-                    "run_id": "run-legacy",
-                    "status": "started",
-                },
-            ]
-        ),
+        video_ai_module.CreativeDirectorService,
+        "build_concept_brief",
+        classmethod(fake_build_concept_brief),
     )
 
     result = await VideoAISkill.execute(session, "http://backend", AsyncMock())
 
     assert result.success is True
-    assert result.output["workflow_id"] == "video-wf-legacy"
-
-
-@pytest.mark.asyncio
-async def test_video_ai_skill_errors_when_workflow_id_missing(monkeypatch):
-    session = VideoAISkill.initial_session()
-    session.collected["persona_id"] = "persona-1"
-    session.collected["topic"] = "Weekend beach trip"
-    session.artifacts["telegram_chat_id"] = "123456"
-
-    monkeypatch.setattr(
-        VideoAISkill,
-        "_request_json",
-        AsyncMock(
-            side_effect=[
-                {
-                    "ready": True,
-                    "checks": {
-                        "status_ready": True,
-                        "has_tts_voice": True,
-                        "has_avatar_asset": True,
-                        "has_heygen_avatar_id": True,
-                    },
-                },
-                {
-                    "run_id": "run-1",
-                    "status": "started",
-                },
-            ]
-        ),
-    )
-
-    result = await VideoAISkill.execute(session, "http://backend", AsyncMock())
-
-    assert result.success is False
-    assert result.error == "Video workflow started without a workflow_id. Please try again."
+    assert result.next_step == "confirm_concept"
+    assert result.session is not None
+    assert result.session.step_key == "confirm_concept"
+    assert result.session.control.status.value == "preview_ready"
+    assert result.session.artifacts.get("workflow_id") is None
+    assert result.output["concept_brief"]["reference_url"] == "https://tripc.ai"

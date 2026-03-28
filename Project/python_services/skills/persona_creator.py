@@ -42,7 +42,9 @@ class PersonaCreatorSkill(BaseSkill):
         return {"owner_key": f"telegram:{telegram_chat_id}"}
 
     @classmethod
-    def _build_readiness_report(cls, persona_id: str, persona: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_readiness_report(
+        cls, persona_id: str, persona: Dict[str, Any]
+    ) -> Dict[str, Any]:
         checks = {
             "status_ready": bool(persona.get("status") == "ready"),
             "has_tts_voice": bool(persona.get("tts_voice")),
@@ -66,9 +68,13 @@ class PersonaCreatorSkill(BaseSkill):
                     "Tap Save Persona to keep it and use this persona in video workflows."
                 )
             else:
-                blocking_reason = "This draft still needs an avatar preview before it can be used."
+                blocking_reason = (
+                    "This draft still needs an avatar preview before it can be used."
+                )
         elif not checks["has_tts_voice"]:
-            blocking_reason = "This persona does not have a voice yet. Choose a TTS voice first."
+            blocking_reason = (
+                "This persona does not have a voice yet. Choose a TTS voice first."
+            )
         elif not checks["has_avatar_image"]:
             blocking_reason = "This persona does not have an avatar preview yet."
         elif not checks["has_avatar_asset"]:
@@ -102,7 +108,9 @@ class PersonaCreatorSkill(BaseSkill):
             )
         except Exception:
             return None
-        return persona if isinstance(persona, dict) and persona.get("persona_id") else None
+        return (
+            persona if isinstance(persona, dict) and persona.get("persona_id") else None
+        )
 
     @classmethod
     async def _attach_uploaded_avatar(
@@ -112,8 +120,12 @@ class PersonaCreatorSkill(BaseSkill):
         backend_url: str,
         http_client: Any,
     ) -> Dict[str, Any]:
-        uploaded_url = str(current.artifacts.get("uploaded_reference_image_url") or "").strip()
-        uploaded_asset_id = str(current.artifacts.get("uploaded_reference_asset_id") or "").strip()
+        uploaded_url = str(
+            current.artifacts.get("uploaded_reference_image_url") or ""
+        ).strip()
+        uploaded_asset_id = str(
+            current.artifacts.get("uploaded_reference_asset_id") or ""
+        ).strip()
         if not uploaded_url:
             return persona
 
@@ -151,7 +163,9 @@ class PersonaCreatorSkill(BaseSkill):
         if persona.get("avatar_image_url") and not force:
             return persona
 
-        appearance = str(current.collected.get("appearance_prompt_or_photo") or "").strip()
+        appearance = str(
+            current.collected.get("appearance_prompt_or_photo") or ""
+        ).strip()
         if not appearance:
             return persona
 
@@ -183,23 +197,31 @@ class PersonaCreatorSkill(BaseSkill):
         )
         avatar_url = image_response.get("url")
         if not avatar_url:
-            return persona
+            raise RuntimeError(
+                "Avatar generation failed: No image URL returned. Please try again."
+            )
         avatar_media_asset_id = image_response.get("media_asset_id")
         if not avatar_media_asset_id:
             images = image_response.get("images") or []
             if images:
                 avatar_media_asset_id = images[0].get("media_asset_id")
 
-        patch_params = (
-            {"owner_key": owner_key} if owner_key else None
-        )
+        # CRITICAL FIX: Only proceed if we have a valid media_asset_id
+        # Preview should never be shown without a persisted avatar asset
+        if not avatar_media_asset_id:
+            raise RuntimeError(
+                "Avatar was generated but failed to persist to workspace storage "
+                "(storage_status=source_only). This may be due to ownership/permission issues. "
+                "Please try again or contact support if the issue persists."
+            )
+
+        patch_params = {"owner_key": owner_key} if owner_key else None
         patch_payload: Dict[str, Any] = {
             "avatar_image_url": avatar_url,
             "avatar_source_type": "generated",
             "avatar_prompt": appearance,
+            "avatar_media_asset_id": avatar_media_asset_id,
         }
-        if avatar_media_asset_id:
-            patch_payload["avatar_media_asset_id"] = avatar_media_asset_id
         patched = await cls._request_json(
             http_client,
             "PATCH",
@@ -229,7 +251,9 @@ class PersonaCreatorSkill(BaseSkill):
             return persona
 
         telegram_chat_id = current.artifacts.get("telegram_chat_id")
-        patch_params = {"owner_key": f"telegram:{telegram_chat_id}"} if telegram_chat_id else None
+        patch_params = (
+            {"owner_key": f"telegram:{telegram_chat_id}"} if telegram_chat_id else None
+        )
         patched = await cls._request_json(
             http_client,
             "PATCH",
@@ -248,7 +272,9 @@ class PersonaCreatorSkill(BaseSkill):
         http_client: Any,
     ) -> SkillResult:
         current = cls._normalize_session(session)
-        force_regenerate_avatar = bool(current.artifacts.pop("force_regenerate_avatar", False))
+        force_regenerate_avatar = bool(
+            current.artifacts.pop("force_regenerate_avatar", False)
+        )
         missing = cls._missing_required_params(current)
         if missing:
             next_step = current.step_key or "collect_persona_id"
@@ -268,7 +294,9 @@ class PersonaCreatorSkill(BaseSkill):
 
         payload = {
             "persona_id": current.collected["persona_id"],
-            "display_name": cls._display_name_from_persona_id(current.collected["persona_id"]),
+            "display_name": cls._display_name_from_persona_id(
+                current.collected["persona_id"]
+            ),
             "language": current.collected["language"],
             "tts_voice": GoogleTTSService.resolve_voice_name(
                 current.collected["voice"],
@@ -291,12 +319,16 @@ class PersonaCreatorSkill(BaseSkill):
             detail = "Failed to create persona. Please try again."
             try:
                 error_payload = exc.response.json()
-                if isinstance(error_payload, dict) and isinstance(error_payload.get("detail"), str):
+                if isinstance(error_payload, dict) and isinstance(
+                    error_payload.get("detail"), str
+                ):
                     detail = error_payload["detail"]
             except Exception:
                 pass
             if "already exists" in detail.lower():
-                persona = await cls._get_existing_persona(current, backend_url, http_client)
+                persona = await cls._get_existing_persona(
+                    current, backend_url, http_client
+                )
                 if persona:
                     current.artifacts["resumed_existing_persona"] = True
                 else:
@@ -305,10 +337,20 @@ class PersonaCreatorSkill(BaseSkill):
                 return cls._error_result(current, detail)
         except Exception as exc:
             return cls._error_result(current, f"Failed to create persona: {exc}")
+
+        # Sync profile and ensure avatar with clear error handling
         try:
-            persona = await cls._sync_persona_profile(current, persona, payload, backend_url, http_client)
+            persona = await cls._sync_persona_profile(
+                current, persona, payload, backend_url, http_client
+            )
+        except Exception as exc:
+            return cls._error_result(current, f"Failed to sync persona profile: {exc}")
+
+        try:
             if current.artifacts.get("uploaded_reference_image_url"):
-                persona = await cls._attach_uploaded_avatar(current, persona, backend_url, http_client)
+                persona = await cls._attach_uploaded_avatar(
+                    current, persona, backend_url, http_client
+                )
             else:
                 persona = await cls._ensure_avatar_image(
                     current,
@@ -317,17 +359,24 @@ class PersonaCreatorSkill(BaseSkill):
                     http_client,
                     force=force_regenerate_avatar,
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            return cls._error_result(
+                current,
+                f"Failed to generate/attach persona avatar: {exc}. Please try again or use a different appearance description.",
+            )
 
         uploaded_reference_url = current.artifacts.get("uploaded_reference_image_url")
-        uploaded_reference_asset_id = current.artifacts.get("uploaded_reference_asset_id")
+        uploaded_reference_asset_id = current.artifacts.get(
+            "uploaded_reference_asset_id"
+        )
         if uploaded_reference_url and not persona.get("avatar_image_url"):
             persona = {**persona, "avatar_image_url": uploaded_reference_url}
         if uploaded_reference_asset_id and not persona.get("avatar_media_asset_id"):
             persona = {**persona, "avatar_media_asset_id": uploaded_reference_asset_id}
 
-        readiness = cls._build_readiness_report(current.collected["persona_id"], persona)
+        readiness = cls._build_readiness_report(
+            current.collected["persona_id"], persona
+        )
 
         avatar_url = persona.get("avatar_image_url") or uploaded_reference_url
         current.artifacts["preview_image_url"] = avatar_url

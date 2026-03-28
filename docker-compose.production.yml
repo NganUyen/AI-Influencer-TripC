@@ -215,7 +215,7 @@ services:
         max-file: "3"
 
   openclaw:
-    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw@sha256:a5a4c83b773aca85a8ba99cf155f09afa33946c0aa5cc6a9ccb6162738b5da02}
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw@sha256:7091859602df6b8cdd59b38adbaed723a6d94806fdd4274d488400dd2fcf0fb6}
     container_name: ai-influencer-openclaw
     init: true
     ports:

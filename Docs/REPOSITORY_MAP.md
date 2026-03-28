@@ -101,7 +101,7 @@ repo/
 
 ## Deployment And Infra
 
-- `deploy/vps/deploy-production.sh`: build and start the production compose stack
+- `deploy/vps/deploy-production.sh`: pull and start the production compose stack, with an opt-in emergency local-build path
 - `deploy/vps/apply-db-migrations.sh`: apply incremental SQL migrations
 - `deploy/vps/healthcheck.sh`: public and private smoke checks
 - `deploy/vps/check-provider-apis.sh`: provider API reachability validation

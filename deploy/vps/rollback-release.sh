@@ -26,4 +26,8 @@ git checkout "${TARGET_REF}"
 resolved_image_tag="$(git rev-parse HEAD)"
 
 echo "Rolling back images to tag ${resolved_image_tag}"
-IMAGE_TAG="${IMAGE_TAG:-${resolved_image_tag}}" "${SCRIPT_DIR}/deploy-production.sh"
+SYNC_REPO_BEFORE_DEPLOY=0 \
+AUTO_IMAGE_TAG_FROM_GIT=0 \
+BUILD_APP_IMAGES_FROM_REPO=0 \
+IMAGE_TAG="${IMAGE_TAG:-${resolved_image_tag}}" \
+    "${SCRIPT_DIR}/deploy-production.sh"

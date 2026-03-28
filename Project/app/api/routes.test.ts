@@ -3,6 +3,7 @@
 import { NextRequest } from "next/server";
 
 import { GET as getAnalyticsSummary } from "@/app/api/analytics/summary/route";
+import { POST as postTelegramAuthProxy } from "@/app/api/auth/telegram/[...path]/route";
 import { GET as getContentList } from "@/app/api/content/list/route";
 import { GET as getCustomerProxy, POST as postCustomerProxy } from "@/app/api/customer/[...path]/route";
 import { POST as postContentRetry } from "@/app/api/content/retry/[contentId]/route";
@@ -310,6 +311,40 @@ describe("API proxy routes", () => {
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ status: "launched" });
+  });
+
+  it("proxies telegram auth POST routes", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      text: async () => JSON.stringify({ start_token: "abc123" }),
+    } as Response);
+
+    const request = new NextRequest(
+      "http://localhost/api/auth/telegram/link/start",
+      {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ expires_in_minutes: 15 }),
+      },
+    );
+    const response = await postTelegramAuthProxy(request, {
+      params: Promise.resolve({ path: ["link", "start"] }),
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "http://backend.test/api/auth/telegram/link/start",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ expires_in_minutes: 15 }),
+        headers: expect.any(Headers),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ start_token: "abc123" });
   });
 
   it("proxies workflow approval payload", async () => {

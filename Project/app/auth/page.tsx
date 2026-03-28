@@ -18,9 +18,7 @@ async function customerApiRequest<T>(
   endpoint: string,
   options?: RequestInit,
 ): Promise<T> {
-  const apiUrl = getClientPublicEnvValue("NEXT_PUBLIC_API_URL");
-  const fullUrl = `${apiUrl.replace(/\/$/, "")}${endpoint}`;
-  const response = await fetch(fullUrl, {
+  const response = await fetch(endpoint, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -33,7 +31,7 @@ async function customerApiRequest<T>(
     throw new Error(error.detail || "Request failed");
   }
 
-  return response.json();
+  return (await response.json()) as T;
 }
 
 export default function AuthPage() {

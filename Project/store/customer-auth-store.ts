@@ -6,7 +6,6 @@ import {
   hasSupabaseConfig,
   type SupabaseSession,
 } from "@/lib/supabase";
-import { getClientPublicEnvValue } from "@/lib/public-env";
 
 interface CustomerUser {
   id: string;
@@ -159,17 +158,13 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
     loginWithTelegram: async (telegramData: any) => {
       set({ isLoading: true, error: null });
       try {
-        const apiUrl = getClientPublicEnvValue("NEXT_PUBLIC_API_URL");
-        const response = await fetch(
-          `${apiUrl.replace(/\/$/, "")}/api/auth/telegram/login`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(telegramData),
+        const response = await fetch("/api/auth/telegram/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
-        );
+          body: JSON.stringify(telegramData),
+        });
 
         if (!response.ok) {
           const errorData = await response.json();

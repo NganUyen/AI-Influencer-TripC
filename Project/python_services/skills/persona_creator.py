@@ -176,6 +176,7 @@ class PersonaCreatorSkill(BaseSkill):
         )
         telegram_chat_id = current.artifacts.get("telegram_chat_id")
         owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
+        resolved_user_id = str(persona.get("user_id") or "").strip() or None
 
         image_response = await cls._request_json(
             http_client,
@@ -186,6 +187,7 @@ class PersonaCreatorSkill(BaseSkill):
                 "prompt": avatar_prompt,
                 "aspect_ratio": "1:1",
                 "num_images": 1,
+                "user_id": resolved_user_id,
                 "owner_key": owner_key,
                 "persona_id": current.collected.get("persona_id"),
                 "metadata": {

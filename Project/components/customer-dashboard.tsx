@@ -116,6 +116,23 @@ type AIBackboneForm = {
   chatgptSubscriptionTier: "plus" | "pro";
 };
 
+type TelegramLinkStatus = {
+  linked: boolean;
+  link?: {
+    chat_id: number;
+    user_id: string;
+    telegram_username?: string | null;
+    linked_at: string;
+    last_verified_at: string;
+    revoked_at?: string | null;
+  } | null;
+};
+
+type TelegramLinkToken = {
+  start_token: string;
+  expires_at: string;
+};
+
 const SUPPORTED_PLATFORMS = ["linkedin", "facebook", "twitter", "youtube"];
 const AI_BACKBONE_OPTIONS: Array<{
   value: AIBackboneAccessMode;
@@ -225,6 +242,10 @@ export default function CustomerDashboard() {
   const [approvals, setApprovals] = useState<Campaign[]>([]);
   const [content, setContent] = useState<ContentItem[]>([]);
   const [personas, setPersonas] = useState<Persona[]>([]);
+  const [telegramLink, setTelegramLink] = useState<TelegramLinkStatus | null>(
+    null,
+  );
+  const [linkToken, setLinkToken] = useState<TelegramLinkToken | null>(null);
   const [aiBackbone, setAiBackbone] =
     useState<AIBackboneSettings>(EMPTY_AI_BACKBONE);
   const [aiBackboneForm, setAiBackboneForm] = useState<AIBackboneForm>(
@@ -289,6 +310,7 @@ export default function CustomerDashboard() {
         contentList,
         aiBackboneResponse,
         personasList,
+        telegramLinkResponse,
       ] =
         await Promise.all([
           customerApiRequest<{ brand_profile: BrandProfile | null }>(
@@ -311,6 +333,7 @@ export default function CustomerDashboard() {
             "/api/customer/ai-backbone",
           ),
           customerApiRequest<{ personas: Persona[] }>("/api/customer/personas"),
+          customerApiRequest<TelegramLinkStatus>("/api/customer/telegram/link"),
         ]);
 
       setBrandForm(brand.brand_profile || EMPTY_BRAND);
@@ -320,6 +343,7 @@ export default function CustomerDashboard() {
       setApprovals(approvalList.approvals);
       setContent(contentList.items);
       setPersonas(personasList.personas || []);
+      setTelegramLink(telegramLinkResponse);
       setAiBackbone(aiBackboneResponse.settings);
       setAiBackboneForm(
         buildAiBackboneForm(
@@ -612,6 +636,26 @@ export default function CustomerDashboard() {
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to launch campaign");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleStartTelegramLink() {
+    setBusyKey("telegram-link");
+    try {
+      const payload = await customerApiRequest<TelegramLinkToken>(
+        "/api/customer/telegram/link/start",
+        {
+          method: "POST",
+          body: JSON.stringify({ expires_in_minutes: 15 }),
+        },
+      );
+      setLinkToken(payload);
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : "Failed to start Telegram link",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -1021,75 +1065,132 @@ export default function CustomerDashboard() {
           </section>
 
           <section className="space-y-6">
-            <Panel title="Telegram Approvals" subtitle="Make Telegram visible in the workspace so approvals and daily story prompts are easy to find.">
+            <Panel 
+              title="Telegram Connection" 
+              subtitle="Link your Telegram account to enable approvals, persona syncing, and automated workflows."
+            >
               <div className="space-y-4">
-                <div className="rounded-3xl border border-cyan-300/15 bg-cyan-300/5 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.18em] text-cyan-100/80">
-                        Approval Channel
-                      </p>
-                      <p className="mt-2 text-sm text-stone-200">
-                        {telegramSetupComplete
-                          ? "Telegram is configured as your visible review channel."
-                          : "Telegram is live on the backend, but this workspace still needs a saved contact so the setup is obvious from the frontend."}
-                      </p>
+                {/* Connection Status */}
+                {telegramLink?.linked ? (
+                  <div className="rounded-3xl border border-emerald-300/15 bg-emerald-300/5 p-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-emerald-100/80">
+                          Connected Account
+                        </p>
+                        <p className="mt-2 text-sm font-semibold text-stone-200">
+                          {telegramLink.link?.telegram_username
+                            ? `@${telegramLink.link.telegram_username}`
+                            : `Chat ID: ${telegramLink.link?.chat_id}`}
+                        </p>
+                        <p className="mt-1 text-xs text-stone-400">
+                          Your personas and approvals are synced to this Telegram chat
+                        </p>
+                      </div>
+                      <StatusBadge label="linked" />
                     </div>
-                    <StatusBadge
-                      label={telegramSetupComplete ? "configured" : "needs_setup"}
-                    />
                   </div>
-                </div>
-
-                <div className="grid gap-3">
-                  <TelegramDetail
-                    label="Saved Contact"
-                    value={formattedTelegramContact || "Not saved yet"}
-                  />
-                  <TelegramDetail
-                    label="Bot Access"
-                    value={
-                      TELEGRAM_BOT_URL
-                        ? "Open the production Telegram bot and send /start to subscribe."
-                        : "Bot link is not exposed yet, but the Telegram webhook is active."
-                    }
-                  />
-                  <TelegramDetail
-                    label="What Happens There"
-                    value="Approvals, callback actions, and daily story prompts are handled through the Telegram bot."
-                  />
-                </div>
-
-                <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-stone-400">
-                    Setup Steps
-                  </p>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                    <TelegramStep
-                      title="1. Save Contact"
-                      description="Keep your Telegram handle in the onboarding profile so the approval destination is visible in the workspace."
-                    />
-                    <TelegramStep
-                      title="2. Start Bot"
-                      description="Open the bot and send /start once so Telegram registers your chat for delivery."
-                    />
-                    <TelegramStep
-                      title="3. Review There"
-                      description="Use Telegram for approval prompts while the dashboard remains the main campaign control room."
-                    />
+                ) : (
+                  <div className="rounded-3xl border border-cyan-300/15 bg-cyan-300/5 p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-cyan-100/80">
+                          Not Connected
+                        </p>
+                        <p className="mt-2 text-sm text-stone-200">
+                          Link your Telegram to enable automated persona syncing and approval workflows
+                        </p>
+                      </div>
+                      <StatusBadge label="needs_setup" />
+                    </div>
                   </div>
-                </div>
-
-                {TELEGRAM_BOT_URL && (
-                  <a
-                    href={TELEGRAM_BOT_URL}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex rounded-full bg-cyan-200 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-100"
-                  >
-                    Open Telegram Bot
-                  </a>
                 )}
+
+                {/* Contact Info */}
+                {formattedTelegramContact && (
+                  <div className="grid gap-3">
+                    <TelegramDetail
+                      label="Saved Contact"
+                      value={formattedTelegramContact}
+                    />
+                  </div>
+                )}
+
+                {/* Setup Steps for Unlinked Users */}
+                {!telegramLink?.linked && (
+                  <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-stone-400">
+                      Connection Flow
+                    </p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                      <TelegramStep
+                        title="1. Generate Link"
+                        description="Click 'Link My Telegram' to create a secure one-time connection token."
+                      />
+                      <TelegramStep
+                        title="2. Open Bot"
+                        description="Click the generated link to automatically open the bot and establish the connection."
+                      />
+                      <TelegramStep
+                        title="3. Instant Sync"
+                        description="Your personas and approvals will be immediately available in your Telegram chat."
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                {!telegramLink?.linked && (
+                  <div className="space-y-4">
+                    {linkToken ? (
+                      <div className="space-y-3 rounded-3xl border border-amber-300/20 bg-amber-300/5 p-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-amber-200/80">
+                          🔐 Secure Link Generated
+                        </p>
+                        <p className="text-sm text-white">
+                          Click the button below to open the bot and complete the connection.
+                          This link is valid for 15 minutes.
+                        </p>
+                        <a
+                          href={`${TELEGRAM_BOT_URL}?start=${linkToken.start_token}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex w-full items-center justify-center rounded-full bg-amber-200 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-100"
+                        >
+                          🚀 Open Bot & Connect Now
+                        </a>
+                        <p className="text-[10px] text-stone-500">
+                          Expires at:{" "}
+                          {new Date(linkToken.expires_at).toLocaleTimeString()}
+                        </p>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void handleStartTelegramLink()}
+                        disabled={busyKey === "telegram-link"}
+                        className="w-full rounded-full bg-emerald-200 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-100 disabled:opacity-50"
+                      >
+                        {busyKey === "telegram-link"
+                          ? "Generating Secure Link..."
+                          : "🔗 Link My Telegram"}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* What You Get */}
+                <div className="rounded-3xl border border-white/5 bg-black/10 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-stone-400">
+                    What You Get
+                  </p>
+                  <ul className="mt-2 space-y-1 text-sm text-stone-300">
+                    <li>✓ Persona ownership tied to your Telegram account</li>
+                    <li>✓ Approve content directly from your chat</li>
+                    <li>✓ Daily story prompts and notifications</li>
+                    <li>✓ Secure, private communication channel</li>
+                  </ul>
+                </div>
               </div>
             </Panel>
 

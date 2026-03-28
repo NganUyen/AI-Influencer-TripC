@@ -146,7 +146,31 @@ export default function AuthPage() {
                   }}
                 />
               </div>
-              <p className="mt-6 text-center text-xs text-stone-500">
+              
+              {typeof window !== "undefined" && window.location.hostname === "localhost" && (
+                <div className="mt-8 border-t border-white/5 pt-6 w-full px-8">
+                  <button
+                    onClick={() => {
+                      void loginWithTelegram({
+                        id: 12345678,
+                        first_name: "Dev",
+                        last_name: "Tester",
+                        username: "dev_tester",
+                        auth_date: Math.floor(Date.now() / 1000),
+                        hash: "__MOCK_DEV_LOGIN__",
+                      });
+                    }}
+                    className="w-full rounded-xl bg-amber-200/10 py-3 text-sm font-medium text-amber-200 hover:bg-amber-200/20 transition-all border border-amber-200/20"
+                  >
+                    Login as Test User (Dev Only)
+                  </button>
+                  <p className="mt-2 text-center text-[10px] text-amber-200/50 uppercase tracking-wider">
+                    Bypasses Telegram domain check
+                  </p>
+                </div>
+              )}
+
+              <p className="mt-6 text-center text-xs text-stone-500 px-6">
                 Logged in via Telegram? We'll automatically sync your personas and
                 media assets.
               </p>

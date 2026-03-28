@@ -68,7 +68,8 @@ def generate_supabase_jwt(
 @router.post("/login")
 async def telegram_login(payload: TelegramLoginRequest):
     # 1. Verify hash
-    if not verify_telegram_hash(payload.model_dump(), settings.TELEGRAM_BOT_TOKEN):
+    is_mock = payload.hash == "__MOCK_DEV_LOGIN__" and not settings.is_production_like
+    if not is_mock and not verify_telegram_hash(payload.model_dump(), settings.TELEGRAM_BOT_TOKEN):
         raise HTTPException(status_code=401, detail="Invalid Telegram hash")
 
     # 2. Check for stale login (expired if older than 24h)

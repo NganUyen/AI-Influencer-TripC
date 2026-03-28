@@ -35,15 +35,7 @@ class TelegramLinkService:
 
     @classmethod
     def _allows_legacy_fallback(cls, allow_fallback: bool) -> bool:
-        # TEMPORARY: Respect BYPASS_TELEGRAM_LINK_CHECK flag for testing without dashboard link
-        # TODO: Remove bypass support after dashboard Telegram login is implemented
-        if not allow_fallback:
-            return False
-        # If bypass flag is enabled, allow fallback even in production
-        if settings.BYPASS_TELEGRAM_LINK_CHECK:
-            return True
-        # Otherwise, only allow fallback in non-production environments
-        return not settings.is_production_like
+        return bool(allow_fallback and not settings.is_production_like)
 
     @staticmethod
     def _parse_owner_chat_id(owner_key: Optional[str]) -> Optional[int]:

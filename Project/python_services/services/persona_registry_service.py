@@ -73,14 +73,13 @@ class PersonaRegistryService:
         if owner_key:
             owner_user_id = await TelegramLinkService.resolve_user_id_for_owner_key(
                 owner_key,
-                # TEMPORARY: Bypass link check until dashboard Telegram login is implemented
-                allow_fallback=(not settings.is_production_like)
-                or settings.BYPASS_TELEGRAM_LINK_CHECK,
+                allow_fallback=False,
             )
             if owner_user_id:
                 return owner_user_id
             raise PersonaConfigurationError(
-                "Telegram owner scope is invalid or not linked."
+                "Telegram owner scope is invalid or not linked. "
+                "Please link your Telegram account via the dashboard first."
             )
         if settings.is_production_like:
             raise PersonaConfigurationError(
@@ -96,46 +95,20 @@ class PersonaRegistryService:
             return
         pool = await cls._get_pool()
         async with pool.acquire() as conn:
-            # TEMPORARY: When BYPASS_TELEGRAM_LINK_CHECK is enabled, allow synthetic user creation
-            # even in production-like mode. Otherwise strictly validate user exists.
-            if settings.is_production_like and not settings.BYPASS_TELEGRAM_LINK_CHECK:
-                row = await conn.fetchrow(
-                    """
-                    SELECT id
-                    FROM public.users
-                    WHERE id = $1::uuid
-                    LIMIT 1
-                    """,
-                    user_id,
-                )
-                if row is None:
-                    raise PersonaConfigurationError(
-                        "Resolved persona owner user_id does not exist in public.users."
-                    )
-                return
-
-            # Create or update synthetic user for development/bypass mode
-            owner_label = (owner_key or user_id).strip() if owner_key else user_id
-            sanitized = "".join(
-                ch if ch.isalnum() else "-" for ch in owner_label.lower()
-            ).strip("-")
-            if not sanitized:
-                sanitized = user_id.replace("-", "")[:16]
-            email = f"persona-{sanitized}@local.ai-influencer.invalid"
-            name = owner_key if owner_key else f"Persona Owner {user_id[:8]}"
-            await conn.execute(
+            row = await conn.fetchrow(
                 """
-                INSERT INTO public.users (id, email, name)
-                VALUES ($1::uuid, $2, $3)
-                ON CONFLICT (id) DO UPDATE
-                SET email = public.users.email,
-                    name = COALESCE(public.users.name, EXCLUDED.name),
-                    updated_at = NOW()
+                SELECT id
+                FROM public.users
+                WHERE id = $1::uuid
+                LIMIT 1
                 """,
                 user_id,
-                email,
-                name,
             )
+            if row is None:
+                raise PersonaConfigurationError(
+                    "Resolved persona owner user_id does not exist in public.users. "
+                    "Please ensure your Telegram account is linked via the dashboard."
+                )
 
     @classmethod
     def _legacy_owner_scope_enabled(

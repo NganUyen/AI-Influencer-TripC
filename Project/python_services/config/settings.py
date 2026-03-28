@@ -58,11 +58,6 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
 
-    # TEMPORARY: Bypass Telegram link ownership check until dashboard login flow is implemented
-    # TODO: Remove this after implementing dashboard Telegram login flow
-    # Set to True in .env for temporary bypass during testing/development
-    BYPASS_TELEGRAM_LINK_CHECK: bool = False
-
     # Database
     DATABASE_URL: str
     CHATGPT_CONNECTOR_DATABASE_URL: Optional[str] = None

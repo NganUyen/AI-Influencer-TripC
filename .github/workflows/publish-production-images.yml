@@ -22,6 +22,12 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_influencer
       CHATGPT_CONNECTOR_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_influencer
+      ENVIRONMENT: development
+      DEBUG: "true"
+      FRONTEND_PUBLIC_URL: http://localhost:3000
+      BACKEND_PUBLIC_URL: http://localhost:8000
+      CHATGPT_CONNECTOR_PUBLIC_URL: http://localhost:8010
+      CORS_ORIGINS: http://localhost:3000
       SUPABASE_URL: http://localhost:54321
       SUPABASE_KEY: test-supabase-key
       SUPABASE_SERVICE_ROLE_KEY: test-supabase-service-role-key
@@ -29,6 +35,16 @@ jobs:
       OPENAI_API_KEY: test-openai-key
       ANTHROPIC_API_KEY: test-anthropic-key
       FAL_AI_API_KEY: test-fal-key
+      OPENCLAW_API_KEY: test-openclaw-key
+      POSTIZ_API_KEY: test-postiz-api-key
+      GROWCHIEF_API_KEY: test-growchief-api-key
+      POSTIZ_WEBHOOK_SECRET: ci-postiz-webhook-secret
+      GROWCHIEF_WEBHOOK_SECRET: ci-growchief-webhook-secret
+      JWT_SECRET_KEY: ci-jwt-secret
+      CHATGPT_CONNECTOR_SESSION_SECRET: ci-connector-session-secret
+      INTERNAL_API_TOKEN: ci-internal-token
+      APP_ADMIN_TOKEN: ci-admin-token
+      CUSTOMER_TOKEN_ENCRYPTION_KEY: ci-customer-encryption-key
       IPROYAL_USERNAME: test-iproyal-user
       IPROYAL_PASSWORD: test-iproyal-password
       TELEGRAM_BOT_TOKEN: test-telegram-bot-token

@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from services import persona_registry_service as persona_registry_service_module
 from services.errors import PersonaConfigurationError
 from services.persona_registry_service import (
     PersonaRegistryService,
@@ -113,6 +114,59 @@ async def test_update_persona_falls_back_to_legacy_system_scope_for_owner_key(mo
     assert persona == {"persona_id": "legacy-demo", "status": "ready"}
     assert update_calls[0][1] == synthetic_owner_id
     assert update_calls[1][1] == _SYSTEM_PERSONA_USER_ID
+
+
+@pytest.mark.asyncio
+async def test_resolve_owner_user_id_requires_real_owner_in_production(monkeypatch):
+    monkeypatch.setattr(persona_registry_service_module.settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(persona_registry_service_module.settings, "DEBUG", False)
+    monkeypatch.setattr(
+        "services.persona_registry_service.TelegramLinkService.resolve_user_id_for_owner_key",
+        AsyncMock(return_value=None),
+    )
+
+    with pytest.raises(PersonaConfigurationError) as exc_info:
+        await PersonaRegistryService._resolve_owner_user_id(owner_key="telegram:1972936401")
+
+    assert "not linked" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_list_personas_skips_legacy_scope_in_production(monkeypatch):
+    resolved_user_id = "550e8400-e29b-41d4-a716-446655440000"
+
+    async def fake_resolve_owner_user_id(*, user_id=None, owner_key=None):
+        assert owner_key == "telegram:1972936401"
+        return resolved_user_id
+
+    async def fake_list_from_db(*, user_id, status=None):
+        assert user_id == resolved_user_id
+        return []
+
+    async def fail_list_unowned_from_db(*, status=None):
+        raise AssertionError("legacy unowned fallback should be disabled in production")
+
+    monkeypatch.setattr(persona_registry_service_module.settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(persona_registry_service_module.settings, "DEBUG", False)
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_resolve_owner_user_id",
+        fake_resolve_owner_user_id,
+    )
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_list_from_db",
+        fake_list_from_db,
+    )
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_list_unowned_from_db",
+        fail_list_unowned_from_db,
+    )
+
+    personas = await PersonaRegistryService.list_personas(owner_key="telegram:1972936401")
+
+    assert personas == []
 
 
 @pytest.mark.asyncio

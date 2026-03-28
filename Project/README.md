@@ -61,7 +61,7 @@ Notes:
 - `lib/api-client.ts` is used by the internal ops console and backend proxy routes.
 - `lib/customer-api.ts` is used by the customer dashboard.
 - customer auth/session resolution depends on the Supabase-related env values plus the backend customer auth service.
-- `Project/supabase/schema.sql` is the canonical base schema for the application database; local Docker Postgres bootstraps from it, while Supabase handles customer auth/session and the default media storage bucket.
+- ordered files in `Project/supabase/migrations/` are the migration authority; `Project/supabase/schema.sql` is the rebuilt bootstrap snapshot for empty databases, while Supabase handles customer auth/session and the default media storage bucket.
 - the browser should usually talk to the Next.js app, not directly to FastAPI.
 
 ## Install And Run
@@ -85,6 +85,11 @@ npm run lint
 npm run type-check
 npm test
 ```
+
+Production packaging notes:
+
+- `Dockerfile.frontend` now emits a multi-stage standalone runtime image for production.
+- local development still uses the `dev` Docker target through `docker-compose.yml`.
 
 ## Project Structure
 

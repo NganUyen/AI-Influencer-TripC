@@ -73,13 +73,15 @@ class PersonaRegistryService:
         if owner_key:
             owner_user_id = await TelegramLinkService.resolve_user_id_for_owner_key(
                 owner_key,
-                allow_fallback=True,
+                allow_fallback=not settings.is_production_like,
             )
             if owner_user_id:
                 return owner_user_id
             raise PersonaConfigurationError(
-                "Telegram owner scope is invalid."
+                "Telegram owner scope is invalid or not linked."
             )
+        if settings.is_production_like:
+            raise PersonaConfigurationError("user_id is required for persona operations.")
         return _SYSTEM_PERSONA_USER_ID
 
     @classmethod
@@ -87,13 +89,29 @@ class PersonaRegistryService:
         if user_id == _SYSTEM_PERSONA_USER_ID:
             return
         pool = await cls._get_pool()
-        owner_label = (owner_key or user_id).strip() if owner_key else user_id
-        sanitized = "".join(ch if ch.isalnum() else "-" for ch in owner_label.lower()).strip("-")
-        if not sanitized:
-            sanitized = user_id.replace("-", "")[:16]
-        email = f"persona-{sanitized}@local.ai-influencer.invalid"
-        name = owner_key if owner_key else f"Persona Owner {user_id[:8]}"
         async with pool.acquire() as conn:
+            if settings.is_production_like:
+                row = await conn.fetchrow(
+                    """
+                    SELECT id
+                    FROM public.users
+                    WHERE id = $1::uuid
+                    LIMIT 1
+                    """,
+                    user_id,
+                )
+                if row is None:
+                    raise PersonaConfigurationError(
+                        "Resolved persona owner user_id does not exist in public.users."
+                    )
+                return
+
+            owner_label = (owner_key or user_id).strip() if owner_key else user_id
+            sanitized = "".join(ch if ch.isalnum() else "-" for ch in owner_label.lower()).strip("-")
+            if not sanitized:
+                sanitized = user_id.replace("-", "")[:16]
+            email = f"persona-{sanitized}@local.ai-influencer.invalid"
+            name = owner_key if owner_key else f"Persona Owner {user_id[:8]}"
             await conn.execute(
                 """
                 INSERT INTO public.users (id, email, name)
@@ -109,6 +127,21 @@ class PersonaRegistryService:
             )
 
     @classmethod
+    def _legacy_owner_scope_enabled(
+        cls,
+        *,
+        user_id: Optional[str],
+        owner_key: Optional[str],
+        resolved_user_id: Optional[str] = None,
+    ) -> bool:
+        return bool(
+            owner_key
+            and not user_id
+            and not settings.is_production_like
+            and (resolved_user_id is None or resolved_user_id != _SYSTEM_PERSONA_USER_ID)
+        )
+
+    @classmethod
     def _memory_key(cls, user_id: str, persona_id: str) -> str:
         return f"{user_id}:{persona_id}"
 
@@ -121,7 +154,11 @@ class PersonaRegistryService:
         owner_key: Optional[str],
     ) -> List[str]:
         candidates = [resolved_user_id]
-        if owner_key and not user_id and resolved_user_id != _SYSTEM_PERSONA_USER_ID:
+        if cls._legacy_owner_scope_enabled(
+            user_id=user_id,
+            owner_key=owner_key,
+            resolved_user_id=resolved_user_id,
+        ):
             candidates.append(_SYSTEM_PERSONA_USER_ID)
         deduped: List[str] = []
         for candidate in candidates:
@@ -602,13 +639,18 @@ class PersonaRegistryService:
             user_id=user_id,
             owner_key=owner_key,
         )
+        include_legacy_scope = cls._legacy_owner_scope_enabled(
+            user_id=user_id,
+            owner_key=owner_key,
+            resolved_user_id=resolved_user_id,
+        )
         try:
             for candidate_user_id in candidate_user_ids:
                 personas = await cls._list_from_db(status=status, user_id=candidate_user_id)
                 if personas:
                     return personas
 
-            if owner_key and not user_id:
+            if include_legacy_scope:
                 legacy_personas: List[Dict[str, Any]] = []
                 if _SYSTEM_PERSONA_USER_ID not in candidate_user_ids:
                     legacy_personas.extend(
@@ -646,12 +688,17 @@ class PersonaRegistryService:
             user_id=user_id,
             owner_key=owner_key,
         )
+        include_legacy_scope = cls._legacy_owner_scope_enabled(
+            user_id=user_id,
+            owner_key=owner_key,
+            resolved_user_id=resolved_user_id,
+        )
         try:
             for candidate_user_id in candidate_user_ids:
                 persona = await cls._get_from_db(persona_id, user_id=candidate_user_id)
                 if persona:
                     return persona
-            if owner_key and not user_id:
+            if include_legacy_scope:
                 return await cls._get_unowned_from_db(persona_id)
             return None
         except Exception as exc:  # pragma: no cover - degraded-mode fallback
@@ -682,6 +729,11 @@ class PersonaRegistryService:
             user_id=payload.get("user_id"),
             owner_key=payload.get("owner_key"),
         )
+        include_legacy_scope = cls._legacy_owner_scope_enabled(
+            user_id=payload.get("user_id"),
+            owner_key=payload.get("owner_key"),
+            resolved_user_id=resolved_user_id,
+        )
         normalized_voice = GoogleTTSService.resolve_voice_name(
             payload.get("tts_voice"),
             language=payload.get("language"),
@@ -700,7 +752,7 @@ class PersonaRegistryService:
             existing = await cls._compatible_existing_persona(
                 payload["persona_id"],
                 candidate_user_ids=candidate_user_ids,
-                include_unowned=bool(payload.get("owner_key") and not payload.get("user_id")),
+                include_unowned=include_legacy_scope,
             )
             if existing:
                 return existing
@@ -717,7 +769,7 @@ class PersonaRegistryService:
                     recovered_persona, conflicting_persona = await cls._recover_duplicate_persona(
                         payload["persona_id"],
                         candidate_user_ids=candidate_user_ids,
-                        include_unowned=bool(payload.get("owner_key") and not payload.get("user_id")),
+                        include_unowned=include_legacy_scope,
                     )
                 except Exception:
                     recovered_persona = None
@@ -759,6 +811,11 @@ class PersonaRegistryService:
             user_id=user_id,
             owner_key=owner_key,
         )
+        include_legacy_scope = cls._legacy_owner_scope_enabled(
+            user_id=user_id,
+            owner_key=owner_key,
+            resolved_user_id=resolved_user_id,
+        )
         normalized_fields = dict(fields)
         if normalized_fields.get("tts_voice"):
             language = normalized_fields.get("language")
@@ -778,7 +835,7 @@ class PersonaRegistryService:
                 )
                 if updated:
                     return updated
-            if owner_key and not user_id:
+            if include_legacy_scope:
                 pool = await cls._get_pool()
                 assignments: List[str] = []
                 args: List[Any] = []

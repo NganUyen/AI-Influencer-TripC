@@ -13,7 +13,6 @@ from .image_generation_service import ImageGenerationService
 from .telegram_service import TelegramService
 from .telegram_subscriber_service import TelegramSubscriberService
 from .ai_service import AIService
-from .browser_automation import BrowserAutomationService
 from .region_service import RegionService
 from .content_persistence_service import ContentPersistenceService
 from .quota_monitor_service import QuotaMonitorService
@@ -22,6 +21,21 @@ from .persona_registry_service import PersonaRegistryService
 from .creative_director_service import CreativeDirectorService
 from .customer_media_service import CustomerMediaService
 from .telegram_link_service import TelegramLinkService, TelegramLinkError
+
+try:
+    from .browser_automation import BrowserAutomationService
+except ModuleNotFoundError as exc:
+    if exc.name not in {"camoufox", "playwright", "selenium"}:
+        raise
+
+    class BrowserAutomationService:  # type: ignore[no-redef]
+        """Placeholder exposed when the API image omits worker-only browser deps."""
+
+        def __init__(self, *_args, **_kwargs):
+            raise ModuleNotFoundError(
+                "BrowserAutomationService requires worker/browser dependencies. "
+                "Install requirements.worker.txt or requirements.txt."
+            ) from exc
 
 __all__ = [
     "OpenClawService",

@@ -205,41 +205,41 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
             language=voice_language,
         )
         
-        storage_service = StorageService()
-        file_extension = "mp3"
-        day = audio_input.metadata.day
-        platform = audio_input.metadata.platform
-        filename = f"{day}/audio_{platform}.{file_extension}"
-        
-        public_url = await storage_service.upload(
-            file_data=BytesIO(audio_bytes),
-            filename=filename,
-            content_type=f"audio/{file_extension}",
-        )
-        
-        logger.info(f"Audio generated and uploaded successfully")
-
         campaign_id = prompt_config.get("campaign_id") or metadata.get("campaign_id")
         persona_id = prompt_config.get("persona_id") or metadata.get("persona_id")
         owner_key = prompt_config.get("owner_key") or metadata.get("owner_key")
         user_id = prompt_config.get("user_id") or metadata.get("user_id")
+        file_extension = "mp3"
+        day = audio_input.metadata.day
+        platform = audio_input.metadata.platform
+        storage_result = None
         if campaign_id or persona_id or user_id or owner_key:
-            asyncio.create_task(
-                MediaStorageService().record_asset(
-                    campaign_id=str(campaign_id) if campaign_id else None,
-                    asset_type="AUDIO",
-                    generation_prompt=text_to_speak,
-                    storage_path=filename,
-                    public_url=public_url,
-                    mime_type=f"audio/{file_extension}",
-                    file_size=len(audio_bytes),
-                    status="COMPLETED",
-                    user_id=user_id,
-                    owner_key=owner_key,
-                    persona_id=persona_id,
-                    metadata=metadata,
-                )
+            storage_result = await MediaStorageService().upload_bytes(
+                data=audio_bytes,
+                content_type=f"audio/{file_extension}",
+                campaign_id=str(campaign_id) if campaign_id else None,
+                asset_type="AUDIO",
+                asset_kind="audio",
+                generation_prompt=text_to_speak,
+                user_id=user_id,
+                owner_key=owner_key,
+                persona_id=persona_id,
+                metadata=metadata,
+                file_name_hint=f"{platform or 'audio'}-{day or '1'}",
             )
+
+        if storage_result and storage_result.get("access_url"):
+            public_url = storage_result["access_url"]
+        else:
+            storage_service = StorageService()
+            filename = f"{day}/audio_{platform}.{file_extension}"
+            public_url = await storage_service.upload(
+                file_data=BytesIO(audio_bytes),
+                filename=filename,
+                content_type=f"audio/{file_extension}",
+            )
+
+        logger.info(f"Audio generated and uploaded successfully")
 
         return {
             "type": "audio",
@@ -296,38 +296,34 @@ async def upload_to_storage(media_asset: Dict[str, Any]) -> Dict[str, Any]:
         else "mp3" if media_asset["type"] == "audio" else "png"
     )
 
-    filename = f"{asset_metadata['day']}/{media_asset['type']}_{asset_metadata.get('platform', 'default')}.{file_extension}"
-
-    public_url = await storage_service.upload(
-        file_data=media_data,
-        filename=filename,
-        content_type=f"{media_asset['type']}/{file_extension}",
-    )
-
-    # ── media bucket hook (non-blocking) ─────────────────────────────────────
     _campaign_id = media_asset.get("campaign_id") or asset_metadata.get("campaign_id")
     _persona_id = media_asset.get("persona_id") or asset_metadata.get("persona_id")
     _owner_key = media_asset.get("owner_key") or asset_metadata.get("owner_key")
     _user_id = media_asset.get("user_id") or asset_metadata.get("user_id")
+    storage_result = None
     if _campaign_id or _persona_id or _user_id or _owner_key:
-        _asset_type = media_asset["type"].upper()      # IMAGE | AUDIO | VIDEO
-        _mime = f"{media_asset['type']}/{file_extension}"
-        _size = media_data.seek(0, 2)                  # seek to end → byte count
-        asyncio.create_task(
-            MediaStorageService().record_asset(
-                campaign_id=str(_campaign_id) if _campaign_id else None,
-                asset_type=_asset_type,
-                generation_prompt=media_asset.get("prompt", ""),
-                storage_path=filename,
-                public_url=public_url,
-                mime_type=_mime,
-                file_size=_size or 0,
-                status="COMPLETED",
-                user_id=_user_id,
-                owner_key=_owner_key,
-                persona_id=_persona_id,
-                metadata={"day": asset_metadata.get("day"), "platform": asset_metadata.get("platform")},
-            )
+        storage_result = await MediaStorageService().upload_bytes(
+            data=response.content,
+            content_type=f"{media_asset['type']}/{file_extension}",
+            campaign_id=str(_campaign_id) if _campaign_id else None,
+            asset_type=media_asset["type"].upper(),
+            asset_kind=media_asset["type"],
+            generation_prompt=media_asset.get("prompt", ""),
+            user_id=_user_id,
+            owner_key=_owner_key,
+            persona_id=_persona_id,
+            metadata={"day": asset_metadata.get("day"), "platform": asset_metadata.get("platform")},
+            file_name_hint=f"{media_asset['type']}-{asset_metadata.get('platform', 'default')}",
+        )
+
+    if storage_result and storage_result.get("access_url"):
+        public_url = storage_result["access_url"]
+    else:
+        filename = f"{asset_metadata['day']}/{media_asset['type']}_{asset_metadata.get('platform', 'default')}.{file_extension}"
+        public_url = await storage_service.upload(
+            file_data=media_data,
+            filename=filename,
+            content_type=f"{media_asset['type']}/{file_extension}",
         )
 
     return {
@@ -421,29 +417,30 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
         response.raise_for_status()
         video_bytes = response.content
 
-    filename = f"videos/{persona_id}/talking_head/day{day}/{topic.replace(' ', '_')[:30]}.mp4"
-    public_url = await storage.upload_bytes(
-        data=video_bytes,
-        filename=filename,
-        content_type="video/mp4",
-    )
-
+    storage_result = None
     if persona_id or user_id or owner_key:
-        asyncio.create_task(
-            MediaStorageService().record_asset(
-                campaign_id=config.get("campaign_id"),
-                asset_type="VIDEO",
-                generation_prompt=topic,
-                storage_path=filename,
-                public_url=public_url,
-                mime_type="video/mp4",
-                file_size=len(video_bytes),
-                status="COMPLETED",
-                user_id=user_id,
-                owner_key=owner_key,
-                persona_id=persona_id,
-                metadata={"day": day, "source": "talking_head"},
-            )
+        storage_result = await MediaStorageService().upload_bytes(
+            data=video_bytes,
+            content_type="video/mp4",
+            campaign_id=config.get("campaign_id"),
+            asset_type="VIDEO",
+            asset_kind="video",
+            generation_prompt=topic,
+            user_id=user_id,
+            owner_key=owner_key,
+            persona_id=persona_id,
+            metadata={"day": day, "source": "talking_head"},
+            file_name_hint=topic,
+        )
+
+    if storage_result and storage_result.get("access_url"):
+        public_url = storage_result["access_url"]
+    else:
+        filename = f"videos/{persona_id}/talking_head/day{day}/{topic.replace(' ', '_')[:30]}.mp4"
+        public_url = await storage.upload_bytes(
+            data=video_bytes,
+            filename=filename,
+            content_type="video/mp4",
         )
 
     return {

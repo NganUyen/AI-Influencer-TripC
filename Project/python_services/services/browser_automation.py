@@ -6,7 +6,13 @@ Handles stealth browser operations using Camoufox
 import logging
 import os
 from typing import Dict, Any, Optional
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+
+try:
+    from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+except ImportError:  # pragma: no cover - exercised in slim API runtime images
+    async_playwright = None
+    Browser = BrowserContext = Page = Any
+
 from services.region_service import RegionService
 
 logger = logging.getLogger(__name__)
@@ -24,6 +30,13 @@ class BrowserAutomationService:
         self.context: Optional[BrowserContext] = None
         self.storage_state_path: Optional[str] = None
         self.profile_name: Optional[str] = None
+
+    @staticmethod
+    def _ensure_playwright_available() -> None:
+        if async_playwright is None:
+            raise RuntimeError(
+                "Browser automation dependencies are not installed in this runtime image."
+            )
 
     def build_launch_options(
         self, proxy_config: Optional[Dict[str, Any]] = None
@@ -107,6 +120,7 @@ class BrowserAutomationService:
             proxy_config: Proxy configuration (server, username, password)
         """
         logger.info("Initializing Camoufox browser")
+        self._ensure_playwright_available()
 
         playwright = await async_playwright().start()
         session_config = self.build_session_configuration(
@@ -160,6 +174,7 @@ class BrowserAutomationService:
             user_id: User identifier for account session
         """
         logger.info(f"Publishing to {platform} via browser automation")
+        self._ensure_playwright_available()
 
         if not self.context:
             await self.initialize_browser(

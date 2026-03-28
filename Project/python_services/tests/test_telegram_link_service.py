@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from services import telegram_link_service as telegram_link_service_module
 from services.telegram_link_service import TelegramLinkError, TelegramLinkService
 
 
@@ -80,6 +81,23 @@ async def test_resolve_user_id_for_owner_key_reuses_legacy_synthetic_user_when_p
     )
 
     assert resolved == "8a8119f0-2640-5d14-9544-e1be9b293c23"
+
+
+@pytest.mark.asyncio
+async def test_resolve_user_id_for_owner_key_disables_synthetic_fallback_in_production(monkeypatch):
+    monkeypatch.setattr(
+        "services.telegram_link_service.DatabaseService.get_pool",
+        AsyncMock(return_value=_StubPool(_MissingRelationConn())),
+    )
+    monkeypatch.setattr(telegram_link_service_module.settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(telegram_link_service_module.settings, "DEBUG", False)
+
+    resolved = await TelegramLinkService.resolve_user_id_for_owner_key(
+        "telegram:123456",
+        allow_fallback=True,
+    )
+
+    assert resolved is None
 
 
 @pytest.mark.asyncio

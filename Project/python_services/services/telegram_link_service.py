@@ -83,10 +83,9 @@ class TelegramLinkService:
 
     @classmethod
     def _fallback_user_id(cls, owner_key: Optional[str]) -> Optional[str]:
-        synthetic = cls.synthetic_user_id_for_owner_key(owner_key)
-        if synthetic:
-            logger.info("Using synthetic Telegram owner user_id for %s", owner_key)
-        return synthetic
+        # Do not return a synthetic user_id for unlinked owners to avoid
+        # accidental persona creation under shared or system accounts.
+        return None
 
     @staticmethod
     def _synthetic_owner_label(owner_key: Optional[str]) -> Optional[str]:

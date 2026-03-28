@@ -19,6 +19,7 @@ interface CustomerAuthState {
   error: string | null;
   initialize: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
+  loginWithTelegram: (telegramData: any) => Promise<void>;
   signup: (payload: {
     email: string;
     password: string;
@@ -144,6 +145,54 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
         initialized: true,
         error: null,
       });
+    },
+
+    loginWithTelegram: async (telegramData: any) => {
+      set({ isLoading: true, error: null });
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
+        const response = await fetch(
+          `${apiUrl.replace(/\/$/, "")}/api/auth/telegram/login`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(telegramData),
+          },
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || "Telegram login failed");
+        }
+
+        const { access_token } = await response.json();
+
+        // 1. Establish the Supabase session using the token from our backend
+        // Since we signed it with the shared JWT secret, Supabase will accept it.
+        const { data, error } = await supabase.auth.setSession({
+          access_token,
+          refresh_token: "", // Our custom JWT flow doesn't use refresh tokens for now
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        set({
+          ...mapUser(data.session),
+          isLoading: false,
+          initialized: true,
+          error: null,
+        });
+      } catch (err) {
+        set({
+          isLoading: false,
+          error: err instanceof Error ? err.message : "Telegram login failed",
+        });
+        throw err;
+      }
     },
 
     logout: async () => {

@@ -29,6 +29,7 @@ from services.customer_campaign_service import CustomerCampaignService
 from services.database_service import DatabaseService
 from services.customer_media_service import CustomerMediaService
 from services.telegram_link_service import TelegramLinkService
+from services.persona_registry_service import PersonaRegistryService
 
 router = APIRouter()
 
@@ -428,3 +429,26 @@ async def list_customer_approvals(
     session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
     return {"approvals": await CustomerCampaignService.list_pending_approvals(session.user_id)}
+
+
+@router.get("/personas")
+async def list_customer_personas(
+    session: CustomerSession = Depends(require_customer_session),
+) -> List[Dict[str, Any]]:
+    # This ensures personas are strictly filtered by the authenticated user's ID
+    personas = await PersonaRegistryService.list_personas(
+        user_id=session.user_id
+    )
+    return [
+        {
+            "persona_id": item.get("persona_id"),
+            "display_name": item.get("display_name"),
+            "language": item.get("language"),
+            "tts_voice": item.get("tts_voice"),
+            "avatar_image_url": item.get("avatar_image_url"),
+            "status": item.get("status"),
+            "video_count": int(item.get("video_count") or 0),
+            "created_at": item.get("created_at"),
+        }
+        for item in personas
+    ]

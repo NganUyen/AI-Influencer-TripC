@@ -35,7 +35,8 @@ class TelegramLinkService:
 
     @classmethod
     def _allows_legacy_fallback(cls, allow_fallback: bool) -> bool:
-        return bool(allow_fallback and not settings.is_production_like)
+        # Legacy fallback is permanently disabled - Telegram linking is required
+        return False
 
     @staticmethod
     def _parse_owner_chat_id(owner_key: Optional[str]) -> Optional[int]:

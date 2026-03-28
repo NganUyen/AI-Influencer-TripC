@@ -54,9 +54,10 @@ class _MissingRelationWithLegacyUserConn:
 
 
 @pytest.mark.asyncio
-async def test_resolve_user_id_for_owner_key_uses_synthetic_fallback_when_link_table_missing(
+async def test_resolve_user_id_for_owner_key_returns_none_when_link_table_missing(
     monkeypatch,
 ):
+    """After bypass removal, missing telegram_user_links table returns None."""
     monkeypatch.setattr(
         "services.telegram_link_service.DatabaseService.get_pool",
         AsyncMock(return_value=_StubPool(_MissingRelationConn())),
@@ -64,18 +65,17 @@ async def test_resolve_user_id_for_owner_key_uses_synthetic_fallback_when_link_t
 
     resolved = await TelegramLinkService.resolve_user_id_for_owner_key(
         "telegram:123456",
-        allow_fallback=True,
+        allow_fallback=False,
     )
 
-    assert resolved == TelegramLinkService.synthetic_user_id_for_owner_key(
-        "telegram:123456"
-    )
+    assert resolved is None
 
 
 @pytest.mark.asyncio
-async def test_resolve_user_id_for_owner_key_reuses_legacy_synthetic_user_when_present(
+async def test_resolve_user_id_for_owner_key_returns_none_without_valid_link(
     monkeypatch,
 ):
+    """Fallback is permanently disabled - unlinked users always get None."""
     monkeypatch.setattr(
         "services.telegram_link_service.DatabaseService.get_pool",
         AsyncMock(return_value=_StubPool(_MissingRelationWithLegacyUserConn())),
@@ -83,31 +83,26 @@ async def test_resolve_user_id_for_owner_key_reuses_legacy_synthetic_user_when_p
 
     resolved = await TelegramLinkService.resolve_user_id_for_owner_key(
         "telegram:123456",
-        allow_fallback=True,
+        allow_fallback=False,
     )
 
-    assert resolved == "8a8119f0-2640-5d14-9544-e1be9b293c23"
+    # Legacy fallback is disabled, so even with legacy user present, returns None
+    assert resolved is None
 
 
 @pytest.mark.asyncio
-async def test_resolve_user_id_for_owner_key_disables_synthetic_fallback_in_production(
+async def test_resolve_user_id_for_owner_key_fallback_always_disabled(
     monkeypatch,
 ):
+    """allow_fallback=True has no effect - fallback is permanently disabled."""
     monkeypatch.setattr(
         "services.telegram_link_service.DatabaseService.get_pool",
         AsyncMock(return_value=_StubPool(_MissingRelationConn())),
     )
-    monkeypatch.setattr(
-        telegram_link_service_module.settings, "ENVIRONMENT", "production"
-    )
-    monkeypatch.setattr(telegram_link_service_module.settings, "DEBUG", False)
-    monkeypatch.setattr(
-        telegram_link_service_module.settings, "BYPASS_TELEGRAM_LINK_CHECK", False
-    )
 
     resolved = await TelegramLinkService.resolve_user_id_for_owner_key(
         "telegram:123456",
-        allow_fallback=True,
+        allow_fallback=True,  # Even with True, fallback is disabled
     )
 
     assert resolved is None

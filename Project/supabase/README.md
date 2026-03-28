@@ -4,16 +4,17 @@ This directory holds the checked-in SQL source for the application database.
 
 The current repo intentionally splits responsibilities:
 
-- app data lives in PostgreSQL and is accessed through `DATABASE_URL`
+- customer-facing app data lives in PostgreSQL and is accessed through `DATABASE_URL`
+- staging/production should point `DATABASE_URL` at Supabase Postgres
 - customer sign-in and session validation use Supabase Auth
 - generated media defaults to a public Supabase Storage bucket named `media`
-- the same SQL assets can be used against local Postgres or a Supabase-hosted Postgres database
+- local plain Postgres remains useful for disposable dev/CI bootstraps
 
 ## Files
 
 ```text
 supabase/
-|-- schema.sql                    Full base schema for a fresh database
+|-- schema.sql                    Disposable full bootstrap snapshot
 |-- seed.sql                      Optional development seed data
 `-- migrations/
     |-- 20260310_initial_schema.sql
@@ -21,28 +22,31 @@ supabase/
     |-- 20260320_chatgpt_connector_links.sql
     |-- 20260324_customer_product_v1.sql
     |-- 20260324_live_db_backfill.sql
+    |-- 20260324_zz_customer_ai_backbone_settings.sql
     |-- 20260324_zz_supabase_storage_bucket.sql
     |-- 20260326_persona_media_contract.sql
     |-- 20260326_personas_user_scoped_unique.sql
-    `-- 20260326_telegram_owner_links_and_avatar_assets.sql
+    |-- 20260326_telegram_owner_links_and_avatar_assets.sql
+    |-- 20260327_supabase_canonical_consolidation.sql
+    `-- latest.sql
 ```
 
 ## Runtime Model
 
 Use this mental model when wiring environments:
 
-- `DATABASE_URL` points at the primary application database
+- `DATABASE_URL` points at the canonical application database
+- in staging/production that canonical app database should be Supabase Postgres
 - `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, and related keys are still required for customer auth/session flows
-- `SUPABASE_STORAGE_BUCKET` now prefers `media`; older installs can keep using `ai-influencer-media` if their env already points there
-- `schema.sql` includes an `auth.uid()` compatibility shim so the same base SQL works on plain Postgres and on Supabase-hosted Postgres
-- `migrations/*.sql` are for upgrading existing databases; `schema.sql` is for bootstrapping a fresh one
-- persona-owned assets are recorded in `public.media_assets` with explicit `persona_id`, `bucket_name`, and `storage_path` columns in addition to legacy `metadata`
-- Telegram/customer ownership links live in `public.telegram_link_tokens` and `public.telegram_user_links`
-- persona avatars can now be attached directly to `public.media_assets` through `public.personas.avatar_media_asset_id`
+- `SUPABASE_STORAGE_BUCKET` must be `media` in production-like environments
+- ordered `migrations/*.sql` files are the source of truth for long-lived environments
+- `schema.sql` and `migrations/latest.sql` are disposable snapshot/bootstrap assets rebuilt to the latest migrated shape
+- new canonical media writes must use `users/<user_id>/personas/<persona_id>/<asset_kind>/<yyyy-mm>/<file>`
+- `public.users` is synced from `auth.users` by a Supabase-side trigger in the latest consolidation migration
 
 ## Fresh Local Postgres
 
-The local Docker stack bootstraps `schema.sql` automatically on the first run of an empty `postgres_data` volume.
+Disposable local Postgres can still bootstrap from `schema.sql`.
 
 If you want to apply the schema yourself to an empty local database:
 
@@ -61,8 +65,9 @@ docker exec -i ai-influencer-postgres psql -U postgres -d ai_influencer < Projec
 
 Important:
 
-- treat `schema.sql` as the empty-database bootstrap
-- use the migration files for long-lived databases instead of replaying the base file on top of active data
+- treat `schema.sql` as an empty-database bootstrap only
+- do not replay `schema.sql` on top of a long-lived environment
+- do not use `migrations/latest.sql` as a production migration file
 
 ## Existing Local Or Production Database
 
@@ -75,22 +80,25 @@ cd /opt/ai-influencer/repo
 PROJECT_ENV_FILE=./Project/.env.production ./deploy/vps/apply-db-migrations.sh
 ```
 
-For a local direct-Postgres database, apply the same files with `psql` in sorted order.
+The helper script now connects directly to `DATABASE_URL` with `psql`, so in staging/production that means Supabase Postgres.
+
+It automatically skips:
+
+- `20260310_initial_schema.sql`
+- `latest.sql`
 
 ## Supabase-Hosted Postgres
 
-If you want Supabase to host the application tables as well as auth:
+Supabase-hosted Postgres is now the intended home for the customer-facing app tables in staging/production.
+
+For a fresh Supabase project database:
 
 1. start from an empty project database
 2. apply `schema.sql`
-3. apply the incremental migrations for any environments created before the latest base file
-4. keep the frontend/backend auth env vars pointed at that Supabase project
+3. point `DATABASE_URL` at that Supabase Postgres instance
+4. keep the frontend/backend auth env vars pointed at the same Supabase project
 
-When the project is actually hosted on Supabase, the checked-in storage
-migrations provision the public media buckets used by the backend upload
-pipeline. The preferred bucket is now `media`, while `ai-influencer-media`
-remains supported for backward compatibility. These migrations are no-ops on
-plain PostgreSQL because the `storage` schema does not exist there.
+When the project is actually hosted on Supabase, the checked-in storage migrations provision the public media bucket used by the backend upload pipeline. The preferred bucket is `media`. These storage migrations are no-ops on plain PostgreSQL because the `storage` schema does not exist there.
 
 You can use Supabase CLI if you prefer:
 
@@ -98,11 +106,11 @@ You can use Supabase CLI if you prefer:
 supabase db push
 ```
 
-Or run the SQL directly in the Supabase SQL editor.
+`migrations/latest.sql` is only a psql-oriented convenience snapshot that delegates to `schema.sql`; do not paste it into the Supabase SQL editor.
 
 ## Development Seed Contents
 
-`seed.sql` now matches the current product shape and includes:
+`seed.sql` matches the current product shape and includes:
 
 - a demo customer user
 - a completed brand profile

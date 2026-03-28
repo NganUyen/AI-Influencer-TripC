@@ -19,6 +19,7 @@ from uuid import UUID
 
 import httpx
 
+from config.settings import settings
 from services.database_service import DatabaseService
 from services.storage_service import StorageService
 from services.telegram_link_service import TelegramLinkService
@@ -26,6 +27,11 @@ from services.telegram_link_service import TelegramLinkService
 logger = logging.getLogger(__name__)
 
 MEDIA_BUCKET = "media"
+_CANONICAL_STORAGE_PATH_RE = re.compile(
+    r"^users/(?P<user_id>[^/]+)/personas/(?P<persona_id>[^/]+)/"
+    r"(?P<asset_kind>avatar|image|video|audio|document)/"
+    r"(?P<year_month>\d{4}-\d{2})/(?P<filename>[^/]+)$"
+)
 
 
 def _normalize_uuid(value: Optional[str]) -> Optional[str]:
@@ -100,6 +106,16 @@ def _normalize_asset_status(value: Optional[str]) -> str:
     return "available"
 
 
+def _parse_canonical_storage_path(path: Optional[str]) -> Optional[Dict[str, str]]:
+    normalized = str(path or "").strip().lstrip("/")
+    if not normalized:
+        return None
+    match = _CANONICAL_STORAGE_PATH_RE.fullmatch(normalized)
+    if not match:
+        return None
+    return match.groupdict()
+
+
 class MediaStorageService:
     async def _resolve_user_id(
         self,
@@ -116,7 +132,7 @@ class MediaStorageService:
 
         linked_owner_user = await TelegramLinkService.resolve_user_id_for_owner_key(
             owner_key,
-            allow_fallback=bool(owner_key),
+            allow_fallback=bool(owner_key) and not settings.is_production_like,
         )
 
         pool = await DatabaseService.get_pool()
@@ -148,23 +164,39 @@ class MediaStorageService:
                 )
                 if row and row.get("user_id"):
                     return str(row["user_id"])
-        if owner_key:
+        if owner_key and not linked_owner_user:
             logger.warning("Unlinked or invalid Telegram owner_key rejected: %s", owner_key)
         if linked_owner_user:
+            await self._ensure_user_row(linked_owner_user, owner_key)
             return linked_owner_user
 
         return None
 
     async def _ensure_user_row(self, user_id: str, owner_key: Optional[str]) -> None:
         pool = await DatabaseService.get_pool()
-        owner_label = (owner_key or user_id).strip() if owner_key else user_id
-        sanitized = "".join(ch if ch.isalnum() else "-" for ch in owner_label.lower()).strip("-")
-        if not sanitized:
-            sanitized = user_id.replace("-", "")[:16]
-        email = f"media-{sanitized}@local.ai-influencer.invalid"
-        name = owner_key if owner_key else f"Media Owner {user_id[:8]}"
-
         async with pool.acquire() as conn:
+            if settings.is_production_like:
+                row = await conn.fetchrow(
+                    """
+                    SELECT id
+                    FROM public.users
+                    WHERE id = $1::uuid
+                    LIMIT 1
+                    """,
+                    user_id,
+                )
+                if row is None:
+                    raise ValueError(
+                        "Resolved media owner user_id does not exist in public.users."
+                    )
+                return
+
+            owner_label = (owner_key or user_id).strip() if owner_key else user_id
+            sanitized = "".join(ch if ch.isalnum() else "-" for ch in owner_label.lower()).strip("-")
+            if not sanitized:
+                sanitized = user_id.replace("-", "")[:16]
+            email = f"media-{sanitized}@local.ai-influencer.invalid"
+            name = owner_key if owner_key else f"Media Owner {user_id[:8]}"
             await conn.execute(
                 """
                 INSERT INTO public.users (id, email, name)
@@ -178,6 +210,50 @@ class MediaStorageService:
                 email,
                 name,
             )
+
+    def _resolve_storage_path(
+        self,
+        *,
+        requested_path: Optional[str],
+        asset_type: str,
+        asset_kind: Optional[str],
+        user_id: str,
+        persona_id: Optional[str],
+        content_type: str,
+        file_name_hint: Optional[str],
+    ) -> str:
+        if not requested_path:
+            return self._build_destination_path(
+                asset_type=asset_type,
+                asset_kind=asset_kind,
+                user_id=user_id,
+                persona_id=persona_id,
+                content_type=content_type,
+                file_name_hint=file_name_hint,
+            )
+
+        normalized_path = str(requested_path).strip().lstrip("/")
+        parsed = _parse_canonical_storage_path(normalized_path)
+        if parsed is None:
+            if settings.is_production_like:
+                raise ValueError(
+                    "Storage paths must use users/<user_id>/personas/<persona_id>/<asset_kind>/<yyyy-mm>/<file>."
+                )
+            logger.warning(
+                "Using non-canonical storage path outside production-like mode: %s",
+                normalized_path,
+            )
+            return normalized_path
+
+        expected_user = _safe_segment(user_id, "system")
+        expected_persona = _safe_segment(persona_id or "unassigned", "unassigned")
+        if settings.is_production_like:
+            if parsed["user_id"] != expected_user:
+                raise ValueError("Storage path user_id does not match the resolved owner.")
+            if parsed["persona_id"] != expected_persona:
+                raise ValueError("Storage path persona_id does not match the resolved owner scope.")
+
+        return normalized_path
 
     def _build_destination_path(
         self,
@@ -353,7 +429,8 @@ class MediaStorageService:
                 return None
 
             storage = StorageService()
-            resolved_destination = destination_path or self._build_destination_path(
+            resolved_destination = self._resolve_storage_path(
+                requested_path=destination_path,
                 asset_type=resolved_type,
                 asset_kind=asset_kind,
                 user_id=resolved_user_id,
@@ -496,7 +573,16 @@ class MediaStorageService:
                 return None
 
             storage = StorageService()
-            access_url = public_url or storage.get_public_url(storage_path)
+            resolved_storage_path = self._resolve_storage_path(
+                requested_path=storage_path,
+                asset_type=resolved_type,
+                asset_kind=None,
+                user_id=resolved_user_id,
+                persona_id=persona_id,
+                content_type=mime_type,
+                file_name_hint=None,
+            )
+            access_url = public_url or storage.get_public_url(resolved_storage_path)
             normalized_origin = _normalize_asset_origin(asset_origin)
 
             db_metadata = {
@@ -508,7 +594,7 @@ class MediaStorageService:
                 "generation_prompt": generation_prompt,
                 "status": status,
                 "storage_bucket": storage.bucket_name,
-                "storage_path": storage_path,
+                "storage_path": resolved_storage_path,
                 "storage_provider": storage.provider,
                 "visibility": "private" if storage.provider == "supabase" else "public",
                 "asset_origin": normalized_origin,
@@ -523,13 +609,13 @@ class MediaStorageService:
                 source_url=cleaned_metadata.get("source_url"),
                 asset_type=resolved_type,
                 bucket_name=storage.bucket_name,
-                storage_path=storage_path,
+                storage_path=resolved_storage_path,
                 storage_provider=storage.provider,
                 visibility="private" if storage.provider == "supabase" else "public",
                 asset_origin=normalized_origin,
                 asset_status=_normalize_asset_status(status),
                 provider_job_id=provider_job_id,
-                filename=storage_path,
+                filename=resolved_storage_path,
                 file_size=file_size,
                 mime_type=mime_type,
                 metadata=cleaned_metadata,

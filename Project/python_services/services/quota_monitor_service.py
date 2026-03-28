@@ -347,13 +347,15 @@ class QuotaMonitorService:
                 """
                 INSERT INTO public.analytics_events (
                     content_id,
+                    user_id,
                     event_type,
                     platform,
                     metadata
                 )
-                VALUES ($1, $2, $3, $4::jsonb)
+                VALUES ($1, $2::uuid, $3, $4, $5::jsonb)
                 """,
                 None,
+                "00000000-0000-0000-0000-000000000001",
                 "api_usage",
                 snapshot["provider"],
                 json.dumps(event_metadata),

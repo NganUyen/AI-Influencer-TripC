@@ -12,10 +12,6 @@ This directory contains GitHub Actions workflows and issue templates.
 
 ## Workflows
 
-Future workflows will include:
+Current workflows:
 
-- Automated testing (Jest, Playwright)
-- Linting and type checking
-- Build and deployment
-- Database migrations
-- Docker image publishing
+- `publish-production-images.yml`: runs frontend/backend validation, builds the production Docker images, checks size thresholds, and publishes registry tags to GHCR

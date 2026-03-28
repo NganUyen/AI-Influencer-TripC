@@ -552,11 +552,12 @@ class ContentPersistenceService:
                         """
                         INSERT INTO public.analytics_events (
                             content_id,
+                            user_id,
                             event_type,
                             platform,
                             metadata
                         )
-                        VALUES ($1, $2, $3, $4::jsonb)
+                        VALUES ($1, (SELECT user_id FROM public.content WHERE id = $1), $2, $3, $4::jsonb)
                         """,
                         content_id,
                         "engagement_snapshot",
@@ -887,11 +888,12 @@ class ContentPersistenceService:
                             """
                             INSERT INTO public.analytics_events (
                                 content_id,
+                                user_id,
                                 event_type,
                                 platform,
                                 metadata
                             )
-                            VALUES ($1, $2, $3, $4::jsonb)
+                            VALUES ($1, (SELECT user_id FROM public.content WHERE id = $1), $2, $3, $4::jsonb)
                             """,
                             content_id,
                             "engagement_snapshot",

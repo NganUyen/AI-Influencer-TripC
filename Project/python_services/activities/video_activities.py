@@ -88,9 +88,14 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
         download_tasks: List[asyncio.Future] = []
         image_paths: List[str] = []
         for index, url in enumerate(assembly_input.image_urls):
-            image_path = str(tmp_path / f"img_{index:02d}.jpg")
+            # Support videos dynamically based on URL extension
+            ext = ".jpg"
+            if ".webm" in url.lower(): ext = ".webm"
+            elif ".mp4" in url.lower(): ext = ".mp4"
+            
+            image_path = str(tmp_path / f"img_{index:02d}{ext}")
             image_paths.append(image_path)
-            download_tasks.append(_download_required(url, image_path, f"image_{index + 1}"))
+            download_tasks.append(_download_required(url, image_path, f"asset_{index + 1}"))
 
         audio_path = str(tmp_path / "narration.mp3")
         download_tasks.append(_download_required(assembly_input.audio_url, audio_path, "audio"))
@@ -110,35 +115,45 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
             if not os.path.exists(path) or os.path.getsize(path) < 100:
                 raise AssemblyMissingAssetError(f"Required asset missing or too small: {path}")
 
+        # New Robust Concat Logic for Mixed Media Types
         concat_file = str(tmp_path / "concat.txt")
+        standard_paths = []
+        
+        for idx, p in enumerate(image_paths):
+            std_p = str(tmp_path / f"std_{idx:02d}.mp4")
+            standard_paths.append(std_p)
+            is_vid = p.endswith((".webm", ".mp4", ".mov"))
+            
+            if is_vid:
+                # Crop and scale video, limit to duration
+                _run_ffmpeg([
+                    "ffmpeg", "-y", "-i", p,
+                    "-vf", "scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2,setsar=1",
+                    "-t", str(assembly_input.duration_per_image),
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "25",
+                    "-an", std_p
+                ], f"std_vid_{idx}")
+            else:
+                # Convert image to video chunk
+                _run_ffmpeg([
+                    "ffmpeg", "-y", "-loop", "1", "-i", p,
+                    "-vf", "scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2,setsar=1",
+                    "-c:v", "libx264", "-t", str(assembly_input.duration_per_image),
+                    "-pix_fmt", "yuv420p", "-r", "25",
+                    std_p
+                ], f"std_img_{idx}")
+
         with open(concat_file, "w", encoding="utf-8") as file_obj:
-            for image_path in image_paths:
-                file_obj.write(f"file '{image_path}'\n")
-                file_obj.write(f"duration {assembly_input.duration_per_image}\n")
-            file_obj.write(f"file '{image_paths[-1]}'\n")
+            for sp in standard_paths:
+                file_obj.write(f"file '{sp}'\n")
 
         slideshow_path = str(tmp_path / "slideshow.mp4")
         _run_ffmpeg(
             [
-                "ffmpeg",
-                "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                concat_file,
-                "-vf",
-                "scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2,setsar=1",
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                "-r",
-                "25",
-                slideshow_path,
+                "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_file,
+                "-c", "copy", slideshow_path
             ],
-            "slideshow",
+            "slideshow_concat",
         )
 
         if assembly_input.scene_captions:

@@ -112,12 +112,14 @@ class BrowserAutomationService:
         region_info: Optional[Dict[str, Any]] = None,
         platform: str = "generic",
         profile_name: Optional[str] = None,
+        record_video_dir: Optional[str] = None,
     ):
         """
         Initialize stealth browser with optional proxy
 
         Args:
             proxy_config: Proxy configuration (server, username, password)
+            record_video_dir: Directory to save recorded videos into
         """
         logger.info("Initializing Camoufox browser")
         self._ensure_playwright_available()
@@ -140,6 +142,13 @@ class BrowserAutomationService:
         context_options = dict(session_config["context_options"])
         if self.storage_state_path and os.path.exists(self.storage_state_path):
             context_options["storage_state"] = self.storage_state_path
+            
+        if record_video_dir:
+            import os
+            os.makedirs(record_video_dir, exist_ok=True)
+            context_options["record_video_dir"] = record_video_dir
+            context_options["record_video_size"] = {"width": 1080, "height": 960}
+            
         self.context = await self.browser.new_context(
             **context_options
         )
@@ -282,6 +291,35 @@ class BrowserAutomationService:
         finally:
             await page.close()
 
+    async def record_video_for_tutorial(self, url: str) -> str:
+        """
+        Ngữ cảnh: Đã khởi tạo browser với record_video_dir.
+        Truy cập URL, cuộn trang như người dùng thật và trả về đường dẫn file video .webm.
+        """
+        if not self.context:
+            raise Exception("Browser context not fully initialized for video recording!")
+
+        page = await self.context.new_page()
+
+        try:
+            logger.info(f"Stealing video recording for tutorial from {url}")
+            await page.goto(url, wait_until="networkidle")
+            
+            # Giả lập tương tác cuộn trang để video có tính động
+            import asyncio
+            for _ in range(5):
+                await page.evaluate("window.scrollBy(0, 300)")
+                await asyncio.sleep(1.0)
+
+            # Phải đóng page thì Playwright mới lưu file video hoàn chỉnh
+            path = await page.video.path()
+            await page.close()
+            return path
+        except Exception as e:
+            logger.error(f"Failed to record video from {url}: {e}")
+            await page.close()
+            raise
+
     async def get_page_content(self, url: str) -> str:
         """Lấy text content của trang web để AI phân tích"""
         if not self.context:
@@ -293,6 +331,35 @@ class BrowserAutomationService:
             return content[:5000] # Giới hạn 5k ký tự cho AI
         finally:
             await page.close()
+
+    async def record_video_for_tutorial(self, url: str) -> str:
+        """
+        Ngữ cảnh: Đã khởi tạo browser với record_video_dir.
+        Truy cập URL, cuộn trang như người dùng thật và trả về đường dẫn file video .webm.
+        """
+        if not self.context:
+            raise Exception("Browser context not fully initialized for video recording!")
+
+        page = await self.context.new_page()
+
+        try:
+            logger.info(f"Stealing video recording for tutorial from {url}")
+            await page.goto(url, wait_until="networkidle")
+            
+            # Giả lập tương tác cuộn trang để video có tính động
+            import asyncio
+            for _ in range(5):
+                await page.evaluate("window.scrollBy(0, 300)")
+                await asyncio.sleep(1.0)
+
+            # Phải đóng page thì Playwright mới lưu file video hoàn chỉnh
+            path = await page.video.path()
+            await page.close()
+            return path
+        except Exception as e:
+            logger.error(f"Failed to record video from {url}: {e}")
+            await page.close()
+            raise
 
     async def close(self):
         """Close browser and context"""

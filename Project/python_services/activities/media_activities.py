@@ -510,10 +510,54 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
 
     async def gen_one(scene: dict) -> dict:
         scene_metadata = dict(scene.get("metadata") or {})
+        top_half_type = scene.get("top_half_source_type")
+        source_ref = scene.get("source_ref")
+        
+        # Scenario 1: Using browser to capture public page via Video Recording
+        if top_half_type == "public_page_capture" and source_ref:
+            try:
+                from services.browser_automation import BrowserAutomationService
+                import os
+                import tempfile
+                
+                browser = BrowserAutomationService()
+                os.makedirs("/tmp/tutorials_videos", exist_ok=True)
+                # Ensure we start with video recording enabled
+                await browser.initialize_browser(record_video_dir="/tmp/tutorials_videos")
+                
+                video_path = await browser.record_video_for_tutorial(source_ref)
+                
+                if video_path and os.path.exists(video_path):
+                    from services.storage_service import StorageService
+                    storage = StorageService()
+                    import uuid
+                    key = f"browser_captures/{uuid.uuid4()}/capture.webm"
+                    
+                    with open(video_path, "rb") as f:
+                        data = f.read()
+                        
+                    uploaded = await storage.upload_file(data, key, content_type="video/webm")
+                    await browser.close()
+                    
+                    # We pass this video as the 'image_url' for compatibility with older pipelines, 
+                    # but `video_activities.py` will need to see it as a video file URL.
+                    return {
+                        **scene,
+                        "image_url": uploaded,
+                        "source_image_url": uploaded,
+                        "storage_image_url": uploaded,
+                        "image_storage_key": key,
+                        "status": "completed",
+                        "is_video": True
+                    }
+            except Exception as e:
+                logger.error(f"Browser video capture failed, falling back to AI: {e}")
+                
+        # Scenario 2: Fallback or AI image generation
         result = await image_service.generate_images(
             prompt=scene["image_prompt"],
             model=scene.get("config", {}).get("model", "fal-ai/flux/schnell"),
-            aspect_ratio="9:16",
+            aspect_ratio="9:16", # Keep 9:16 or maybe 1:1 if for top half? Usually vstack crops to 1:1 later anyway.
             safety_tolerance=2,
             num_images=1,
             campaign_id=scene.get("campaign_id") or scene_metadata.get("campaign_id"),

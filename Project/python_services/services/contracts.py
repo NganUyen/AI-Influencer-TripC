@@ -13,7 +13,11 @@ class SceneContract(BaseModel):
     timestamp_start: float
     timestamp_end: float
     caption: str
-    prompt: str
+    prompt: Optional[str] = None
+    top_half_source_type: Optional[str] = None
+    top_half_target: Optional[str] = None
+    top_half_capture_hint: Optional[str] = None
+    source_ref: Optional[str] = None
 
 
 class ScriptContract(BaseModel):

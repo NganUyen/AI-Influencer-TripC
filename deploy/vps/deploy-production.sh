@@ -61,6 +61,12 @@ auto_image_tag_from_git="$(printf '%s' "${AUTO_IMAGE_TAG_FROM_GIT:-0}" | tr '[:u
 
 deploy_branch="${DEPLOY_BRANCH:-${DEFAULT_DEPLOY_BRANCH}}"
 ghcr_namespace="${GHCR_NAMESPACE:-${DEFAULT_REPO_NAMESPACE}}"
+frontend_probe_url="http://127.0.0.1:3000"
+
+expected_frontend_api_url="${NEXT_PUBLIC_API_URL:-${FRONTEND_PUBLIC_URL:-http://localhost:3000}}"
+expected_supabase_url="${NEXT_PUBLIC_SUPABASE_URL:-${SUPABASE_URL:-}}"
+expected_supabase_anon_key="${NEXT_PUBLIC_SUPABASE_ANON_KEY:-${SUPABASE_KEY:-}}"
+expected_supabase_publishable_key="${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_PUBLISHABLE_KEY:-}}"
 
 cd "${REPO_ROOT}"
 
@@ -151,6 +157,56 @@ fi
 echo "Starting production services..."
 docker compose -f "${COMPOSE_FILE}" up -d
 docker compose -f "${COMPOSE_FILE}" ps
+
+echo "Verifying frontend runtime public config..."
+auth_html=""
+runtime_public_config=""
+for attempt in {1..30}; do
+    if auth_html="$(curl -fsS "${frontend_probe_url}/auth" 2>/dev/null)"; then
+        if [[ "${auth_html}" == *"/api/runtime-config"* ]]; then
+            break
+        fi
+    fi
+    sleep 2
+done
+
+[[ "${auth_html}" == *"/api/runtime-config"* ]] || {
+    echo "Frontend /auth page did not include the runtime public config script." >&2
+    exit 1
+}
+
+for attempt in {1..30}; do
+    if runtime_public_config="$(curl -fsS "${frontend_probe_url}/api/runtime-config" 2>/dev/null)"; then
+        if [[ "${runtime_public_config}" == *"NEXT_PUBLIC_API_URL\":\"${expected_frontend_api_url}"* ]]; then
+            break
+        fi
+    fi
+    sleep 2
+done
+
+[[ "${runtime_public_config}" == *"NEXT_PUBLIC_API_URL\":\"${expected_frontend_api_url}"* ]] || {
+    echo "Frontend runtime config is missing NEXT_PUBLIC_API_URL=${expected_frontend_api_url}" >&2
+    exit 1
+}
+
+if [[ -n "${expected_supabase_url}" ]]; then
+    [[ "${runtime_public_config}" == *"NEXT_PUBLIC_SUPABASE_URL\":\"${expected_supabase_url}"* ]] || {
+        echo "Frontend runtime config is missing NEXT_PUBLIC_SUPABASE_URL=${expected_supabase_url}" >&2
+        exit 1
+    }
+fi
+
+if [[ -n "${expected_supabase_publishable_key}" ]]; then
+    [[ "${runtime_public_config}" == *"NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY\":\"${expected_supabase_publishable_key}"* ]] || {
+        echo "Frontend runtime config is missing NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY" >&2
+        exit 1
+    }
+elif [[ -n "${expected_supabase_anon_key}" ]]; then
+    [[ "${runtime_public_config}" == *"NEXT_PUBLIC_SUPABASE_ANON_KEY\":\"${expected_supabase_anon_key}"* ]] || {
+        echo "Frontend runtime config is missing NEXT_PUBLIC_SUPABASE_ANON_KEY" >&2
+        exit 1
+    }
+fi
 
 cleanup_after_deploy="$(printf '%s' "${DOCKER_CLEANUP_AFTER_DEPLOY:-1}" | tr '[:upper:]' '[:lower:]')"
 if [[ "${cleanup_after_deploy}" =~ ^(1|true|yes)$ ]]; then

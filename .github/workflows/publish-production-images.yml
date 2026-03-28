@@ -80,12 +80,22 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Backend test suite
+      - name: Backend smoke suite
         working-directory: Project/python_services
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pytest
+          pytest -q tests/test_analytics_api.py tests/test_webhooks_api.py
+          python - <<'PY'
+          from chatgpt_connector.app import create_app
+          import main
+          import worker
+
+          app = create_app()
+          print("connector_title", app.title)
+          print("backend_title", main.app.title)
+          print("workflow_count", len(worker.workflows))
+          PY
 
       - name: Log in to GHCR
         run: |

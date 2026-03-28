@@ -5,9 +5,14 @@ import { useRouter } from "next/navigation";
 
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 import { TelegramLoginWidget } from "@/components/auth/TelegramLoginWidget";
+import {
+  deriveTelegramBotUsername,
+  getClientPublicEnvValue,
+} from "@/lib/public-env";
 
 export default function AuthPage() {
   const router = useRouter();
+  const telegramBotName = resolveTelegramBotName();
   const {
     login,
     loginWithTelegram,
@@ -140,7 +145,7 @@ export default function AuthPage() {
             <div className="mt-10 flex flex-col items-center justify-center rounded-3xl border border-white/5 bg-white/5 py-12 backdrop-blur-sm">
               <div id="telegram-login-container">
                 <TelegramLoginWidget
-                  botName="TripCInternBot"
+                  botName={telegramBotName}
                   dataOnauth={(user: any) => {
                     void loginWithTelegram(user);
                   }}
@@ -207,4 +212,21 @@ function FeatureCard({
       <p className="mt-2 text-sm text-stone-400">{description}</p>
     </div>
   );
+}
+
+function resolveTelegramBotName(): string {
+  const explicitUsername = getClientPublicEnvValue(
+    "NEXT_PUBLIC_TELEGRAM_BOT_USERNAME",
+  ).trim();
+  if (explicitUsername) {
+    return explicitUsername.replace(/^@/, "");
+  }
+
+  const telegramBotUrl = getClientPublicEnvValue("NEXT_PUBLIC_TELEGRAM_BOT_URL");
+  const derivedUsername = deriveTelegramBotUsername(telegramBotUrl);
+  if (derivedUsername) {
+    return derivedUsername;
+  }
+
+  return "TripCInternBot";
 }

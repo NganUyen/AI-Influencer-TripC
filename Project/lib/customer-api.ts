@@ -1,9 +1,10 @@
-import { supabase } from "@/lib/supabase";
+import { getSupabaseClient } from "@/lib/supabase";
 
 export async function customerApiRequest<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  const supabase = getSupabaseClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();

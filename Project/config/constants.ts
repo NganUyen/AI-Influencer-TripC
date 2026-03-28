@@ -1,4 +1,5 @@
 // Application-wide constants
+import { getClientPublicEnvValue } from "@/lib/public-env";
 
 export const APP_NAME = "AI Influencer Factory";
 export const APP_VERSION = "0.1.0";
@@ -6,14 +7,15 @@ export const APP_DESCRIPTION = "AI-driven marketing orchestration platform";
 
 // API Configuration
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+  getClientPublicEnvValue("NEXT_PUBLIC_API_URL") || "http://localhost:3000";
 export const PYTHON_API_URL =
   process.env.PYTHON_BACKEND_URL || "http://localhost:8000";
 
 // Supabase Configuration
-export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+export const SUPABASE_URL =
+  getClientPublicEnvValue("NEXT_PUBLIC_SUPABASE_URL") || "";
 export const SUPABASE_ANON_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+  getClientPublicEnvValue("NEXT_PUBLIC_SUPABASE_ANON_KEY") || "";
 
 // Pagination
 export const DEFAULT_PAGE_SIZE = 20;

@@ -114,10 +114,25 @@ jobs:
           python_worker_image="${GHCR_NAMESPACE}/ai-influencer-python-worker"
           postiz_image="${GHCR_NAMESPACE}/ai-influencer-postiz"
           growchief_image="${GHCR_NAMESPACE}/ai-influencer-growchief"
+          frontend_api_url="${NEXT_PUBLIC_API_URL:-${FRONTEND_PUBLIC_URL:-}}"
+          frontend_supabase_url="${NEXT_PUBLIC_SUPABASE_URL:-${SUPABASE_URL:-}}"
+          frontend_supabase_anon_key="${NEXT_PUBLIC_SUPABASE_ANON_KEY:-${SUPABASE_KEY:-}}"
+          frontend_supabase_publishable_key="${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_PUBLISHABLE_KEY:-}}"
+          frontend_telegram_bot_url="${NEXT_PUBLIC_TELEGRAM_BOT_URL:-}"
+          frontend_telegram_bot_username="${NEXT_PUBLIC_TELEGRAM_BOT_USERNAME:-}"
+          if [[ -z "${frontend_telegram_bot_username}" && -n "${frontend_telegram_bot_url}" ]]; then
+            frontend_telegram_bot_username="${frontend_telegram_bot_url##*/}"
+          fi
 
           docker build \
             --file Project/Dockerfile.frontend \
             --target runtime \
+            --build-arg NEXT_PUBLIC_API_URL="${frontend_api_url}" \
+            --build-arg NEXT_PUBLIC_SUPABASE_URL="${frontend_supabase_url}" \
+            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="${frontend_supabase_anon_key}" \
+            --build-arg NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="${frontend_supabase_publishable_key}" \
+            --build-arg NEXT_PUBLIC_TELEGRAM_BOT_URL="${frontend_telegram_bot_url}" \
+            --build-arg NEXT_PUBLIC_TELEGRAM_BOT_USERNAME="${frontend_telegram_bot_username}" \
             --tag "${frontend_image}:${IMAGE_TAG}" \
             --tag "${frontend_image}:latest" \
             Project

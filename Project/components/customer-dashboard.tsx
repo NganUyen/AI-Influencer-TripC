@@ -4,6 +4,10 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { customerApiRequest } from "@/lib/customer-api";
+import {
+  deriveTelegramBotUsername,
+  getClientPublicEnvValue,
+} from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 
 type BrandProfile = {
@@ -192,8 +196,6 @@ const EMPTY_AI_BACKBONE: AIBackboneSettings = {
     message: "Using workspace-managed OpenClaw access.",
   },
 };
-const TELEGRAM_BOT_URL = buildTelegramBotUrl();
-
 function buildAiBackboneForm(
   settings: AIBackboneSettings,
   fallbackDisplayName: string,
@@ -233,6 +235,7 @@ export default function CustomerDashboard() {
   }));
 
   const [brandForm, setBrandForm] = useState<BrandProfile>(EMPTY_BRAND);
+  const [telegramBotUrl, setTelegramBotUrl] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [threads, setThreads] = useState<AssistantThread[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -268,6 +271,10 @@ export default function CustomerDashboard() {
   useEffect(() => {
     void initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    setTelegramBotUrl(buildTelegramBotUrl());
+  }, []);
 
   useEffect(() => {
     const oauthStatus = searchParams.get("oauth_status");
@@ -900,9 +907,9 @@ export default function CustomerDashboard() {
                   <p className="mt-2 text-xs text-stone-500">
                     Chat with your bot to create your first AI influencer.
                   </p>
-                  {TELEGRAM_BOT_URL && (
+                  {telegramBotUrl && (
                     <a
-                      href={TELEGRAM_BOT_URL}
+                      href={telegramBotUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="mt-6 rounded-full border border-emerald-300/40 px-4 py-2 text-xs font-medium uppercase tracking-[0.18em] text-emerald-200 transition hover:bg-emerald-300/10"
@@ -1142,7 +1149,7 @@ export default function CustomerDashboard() {
                 {/* Action Buttons */}
                 {!telegramLink?.linked && (
                   <div className="space-y-4">
-                    {linkToken ? (
+                    {linkToken && telegramBotUrl ? (
                       <div className="space-y-3 rounded-3xl border border-amber-300/20 bg-amber-300/5 p-4">
                         <p className="text-xs uppercase tracking-[0.18em] text-amber-200/80">
                           🔐 Secure Link Generated
@@ -1152,7 +1159,7 @@ export default function CustomerDashboard() {
                           This link is valid for 15 minutes.
                         </p>
                         <a
-                          href={`${TELEGRAM_BOT_URL}?start=${linkToken.start_token}`}
+                          href={`${telegramBotUrl}?start=${linkToken.start_token}`}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex w-full items-center justify-center rounded-full bg-amber-200 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-100"
@@ -1162,6 +1169,15 @@ export default function CustomerDashboard() {
                         <p className="text-[10px] text-stone-500">
                           Expires at:{" "}
                           {new Date(linkToken.expires_at).toLocaleTimeString()}
+                        </p>
+                      </div>
+                    ) : linkToken ? (
+                      <div className="space-y-3 rounded-3xl border border-rose-300/20 bg-rose-300/5 p-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-rose-200/80">
+                          Telegram Bot URL Missing
+                        </p>
+                        <p className="text-sm text-white">
+                          The secure link was created, but the dashboard has no Telegram bot URL configured to open it.
                         </p>
                       </div>
                     ) : (
@@ -1654,12 +1670,14 @@ function formatTelegramContact(value?: string | null): string | null {
 }
 
 function buildTelegramBotUrl(): string | null {
-  const explicitUrl = process.env.NEXT_PUBLIC_TELEGRAM_BOT_URL?.trim();
+  const explicitUrl = getClientPublicEnvValue("NEXT_PUBLIC_TELEGRAM_BOT_URL").trim();
   if (explicitUrl) {
     return explicitUrl;
   }
 
-  const username = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME?.trim();
+  const username =
+    getClientPublicEnvValue("NEXT_PUBLIC_TELEGRAM_BOT_USERNAME").trim() ||
+    deriveTelegramBotUsername(explicitUrl);
   if (!username) {
     return null;
   }

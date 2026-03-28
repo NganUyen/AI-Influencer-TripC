@@ -29,6 +29,37 @@ curl --http1.1 -fsS "${FRONTEND_URL}" > /dev/null
 curl --http1.1 -fsS "${BACKEND_URL}/health" > /dev/null
 curl --http1.1 -fsS "${CONNECTOR_URL}/health" > /dev/null
 
+echo "Checking frontend runtime public config..."
+runtime_public_config="$(curl -fsS http://127.0.0.1:3000/api/runtime-config)"
+expected_frontend_api_url="${NEXT_PUBLIC_API_URL:-${FRONTEND_PUBLIC_URL:-http://localhost:3000}}"
+expected_supabase_url="${NEXT_PUBLIC_SUPABASE_URL:-${SUPABASE_URL:-}}"
+expected_supabase_anon_key="${NEXT_PUBLIC_SUPABASE_ANON_KEY:-${SUPABASE_KEY:-}}"
+expected_supabase_publishable_key="${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_PUBLISHABLE_KEY:-}}"
+
+[[ "${runtime_public_config}" == *"NEXT_PUBLIC_API_URL\":\"${expected_frontend_api_url}"* ]] || {
+    echo "Frontend runtime config is missing NEXT_PUBLIC_API_URL=${expected_frontend_api_url}" >&2
+    exit 1
+}
+
+if [[ -n "${expected_supabase_url}" ]]; then
+    [[ "${runtime_public_config}" == *"NEXT_PUBLIC_SUPABASE_URL\":\"${expected_supabase_url}"* ]] || {
+        echo "Frontend runtime config is missing NEXT_PUBLIC_SUPABASE_URL=${expected_supabase_url}" >&2
+        exit 1
+    }
+fi
+
+if [[ -n "${expected_supabase_publishable_key}" ]]; then
+    [[ "${runtime_public_config}" == *"NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY\":\"${expected_supabase_publishable_key}"* ]] || {
+        echo "Frontend runtime config is missing NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY" >&2
+        exit 1
+    }
+elif [[ -n "${expected_supabase_anon_key}" ]]; then
+    [[ "${runtime_public_config}" == *"NEXT_PUBLIC_SUPABASE_ANON_KEY\":\"${expected_supabase_anon_key}"* ]] || {
+        echo "Frontend runtime config is missing NEXT_PUBLIC_SUPABASE_ANON_KEY" >&2
+        exit 1
+    }
+fi
+
 echo "Checking localhost admin endpoints..."
 curl -fsS http://127.0.0.1:8080 > /dev/null
 curl -fsS http://127.0.0.1:8081/healthz > /dev/null

@@ -747,6 +747,63 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                     ),
                 )
                 return
+        else:
+            # Auto-link Telegram account when user starts the bot without a token
+            # This creates a user record and links it to the chat_id
+            try:
+                from services.database_service import DatabaseService
+                import uuid
+
+                pool = await DatabaseService.get_pool()
+                async with pool.acquire() as conn:
+                    # Check if already linked
+                    existing_link = await conn.fetchrow(
+                        "SELECT user_id FROM public.telegram_user_links WHERE chat_id = $1 AND revoked_at IS NULL",
+                        chat_id,
+                    )
+                    if not existing_link:
+                        # Create a deterministic user_id based on chat_id
+                        user_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"telegram:{chat_id}"))
+                        email = f"tg_{chat_id}@ai-influencer.invalid"
+                        display_name = first_name or f"Telegram User {chat_id}"
+
+                        async with conn.transaction():
+                            # Ensure user exists
+                            await conn.execute(
+                                """
+                                INSERT INTO public.users (id, email, name)
+                                VALUES ($1::uuid, $2, $3)
+                                ON CONFLICT (id) DO UPDATE
+                                SET name = COALESCE(EXCLUDED.name, public.users.name)
+                                """,
+                                user_id,
+                                email,
+                                display_name,
+                            )
+
+                            # Create telegram link
+                            await conn.execute(
+                                """
+                                INSERT INTO public.telegram_user_links (
+                                    chat_id,
+                                    user_id,
+                                    telegram_username,
+                                    linked_at,
+                                    last_verified_at
+                                )
+                                VALUES ($1, $2::uuid, $3, NOW(), NOW())
+                                ON CONFLICT (chat_id) DO UPDATE
+                                SET telegram_username = COALESCE(EXCLUDED.telegram_username, public.telegram_user_links.telegram_username),
+                                    last_verified_at = NOW(),
+                                    revoked_at = NULL
+                                """,
+                                chat_id,
+                                user_id,
+                                username,
+                            )
+                        logger.info("Auto-linked Telegram chat_id=%s to user_id=%s", chat_id, user_id)
+            except Exception as exc:
+                logger.warning("Failed to auto-link Telegram chat_id=%s: %s", chat_id, exc)
 
         greeting = "Welcome!" if is_new else "Welcome back!"
         await send_message(

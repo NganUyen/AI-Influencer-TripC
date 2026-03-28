@@ -17,7 +17,9 @@ async function customerApiRequest<T>(
   options?: RequestInit,
 ): Promise<T> {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
-  const response = await fetch(`${apiUrl.replace(/\/$/, "")}${endpoint}`, {
+  // Use /api/auth/telegram for public auth endpoints, /api/customer for authenticated endpoints
+  const fullUrl = `${apiUrl.replace(/\/$/, "")}${endpoint}`;
+  const response = await fetch(fullUrl, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -67,8 +69,9 @@ export default function AuthPage() {
     setIsGeneratingToken(true);
     setLocalError(null);
     try {
+      // Use the public auth endpoint (no session required)
       const payload = await customerApiRequest<TelegramLinkToken>(
-        "/api/customer/telegram/link/start",
+        "/api/auth/telegram/link/start",
         {
           method: "POST",
           body: JSON.stringify({ expires_in_minutes: 15 }),

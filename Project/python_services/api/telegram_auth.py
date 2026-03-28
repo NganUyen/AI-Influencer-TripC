@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import secrets
 import time
 from typing import Any, Dict, Optional
 import uuid
@@ -19,6 +20,9 @@ from services.database_service import DatabaseService
 from services.telegram_link_service import TelegramLinkService
 
 router = APIRouter()
+
+# In-memory store for anonymous link tokens (production should use Redis)
+_anonymous_link_tokens: Dict[str, Dict[str, Any]] = {}
 
 
 class TelegramLoginRequest(BaseModel):
@@ -137,6 +141,124 @@ async def telegram_login(payload: TelegramLoginRequest):
                 )
 
     # Generate the access token
+    access_token = generate_supabase_jwt(user_id, email)
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user_id,
+            "email": email,
+            "name": display_name,
+            "avatar_url": payload.photo_url,
+        },
+    }
+
+
+class AnonymousLinkStartRequest(BaseModel):
+    expires_in_minutes: int = 15
+
+
+@router.post("/link/start")
+async def start_anonymous_telegram_link(payload: AnonymousLinkStartRequest):
+    """
+    Public endpoint to create a Telegram link token for new user registration.
+    This does NOT require authentication - it creates a temporary token that
+    will be consumed when the user clicks the Telegram link.
+    """
+    ttl_minutes = max(1, min(payload.expires_in_minutes, 60))
+    token = secrets.token_urlsafe(24)
+    expires_at = time.time() + (ttl_minutes * 60)
+
+    # Store the token temporarily
+    _anonymous_link_tokens[token] = {
+        "expires_at": expires_at,
+        "used": False,
+    }
+
+    # Clean up expired tokens
+    now = time.time()
+    expired_keys = [k for k, v in _anonymous_link_tokens.items() if v["expires_at"] < now]
+    for k in expired_keys:
+        del _anonymous_link_tokens[k]
+
+    return {
+        "start_token": token,
+        "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(expires_at)),
+    }
+
+
+@router.post("/link/complete")
+async def complete_anonymous_telegram_link(payload: TelegramLoginRequest):
+    """
+    Complete the Telegram login flow after user clicks the bot link.
+    This endpoint verifies the Telegram auth data and creates/retrieves the user.
+    """
+    # Verify hash (same as /login)
+    is_mock = payload.hash == "__MOCK_DEV_LOGIN__" and not settings.is_production_like
+    if not is_mock and not verify_telegram_hash(payload.model_dump(), settings.TELEGRAM_BOT_TOKEN):
+        raise HTTPException(status_code=401, detail="Invalid Telegram hash")
+
+    # Check for stale login
+    if time.time() - payload.auth_date > 86400:
+        raise HTTPException(status_code=401, detail="Telegram login session expired")
+
+    chat_id = payload.id
+    display_name = payload.first_name + (
+        f" {payload.last_name}" if payload.last_name else ""
+    )
+    email = f"tg_{chat_id}@ai-influencer.invalid"
+
+    pool = await DatabaseService.get_pool()
+    async with pool.acquire() as conn:
+        # Check if already linked
+        row = await conn.fetchrow(
+            "SELECT user_id FROM public.telegram_user_links WHERE chat_id = $1 AND revoked_at IS NULL",
+            chat_id,
+        )
+
+        if row:
+            user_id = str(row["user_id"])
+        else:
+            user_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"telegram:{chat_id}"))
+
+            async with conn.transaction():
+                await conn.execute(
+                    """
+                    INSERT INTO public.users (id, email, name, avatar_url)
+                    VALUES ($1::uuid, $2, $3, $4)
+                    ON CONFLICT (id) DO UPDATE
+                    SET email = EXCLUDED.email,
+                        name = COALESCE(EXCLUDED.name, public.users.name),
+                        avatar_url = COALESCE(EXCLUDED.avatar_url, public.users.avatar_url)
+                    """,
+                    user_id,
+                    email,
+                    display_name,
+                    payload.photo_url,
+                )
+
+                await conn.execute(
+                    """
+                    INSERT INTO public.telegram_user_links (
+                        chat_id,
+                        user_id,
+                        telegram_username,
+                        linked_at,
+                        last_verified_at
+                    )
+                    VALUES ($1, $2::uuid, $3, NOW(), NOW())
+                    ON CONFLICT (chat_id) DO UPDATE
+                    SET user_id = EXCLUDED.user_id,
+                        telegram_username = EXCLUDED.telegram_username,
+                        last_verified_at = NOW(),
+                        revoked_at = NULL
+                    """,
+                    chat_id,
+                    user_id,
+                    payload.username,
+                )
+
     access_token = generate_supabase_jwt(user_id, email)
 
     return {

@@ -1,42 +1,61 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { useCustomerAuthStore } from "@/store/customer-auth-store";
-import { TelegramLoginWidget } from "@/components/auth/TelegramLoginWidget";
 import {
   deriveTelegramBotUsername,
   getClientPublicEnvValue,
 } from "@/lib/public-env";
+import { useCustomerAuthStore } from "@/store/customer-auth-store";
+
+interface TelegramLinkToken {
+  start_token: string;
+  expires_at: string;
+}
+
+async function customerApiRequest<T>(
+  endpoint: string,
+  options?: RequestInit,
+): Promise<T> {
+  const apiUrl = getClientPublicEnvValue("NEXT_PUBLIC_API_URL");
+  const fullUrl = `${apiUrl.replace(/\/$/, "")}${endpoint}`;
+  const response = await fetch(fullUrl, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: "Request failed" }));
+    throw new Error(error.detail || "Request failed");
+  }
+
+  return response.json();
+}
 
 export default function AuthPage() {
   const router = useRouter();
-  const telegramBotName = resolveTelegramBotName();
+  const telegramBotUrl = buildTelegramBotUrl();
   const {
-    login,
     loginWithTelegram,
-    signup,
-    isLoading,
     error,
     initialized,
     initialize,
     isAuthenticated,
   } = useCustomerAuthStore((state) => ({
-    login: state.login,
     loginWithTelegram: state.loginWithTelegram,
-    signup: state.signup,
-    isLoading: state.isLoading,
     error: state.error,
     initialized: state.initialized,
     initialize: state.initialize,
     isAuthenticated: state.isAuthenticated,
   }));
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [localError, setLocalError] = useState<string | null>(null);
+  const [linkToken, setLinkToken] = useState<TelegramLinkToken | null>(null);
+  const [isGeneratingToken, setIsGeneratingToken] = useState(false);
 
   useEffect(() => {
     void initialize();
@@ -48,21 +67,27 @@ export default function AuthPage() {
     }
   }, [initialized, isAuthenticated, router]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleGenerateTelegramLink() {
+    setIsGeneratingToken(true);
     setLocalError(null);
 
     try {
-      if (mode === "signin") {
-        await login(email, password);
-      } else {
-        await signup({ email, password, name });
-      }
-      router.push("/dashboard");
-    } catch (submitError) {
-      setLocalError(
-        submitError instanceof Error ? submitError.message : "Unable to continue",
+      const payload = await customerApiRequest<TelegramLinkToken>(
+        "/api/auth/telegram/link/start",
+        {
+          method: "POST",
+          body: JSON.stringify({ expires_in_minutes: 15 }),
+        },
       );
+      setLinkToken(payload);
+    } catch (requestError) {
+      setLocalError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Failed to generate Telegram link",
+      );
+    } finally {
+      setIsGeneratingToken(false);
     }
   }
 
@@ -138,22 +163,68 @@ export default function AuthPage() {
             </h2>
             <p className="mt-2 text-sm text-stone-400">
               {mode === "signin"
-                ? "Sign in securely with your Telegram account."
+                ? "Connect your Telegram to sign in securely."
                 : "Link your Telegram account to start building your influencer factory."}
             </p>
 
-            <div className="mt-10 flex flex-col items-center justify-center rounded-3xl border border-white/5 bg-white/5 py-12 backdrop-blur-sm">
-              <div id="telegram-login-container">
-                <TelegramLoginWidget
-                  botName={telegramBotName}
-                  dataOnauth={(user: any) => {
-                    void loginWithTelegram(user);
-                  }}
-                />
-              </div>
-              
+            <div className="mt-10 flex flex-col items-center justify-center rounded-3xl border border-white/5 bg-white/5 px-6 py-8 backdrop-blur-sm">
+              {linkToken ? (
+                <div className="w-full space-y-4">
+                  <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/5 p-4 text-center">
+                    <p className="text-xs uppercase tracking-[0.18em] text-emerald-200/80">
+                      Secure Link Ready
+                    </p>
+                    <p className="mt-2 text-sm text-stone-200">
+                      Click the button below to open Telegram and complete authentication.
+                    </p>
+                  </div>
+                  <a
+                    href={`${telegramBotUrl}?start=${linkToken.start_token}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex w-full items-center justify-center gap-2 rounded-full bg-emerald-300 px-5 py-4 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200"
+                  >
+                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.461-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.442-.751-.244-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635.099-.002.321.023.465.141.121.099.154.232.17.325.015.094.034.31.019.478z" />
+                    </svg>
+                    Open Telegram & Sign In
+                  </a>
+                  <p className="text-center text-[10px] text-stone-500">
+                    Link expires at: {new Date(linkToken.expires_at).toLocaleTimeString()}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setLinkToken(null)}
+                    className="w-full text-center text-xs text-stone-400 transition hover:text-stone-300"
+                  >
+                    Generate new link
+                  </button>
+                </div>
+              ) : (
+                <div className="w-full space-y-4">
+                  <div className="text-center">
+                    <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-300/10">
+                      <svg className="h-8 w-8 text-emerald-300" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.461-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.442-.751-.244-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635.099-.002.321.023.465.141.121.099.154.232.17.325.015.094.034.31.019.478z" />
+                      </svg>
+                    </div>
+                    <p className="text-sm text-stone-300">
+                      We use Telegram for secure, passwordless authentication.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleGenerateTelegramLink()}
+                    disabled={isGeneratingToken}
+                    className="w-full rounded-full bg-emerald-300 px-5 py-4 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200 disabled:opacity-50"
+                  >
+                    {isGeneratingToken ? "Generating Secure Link..." : "Continue with Telegram"}
+                  </button>
+                </div>
+              )}
+
               {typeof window !== "undefined" && window.location.hostname === "localhost" && (
-                <div className="mt-8 border-t border-white/5 pt-6 w-full px-8">
+                <div className="mt-6 w-full border-t border-white/5 pt-6">
                   <button
                     onClick={() => {
                       void loginWithTelegram({
@@ -165,18 +236,15 @@ export default function AuthPage() {
                         hash: "__MOCK_DEV_LOGIN__",
                       });
                     }}
-                    className="w-full rounded-xl bg-amber-200/10 py-3 text-sm font-medium text-amber-200 hover:bg-amber-200/20 transition-all border border-amber-200/20"
+                    className="w-full rounded-xl border border-amber-200/20 bg-amber-200/10 py-3 text-sm font-medium text-amber-200 transition-all hover:bg-amber-200/20"
                   >
                     Login as Test User (Dev Only)
                   </button>
-                  <p className="mt-2 text-center text-[10px] text-amber-200/50 uppercase tracking-wider">
-                    Bypasses Telegram domain check
-                  </p>
                 </div>
               )}
 
-              <p className="mt-6 text-center text-xs text-stone-500 px-6">
-                Logged in via Telegram? We'll automatically sync your personas and
+              <p className="mt-6 px-6 text-center text-xs text-stone-500">
+                Logged in via Telegram? We&apos;ll automatically sync your personas and
                 media assets.
               </p>
             </div>
@@ -214,19 +282,16 @@ function FeatureCard({
   );
 }
 
-function resolveTelegramBotName(): string {
-  const explicitUsername = getClientPublicEnvValue(
-    "NEXT_PUBLIC_TELEGRAM_BOT_USERNAME",
-  ).trim();
-  if (explicitUsername) {
-    return explicitUsername.replace(/^@/, "");
+function buildTelegramBotUrl(): string {
+  const explicitUrl = getClientPublicEnvValue("NEXT_PUBLIC_TELEGRAM_BOT_URL").trim();
+  if (explicitUrl) {
+    return explicitUrl;
   }
 
-  const telegramBotUrl = getClientPublicEnvValue("NEXT_PUBLIC_TELEGRAM_BOT_URL");
-  const derivedUsername = deriveTelegramBotUsername(telegramBotUrl);
-  if (derivedUsername) {
-    return derivedUsername;
-  }
+  const username =
+    getClientPublicEnvValue("NEXT_PUBLIC_TELEGRAM_BOT_USERNAME").trim() ||
+    deriveTelegramBotUsername(explicitUrl) ||
+    "TripCInternBot";
 
-  return "TripCInternBot";
+  return `https://t.me/${username.replace(/^@/, "")}`;
 }

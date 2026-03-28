@@ -31,11 +31,16 @@ class SkillDispatcher:
         owner_key: Optional[str] = None,
     ) -> list[Dict[str, Any]]:
         from services.persona_registry_service import PersonaRegistryService
+
         status = "ready" if ready_only else None
-        return await PersonaRegistryService.list_personas(status=status, owner_key=owner_key)
+        return await PersonaRegistryService.list_personas(
+            status=status, owner_key=owner_key
+        )
 
     @classmethod
-    async def _prepare_prompt_session(cls, app: Any, session: SkillSession) -> SkillSession:
+    async def _prepare_prompt_session(
+        cls, app: Any, session: SkillSession
+    ) -> SkillSession:
         step = get_step_definition(session.skill_name, session.step_key)
         input_type = step.get("input_type")
         if input_type in {"persona_picker", "persona_selector"}:
@@ -52,7 +57,11 @@ class SkillDispatcher:
     @classmethod
     async def _save_or_clear(cls, chat_id: int, result: SkillResult) -> SkillResult:
         session = result.session
-        if session is None or (result.success and result.next_step == "done" and session.control.status.value == "done"):
+        if session is None or (
+            result.success
+            and result.next_step == "done"
+            and session.control.status.value == "done"
+        ):
             await TelegramSkillSessionStore.clear_session(chat_id)
             return result
         await TelegramSkillSessionStore.set_session(chat_id, session)
@@ -79,7 +88,9 @@ class SkillDispatcher:
         return await cls._save_or_clear(chat_id, result)
 
     @classmethod
-    async def handle_text(cls, chat_id: int, text: str, app: Any) -> Optional[SkillResult]:
+    async def handle_text(
+        cls, chat_id: int, text: str, app: Any
+    ) -> Optional[SkillResult]:
         session = await TelegramSkillSessionStore.get_session(chat_id)
         if session is None:
             return None
@@ -97,7 +108,10 @@ class SkillDispatcher:
                 for option in options:
                     option_value = str(option.get("value", "")).strip()
                     option_label = str(option.get("label", "")).strip()
-                    if normalized.lower() in {option_value.lower(), option_label.lower()}:
+                    if normalized.lower() in {
+                        option_value.lower(),
+                        option_label.lower(),
+                    }:
                         matched_value = option_value
                         break
 
@@ -111,12 +125,18 @@ class SkillDispatcher:
 
                     skill_cls = SKILL_REGISTRY[session.skill_name]
                     async with cls._transport_client(app) as client:
-                        result = await skill_cls.execute(session, "http://backend", client)
+                        result = await skill_cls.execute(
+                            session, "http://backend", client
+                        )
                     if result.session is not None:
                         await cls._prepare_prompt_session(app, result.session)
                     return await cls._save_or_clear(chat_id, result)
 
-            if input_type in {"persona_picker", "persona_selector", "content_selector"} and field and normalized:
+            if (
+                input_type in {"persona_picker", "persona_selector", "content_selector"}
+                and field
+                and normalized
+            ):
                 session.collected[field] = normalized
                 skill_cls = SKILL_REGISTRY[session.skill_name]
                 async with cls._transport_client(app) as client:
@@ -157,7 +177,10 @@ class SkillDispatcher:
             return None
         session.artifacts.setdefault("telegram_chat_id", str(chat_id))
 
-        if session.skill_name != "persona-creator" or session.step_key != "collect_appearance":
+        if (
+            session.skill_name != "persona-creator"
+            or session.step_key != "collect_appearance"
+        ):
             return SkillResult(
                 success=False,
                 error="This step does not accept file uploads yet. Please follow the current prompt or send /cancel.",
@@ -211,7 +234,9 @@ class SkillDispatcher:
         access_url = storage_result.get("access_url") or storage_result.get("url")
         session.collected["appearance_prompt_or_photo"] = access_url or filename
         session.artifacts["uploaded_reference_image_url"] = access_url
-        session.artifacts["uploaded_reference_asset_id"] = storage_result.get("media_asset_id")
+        session.artifacts["uploaded_reference_asset_id"] = storage_result.get(
+            "media_asset_id"
+        )
         session.artifacts["uploaded_reference_filename"] = filename
 
         skill_cls = SKILL_REGISTRY[session.skill_name]
@@ -256,7 +281,9 @@ class SkillDispatcher:
         session.artifacts.setdefault("telegram_chat_id", str(chat_id))
 
         if action == "cancel":
-            workflow_id = session.control.workflow_id or session.artifacts.get("workflow_id")
+            workflow_id = session.control.workflow_id or session.artifacts.get(
+                "workflow_id"
+            )
             if workflow_id:
                 try:
                     async with cls._transport_client(app) as client:
@@ -278,7 +305,9 @@ class SkillDispatcher:
             output = {"status": "cancelled"}
             if workflow_id:
                 output["workflow_id"] = workflow_id
-            return SkillResult(success=True, next_step="done", output=output, session=session)
+            return SkillResult(
+                success=True, next_step="done", output=output, session=session
+            )
 
         skill_cls = SKILL_REGISTRY[session.skill_name]
 
@@ -290,7 +319,11 @@ class SkillDispatcher:
                 try:
                     selected_index = int(action.split(":", 1)[1])
                 except (TypeError, ValueError):
-                    return SkillResult(success=False, error=f"Unsupported action: {action}", session=session)
+                    return SkillResult(
+                        success=False,
+                        error=f"Unsupported action: {action}",
+                        session=session,
+                    )
                 result = skill_cls.toggle_selection(session, selected_index)
                 return await cls._save_or_clear(chat_id, result)
             if action == "submit_selection":
@@ -312,22 +345,34 @@ class SkillDispatcher:
                 session.step_key = "list_publish_queue"
             elif action == "inspect_provider_wiring":
                 async with cls._transport_client(app) as client:
-                    result = await skill_cls.inspect_provider_wiring(session, "http://backend", client)
+                    result = await skill_cls.inspect_provider_wiring(
+                        session, "http://backend", client
+                    )
                 return await cls._save_or_clear(chat_id, result)
             elif action == "check_engagement":
                 async with cls._transport_client(app) as client:
-                    result = await skill_cls.refresh_selected_engagement(session, "http://backend", client)
+                    result = await skill_cls.refresh_selected_engagement(
+                        session, "http://backend", client
+                    )
                 return await cls._save_or_clear(chat_id, result)
             elif action == "boost_engagement":
                 async with cls._transport_client(app) as client:
-                    result = await skill_cls.boost_selected_engagement(session, "http://backend", client)
+                    result = await skill_cls.boost_selected_engagement(
+                        session, "http://backend", client
+                    )
                 return await cls._save_or_clear(chat_id, result)
             elif action == "retry_publish":
                 async with cls._transport_client(app) as client:
-                    result = await skill_cls.retry_selected(session, "http://backend", client)
+                    result = await skill_cls.retry_selected(
+                        session, "http://backend", client
+                    )
                 return await cls._save_or_clear(chat_id, result)
 
-        if session.skill_name == "video-ai" and action in {"approve", "edit", "regenerate"}:
+        if session.skill_name == "video-ai" and action in {
+            "approve",
+            "edit",
+            "regenerate",
+        }:
             async with cls._transport_client(app) as client:
                 result = await skill_cls.handle_preproduction_action(
                     session,
@@ -341,7 +386,9 @@ class SkillDispatcher:
 
         # ── Persona-creator: Save action ─────────────────────────────────────
         if action == "save" and session.skill_name == "persona-creator":
-            persona_id = session.artifacts.get("persona_id") or session.collected.get("persona_id")
+            persona_id = session.artifacts.get("persona_id") or session.collected.get(
+                "persona_id"
+            )
             if not persona_id:
                 return SkillResult(
                     success=False,
@@ -349,7 +396,6 @@ class SkillDispatcher:
                     session=session,
                 )
 
-            from services.media_storage_service import MediaStorageService
             from services.persona_registry_service import PersonaRegistryService
 
             owner_key = (
@@ -357,46 +403,29 @@ class SkillDispatcher:
                 if session.artifacts.get("telegram_chat_id")
                 else None
             )
-            avatar_url = session.artifacts.get("avatar_image_url") or session.artifacts.get("preview_image_url")
+            avatar_url = session.artifacts.get(
+                "avatar_image_url"
+            ) or session.artifacts.get("preview_image_url")
             avatar_media_asset_id = session.artifacts.get("avatar_media_asset_id")
-            avatar_source_type = (
-                session.artifacts.get("persona_data", {}).get("avatar_source_type")
-                or ("telegram_upload" if session.artifacts.get("uploaded_reference_asset_id") else "generated")
+            avatar_source_type = session.artifacts.get("persona_data", {}).get(
+                "avatar_source_type"
+            ) or (
+                "telegram_upload"
+                if session.artifacts.get("uploaded_reference_asset_id")
+                else "generated"
             )
 
+            # CRITICAL FIX: Save should only finalize an already-persisted asset
+            # Never re-upload from URL; if avatar_media_asset_id is missing, the preview flow failed
             if not avatar_media_asset_id:
-                if not avatar_url:
-                    return SkillResult(
-                        success=False,
-                        error="Persona avatar is missing. Send a photo or generate one before saving.",
-                        session=session,
-                    )
-
-                storage_result = await MediaStorageService().upload_from_url(
-                    avatar_url,
-                    asset_type="IMAGE",
-                    asset_kind="avatar",
-                    asset_origin="uploaded"
-                    if avatar_source_type == "telegram_upload"
-                    else "generated",
-                    generation_prompt="persona_avatar",
-                    owner_key=owner_key,
-                    persona_id=persona_id,
-                    metadata={
-                        "source": "telegram_persona_save",
-                        "skill_name": session.skill_name,
-                        "persona_id": persona_id,
-                    },
-                    file_name_hint=f"{persona_id}-avatar",
+                return SkillResult(
+                    success=False,
+                    error=(
+                        "Avatar preview exists but was not persisted to workspace media. "
+                        "Please regenerate the avatar or try creating the persona again."
+                    ),
+                    session=session,
                 )
-                if not storage_result or not storage_result.get("media_asset_id"):
-                    return SkillResult(
-                        success=False,
-                        error="I couldn't persist the persona avatar to storage. Please try saving again.",
-                        session=session,
-                    )
-                avatar_media_asset_id = storage_result.get("media_asset_id")
-                avatar_url = storage_result.get("access_url") or storage_result.get("url") or avatar_url
 
             persona = await PersonaRegistryService.update_persona(
                 persona_id,
@@ -432,7 +461,9 @@ class SkillDispatcher:
         if action == "regenerate":
             existing_artifacts = deepcopy(session.artifacts)
             telegram_chat_id = existing_artifacts.get("telegram_chat_id")
-            had_uploaded_reference = bool(existing_artifacts.get("uploaded_reference_image_url"))
+            had_uploaded_reference = bool(
+                existing_artifacts.get("uploaded_reference_image_url")
+            )
             template = skill_cls.initial_session()
             session.artifacts = deepcopy(template.artifacts)
             if telegram_chat_id:

@@ -54,7 +54,9 @@ class _MissingRelationWithLegacyUserConn:
 
 
 @pytest.mark.asyncio
-async def test_resolve_user_id_for_owner_key_uses_synthetic_fallback_when_link_table_missing(monkeypatch):
+async def test_resolve_user_id_for_owner_key_uses_synthetic_fallback_when_link_table_missing(
+    monkeypatch,
+):
     monkeypatch.setattr(
         "services.telegram_link_service.DatabaseService.get_pool",
         AsyncMock(return_value=_StubPool(_MissingRelationConn())),
@@ -65,11 +67,15 @@ async def test_resolve_user_id_for_owner_key_uses_synthetic_fallback_when_link_t
         allow_fallback=True,
     )
 
-    assert resolved == TelegramLinkService.synthetic_user_id_for_owner_key("telegram:123456")
+    assert resolved == TelegramLinkService.synthetic_user_id_for_owner_key(
+        "telegram:123456"
+    )
 
 
 @pytest.mark.asyncio
-async def test_resolve_user_id_for_owner_key_reuses_legacy_synthetic_user_when_present(monkeypatch):
+async def test_resolve_user_id_for_owner_key_reuses_legacy_synthetic_user_when_present(
+    monkeypatch,
+):
     monkeypatch.setattr(
         "services.telegram_link_service.DatabaseService.get_pool",
         AsyncMock(return_value=_StubPool(_MissingRelationWithLegacyUserConn())),
@@ -84,13 +90,20 @@ async def test_resolve_user_id_for_owner_key_reuses_legacy_synthetic_user_when_p
 
 
 @pytest.mark.asyncio
-async def test_resolve_user_id_for_owner_key_disables_synthetic_fallback_in_production(monkeypatch):
+async def test_resolve_user_id_for_owner_key_disables_synthetic_fallback_in_production(
+    monkeypatch,
+):
     monkeypatch.setattr(
         "services.telegram_link_service.DatabaseService.get_pool",
         AsyncMock(return_value=_StubPool(_MissingRelationConn())),
     )
-    monkeypatch.setattr(telegram_link_service_module.settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(
+        telegram_link_service_module.settings, "ENVIRONMENT", "production"
+    )
     monkeypatch.setattr(telegram_link_service_module.settings, "DEBUG", False)
+    monkeypatch.setattr(
+        telegram_link_service_module.settings, "BYPASS_TELEGRAM_LINK_CHECK", False
+    )
 
     resolved = await TelegramLinkService.resolve_user_id_for_owner_key(
         "telegram:123456",

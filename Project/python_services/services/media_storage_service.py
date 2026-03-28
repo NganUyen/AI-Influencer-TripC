@@ -130,9 +130,13 @@ class MediaStorageService:
             await self._ensure_user_row(normalized_user, owner_key)
             return normalized_user
 
+        # TEMPORARY: Bypass link check until dashboard Telegram login is implemented
         linked_owner_user = await TelegramLinkService.resolve_user_id_for_owner_key(
             owner_key,
-            allow_fallback=bool(owner_key) and not settings.is_production_like,
+            allow_fallback=bool(owner_key)
+            and (
+                (not settings.is_production_like) or settings.BYPASS_TELEGRAM_LINK_CHECK
+            ),
         )
 
         pool = await DatabaseService.get_pool()
@@ -165,7 +169,9 @@ class MediaStorageService:
                 if row and row.get("user_id"):
                     return str(row["user_id"])
         if owner_key and not linked_owner_user:
-            logger.warning("Unlinked or invalid Telegram owner_key rejected: %s", owner_key)
+            logger.warning(
+                "Unlinked or invalid Telegram owner_key rejected: %s", owner_key
+            )
         if linked_owner_user:
             await self._ensure_user_row(linked_owner_user, owner_key)
             return linked_owner_user
@@ -175,7 +181,9 @@ class MediaStorageService:
     async def _ensure_user_row(self, user_id: str, owner_key: Optional[str]) -> None:
         pool = await DatabaseService.get_pool()
         async with pool.acquire() as conn:
-            if settings.is_production_like:
+            # TEMPORARY: When BYPASS_TELEGRAM_LINK_CHECK is enabled, allow synthetic user creation
+            # even in production-like mode. Otherwise strictly validate user exists.
+            if settings.is_production_like and not settings.BYPASS_TELEGRAM_LINK_CHECK:
                 row = await conn.fetchrow(
                     """
                     SELECT id
@@ -191,8 +199,11 @@ class MediaStorageService:
                     )
                 return
 
+            # Create or update synthetic user for development/bypass mode
             owner_label = (owner_key or user_id).strip() if owner_key else user_id
-            sanitized = "".join(ch if ch.isalnum() else "-" for ch in owner_label.lower()).strip("-")
+            sanitized = "".join(
+                ch if ch.isalnum() else "-" for ch in owner_label.lower()
+            ).strip("-")
             if not sanitized:
                 sanitized = user_id.replace("-", "")[:16]
             email = f"media-{sanitized}@local.ai-influencer.invalid"
@@ -249,9 +260,13 @@ class MediaStorageService:
         expected_persona = _safe_segment(persona_id or "unassigned", "unassigned")
         if settings.is_production_like:
             if parsed["user_id"] != expected_user:
-                raise ValueError("Storage path user_id does not match the resolved owner.")
+                raise ValueError(
+                    "Storage path user_id does not match the resolved owner."
+                )
             if parsed["persona_id"] != expected_persona:
-                raise ValueError("Storage path persona_id does not match the resolved owner scope.")
+                raise ValueError(
+                    "Storage path persona_id does not match the resolved owner scope."
+                )
 
         return normalized_path
 
@@ -273,7 +288,9 @@ class MediaStorageService:
         )
         ext = _default_extension(asset_type, content_type)
 
-        hint = _safe_segment(file_name_hint or f"asset-{uuid.uuid4().hex[:12]}", "asset")
+        hint = _safe_segment(
+            file_name_hint or f"asset-{uuid.uuid4().hex[:12]}", "asset"
+        )
         if "." in hint:
             hint = hint.rsplit(".", 1)[0]
 
@@ -517,7 +534,9 @@ class MediaStorageService:
                 data = resp.content
                 detected_ct = (
                     content_type
-                    or resp.headers.get("content-type", "application/octet-stream").split(";", 1)[0].strip()
+                    or resp.headers.get("content-type", "application/octet-stream")
+                    .split(";", 1)[0]
+                    .strip()
                 )
 
             return await self.upload_bytes(
@@ -537,7 +556,9 @@ class MediaStorageService:
                 file_name_hint=file_name_hint,
             )
         except Exception as exc:
-            logger.warning("MediaStorageService.upload_from_url failed (%s): %s", url, exc)
+            logger.warning(
+                "MediaStorageService.upload_from_url failed (%s): %s", url, exc
+            )
             return None
 
     async def record_asset(

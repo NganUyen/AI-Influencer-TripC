@@ -73,7 +73,9 @@ class PersonaRegistryService:
         if owner_key:
             owner_user_id = await TelegramLinkService.resolve_user_id_for_owner_key(
                 owner_key,
-                allow_fallback=not settings.is_production_like,
+                # TEMPORARY: Bypass link check until dashboard Telegram login is implemented
+                allow_fallback=(not settings.is_production_like)
+                or settings.BYPASS_TELEGRAM_LINK_CHECK,
             )
             if owner_user_id:
                 return owner_user_id
@@ -81,16 +83,22 @@ class PersonaRegistryService:
                 "Telegram owner scope is invalid or not linked."
             )
         if settings.is_production_like:
-            raise PersonaConfigurationError("user_id is required for persona operations.")
+            raise PersonaConfigurationError(
+                "user_id is required for persona operations."
+            )
         return _SYSTEM_PERSONA_USER_ID
 
     @classmethod
-    async def _ensure_owner_user_row(cls, user_id: str, owner_key: Optional[str]) -> None:
+    async def _ensure_owner_user_row(
+        cls, user_id: str, owner_key: Optional[str]
+    ) -> None:
         if user_id == _SYSTEM_PERSONA_USER_ID:
             return
         pool = await cls._get_pool()
         async with pool.acquire() as conn:
-            if settings.is_production_like:
+            # TEMPORARY: When BYPASS_TELEGRAM_LINK_CHECK is enabled, allow synthetic user creation
+            # even in production-like mode. Otherwise strictly validate user exists.
+            if settings.is_production_like and not settings.BYPASS_TELEGRAM_LINK_CHECK:
                 row = await conn.fetchrow(
                     """
                     SELECT id
@@ -106,8 +114,11 @@ class PersonaRegistryService:
                     )
                 return
 
+            # Create or update synthetic user for development/bypass mode
             owner_label = (owner_key or user_id).strip() if owner_key else user_id
-            sanitized = "".join(ch if ch.isalnum() else "-" for ch in owner_label.lower()).strip("-")
+            sanitized = "".join(
+                ch if ch.isalnum() else "-" for ch in owner_label.lower()
+            ).strip("-")
             if not sanitized:
                 sanitized = user_id.replace("-", "")[:16]
             email = f"persona-{sanitized}@local.ai-influencer.invalid"
@@ -138,7 +149,9 @@ class PersonaRegistryService:
             owner_key
             and not user_id
             and not settings.is_production_like
-            and (resolved_user_id is None or resolved_user_id != _SYSTEM_PERSONA_USER_ID)
+            and (
+                resolved_user_id is None or resolved_user_id != _SYSTEM_PERSONA_USER_ID
+            )
         )
 
     @classmethod
@@ -214,8 +227,12 @@ class PersonaRegistryService:
             "description": row.get("description"),
             "avatar_storage_bucket": row.get("avatar_storage_bucket"),
             "avatar_storage_path": row.get("avatar_storage_path"),
-            "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
-            "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else updated_at,
+            "created_at": created_at.isoformat()
+            if hasattr(created_at, "isoformat")
+            else created_at,
+            "updated_at": updated_at.isoformat()
+            if hasattr(updated_at, "isoformat")
+            else updated_at,
         }
 
     @classmethod
@@ -233,7 +250,9 @@ class PersonaRegistryService:
         return decorated
 
     @classmethod
-    async def _list_from_db(cls, *, user_id: str, status: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def _list_from_db(
+        cls, *, user_id: str, status: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         pool = await cls._get_pool()
         query = """
             SELECT
@@ -274,7 +293,9 @@ class PersonaRegistryService:
         return [await cls._decorate_persona_record(item) for item in records]
 
     @classmethod
-    async def _list_unowned_from_db(cls, *, status: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def _list_unowned_from_db(
+        cls, *, status: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         pool = await cls._get_pool()
         query = """
             SELECT
@@ -315,7 +336,9 @@ class PersonaRegistryService:
         return [await cls._decorate_persona_record(item) for item in records]
 
     @classmethod
-    async def _get_from_db(cls, persona_id: str, *, user_id: str) -> Optional[Dict[str, Any]]:
+    async def _get_from_db(
+        cls, persona_id: str, *, user_id: str
+    ) -> Optional[Dict[str, Any]]:
         pool = await cls._get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -513,7 +536,9 @@ class PersonaRegistryService:
             "created_at": now,
             "updated_at": now,
         }
-        cls._memory_store[cls._memory_key(record["user_id"], record["persona_id"])] = record
+        cls._memory_store[cls._memory_key(record["user_id"], record["persona_id"])] = (
+            record
+        )
         return deepcopy(record)
 
     @classmethod
@@ -646,7 +671,9 @@ class PersonaRegistryService:
         )
         try:
             for candidate_user_id in candidate_user_ids:
-                personas = await cls._list_from_db(status=status, user_id=candidate_user_id)
+                personas = await cls._list_from_db(
+                    status=status, user_id=candidate_user_id
+                )
                 if personas:
                     return personas
 
@@ -654,7 +681,9 @@ class PersonaRegistryService:
                 legacy_personas: List[Dict[str, Any]] = []
                 if _SYSTEM_PERSONA_USER_ID not in candidate_user_ids:
                     legacy_personas.extend(
-                        await cls._list_from_db(status=status, user_id=_SYSTEM_PERSONA_USER_ID)
+                        await cls._list_from_db(
+                            status=status, user_id=_SYSTEM_PERSONA_USER_ID
+                        )
                     )
                 legacy_personas.extend(await cls._list_unowned_from_db(status=status))
                 return cls._dedupe_personas(legacy_personas)
@@ -702,9 +731,13 @@ class PersonaRegistryService:
                 return await cls._get_unowned_from_db(persona_id)
             return None
         except Exception as exc:  # pragma: no cover - degraded-mode fallback
-            logger.warning("Persona DB lookup failed, using in-memory fallback: %s", exc)
+            logger.warning(
+                "Persona DB lookup failed, using in-memory fallback: %s", exc
+            )
             for candidate_user_id in candidate_user_ids:
-                record = cls._memory_store.get(cls._memory_key(candidate_user_id, persona_id))
+                record = cls._memory_store.get(
+                    cls._memory_key(candidate_user_id, persona_id)
+                )
                 if record:
                     return deepcopy(record)
             return None
@@ -748,7 +781,9 @@ class PersonaRegistryService:
 
         try:
             if resolved_user_id != _SYSTEM_PERSONA_USER_ID:
-                await cls._ensure_owner_user_row(resolved_user_id, payload.get("owner_key"))
+                await cls._ensure_owner_user_row(
+                    resolved_user_id, payload.get("owner_key")
+                )
             existing = await cls._compatible_existing_persona(
                 payload["persona_id"],
                 candidate_user_ids=candidate_user_ids,
@@ -766,7 +801,10 @@ class PersonaRegistryService:
                 recovered_persona = None
                 conflicting_persona = None
                 try:
-                    recovered_persona, conflicting_persona = await cls._recover_duplicate_persona(
+                    (
+                        recovered_persona,
+                        conflicting_persona,
+                    ) = await cls._recover_duplicate_persona(
                         payload["persona_id"],
                         candidate_user_ids=candidate_user_ids,
                         include_unowned=include_legacy_scope,
@@ -777,7 +815,9 @@ class PersonaRegistryService:
 
                 if recovered_persona:
                     return recovered_persona
-                if conflicting_persona and conflicting_persona.get("user_id") not in set(candidate_user_ids):
+                if conflicting_persona and conflicting_persona.get(
+                    "user_id"
+                ) not in set(candidate_user_ids):
                     raise PersonaConfigurationError(
                         "persona_id is colliding with a legacy global persona index. "
                         "Apply migration 20260326_personas_user_scoped_unique.sql or choose a different persona ID."
@@ -790,7 +830,9 @@ class PersonaRegistryService:
                 raise PersonaConfigurationError(
                     f"Persona '{payload['persona_id']}' already exists for this owner."
                 ) from exc
-            logger.warning("Persona DB create failed, using in-memory fallback: %s", exc)
+            logger.warning(
+                "Persona DB create failed, using in-memory fallback: %s", exc
+            )
             return await cls._create_in_memory(base_payload)
 
     @classmethod
@@ -877,7 +919,9 @@ class PersonaRegistryService:
                         return await cls._get_unowned_from_db(persona_id)
             return None
         except Exception as exc:  # pragma: no cover - degraded-mode fallback
-            logger.warning("Persona DB update failed, using in-memory fallback: %s", exc)
+            logger.warning(
+                "Persona DB update failed, using in-memory fallback: %s", exc
+            )
             for candidate_user_id in candidate_user_ids:
                 memory_key = cls._memory_key(candidate_user_id, persona_id)
                 if memory_key not in cls._memory_store:
@@ -909,7 +953,9 @@ class PersonaRegistryService:
         elif not checks["has_avatar_asset"]:
             blocking_reason = "Missing avatar_media_asset_id. Save persona media first."
         elif not checks["has_heygen_avatar_id"]:
-            blocking_reason = "Missing heygen_avatar_id. Run persona avatar setup first."
+            blocking_reason = (
+                "Missing heygen_avatar_id. Run persona avatar setup first."
+            )
 
         return {
             "persona_id": persona_id,
@@ -927,7 +973,9 @@ class PersonaRegistryService:
         user_id: Optional[str] = None,
         owner_key: Optional[str] = None,
     ) -> Dict[str, Any]:
-        persona = await cls.get_persona(persona_id, user_id=user_id, owner_key=owner_key)
+        persona = await cls.get_persona(
+            persona_id, user_id=user_id, owner_key=owner_key
+        )
         return cls.build_readiness_report(persona_id, persona)
 
     @classmethod
@@ -938,7 +986,9 @@ class PersonaRegistryService:
         user_id: Optional[str] = None,
         owner_key: Optional[str] = None,
     ) -> Dict[str, Any]:
-        persona = await cls.get_persona(persona_id, user_id=user_id, owner_key=owner_key)
+        persona = await cls.get_persona(
+            persona_id, user_id=user_id, owner_key=owner_key
+        )
         if not persona:
             raise PersonaConfigurationError(f"Persona '{persona_id}' was not found.")
         if persona.get("status") != "ready":

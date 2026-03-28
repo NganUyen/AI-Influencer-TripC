@@ -35,7 +35,15 @@ class TelegramLinkService:
 
     @classmethod
     def _allows_legacy_fallback(cls, allow_fallback: bool) -> bool:
-        return bool(allow_fallback and not settings.is_production_like)
+        # TEMPORARY: Respect BYPASS_TELEGRAM_LINK_CHECK flag for testing without dashboard link
+        # TODO: Remove bypass support after dashboard Telegram login is implemented
+        if not allow_fallback:
+            return False
+        # If bypass flag is enabled, allow fallback even in production
+        if settings.BYPASS_TELEGRAM_LINK_CHECK:
+            return True
+        # Otherwise, only allow fallback in non-production environments
+        return not settings.is_production_like
 
     @staticmethod
     def _parse_owner_chat_id(owner_key: Optional[str]) -> Optional[int]:
@@ -52,7 +60,9 @@ class TelegramLinkService:
     @staticmethod
     def _is_missing_relation_error(exc: Exception, *relation_names: str) -> bool:
         message = str(exc or "").lower()
-        sqlstate = str(getattr(exc, "sqlstate", "") or getattr(exc, "pgcode", "")).strip()
+        sqlstate = str(
+            getattr(exc, "sqlstate", "") or getattr(exc, "pgcode", "")
+        ).strip()
         if sqlstate and sqlstate != "42P01":
             return False
         if "does not exist" not in message:
@@ -83,7 +93,9 @@ class TelegramLinkService:
         normalized = str(owner_key or "").strip()
         if not normalized:
             return None
-        sanitized = "".join(ch if ch.isalnum() else "-" for ch in normalized.lower()).strip("-")
+        sanitized = "".join(
+            ch if ch.isalnum() else "-" for ch in normalized.lower()
+        ).strip("-")
         return sanitized or None
 
     @classmethod
@@ -196,7 +208,9 @@ class TelegramLinkService:
                     if row is None:
                         raise TelegramLinkError("Telegram link token is invalid.")
                     if row["used_at"] is not None:
-                        raise TelegramLinkError("Telegram link token has already been used.")
+                        raise TelegramLinkError(
+                            "Telegram link token has already been used."
+                        )
                     if row["expires_at"] <= _utcnow():
                         raise TelegramLinkError("Telegram link token has expired.")
 
@@ -247,7 +261,9 @@ class TelegramLinkService:
                         telegram_username,
                     )
         except Exception as exc:
-            if cls._is_missing_relation_error(exc, "telegram_link_tokens", "telegram_user_links"):
+            if cls._is_missing_relation_error(
+                exc, "telegram_link_tokens", "telegram_user_links"
+            ):
                 raise TelegramLinkError(
                     "Telegram link tables are not installed. Apply migration 20260326_telegram_owner_links_and_avatar_assets.sql first."
                 ) from exc
@@ -282,7 +298,9 @@ class TelegramLinkService:
                 )
         except Exception as exc:
             if cls._is_missing_relation_error(exc, "telegram_user_links"):
-                logger.info("Skipping Telegram link touch because telegram_user_links is missing.")
+                logger.info(
+                    "Skipping Telegram link touch because telegram_user_links is missing."
+                )
                 return
             raise
 
@@ -309,7 +327,9 @@ class TelegramLinkService:
                 )
         except Exception as exc:
             if cls._is_missing_relation_error(exc, "telegram_user_links"):
-                logger.info("Telegram link status requested before telegram_user_links migration was applied.")
+                logger.info(
+                    "Telegram link status requested before telegram_user_links migration was applied."
+                )
                 return None
             raise
         if row is None:
@@ -361,7 +381,9 @@ class TelegramLinkService:
                     logger.warning(
                         "telegram_user_links is missing; falling back to a synthetic Telegram owner user_id."
                     )
-                    legacy_user_id = await cls._resolve_legacy_synthetic_user_id(owner_key)
+                    legacy_user_id = await cls._resolve_legacy_synthetic_user_id(
+                        owner_key
+                    )
                     if legacy_user_id:
                         return legacy_user_id
                     return cls._fallback_user_id(owner_key)

@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
 
+    # TEMPORARY: Bypass Telegram link ownership check until dashboard login flow is implemented
+    # TODO: Remove this after implementing dashboard Telegram login flow
+    # Set to True in .env for temporary bypass during testing/development
+    BYPASS_TELEGRAM_LINK_CHECK: bool = False
+
     # Database
     DATABASE_URL: str
     CHATGPT_CONNECTOR_DATABASE_URL: Optional[str] = None
@@ -286,7 +291,9 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> list[str]:
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+        return [
+            origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()
+        ]
 
     @property
     def is_production_like(self) -> bool:
@@ -317,9 +324,7 @@ class Settings(BaseSettings):
                 )
             parsed = urlparse(origin)
             if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                raise ValueError(
-                    f"CORS_ORIGINS contains an invalid origin: {origin}"
-                )
+                raise ValueError(f"CORS_ORIGINS contains an invalid origin: {origin}")
 
         if self.is_production_like:
             required_secrets = {
@@ -347,15 +352,9 @@ class Settings(BaseSettings):
                     )
 
         if self.STORAGE_PROVIDER == "supabase":
-            resolved_bucket = (
-                self.STORAGE_BUCKET_NAME
-                or self.SUPABASE_STORAGE_BUCKET
-            )
+            resolved_bucket = self.STORAGE_BUCKET_NAME or self.SUPABASE_STORAGE_BUCKET
         else:
-            resolved_bucket = (
-                self.STORAGE_BUCKET_NAME
-                or self.R2_BUCKET_NAME
-            )
+            resolved_bucket = self.STORAGE_BUCKET_NAME or self.R2_BUCKET_NAME
         if not resolved_bucket:
             if self.STORAGE_PROVIDER == "supabase":
                 raise ValueError(
@@ -376,7 +375,9 @@ class Settings(BaseSettings):
             )
 
         if self.STORAGE_PROVIDER == "supabase":
-            public_base_url = self.STORAGE_PUBLIC_URL or self.SUPABASE_STORAGE_PUBLIC_URL
+            public_base_url = (
+                self.STORAGE_PUBLIC_URL or self.SUPABASE_STORAGE_PUBLIC_URL
+            )
             if not public_base_url:
                 public_base_url = (
                     f"{self.SUPABASE_URL.rstrip('/')}/storage/v1/object/public/"

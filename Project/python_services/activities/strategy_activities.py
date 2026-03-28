@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from services.openclaw_service import OpenClawService
 from services.ai_service import AIService
 from services.script_service import ScriptService
+from utils.json_helpers import extract_json_from_llm_response
 
 logger = logging.getLogger(__name__)
 
@@ -233,12 +234,7 @@ Return ONLY valid JSON:
     async with AIService() as ai:
         raw = await ai.generate_text(prompt=CAROUSEL_PROMPT, model=model, temperature=0.7, max_tokens=3000)
 
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.splitlines()
-        cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-
-    data = json.loads(cleaned)
+    data = extract_json_from_llm_response(raw)
     logger.info(f"Carousel generated: {len(data.get('slides', []))} slides")
     return data
 
@@ -297,11 +293,6 @@ Structure: intro hook → problem → solution (features) → social proof → C
     async with AIService() as ai:
         raw = await ai.generate_text(prompt=LONG_POST_PROMPT, model=model, temperature=0.7, max_tokens=4000)
 
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.splitlines()
-        cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-
-    data = json.loads(cleaned)
+    data = extract_json_from_llm_response(raw)
     logger.info(f"Long post generated: title='{data.get('title', '')[:50]}'")
     return data

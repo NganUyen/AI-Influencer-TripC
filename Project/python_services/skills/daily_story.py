@@ -7,6 +7,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from services.ai_service import AIService
+from utils.json_helpers import extract_json_from_llm_response
 from .base import BaseSkill, SkillResult, SkillSession, SkillStatus
 from .definitions import get_skill_definition
 
@@ -132,14 +133,7 @@ class DailyStorySkill(BaseSkill):
                     max_tokens=800,
                 )
                 
-            cleaned = raw.strip()
-            if cleaned.startswith("```"):
-                lines = cleaned.splitlines()
-                cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-            elif cleaned.startswith("JSON"):
-                 cleaned = cleaned[4:].strip()
-            
-            data = json.loads(cleaned)
+            data = extract_json_from_llm_response(raw)
             current.artifacts["story_draft"] = data
             current.artifacts["story_body"] = data.get("body", topic)
             

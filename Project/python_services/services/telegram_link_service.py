@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
+from config.settings import settings
 from services.database_service import DatabaseService
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,10 @@ class TelegramLinkError(RuntimeError):
 
 class TelegramLinkService:
     DEFAULT_TOKEN_TTL_MINUTES = 15
+
+    @classmethod
+    def _allows_legacy_fallback(cls, allow_fallback: bool) -> bool:
+        return bool(allow_fallback and not settings.is_production_like)
 
     @staticmethod
     def _parse_owner_chat_id(owner_key: Optional[str]) -> Optional[int]:
@@ -328,13 +333,14 @@ class TelegramLinkService:
         *,
         allow_fallback: bool = False,
     ) -> Optional[str]:
+        legacy_fallback_allowed = cls._allows_legacy_fallback(allow_fallback)
         chat_id = cls._parse_owner_chat_id(owner_key)
         if chat_id is None:
-            if allow_fallback:
+            if legacy_fallback_allowed:
                 legacy_user_id = await cls._resolve_legacy_synthetic_user_id(owner_key)
                 if legacy_user_id:
                     return legacy_user_id
-            return cls._fallback_user_id(owner_key) if allow_fallback else None
+            return cls._fallback_user_id(owner_key) if legacy_fallback_allowed else None
 
         pool = await DatabaseService.get_pool()
         try:
@@ -351,18 +357,23 @@ class TelegramLinkService:
                 )
         except Exception as exc:
             if cls._is_missing_relation_error(exc, "telegram_user_links"):
+                if legacy_fallback_allowed:
+                    logger.warning(
+                        "telegram_user_links is missing; falling back to a synthetic Telegram owner user_id."
+                    )
+                    legacy_user_id = await cls._resolve_legacy_synthetic_user_id(owner_key)
+                    if legacy_user_id:
+                        return legacy_user_id
+                    return cls._fallback_user_id(owner_key)
                 logger.warning(
-                    "telegram_user_links is missing; falling back to a synthetic Telegram owner user_id."
+                    "telegram_user_links is missing; production-like ownership fallback is disabled."
                 )
-                legacy_user_id = await cls._resolve_legacy_synthetic_user_id(owner_key)
-                if legacy_user_id:
-                    return legacy_user_id
-                return cls._fallback_user_id(owner_key) if allow_fallback else None
+                return None
             raise
         if row is None or not row.get("user_id"):
-            if allow_fallback:
+            if legacy_fallback_allowed:
                 legacy_user_id = await cls._resolve_legacy_synthetic_user_id(owner_key)
                 if legacy_user_id:
                     return legacy_user_id
-            return cls._fallback_user_id(owner_key) if allow_fallback else None
+            return cls._fallback_user_id(owner_key) if legacy_fallback_allowed else None
         return str(row["user_id"])

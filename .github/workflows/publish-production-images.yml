@@ -1,0 +1,178 @@
+name: Publish Production Images
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+      - deploy
+    paths:
+      - ".github/workflows/publish-production-images.yml"
+      - "Project/**"
+      - "docker/**"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_influencer
+      CHATGPT_CONNECTOR_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_influencer
+      ENVIRONMENT: development
+      DEBUG: "true"
+      FRONTEND_PUBLIC_URL: http://localhost:3000
+      BACKEND_PUBLIC_URL: http://localhost:8000
+      CHATGPT_CONNECTOR_PUBLIC_URL: http://localhost:8010
+      CORS_ORIGINS: http://localhost:3000
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_KEY: test-supabase-key
+      SUPABASE_SERVICE_ROLE_KEY: test-supabase-service-role-key
+      SUPABASE_STORAGE_BUCKET: media
+      OPENAI_API_KEY: test-openai-key
+      ANTHROPIC_API_KEY: test-anthropic-key
+      FAL_AI_API_KEY: test-fal-key
+      OPENCLAW_API_KEY: test-openclaw-key
+      POSTIZ_API_KEY: test-postiz-api-key
+      GROWCHIEF_API_KEY: test-growchief-api-key
+      POSTIZ_WEBHOOK_SECRET: ci-postiz-webhook-secret
+      GROWCHIEF_WEBHOOK_SECRET: ci-growchief-webhook-secret
+      JWT_SECRET_KEY: ci-jwt-secret
+      CHATGPT_CONNECTOR_SESSION_SECRET: ci-connector-session-secret
+      INTERNAL_API_TOKEN: ci-internal-token
+      APP_ADMIN_TOKEN: ci-admin-token
+      CUSTOMER_TOKEN_ENCRYPTION_KEY: ci-customer-encryption-key
+      IPROYAL_USERNAME: test-iproyal-user
+      IPROYAL_PASSWORD: test-iproyal-password
+      TELEGRAM_BOT_TOKEN: test-telegram-bot-token
+      FRONTEND_MAX_BYTES: "400000000"
+      PYTHON_API_MAX_BYTES: "700000000"
+      PYTHON_WORKER_MAX_BYTES: "1200000000"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Derive image namespace
+        id: vars
+        run: |
+          owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          echo "ghcr_namespace=ghcr.io/${owner}" >> "${GITHUB_OUTPUT}"
+          echo "image_tag=${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: Project/package-lock.json
+
+      - name: Frontend smoke build
+        working-directory: Project
+        run: |
+          npm ci
+          npm run build
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Backend smoke suite
+        working-directory: Project/python_services
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pytest -q tests/test_analytics_api.py tests/test_webhooks_api.py
+          python - <<'PY'
+          from chatgpt_connector.app import create_app
+          import main
+          import worker
+
+          app = create_app()
+          print("connector_title", app.title)
+          print("backend_title", main.app.title)
+          print("workflow_count", len(worker.workflows))
+          PY
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build, validate, and push production images
+        env:
+          GHCR_NAMESPACE: ${{ steps.vars.outputs.ghcr_namespace }}
+          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          export DOCKER_BUILDKIT=1
+
+          frontend_image="${GHCR_NAMESPACE}/ai-influencer-frontend"
+          python_api_image="${GHCR_NAMESPACE}/ai-influencer-python-api"
+          python_worker_image="${GHCR_NAMESPACE}/ai-influencer-python-worker"
+          postiz_image="${GHCR_NAMESPACE}/ai-influencer-postiz"
+          growchief_image="${GHCR_NAMESPACE}/ai-influencer-growchief"
+
+          docker build \
+            --file Project/Dockerfile.frontend \
+            --target runtime \
+            --tag "${frontend_image}:${IMAGE_TAG}" \
+            --tag "${frontend_image}:latest" \
+            Project
+
+          docker build \
+            --file Project/python_services/Dockerfile \
+            --target api-runtime \
+            --tag "${python_api_image}:${IMAGE_TAG}" \
+            --tag "${python_api_image}:latest" \
+            Project/python_services
+
+          docker build \
+            --file Project/python_services/Dockerfile \
+            --target worker-runtime \
+            --tag "${python_worker_image}:${IMAGE_TAG}" \
+            --tag "${python_worker_image}:latest" \
+            Project/python_services
+
+          docker build \
+            --file docker/postiz/Dockerfile \
+            --tag "${postiz_image}:${IMAGE_TAG}" \
+            --tag "${postiz_image}:latest" \
+            .
+
+          docker build \
+            --file docker/growchief/Dockerfile \
+            --tag "${growchief_image}:${IMAGE_TAG}" \
+            --tag "${growchief_image}:latest" \
+            .
+
+          check_image_size() {
+            local image="$1"
+            local limit_bytes="$2"
+            local label="$3"
+            local size_bytes
+
+            size_bytes="$(docker image inspect "${image}" --format '{{.Size}}')"
+            echo "${label} image size: ${size_bytes} bytes"
+            if (( size_bytes > limit_bytes )); then
+              echo "${label} image exceeded ${limit_bytes} bytes" >&2
+              exit 1
+            fi
+          }
+
+          check_image_size "${frontend_image}:${IMAGE_TAG}" "${FRONTEND_MAX_BYTES}" "frontend"
+          check_image_size "${python_api_image}:${IMAGE_TAG}" "${PYTHON_API_MAX_BYTES}" "python-api"
+          check_image_size "${python_worker_image}:${IMAGE_TAG}" "${PYTHON_WORKER_MAX_BYTES}" "python-worker"
+
+          docker push "${frontend_image}:${IMAGE_TAG}"
+          docker push "${frontend_image}:latest"
+          docker push "${python_api_image}:${IMAGE_TAG}"
+          docker push "${python_api_image}:latest"
+          docker push "${python_worker_image}:${IMAGE_TAG}"
+          docker push "${python_worker_image}:latest"
+          docker push "${postiz_image}:${IMAGE_TAG}"
+          docker push "${postiz_image}:latest"
+          docker push "${growchief_image}:${IMAGE_TAG}"
+          docker push "${growchief_image}:latest"

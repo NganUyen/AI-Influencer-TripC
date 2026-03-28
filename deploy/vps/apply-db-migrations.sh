@@ -4,7 +4,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-COMPOSE_FILE="${REPO_ROOT}/docker-compose.production.yml"
 DEFAULT_ENV_FILE="${REPO_ROOT}/Project/.env.production"
 MIGRATIONS_DIR="${REPO_ROOT}/Project/supabase/migrations"
 
@@ -22,6 +21,16 @@ if [[ -f "${PROJECT_ENV_FILE}" ]]; then
     set +a
 fi
 
+if [[ -z "${DATABASE_URL:-}" ]]; then
+    echo "DATABASE_URL must point at the canonical application database before running migrations."
+    exit 1
+fi
+
+if ! command -v psql >/dev/null 2>&1; then
+    echo "psql is required to apply migrations to the canonical application database."
+    exit 1
+fi
+
 mapfile -t migration_files < <(find "${MIGRATIONS_DIR}" -maxdepth 1 -type f -name '*.sql' | sort)
 
 if [[ ${#migration_files[@]} -eq 0 ]]; then
@@ -33,13 +42,17 @@ for migration_file in "${migration_files[@]}"; do
     migration_name="$(basename "${migration_file}")"
 
     if [[ "${migration_name}" == "20260310_initial_schema.sql" ]]; then
-        echo "Skipping ${migration_name}; the base schema is handled by Project/supabase/schema.sql during initial database bootstrap."
+        echo "Skipping ${migration_name}; the base schema is bootstrap-only and should not be replayed on a long-lived database."
         continue
     fi
 
-    echo "Applying ${migration_name}..."
-    docker compose -f "${COMPOSE_FILE}" exec -T postgres \
-        psql -v ON_ERROR_STOP=1 -U postgres -d ai_influencer < "${migration_file}"
+    if [[ "${migration_name}" == "latest.sql" ]]; then
+        echo "Skipping ${migration_name}; it is a disposable snapshot helper and not part of the ordered migration chain."
+        continue
+    fi
+
+    echo "Applying ${migration_name} to the canonical application database..."
+    psql "${DATABASE_URL}" -X -v ON_ERROR_STOP=1 -f "${migration_file}"
 done
 
-echo "Applied post-initial database migrations to ai_influencer."
+echo "Applied ordered migrations to the canonical application database."

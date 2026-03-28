@@ -71,6 +71,13 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Dependency layout:
+
+- `requirements.txt` remains the full local/dev environment
+- `requirements.api.txt` is the slim production dependency set for the API and ChatGPT connector image
+- `requirements.worker.txt` adds the browser automation stack used by the Temporal worker image
+- `requirements.dev.txt` holds pytest-only tooling
+
 The settings loader can read either:
 
 - `Project/python_services/.env`

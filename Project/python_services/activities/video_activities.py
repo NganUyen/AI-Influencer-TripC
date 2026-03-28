@@ -247,40 +247,43 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
         if not os.path.exists(final_path) or os.path.getsize(final_path) < 10_000:
             raise AssemblyError("Final video file is missing or suspiciously small.")
 
-        storage = StorageService()
         safe_topic = _safe_topic_fragment(assembly_input.topic)
         storage_key = f"videos/{assembly_input.persona_id}/{safe_topic}_final.mp4"
+        _campaign_id = config.get("campaign_id")
+        _owner_key = config.get("owner_key")
+        _user_id = config.get("user_id")
 
         try:
             with open(final_path, "rb") as file_obj:
                 video_bytes = file_obj.read()
-            video_url = await storage.upload_bytes(
-                data=video_bytes,
-                filename=storage_key,
-                content_type="video/mp4",
-            )
-        except Exception as exc:
-            raise StorageUploadError(f"Failed to upload final video: {exc}") from exc
-
-        # ── media bucket hook (non-blocking) ─────────────────────────────────
-        _campaign_id = config.get("campaign_id")
-        _owner_key = config.get("owner_key")
-        _user_id = config.get("user_id")
-        if _campaign_id or assembly_input.persona_id or _owner_key or _user_id:
-            asyncio.create_task(
-                MediaStorageService().upload_from_url(
-                    url=video_url,
+            storage_result = None
+            if _campaign_id or assembly_input.persona_id or _owner_key or _user_id:
+                storage_result = await MediaStorageService().upload_bytes(
+                    data=video_bytes,
                     campaign_id=str(_campaign_id) if _campaign_id else None,
-                    asset_type="VIDEO",
-                    generation_prompt=assembly_input.topic,
                     content_type="video/mp4",
+                    asset_type="VIDEO",
+                    asset_kind="video",
+                    generation_prompt=assembly_input.topic,
                     user_id=_user_id,
                     owner_key=_owner_key,
                     persona_id=assembly_input.persona_id,
                     metadata={"topic": assembly_input.topic, "source": "split_screen"},
                     file_name_hint=f"{safe_topic}-final",
                 )
-            )
+
+            if storage_result and storage_result.get("access_url"):
+                video_url = storage_result["access_url"]
+                storage_key = storage_result.get("storage_path") or storage_key
+            else:
+                storage = StorageService()
+                video_url = await storage.upload_bytes(
+                    data=video_bytes,
+                    filename=storage_key,
+                    content_type="video/mp4",
+                )
+        except Exception as exc:
+            raise StorageUploadError(f"Failed to upload final video: {exc}") from exc
 
         metadata = {
             **assembly_input.model_dump(),

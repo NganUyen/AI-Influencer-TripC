@@ -1,0 +1,12 @@
+node_modules
+.next
+coverage
+python_services
+.env
+.env.*
+!.env.example
+*.log
+tsconfig.tsbuildinfo
+run-backend.cmd
+run-worker.cmd
+

@@ -47,6 +47,14 @@ class _StubPool:
         return _Acquire(self.conn)
 
 
+class _ProductionConn(_StubConn):
+    async def fetchrow(self, query, *args):
+        normalized = " ".join(query.split()).lower()
+        if normalized.startswith("select id from public.users"):
+            return {"id": args[0]}
+        return await super().fetchrow(query, *args)
+
+
 @pytest.mark.asyncio
 async def test_record_asset_writes_explicit_persona_storage_columns(monkeypatch):
     conn = _StubConn()
@@ -108,3 +116,51 @@ async def test_record_asset_writes_explicit_persona_storage_columns(monkeypatch)
     assert media_insert_args[17]["persona_id"] == "hero"
     assert media_insert_args[17]["owner_key"] == "telegram:123456"
     assert media_insert_args[17]["storage_bucket"] == media_storage_service_module.MEDIA_BUCKET
+
+
+@pytest.mark.asyncio
+async def test_record_asset_rejects_non_canonical_storage_path_in_production(monkeypatch):
+    conn = _ProductionConn()
+    pool = _StubPool(conn)
+
+    class _StubStorage:
+        bucket_name = media_storage_service_module.MEDIA_BUCKET
+        provider = "supabase"
+
+        def get_public_url(self, filename):
+            return f"https://storage.example/{filename}"
+
+    monkeypatch.setattr(
+        media_storage_service_module.DatabaseService,
+        "get_pool",
+        AsyncMock(return_value=pool),
+    )
+    monkeypatch.setattr(
+        media_storage_service_module,
+        "StorageService",
+        _StubStorage,
+    )
+    monkeypatch.setattr(media_storage_service_module.settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(media_storage_service_module.settings, "DEBUG", False)
+
+    service = media_storage_service_module.MediaStorageService()
+    result = await service.record_asset(
+        campaign_id=None,
+        asset_type="IMAGE",
+        generation_prompt="persona avatar",
+        storage_path="persona/avatar.png",
+        public_url="https://cdn.example/avatar.png",
+        mime_type="image/png",
+        file_size=182044,
+        provider_job_id="job-123",
+        user_id="550e8400-e29b-41d4-a716-446655440000",
+        owner_key=None,
+        persona_id="hero",
+        metadata={"source_url": "https://fal.example/avatar.png"},
+    )
+
+    assert result is None
+    assert not any(
+        "insert into public.media_assets" in " ".join(query.split()).lower()
+        for query, _ in conn.fetchrow_calls
+    )

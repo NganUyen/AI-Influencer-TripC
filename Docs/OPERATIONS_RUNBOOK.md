@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last verified: 2026-03-24 (UTC)
+Last verified: 2026-03-27 (UTC)
 
 This is the canonical deployment and operations guide for the current repo. It replaces the older split across separate VPS, single-domain, database-plan, provider-bootstrap, and deployment-log docs.
 
@@ -33,6 +33,8 @@ Private or localhost-only services in both cases:
 - `deploy/nginx/ai-influencer.reverse-proxy.conf`
 - `deploy/nginx/ai-influencer.single-domain.conf`
 - `deploy/vps/deploy-production.sh`
+- `deploy/vps/docker-cleanup.sh`
+- `deploy/vps/install-docker-maintenance-timer.sh`
 - `deploy/vps/apply-db-migrations.sh`
 - `deploy/vps/check-provider-apis.sh`
 - `deploy/vps/check-telegram-openclaw.sh`
@@ -40,7 +42,10 @@ Private or localhost-only services in both cases:
 - `deploy/vps/backup-stack.sh`
 - `deploy/vps/restore-stack.sh`
 - `deploy/vps/rollback-release.sh`
+- `deploy/vps/systemd/ai-influencer-docker-cleanup.service`
+- `deploy/vps/systemd/ai-influencer-docker-cleanup.timer`
 - `Project/.env.example`
+- `.github/workflows/publish-production-images.yml`
 
 ## Production Env Contract
 
@@ -74,6 +79,7 @@ CORS_ORIGINS=https://ai-influencer.tripc.ai
 
 Also set real values for:
 
+- `DATABASE_URL` for the Supabase Postgres application database
 - connector auth/session secrets
 - Supabase keys used by the customer auth path
 - OpenAI and Anthropic keys
@@ -82,16 +88,25 @@ Also set real values for:
 - proxy credentials
 - media-provider credentials
 
+Production image delivery values:
+
+- `GHCR_NAMESPACE` defaults to `ghcr.io/nganuyen`
+- `IMAGE_TAG` defaults to `latest`, but should be set to a published commit SHA when you want a deterministic rollout or rollback
+- `OPENCLAW_IMAGE` can override the pinned upstream OpenClaw digest if you intentionally promote a different upstream release
+- `DOCKER_CLEANUP_AFTER_DEPLOY=true` keeps post-deploy dangling-image and build-cache cleanup enabled
+
 ## Database Reality
 
-The repo currently runs with direct PostgreSQL as the primary application data store.
+The customer-facing app database is now expected to live on Supabase Postgres.
 
 Operational implications:
 
-- `Project/supabase/schema.sql` is used for first-boot initialization
-- `Project/supabase/migrations/*.sql` must be applied after deploy
-- long-lived environments are at risk of schema drift if migrations are skipped
-- back up Postgres before schema-changing rollouts
+- `DATABASE_URL` in `Project/.env.production` must point at the Supabase Postgres application database
+- local Docker Postgres in `docker-compose.production.yml` is only for service databases such as `postiz`, `growchief`, and Temporal internals
+- `Project/supabase/migrations/*.sql` are the migration authority for long-lived environments
+- `Project/supabase/schema.sql` is a disposable bootstrap snapshot, not the production migration path
+- `Project/supabase/migrations/latest.sql` is a snapshot helper and must not be replayed during deploys
+- back up the canonical application database before schema-changing rollouts
 
 Canonical migration command:
 
@@ -152,12 +167,14 @@ sudo systemctl reload nginx
 
 ```bash
 cd /opt/ai-influencer/repo
-PROJECT_ENV_FILE=./Project/.env.production ./deploy/vps/deploy-production.sh
+PROJECT_ENV_FILE=./Project/.env.production IMAGE_TAG=<published-commit-sha> ./deploy/vps/deploy-production.sh
 PROJECT_ENV_FILE=./Project/.env.production ./deploy/vps/apply-db-migrations.sh
 PROJECT_ENV_FILE=./Project/.env.production ./deploy/vps/healthcheck.sh
 ```
 
 This is the standard rollout order for both fresh and existing environments.
+
+The deploy script now pulls registry-backed images from GHCR before starting containers. It no longer rebuilds images locally on the VPS.
 
 ## Provider Bootstrap And Admin Access
 
@@ -216,12 +233,21 @@ cd /opt/ai-influencer/repo
 PROJECT_ENV_FILE=./Project/.env.production ./deploy/vps/rollback-release.sh <git-ref>
 ```
 
+Install the weekly Docker cleanup timer:
+
+```bash
+cd /opt/ai-influencer/repo
+sudo ./deploy/vps/install-docker-maintenance-timer.sh
+```
+
 Rebuild after compose drift:
 
 ```bash
 cd /opt/ai-influencer/repo
 PROJECT_ENV_FILE=./Project/.env.production docker compose -f docker-compose.production.yml down --remove-orphans
-PROJECT_ENV_FILE=./Project/.env.production docker compose -f docker-compose.production.yml up -d --build
+PROJECT_ENV_FILE=./Project/.env.production docker compose -f docker-compose.production.yml pull
+PROJECT_ENV_FILE=./Project/.env.production docker compose -f docker-compose.production.yml up -d
+PROJECT_ENV_FILE=./Project/.env.production ./deploy/vps/docker-cleanup.sh
 ```
 
 Provider API check:
@@ -229,13 +255,13 @@ Provider API check:
 ```bash
 cd /opt/ai-influencer/repo
 PROJECT_ENV_FILE=./Project/.env.production ./deploy/vps/check-provider-apis.sh
+```
 
 Telegram/OpenClaw check:
 
 ```bash
 cd /opt/ai-influencer/repo
 PROJECT_ENV_FILE=./Project/.env.production ./deploy/vps/check-telegram-openclaw.sh
-```
 ```
 
 ## First Live Acceptance

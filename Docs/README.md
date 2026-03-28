@@ -1,6 +1,6 @@
 # Documentation Guide
 
-Last verified: 2026-03-24 (UTC)
+Last verified: 2026-03-28 (UTC)
 
 This folder is the canonical documentation set for the repo as it exists today.
 
@@ -18,6 +18,10 @@ This folder is the canonical documentation set for the repo as it exists today.
 10. [ENVIRONMENT_REFERENCE.md](./ENVIRONMENT_REFERENCE.md) for the env contract used across local and production runtime
 11. [OPERATIONS_RUNBOOK.md](./OPERATIONS_RUNBOOK.md) for VPS deployment, migrations, provider bootstrap, and routine operations
 12. [PREPRODUCTION_VIDEO_V1.md](./PREPRODUCTION_VIDEO_V1.md) for the approved v1 pre-production design for Telegram-driven AI influencer video creation
+
+## Recent Rollout Notes
+
+- [ROLLOUT_2026-03-28_DOCKER_OPTIMIZATION_AND_DEPLOY_BRANCH.md](./ROLLOUT_2026-03-28_DOCKER_OPTIMIZATION_AND_DEPLOY_BRANCH.md) for the Docker footprint reduction rollout, live production recovery, and later `deploy`-branch push of the Supabase/media ownership batch
 
 ## How To Use This Set
 

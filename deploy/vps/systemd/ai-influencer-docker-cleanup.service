@@ -1,0 +1,9 @@
+[Unit]
+Description=AI Influencer Docker cleanup
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ai-influencer/repo
+ExecStart=/opt/ai-influencer/repo/deploy/vps/docker-cleanup.sh

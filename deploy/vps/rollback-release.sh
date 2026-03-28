@@ -23,4 +23,7 @@ fi
 
 git fetch --tags origin
 git checkout "${TARGET_REF}"
-"${SCRIPT_DIR}/deploy-production.sh"
+resolved_image_tag="$(git rev-parse HEAD)"
+
+echo "Rolling back images to tag ${resolved_image_tag}"
+IMAGE_TAG="${IMAGE_TAG:-${resolved_image_tag}}" "${SCRIPT_DIR}/deploy-production.sh"

@@ -106,4 +106,5 @@ echo "3. Copy either deploy/nginx/ai-influencer.reverse-proxy.conf or deploy/ngi
 echo "4. Link the nginx config, run nginx -t, and reload nginx"
 echo "5. Run deploy/vps/deploy-production.sh from the repo root"
 echo "6. Run deploy/vps/apply-chatgpt-connector-migration.sh"
-echo "7. Run deploy/vps/healthcheck.sh"
+echo "7. Optionally install the weekly Docker cleanup timer with sudo ./deploy/vps/install-docker-maintenance-timer.sh"
+echo "8. Run deploy/vps/healthcheck.sh"

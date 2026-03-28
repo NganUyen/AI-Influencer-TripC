@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly AI Influencer Docker cleanup
+
+[Timer]
+OnCalendar=Sun *-*-* 04:30:00 UTC
+Persistent=true
+RandomizedDelaySec=30m
+
+[Install]
+WantedBy=timers.target

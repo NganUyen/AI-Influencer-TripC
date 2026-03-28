@@ -1,5 +1,7 @@
 # Production Docker Compose configuration for the current ai-influencer VPS.
 # Public traffic terminates at host nginx and proxies to localhost-bound ports.
+# Registry-backed images are pulled from GHCR. Set IMAGE_TAG in
+# Project/.env.production to deploy a specific CI-published commit SHA.
 
 services:
   postgres:
@@ -12,7 +14,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init/00_create_service_databases.sql:/docker-entrypoint-initdb.d/00_create_service_databases.sql
-      - ./Project/supabase/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
     networks:
       - ai-influencer-network
     deploy:
@@ -214,10 +215,7 @@ services:
         max-file: "3"
 
   openclaw:
-    build:
-      context: .
-      dockerfile: docker/openclaw/Dockerfile
-    image: ai-influencer-openclaw:latest
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw@sha256:a5a4c83b773aca85a8ba99cf155f09afa33946c0aa5cc6a9ccb6162738b5da02}
     container_name: ai-influencer-openclaw
     init: true
     ports:
@@ -277,9 +275,7 @@ services:
       start_period: 180s
 
   chatgpt_connector:
-    build:
-      context: ./Project/python_services
-      dockerfile: Dockerfile
+    image: ${GHCR_NAMESPACE:-ghcr.io/nganuyen}/ai-influencer-python-api:${IMAGE_TAG:-latest}
     container_name: ai-influencer-chatgpt-connector
     ports:
       - "127.0.0.1:8010:8010"
@@ -289,15 +285,12 @@ services:
       - OPENCLAW_API_URL=http://openclaw:18789
       - CHATGPT_CONNECTOR_PUBLIC_URL=${CHATGPT_CONNECTOR_PUBLIC_URL:-https://connector.ai-influencer.tripc.ai}
       - CHATGPT_CONNECTOR_SESSION_SECRET=${CHATGPT_CONNECTOR_SESSION_SECRET}
-      - CHATGPT_CONNECTOR_DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/ai_influencer
       - OPENAI_OAUTH_CLIENT_ID=${OPENAI_OAUTH_CLIENT_ID:-}
       - OPENAI_OAUTH_CLIENT_SECRET=${OPENAI_OAUTH_CLIENT_SECRET:-}
       - OPENAI_OAUTH_REDIRECT_URI=${OPENAI_OAUTH_REDIRECT_URI:-https://connector.ai-influencer.tripc.ai/oauth/callback}
       - ENVIRONMENT=production
       - DEBUG=false
     depends_on:
-      postgres:
-        condition: service_healthy
       openclaw:
         condition: service_healthy
     networks:
@@ -319,10 +312,7 @@ services:
         max-file: "3"
 
   postiz:
-    build:
-      context: .
-      dockerfile: docker/postiz/Dockerfile
-    image: ai-influencer-postiz:latest
+    image: ${GHCR_NAMESPACE:-ghcr.io/nganuyen}/ai-influencer-postiz:${IMAGE_TAG:-latest}
     container_name: ai-influencer-postiz
     ports:
       - "127.0.0.1:3100:5000"
@@ -392,10 +382,7 @@ services:
         max-file: "3"
 
   growchief:
-    build:
-      context: .
-      dockerfile: docker/growchief/Dockerfile
-    image: ai-influencer-growchief:latest
+    image: ${GHCR_NAMESPACE:-ghcr.io/nganuyen}/ai-influencer-growchief:${IMAGE_TAG:-latest}
     container_name: ai-influencer-growchief
     ports:
       - "127.0.0.1:3200:5000"
@@ -466,17 +453,15 @@ services:
     shm_size: "1gb"
 
   backend:
-    build:
-      context: ./Project/python_services
-      dockerfile: Dockerfile
+    image: ${GHCR_NAMESPACE:-ghcr.io/nganuyen}/ai-influencer-python-api:${IMAGE_TAG:-latest}
     container_name: ai-influencer-backend
     ports:
       - "127.0.0.1:8000:8000"
     env_file:
       - ${PROJECT_ENV_FILE:-./Project/.env.production}
     environment:
-      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/ai_influencer
-      - CHATGPT_CONNECTOR_DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/ai_influencer
+      # DATABASE_URL and CHATGPT_CONNECTOR_DATABASE_URL come from the env file
+      # and should point at Supabase Postgres for the customer-facing app data.
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_TASK_QUEUE=ai-influencer-tasks
       - CORS_ORIGINS=${CORS_ORIGINS:-https://ai-influencer.tripc.ai,https://api.ai-influencer.tripc.ai,https://connector.ai-influencer.tripc.ai}
@@ -495,8 +480,6 @@ services:
       temporal:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      postgres:
         condition: service_healthy
       openclaw:
         condition: service_healthy
@@ -525,15 +508,13 @@ services:
         max-file: "3"
 
   temporal_worker:
-    build:
-      context: ./Project/python_services
-      dockerfile: Dockerfile
+    image: ${GHCR_NAMESPACE:-ghcr.io/nganuyen}/ai-influencer-python-worker:${IMAGE_TAG:-latest}
     container_name: ai-influencer-temporal-worker
     env_file:
       - ${PROJECT_ENV_FILE:-./Project/.env.production}
     environment:
-      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/ai_influencer
-      - CHATGPT_CONNECTOR_DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/ai_influencer
+      # DATABASE_URL and CHATGPT_CONNECTOR_DATABASE_URL come from the env file
+      # and should point at Supabase Postgres for the customer-facing app data.
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_TASK_QUEUE=ai-influencer-tasks
       - REDIS_URL=redis://redis:6379
@@ -549,8 +530,6 @@ services:
       temporal:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      postgres:
         condition: service_healthy
       openclaw:
         condition: service_healthy
@@ -579,9 +558,7 @@ services:
         max-file: "3"
 
   frontend:
-    build:
-      context: ./Project
-      dockerfile: Dockerfile.frontend
+    image: ${GHCR_NAMESPACE:-ghcr.io/nganuyen}/ai-influencer-frontend:${IMAGE_TAG:-latest}
     container_name: ai-influencer-frontend
     ports:
       - "127.0.0.1:3000:3000"
@@ -611,7 +588,6 @@ services:
         reservations:
           cpus: "0.25"
           memory: 512M
-    command: sh -c "npm run build && npm run start"
     restart: unless-stopped
     logging:
       driver: "json-file"

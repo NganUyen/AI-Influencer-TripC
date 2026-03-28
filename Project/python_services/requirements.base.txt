@@ -1,0 +1,45 @@
+fastapi==0.121.1
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+httpx==0.25.2
+aiohttp==3.13.3
+
+# Temporal
+temporalio==1.5.1
+
+# Database
+asyncpg==0.29.0
+sqlalchemy==2.0.25
+alembic==1.13.1
+psycopg2-binary==2.9.9
+
+# AI & ML
+openai==1.10.0
+anthropic==0.18.0
+google-generativeai==0.8.5
+
+# Media Generation
+replicate==0.22.0
+pillow==12.1.1
+requests==2.32.5
+
+# Messaging and provider integrations
+python-telegram-bot==20.7
+
+# Storage (Supabase Storage by default, legacy S3/R2 fallback)
+boto3==1.42.71
+botocore==1.42.71
+urllib3==2.6.3
+pyasn1==0.6.3
+
+# Utilities
+python-multipart==0.0.22
+passlib[bcrypt]==1.7.4
+redis==5.0.1
+celery==5.3.6
+python-dateutil==2.8.2
+
+# Monitoring & Logging
+sentry-sdk==1.45.1

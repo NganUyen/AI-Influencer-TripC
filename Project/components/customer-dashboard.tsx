@@ -64,6 +64,17 @@ type ContentItem = {
   scheduled_at?: string | null;
 };
 
+type Persona = {
+  persona_id: string;
+  display_name: string;
+  language?: string | null;
+  tts_voice?: string | null;
+  avatar_image_url?: string | null;
+  status: string;
+  video_count: number;
+  created_at: string;
+};
+
 type AIBackboneAccessMode =
   | "platform_managed"
   | "customer_api_key"
@@ -213,6 +224,7 @@ export default function CustomerDashboard() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [approvals, setApprovals] = useState<Campaign[]>([]);
   const [content, setContent] = useState<ContentItem[]>([]);
+  const [personas, setPersonas] = useState<Persona[]>([]);
   const [aiBackbone, setAiBackbone] =
     useState<AIBackboneSettings>(EMPTY_AI_BACKBONE);
   const [aiBackboneForm, setAiBackboneForm] = useState<AIBackboneForm>(
@@ -276,6 +288,7 @@ export default function CustomerDashboard() {
         approvalList,
         contentList,
         aiBackboneResponse,
+        personasList,
       ] =
         await Promise.all([
           customerApiRequest<{ brand_profile: BrandProfile | null }>(
@@ -297,6 +310,7 @@ export default function CustomerDashboard() {
           customerApiRequest<{ settings: AIBackboneSettings }>(
             "/api/customer/ai-backbone",
           ),
+          customerApiRequest<{ personas: Persona[] }>("/api/customer/personas"),
         ]);
 
       setBrandForm(brand.brand_profile || EMPTY_BRAND);
@@ -305,6 +319,7 @@ export default function CustomerDashboard() {
       setCampaigns(campaignList.campaigns);
       setApprovals(approvalList.approvals);
       setContent(contentList.items);
+      setPersonas(personasList.personas || []);
       setAiBackbone(aiBackboneResponse.settings);
       setAiBackboneForm(
         buildAiBackboneForm(
@@ -827,6 +842,66 @@ export default function CustomerDashboard() {
                   )}
                 </div>
               </div>
+            </Panel>
+
+            <Panel
+              title="My AI Personas"
+              subtitle="Personas linked to your account via Telegram. Sync happens automatically when you create them in the bot."
+            >
+              {personas.length === 0 ? (
+                <div className="flex flex-col items-center justify-center rounded-3xl border border-white/5 bg-white/5 py-10 text-center">
+                  <p className="text-sm text-stone-400">
+                    No personas linked yet.
+                  </p>
+                  <p className="mt-2 text-xs text-stone-500">
+                    Chat with your bot to create your first AI influencer.
+                  </p>
+                  {TELEGRAM_BOT_URL && (
+                    <a
+                      href={TELEGRAM_BOT_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-6 rounded-full border border-emerald-300/40 px-4 py-2 text-xs font-medium uppercase tracking-[0.18em] text-emerald-200 transition hover:bg-emerald-300/10"
+                    >
+                      Open Bot
+                    </a>
+                  )}
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {personas.map((persona) => (
+                    <div
+                      key={persona.persona_id}
+                      className="group flex items-center gap-4 rounded-3xl border border-white/8 bg-black/20 p-4 transition hover:border-white/20"
+                    >
+                      <div className="relative h-16 w-16 overflow-hidden rounded-2xl bg-slate-800">
+                        {persona.avatar_image_url ? (
+                          <img
+                            src={persona.avatar_image_url}
+                            alt={persona.display_name}
+                            className="h-full w-full object-cover transition duration-500 group-hover:scale-110"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-xl font-bold text-stone-600">
+                            {persona.display_name.charAt(0)}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="truncate text-base font-medium text-white">
+                          {persona.display_name}
+                        </h4>
+                        <div className="mt-1 flex items-center gap-3">
+                          <StatusBadge label={persona.status} />
+                          <span className="text-[10px] uppercase tracking-widest text-stone-500">
+                            {persona.video_count} videos
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </Panel>
 
             <Panel title="Campaign Control" subtitle="Create a draft from your connected accounts, approve it, then launch it into Temporal.">

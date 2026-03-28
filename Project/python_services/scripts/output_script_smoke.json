@@ -1,0 +1,83 @@
+{
+  "script": "Ê mọi người ơi! Mùa hè đến rồi, mà chưa biết đi đâu chơi á? Để TripC mách nhỏ cho mấy bạn mấy bãi biển siêu đỉnh ở Đà Nẵng nha! Đầu tiên là bãi biển Mỹ Khê nè, cát trắng mịn, sóng nhẹ nhàng, tha hồ sống ảo. Tiếp theo là bãi Non Nước, view núi Ngũ Hành Sơn siêu chill luôn. Còn nếu thích sự yên tĩnh thì ghé bãi Bắc Mỹ An nha, vắng vẻ mà vẫn đẹp mê ly. TripC còn có đầy đủ thông tin về giá cả, địa điểm ăn uống, chỗ ở gần biển nữa đó. Tải TripC ngay để khám phá Đà Nẵng mùa hè này nha!",
+  "duration_estimate": 45.0,
+  "scenes": [
+    {
+      "id": 1,
+      "timestamp_start": 0.0,
+      "timestamp_end": 5.0,
+      "caption": "Đà Nẵng mùa hè này!",
+      "prompt": "A young Vietnamese woman excitedly showing her phone screen with the TripC app open, showcasing beach recommendations.",
+      "top_half_source_type": null,
+      "top_half_target": null,
+      "top_half_capture_hint": null,
+      "source_ref": null
+    },
+    {
+      "id": 2,
+      "timestamp_start": 5.0,
+      "timestamp_end": 12.0,
+      "caption": "Bãi biển Mỹ Khê",
+      "prompt": "Aerial view of My Khe beach in Da Nang, Vietnam, showing white sand and gentle waves. Focus on the vibrant turquoise water.",
+      "top_half_source_type": null,
+      "top_half_target": null,
+      "top_half_capture_hint": null,
+      "source_ref": null
+    },
+    {
+      "id": 3,
+      "timestamp_start": 12.0,
+      "timestamp_end": 19.0,
+      "caption": "Non Nước view núi",
+      "prompt": "A couple taking a selfie on Non Nuoc beach, with the Marble Mountains (Ngũ Hành Sơn) in the background. Golden hour lighting.",
+      "top_half_source_type": null,
+      "top_half_target": null,
+      "top_half_capture_hint": null,
+      "source_ref": null
+    },
+    {
+      "id": 4,
+      "timestamp_start": 19.0,
+      "timestamp_end": 26.0,
+      "caption": "Bắc Mỹ An yên tĩnh",
+      "prompt": "A peaceful scene on Bac My An beach with few people, clear blue water, and gentle waves. Soft, dreamy lighting.",
+      "top_half_source_type": null,
+      "top_half_target": null,
+      "top_half_capture_hint": null,
+      "source_ref": null
+    },
+    {
+      "id": 5,
+      "timestamp_start": 26.0,
+      "timestamp_end": 33.0,
+      "caption": "TripC: Tất cả trong một",
+      "prompt": "Close-up of the TripC app interface on a smartphone, showcasing features like price comparisons, restaurant recommendations, and nearby accommodations for Da Nang beaches.",
+      "top_half_source_type": null,
+      "top_half_target": null,
+      "top_half_capture_hint": null,
+      "source_ref": null
+    },
+    {
+      "id": 6,
+      "timestamp_start": 33.0,
+      "timestamp_end": 40.0,
+      "caption": "Khám phá Đà Nẵng!",
+      "prompt": "A group of young Vietnamese friends laughing and enjoying themselves on a Da Nang beach, with beach umbrellas and cocktails in the background.",
+      "top_half_source_type": null,
+      "top_half_target": null,
+      "top_half_capture_hint": null,
+      "source_ref": null
+    },
+    {
+      "id": 7,
+      "timestamp_start": 40.0,
+      "timestamp_end": 45.0,
+      "caption": "Tải TripC ngay!",
+      "prompt": "The TripC app logo displayed prominently on the screen with a call to action to download, over a background of a beautiful Da Nang sunset.",
+      "top_half_source_type": null,
+      "top_half_target": null,
+      "top_half_capture_hint": null,
+      "source_ref": null
+    }
+  ]
+}

@@ -170,6 +170,7 @@ from api import (
     telegram_webhook,
     personas,
     customer,
+    telegram_auth,
 )
 
 app.include_router(workflows.router, prefix="/api/workflows", tags=["Workflows"])
@@ -186,6 +187,7 @@ app.include_router(
 )
 app.include_router(personas.router, prefix="/api/personas", tags=["Personas"])
 app.include_router(customer.router, prefix="/api/customer", tags=["Customer"])
+app.include_router(telegram_auth.router, prefix="/api/auth/telegram", tags=["Auth"])
 
 
 if __name__ == "__main__":

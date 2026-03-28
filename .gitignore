@@ -75,3 +75,4 @@ backups/
 # ---- Project-specific generated files ----
 Project/python_services/.pytest_cache/
 Project/python_services/.mypy_cache/
+.env.example

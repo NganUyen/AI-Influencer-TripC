@@ -4,11 +4,13 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
+import { TelegramLoginWidget } from "@/components/auth/TelegramLoginWidget";
 
 export default function AuthPage() {
   const router = useRouter();
   const {
     login,
+    loginWithTelegram,
     signup,
     isLoading,
     error,
@@ -17,6 +19,7 @@ export default function AuthPage() {
     isAuthenticated,
   } = useCustomerAuthStore((state) => ({
     login: state.login,
+    loginWithTelegram: state.loginWithTelegram,
     signup: state.signup,
     isLoading: state.isLoading,
     error: state.error,
@@ -124,75 +127,43 @@ export default function AuthPage() {
             </button>
           </div>
 
-          <h2 className="text-3xl font-semibold text-white">
-            {mode === "signin" ? "Welcome back" : "Create your workspace"}
-          </h2>
-          <p className="mt-2 text-sm text-stone-400">
-            {mode === "signin"
-              ? "Sign in with your customer account to continue."
-              : "Create a customer account, then finish brand onboarding in the dashboard."}
-          </p>
+          <div className="mt-8">
+            <h2 className="text-3xl font-semibold text-white">
+              {mode === "signin" ? "Welcome back" : "Create your workspace"}
+            </h2>
+            <p className="mt-2 text-sm text-stone-400">
+              {mode === "signin"
+                ? "Sign in securely with your Telegram account."
+                : "Link your Telegram account to start building your influencer factory."}
+            </p>
 
-          <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
-            {mode === "signup" && (
-              <div>
-                <label className="mb-2 block text-sm font-medium text-stone-300">
-                  Name
-                </label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-emerald-300"
-                  placeholder="Alicia Founder"
+            <div className="mt-10 flex flex-col items-center justify-center rounded-3xl border border-white/5 bg-white/5 py-12 backdrop-blur-sm">
+              <div id="telegram-login-container">
+                <TelegramLoginWidget
+                  botName="TripCInternBot"
+                  dataOnauth={(user: any) => {
+                    void loginWithTelegram(user);
+                  }}
                 />
               </div>
-            )}
-
-            <div>
-              <label className="mb-2 block text-sm font-medium text-stone-300">
-                Email
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-emerald-300"
-                placeholder="founder@brand.com"
-                autoComplete="username"
-              />
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-medium text-stone-300">
-                Password
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-white outline-none transition focus:border-emerald-300"
-                placeholder="Use a strong password"
-                autoComplete={mode === "signin" ? "current-password" : "new-password"}
-              />
+              <p className="mt-6 text-center text-xs text-stone-500">
+                Logged in via Telegram? We'll automatically sync your personas and
+                media assets.
+              </p>
             </div>
 
             {(localError || error) && (
-              <p className="text-sm text-rose-200">{localError || error}</p>
+              <p className="mt-4 text-center text-sm text-rose-300">
+                {localError || error}
+              </p>
             )}
 
-            <button
-              type="submit"
-              disabled={isLoading || !initialized}
-              className="w-full rounded-full bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isLoading
-                ? "Working..."
-                : mode === "signin"
-                  ? "Enter Dashboard"
-                  : "Create Account"}
-            </button>
-          </form>
+            <div className="mt-8 border-t border-white/5 pt-6 text-center">
+              <p className="text-xs text-stone-500">
+                By signing in, you agree to our Terms of Service and Privacy Policy.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>

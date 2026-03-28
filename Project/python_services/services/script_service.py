@@ -156,3 +156,61 @@ class ScriptService:
             market=persona_config.get("language_name", "Global"),
             model=model,
         )
+
+    async def generate_script_from_package(
+        self,
+        app_name: str,
+        package: dict,
+        persona_config: dict,
+        model: str = "models/gemini-2.0-flash",
+    ) -> ScriptContract:
+        """
+        Generates a ScriptContract directly from an ApprovedProductionPackage.
+        It maps Pre-Production beats directly to Top-Half Scene Contracts.
+        """
+        if "approved_beat_sheet" not in package or "beats" not in package["approved_beat_sheet"]:
+            raise ValueError("Package does not contain a valid beat sheet")
+
+        beats = package["approved_beat_sheet"]["beats"]
+        
+        # We need to construct the script string by concatenating narration drafts
+        script_text = " ".join([b.get("narration_draft", "") for b in beats]).strip()
+        
+        # We also need an estimated duration (roughly 130 words per minute)
+        duration_estimate = (len(script_text.split()) / 130.0) * 60.0
+        if duration_estimate < 10.0:
+            duration_estimate = 30.0
+
+        scenes = []
+        for index, beat in enumerate(beats, start=1):
+            top_half_source_type = beat.get("top_half_source_type", "search")
+            top_half_target = beat.get("top_half_target", beat.get("visual_concept", ""))
+            
+            # Combine narration and onscreen text into the caption/dialogue
+            narration = beat.get("narration_draft", "")
+            onscreen_text = beat.get("onscreen_text", "")
+            
+            scene = SceneContract(
+                id=index,
+                timestamp_start=0.0, # Will need to be calculated based on duration
+                timestamp_end=0.0,
+                caption=onscreen_text or narration[:30],
+                prompt=beat.get("visual_concept", ""),
+                
+                # New fields from top-half update
+                top_half_source_type=top_half_source_type,
+                top_half_target=top_half_target,
+                top_half_capture_hint=beat.get("duration_hint", "medium"),
+                source_ref=beat.get("source_ref")
+            )
+            scenes.append(scene)
+
+        # Assemble the full ScriptContract
+        # ScriptContract currently expects script, duration_estimate, and scenes from AI
+        contract = ScriptContract(
+            script=script_text,
+            duration_estimate=duration_estimate,
+            scenes=scenes
+        )
+
+        return contract

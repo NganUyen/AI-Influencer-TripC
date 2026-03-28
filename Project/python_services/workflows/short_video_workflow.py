@@ -16,6 +16,7 @@ with workflow.unsafe.imports_passed_through():
         wait_for_script_approval,
         send_preview_to_telegram,
         wait_for_publish_decision,
+        generate_script_from_approved_package_activity,
     )
     from activities.media_activities import (
         generate_audio,
@@ -70,58 +71,90 @@ class ShortVideoWorkflow:
             tts_voice = persona.get("tts_voice")
             heygen_avatar_id = persona.get("heygen_avatar_id")
 
-            self.workflow_status = "waiting_script_approval"
-            self.current_step = "waiting_script_approval"
-            script_result = await workflow.execute_activity(
-                generate_and_send_script_for_approval,
-                args=[
-                    {
-                        "app_name": "TripC",
-                        "topic": topic,
-                        "persona_config": {
-                            "language_name": language,
-                            "voice": tts_voice,
-                            "tts_voice": tts_voice,
-                        },
-                        "telegram_chat_id": telegram_chat_id,
-                    }
-                ],
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
+            # Check if this workflow was kicked off with an approved production package
+            approved_package = payload.get("approved_package")
 
-            approval = await workflow.execute_activity(
-                wait_for_script_approval,
-                args=[script_result["request_id"], telegram_chat_id],
-                start_to_close_timeout=timedelta(minutes=31),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-            if not approval.get("approved"):
-                self.workflow_status = "discarded"
-                self.current_step = "script_rejected"
-                # FIX 2: strict FinalVideoContract on script-rejected exit
-                return {
-                    "type": "video",
-                    "status": "discarded",
-                    "workflow_id": workflow_id,
-                    "persona_id": persona_id,
-                    "topic": topic,
-                    "video_url": None,
-                    "storage_key": None,
-                    "metadata": {"reason": "script_rejected"},
-                }
+            if approved_package:
+                self.workflow_status = "generating_script_from_package"
+                self.current_step = "generating_script"
+                
+                script_result = await workflow.execute_activity(
+                    generate_script_from_approved_package_activity,
+                    args=[
+                        {
+                            "app_name": "TripC",
+                            "topic": topic,
+                            "approved_package": approved_package,
+                            "persona_config": {
+                                "language_name": language,
+                                "voice": tts_voice,
+                                "tts_voice": tts_voice,
+                            }
+                        }
+                    ],
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            else:
+                self.workflow_status = "waiting_script_approval"
+                self.current_step = "waiting_script_approval"
+                script_result = await workflow.execute_activity(
+                    generate_and_send_script_for_approval,
+                    args=[
+                        {
+                            "app_name": "TripC",
+                            "topic": topic,
+                            "persona_config": {
+                                "language_name": language,
+                                "voice": tts_voice,
+                                "tts_voice": tts_voice,
+                            },
+                            "telegram_chat_id": telegram_chat_id,
+                        }
+                    ],
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+
+                approval = await workflow.execute_activity(
+                    wait_for_script_approval,
+                    args=[script_result["request_id"], telegram_chat_id],
+                    start_to_close_timeout=timedelta(minutes=31),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+                if not approval.get("approved"):
+                    self.workflow_status = "discarded"
+                    self.current_step = "script_rejected"
+                    # FIX 2: strict FinalVideoContract on script-rejected exit
+                    return {
+                        "type": "video",
+                        "status": "discarded",
+                        "workflow_id": workflow_id,
+                        "persona_id": persona_id,
+                        "topic": topic,
+                        "video_url": None,
+                        "storage_key": None,
+                        "metadata": {"reason": "script_rejected"},
+                    }
 
             self.workflow_status = "generating_assets"
             self.current_step = "generating_assets"
 
             script_json = script_result["script_json"]
             scenes: List[Dict[str, Any]] = script_json.get("scenes", [])
+            
+            # NOTE: top_half_source_type flows through script_json scenes via SceneContract
+            
             scene_payloads = [
                 {
                     "id": scene.get("id"),
                     "caption": scene.get("caption", ""),
                     "image_prompt": scene.get("prompt", ""),
                     "config": {},
+                    "top_half_source_type": scene.get("top_half_source_type"),
+                    "top_half_target": scene.get("top_half_target"),
+                    "top_half_capture_hint": scene.get("top_half_capture_hint"),
+                    "source_ref": scene.get("source_ref"),
                 }
                 for scene in scenes
             ]

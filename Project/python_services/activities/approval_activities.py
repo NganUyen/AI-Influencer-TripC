@@ -227,3 +227,33 @@ async def wait_for_publish_decision(request_id: str, chat_id: str) -> Dict[str, 
         elapsed += POLL_INTERVAL
 
     raise TimeoutError(f"Publish decision timed out [{request_id}]")
+
+
+@activity.defn
+async def generate_script_from_approved_package_activity(config: dict) -> dict:
+    """
+    Generate script from an approved package. Does NOT require human approval.
+    """
+    from services.script_service import ScriptService
+    
+    app_name = config.get("app_name", "TripC")
+    package = config["approved_package"]
+    persona_config = config.get("persona_config", {})
+    
+    svc = ScriptService()
+    try:
+        contract = await svc.generate_script_from_package(
+            app_name=app_name,
+            package=package,
+            persona_config=persona_config
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise
+        
+    return {
+        "script_json": contract.model_dump(),
+        "status": "ready"
+    }
+

@@ -116,6 +116,23 @@ type AIBackboneForm = {
   chatgptSubscriptionTier: "plus" | "pro";
 };
 
+type TelegramLinkStatus = {
+  linked: boolean;
+  link?: {
+    chat_id: number;
+    user_id: string;
+    telegram_username?: string | null;
+    linked_at: string;
+    last_verified_at: string;
+    revoked_at?: string | null;
+  } | null;
+};
+
+type TelegramLinkToken = {
+  start_token: string;
+  expires_at: string;
+};
+
 const SUPPORTED_PLATFORMS = ["linkedin", "facebook", "twitter", "youtube"];
 const AI_BACKBONE_OPTIONS: Array<{
   value: AIBackboneAccessMode;
@@ -225,6 +242,10 @@ export default function CustomerDashboard() {
   const [approvals, setApprovals] = useState<Campaign[]>([]);
   const [content, setContent] = useState<ContentItem[]>([]);
   const [personas, setPersonas] = useState<Persona[]>([]);
+  const [telegramLink, setTelegramLink] = useState<TelegramLinkStatus | null>(
+    null,
+  );
+  const [linkToken, setLinkToken] = useState<TelegramLinkToken | null>(null);
   const [aiBackbone, setAiBackbone] =
     useState<AIBackboneSettings>(EMPTY_AI_BACKBONE);
   const [aiBackboneForm, setAiBackboneForm] = useState<AIBackboneForm>(
@@ -289,6 +310,7 @@ export default function CustomerDashboard() {
         contentList,
         aiBackboneResponse,
         personasList,
+        telegramLinkResponse,
       ] =
         await Promise.all([
           customerApiRequest<{ brand_profile: BrandProfile | null }>(
@@ -311,6 +333,7 @@ export default function CustomerDashboard() {
             "/api/customer/ai-backbone",
           ),
           customerApiRequest<{ personas: Persona[] }>("/api/customer/personas"),
+          customerApiRequest<TelegramLinkStatus>("/api/customer/telegram/link"),
         ]);
 
       setBrandForm(brand.brand_profile || EMPTY_BRAND);
@@ -320,6 +343,7 @@ export default function CustomerDashboard() {
       setApprovals(approvalList.approvals);
       setContent(contentList.items);
       setPersonas(personasList.personas || []);
+      setTelegramLink(telegramLinkResponse);
       setAiBackbone(aiBackboneResponse.settings);
       setAiBackboneForm(
         buildAiBackboneForm(
@@ -612,6 +636,26 @@ export default function CustomerDashboard() {
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to launch campaign");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleStartTelegramLink() {
+    setBusyKey("telegram-link");
+    try {
+      const payload = await customerApiRequest<TelegramLinkToken>(
+        "/api/customer/telegram/link/start",
+        {
+          method: "POST",
+          body: JSON.stringify({ expires_in_minutes: 15 }),
+        },
+      );
+      setLinkToken(payload);
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : "Failed to start Telegram link",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -1089,6 +1133,72 @@ export default function CustomerDashboard() {
                   >
                     Open Telegram Bot
                   </a>
+                )}
+              </div>
+            </Panel>
+
+            <Panel
+              title="Telegram Link"
+              subtitle="Connect your account to a Telegram chat to enable automated persona syncing and approvals."
+            >
+              <div className="space-y-4">
+                {telegramLink?.linked ? (
+                  <div className="rounded-3xl border border-emerald-300/15 bg-emerald-300/5 p-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-emerald-100/80">
+                          Linked Account
+                        </p>
+                        <p className="mt-2 text-sm text-stone-200">
+                          {telegramLink.link?.telegram_username
+                            ? `@${telegramLink.link.telegram_username}`
+                            : `Chat ID: ${telegramLink.link?.chat_id}`}
+                        </p>
+                      </div>
+                      <StatusBadge label="linked" />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <p className="text-sm text-stone-300">
+                      Linking your Telegram allows the bot to know exactly which
+                      personas belong to you.
+                    </p>
+                    {linkToken ? (
+                      <div className="space-y-3 rounded-3xl border border-amber-300/20 bg-amber-300/5 p-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-amber-200/80">
+                          Magic Link Generated
+                        </p>
+                        <p className="text-sm text-white">
+                          Click the button below to open the bot and link your
+                          chat.
+                        </p>
+                        <a
+                          href={`${TELEGRAM_BOT_URL}?start=${linkToken.start_token}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex w-full items-center justify-center rounded-full bg-amber-200 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-100"
+                        >
+                          Link Telegram Now
+                        </a>
+                        <p className="text-[10px] text-stone-500">
+                          Expires at:{" "}
+                          {new Date(linkToken.expires_at).toLocaleTimeString()}
+                        </p>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void handleStartTelegramLink()}
+                        disabled={busyKey === "telegram-link"}
+                        className="w-full rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200 disabled:opacity-50"
+                      >
+                        {busyKey === "telegram-link"
+                          ? "Generating Token..."
+                          : "Link My Telegram"}
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </Panel>

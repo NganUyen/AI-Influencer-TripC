@@ -64,7 +64,9 @@ _CANCELLATION_COPY = {
 }
 
 
-def _inline_keyboard_from_pairs(rows: Iterable[Iterable[tuple[str, str]]]) -> Dict[str, Any]:
+def _inline_keyboard_from_pairs(
+    rows: Iterable[Iterable[tuple[str, str]]],
+) -> Dict[str, Any]:
     return {
         "inline_keyboard": [
             [{"text": label, "callback_data": data} for label, data in row]
@@ -101,7 +103,10 @@ def _menu_text(menu: Dict[str, Any]) -> str:
 def _image_scene_batch_keyboard() -> Dict[str, Any]:
     return _inline_keyboard_from_pairs(
         [
-            [("Use Images", "action::use_images"), ("Regenerate", "action::regenerate")],
+            [
+                ("Use Images", "action::use_images"),
+                ("Regenerate", "action::regenerate"),
+            ],
             [("Cancel", "action::cancel")],
         ]
     )
@@ -124,7 +129,9 @@ def _image_scene_selection_keyboard(
     if row:
         rows.append(row)
 
-    rows.append([("Submit", "action::submit_selection"), ("Back", "action::back_to_preview")])
+    rows.append(
+        [("Submit", "action::submit_selection"), ("Back", "action::back_to_preview")]
+    )
     rows.append([("Cancel", "action::cancel")])
     return _inline_keyboard_from_pairs(rows)
 
@@ -139,7 +146,9 @@ def _format_image_scene_candidates(
     selected = set(selected_indexes or [])
 
     if selected_indexes is not None:
-        selected_labels = ", ".join(f"#{index + 1}" for index in selected_indexes) or "none"
+        selected_labels = (
+            ", ".join(f"#{index + 1}" for index in selected_indexes) or "none"
+        )
         lines.append(f"Selected: {selected_labels}")
 
     for index, candidate in enumerate(candidates):
@@ -151,7 +160,9 @@ def _format_image_scene_candidates(
     return "\n".join(lines)
 
 
-def _render_cancelled_result(session: SkillSession, output: Dict[str, Any]) -> Dict[str, Any]:
+def _render_cancelled_result(
+    session: SkillSession, output: Dict[str, Any]
+) -> Dict[str, Any]:
     text = _CANCELLATION_COPY.get(
         session.skill_name,
         "🛑 Action cancelled.\nNothing else will run for this request.",
@@ -159,7 +170,11 @@ def _render_cancelled_result(session: SkillSession, output: Dict[str, Any]) -> D
     workflow_id = output.get("workflow_id")
     if workflow_id:
         text = f"{text}\nWorkflow ID: `{workflow_id}`"
-    return {"text": text, "reply_markup": None, "parse_mode": "Markdown" if workflow_id else None}
+    return {
+        "text": text,
+        "reply_markup": None,
+        "parse_mode": "Markdown" if workflow_id else None,
+    }
 
 
 def _truncate(text: str, max_length: int = 30) -> str:
@@ -176,7 +191,9 @@ def _humanize_token(value: Any) -> str:
     return text.replace("_", " ").strip().title()
 
 
-def _video_ai_concept_text(concept: Dict[str, Any], persona_snapshot: Dict[str, Any]) -> str:
+def _video_ai_concept_text(
+    concept: Dict[str, Any], persona_snapshot: Dict[str, Any]
+) -> str:
     persona_label = (
         persona_snapshot.get("display_name")
         or persona_snapshot.get("persona_id")
@@ -367,7 +384,9 @@ def _publish_queue_keyboard(items: List[Dict[str, Any]]) -> Dict[str, Any] | Non
         for item in items
         if item.get("id")
     ]
-    rows.append([("Refresh Queue", "action::refresh_queue"), ("Cancel", "action::cancel")])
+    rows.append(
+        [("Refresh Queue", "action::refresh_queue"), ("Cancel", "action::cancel")]
+    )
     return _inline_keyboard_from_pairs(rows)
 
 
@@ -394,7 +413,9 @@ def _publish_item_actions_keyboard(item: Dict[str, Any]) -> Dict[str, Any]:
         rows.append([("Boost Engagement", "action::boost_engagement")])
     if item.get("status") == "failed":
         rows.append([("Retry Publish", "action::retry_publish")])
-    rows.append([("Refresh Queue", "action::refresh_queue"), ("Back", "action::back_to_queue")])
+    rows.append(
+        [("Refresh Queue", "action::refresh_queue"), ("Back", "action::back_to_queue")]
+    )
     rows.append([("Cancel", "action::cancel")])
     return _inline_keyboard_from_pairs(rows)
 
@@ -421,7 +442,9 @@ def _format_publish_item_details(item: Dict[str, Any], *, intro: str) -> str:
     if item.get("postUrl"):
         lines.append(f"Post URL: {item['postUrl']}")
     if item.get("syndicateTriggered") is not None:
-        lines.append(f"Syndicate triggered: {'yes' if item.get('syndicateTriggered') else 'no'}")
+        lines.append(
+            f"Syndicate triggered: {'yes' if item.get('syndicateTriggered') else 'no'}"
+        )
     if item.get("syndicateJobId"):
         lines.append(f"Syndicate job ID: {item['syndicateJobId']}")
     metrics = item.get("engagementMetrics") or {}
@@ -475,7 +498,9 @@ class TelegramRenderer:
 
         back_menu = _INFO_BACK_MENU_BY_SKILL.get(skill_name)
         if back_menu is None:
-            back_menu = _INFO_BACK_MENU_BY_PARENT.get(definition.get("parent"), "menu_main")
+            back_menu = _INFO_BACK_MENU_BY_PARENT.get(
+                definition.get("parent"), "menu_main"
+            )
 
         rows: List[List[tuple[str, str]]] = []
         if skill_name in SKILL_REGISTRY:
@@ -515,9 +540,14 @@ class TelegramRenderer:
                 "parse_mode": None,
             }
 
-        if session.skill_name == "image-scene" and session.step_key == "selecting_images":
+        if (
+            session.skill_name == "image-scene"
+            and session.step_key == "selecting_images"
+        ):
             candidates = session.artifacts.get("image_candidates") or []
-            selected_indexes = list(session.artifacts.get("selected_candidate_indexes") or [])
+            selected_indexes = list(
+                session.artifacts.get("selected_candidate_indexes") or []
+            )
             text = _format_image_scene_candidates(
                 candidates,
                 selected_indexes=selected_indexes,
@@ -525,11 +555,16 @@ class TelegramRenderer:
             )
             return {
                 "text": text,
-                "reply_markup": _image_scene_selection_keyboard(candidates, selected_indexes),
+                "reply_markup": _image_scene_selection_keyboard(
+                    candidates, selected_indexes
+                ),
                 "parse_mode": None,
             }
 
-        if session.skill_name == "publish-manager" and session.step_key == "select_item":
+        if (
+            session.skill_name == "publish-manager"
+            and session.step_key == "select_item"
+        ):
             queue_items = list(session.artifacts.get("queue_items") or [])
             return {
                 "text": _format_publish_queue(
@@ -540,7 +575,10 @@ class TelegramRenderer:
                 "parse_mode": None,
             }
 
-        if session.skill_name == "publish-manager" and session.step_key == "publish_or_schedule":
+        if (
+            session.skill_name == "publish-manager"
+            and session.step_key == "publish_or_schedule"
+        ):
             item = session.artifacts.get("selected_item") or {}
             return {
                 "text": _format_publish_item_details(
@@ -552,14 +590,18 @@ class TelegramRenderer:
             }
 
         step = get_step_definition(session.skill_name, session.step_key)
-        prompt_text = step.get("prompt_text") or f"{session.skill_name}: {session.step_key}"
+        prompt_text = (
+            step.get("prompt_text") or f"{session.skill_name}: {session.step_key}"
+        )
         input_type = step.get("input_type")
 
         if input_type in {"persona_picker", "persona_selector"}:
             personas = session.artifacts.get("available_personas") or []
             options = [
                 {
-                    "label": item.get("display_name") or item.get("persona_id") or "persona",
+                    "label": item.get("display_name")
+                    or item.get("persona_id")
+                    or "persona",
                     "value": item.get("persona_id") or "",
                 }
                 for item in personas
@@ -606,7 +648,11 @@ class TelegramRenderer:
             if result.success:
                 status = ""
                 if isinstance(result.output, dict):
-                    status = result.output.get("message") or result.output.get("status") or ""
+                    status = (
+                        result.output.get("message")
+                        or result.output.get("status")
+                        or ""
+                    )
                     if result.output.get("status") == "cancelled":
                         status = "🛑 Action cancelled.\nNothing else will run for this request."
                 return {
@@ -621,15 +667,32 @@ class TelegramRenderer:
             }
 
         if not result.success:
-            if session.skill_name == "video-ai" and session.step_key in {"confirm_concept", "confirm_beats"}:
+            if session.skill_name == "video-ai" and session.step_key in {
+                "confirm_concept",
+                "confirm_beats",
+            }:
                 output = result.output or {}
-                concept = output.get("concept_brief") or session.artifacts.get("concept_brief") or {}
-                beat_sheet = output.get("beat_sheet") or session.artifacts.get("beat_sheet") or {}
+                concept = (
+                    output.get("concept_brief")
+                    or session.artifacts.get("concept_brief")
+                    or {}
+                )
+                beat_sheet = (
+                    output.get("beat_sheet")
+                    or session.artifacts.get("beat_sheet")
+                    or {}
+                )
                 persona_snapshot = (
-                    output.get("persona_snapshot") or session.artifacts.get("persona_snapshot") or {}
+                    output.get("persona_snapshot")
+                    or session.artifacts.get("persona_snapshot")
+                    or {}
                 )
                 step = get_step_definition(session.skill_name, session.step_key)
-                allow_approve = bool(concept) if session.step_key == "confirm_concept" else bool(beat_sheet)
+                allow_approve = (
+                    bool(concept)
+                    if session.step_key == "confirm_concept"
+                    else bool(beat_sheet)
+                )
                 return {
                     "text": _video_ai_retry_text(
                         error=result.error or "Pre-production step failed.",
@@ -657,9 +720,15 @@ class TelegramRenderer:
 
         if session.skill_name == "video-ai" and session.step_key == "confirm_concept":
             output = result.output or {}
-            concept = output.get("concept_brief") or session.artifacts.get("concept_brief") or {}
+            concept = (
+                output.get("concept_brief")
+                or session.artifacts.get("concept_brief")
+                or {}
+            )
             persona_snapshot = (
-                output.get("persona_snapshot") or session.artifacts.get("persona_snapshot") or {}
+                output.get("persona_snapshot")
+                or session.artifacts.get("persona_snapshot")
+                or {}
             )
             step = get_step_definition(session.skill_name, session.step_key)
             return {
@@ -673,8 +742,14 @@ class TelegramRenderer:
 
         if session.skill_name == "video-ai" and session.step_key == "confirm_beats":
             output = result.output or {}
-            beat_sheet = output.get("beat_sheet") or session.artifacts.get("beat_sheet") or {}
-            concept = output.get("concept_brief") or session.artifacts.get("concept_brief") or {}
+            beat_sheet = (
+                output.get("beat_sheet") or session.artifacts.get("beat_sheet") or {}
+            )
+            concept = (
+                output.get("concept_brief")
+                or session.artifacts.get("concept_brief")
+                or {}
+            )
             step = get_step_definition(session.skill_name, session.step_key)
             return {
                 "text": _video_ai_beats_text(beat_sheet, concept),
@@ -685,28 +760,45 @@ class TelegramRenderer:
                 "parse_mode": None,
             }
 
-        if session.skill_name == "image-scene" and session.step_key == "selecting_images":
+        if (
+            session.skill_name == "image-scene"
+            and session.step_key == "selecting_images"
+        ):
             output = result.output or {}
-            candidates = output.get("image_candidates") or session.artifacts.get("image_candidates") or []
+            candidates = (
+                output.get("image_candidates")
+                or session.artifacts.get("image_candidates")
+                or []
+            )
             selected_indexes = list(
                 output.get("selected_candidate_indexes")
                 or session.artifacts.get("selected_candidate_indexes")
                 or []
             )
-            intro = output.get("message") or "Select one or more images from the current batch."
+            intro = (
+                output.get("message")
+                or "Select one or more images from the current batch."
+            )
             return {
                 "text": _format_image_scene_candidates(
                     candidates,
                     selected_indexes=selected_indexes,
                     intro=intro,
                 ),
-                "reply_markup": _image_scene_selection_keyboard(candidates, selected_indexes),
+                "reply_markup": _image_scene_selection_keyboard(
+                    candidates, selected_indexes
+                ),
                 "parse_mode": None,
             }
 
-        if session.skill_name == "publish-manager" and session.step_key == "select_item":
+        if (
+            session.skill_name == "publish-manager"
+            and session.step_key == "select_item"
+        ):
             output = result.output or {}
-            queue_items = output.get("queue_items") or session.artifacts.get("queue_items") or []
+            queue_items = (
+                output.get("queue_items") or session.artifacts.get("queue_items") or []
+            )
             return {
                 "text": _format_publish_queue(
                     queue_items,
@@ -717,9 +809,16 @@ class TelegramRenderer:
                 "parse_mode": None,
             }
 
-        if session.skill_name == "publish-manager" and session.step_key == "publish_or_schedule":
+        if (
+            session.skill_name == "publish-manager"
+            and session.step_key == "publish_or_schedule"
+        ):
             output = result.output or {}
-            item = output.get("content_item") or session.artifacts.get("selected_item") or {}
+            item = (
+                output.get("content_item")
+                or session.artifacts.get("selected_item")
+                or {}
+            )
             return {
                 "text": _format_publish_item_details(
                     item,
@@ -749,21 +848,21 @@ class TelegramRenderer:
                 )
                 return {
                     "text": text,
-                    "reply_markup": _inline_keyboard_from_options(PREVIEW_ACTIONS, prefix="action::"),
+                    "reply_markup": _inline_keyboard_from_options(
+                        PREVIEW_ACTIONS, prefix="action::"
+                    ),
                     "parse_mode": "Markdown",
                 }
             if session.skill_name == "persona-creator":
                 persona = (
-                    output.get("persona")
-                    or session.artifacts.get("persona_data")
-                    or {}
+                    output.get("persona") or session.artifacts.get("persona_data") or {}
                 )
                 readiness = (
-                    output.get("readiness")
-                    or session.artifacts.get("readiness")
-                    or {}
+                    output.get("readiness") or session.artifacts.get("readiness") or {}
                 )
-                persona_id = persona.get("persona_id") or session.artifacts.get("persona_id", "—")
+                persona_id = persona.get("persona_id") or session.artifacts.get(
+                    "persona_id", "—"
+                )
                 language = persona.get("language", "—")
                 tts_voice = GoogleTTSService.describe_voice(
                     persona.get("tts_voice"),
@@ -804,7 +903,9 @@ class TelegramRenderer:
                 ]
                 payload: Dict[str, Any] = {
                     "text": text,
-                    "reply_markup": _inline_keyboard_from_options(persona_actions, prefix="action::"),
+                    "reply_markup": _inline_keyboard_from_options(
+                        persona_actions, prefix="action::"
+                    ),
                     "parse_mode": None,
                 }
                 if image_url:
@@ -812,17 +913,21 @@ class TelegramRenderer:
                     payload["photo_caption"] = photo_caption
                 return payload
 
-
-
             if session.skill_name in ("image-scene", "image_generation"):
                 if not image_url:
-                    candidates = output.get("image_candidates") or session.artifacts.get("image_candidates") or []
+                    candidates = (
+                        output.get("image_candidates")
+                        or session.artifacts.get("image_candidates")
+                        or []
+                    )
                     if candidates:
                         image_url = candidates[0].get("url")
                 style = session.collected.get("style", "N/A")
                 scene = session.collected.get("scene_type", "N/A")
                 ratio = session.collected.get("aspect_ratio", "16:9")
-                prompt = output.get("prompt") or session.collected.get("topic_or_prompt", "N/A")
+                prompt = output.get("prompt") or session.collected.get(
+                    "topic_or_prompt", "N/A"
+                )
                 text = (
                     f"🎨 *Image Generated Successfully!*\n\n"
                     f"• *Style*: {style}\n"
@@ -861,7 +966,9 @@ class TelegramRenderer:
                 "reply_markup": (
                     _image_scene_batch_keyboard()
                     if session.skill_name in ("image-scene", "image_generation")
-                    else _inline_keyboard_from_options(PREVIEW_ACTIONS, prefix="action::")
+                    else _inline_keyboard_from_options(
+                        PREVIEW_ACTIONS, prefix="action::"
+                    )
                 ),
                 "parse_mode": "Markdown",
             }
@@ -869,10 +976,15 @@ class TelegramRenderer:
                 payload["photo_url"] = image_url
                 payload["photo_caption"] = photo_caption
             else:
-                payload["text"] = "✨ Preview ready!\n⚠️ Image URL is currently unavailable. Choose an action:"
+                payload["text"] = (
+                    "✨ Preview ready!\n⚠️ Image URL is currently unavailable. Choose an action:"
+                )
             return payload
 
-        if session.control.status == SkillStatus.waiting_approval or result.next_step == "poll_status":
+        if (
+            session.control.status == SkillStatus.waiting_approval
+            or result.next_step == "poll_status"
+        ):
             output = result.output or {}
             workflow_id = output.get("workflow_id") or session.control.workflow_id
 
@@ -914,20 +1026,44 @@ class TelegramRenderer:
                     or session.artifacts.get("approved_production_package")
                     or {}
                 )
-                concept = package.get("concept_brief") or session.artifacts.get("concept_brief") or {}
-                beat_sheet = package.get("beat_sheet") or session.artifacts.get("beat_sheet") or {}
+                concept = (
+                    package.get("concept_brief")
+                    or session.artifacts.get("concept_brief")
+                    or {}
+                )
+                beat_sheet = (
+                    package.get("beat_sheet")
+                    or session.artifacts.get("beat_sheet")
+                    or {}
+                )
                 beat_count = len(beat_sheet.get("beats") or [])
-                lines = [
-                    "Pre-production package ready.",
-                    "No production workflow has started yet.",
-                    "",
-                    f"Persona: {concept.get('persona_id') or '-'}",
-                    f"Feature Focus: {concept.get('feature_focus') or '-'}",
-                    f"Goal: {_humanize_token(concept.get('video_goal'))}",
-                    f"Beats: {beat_count}",
-                    "",
-                    "This package is ready for the next production integration step.",
-                ]
+
+                # Check if production workflow was started
+                workflow_id = output.get("workflow_id")
+                if workflow_id:
+                    lines = [
+                        "Production workflow started!",
+                        f"Workflow ID: {workflow_id}",
+                        "",
+                        f"Persona: {concept.get('persona_id') or '-'}",
+                        f"Feature Focus: {concept.get('feature_focus') or '-'}",
+                        f"Goal: {_humanize_token(concept.get('video_goal'))}",
+                        f"Beats: {beat_count}",
+                        "",
+                        "Your video is being generated. This may take a few minutes...",
+                    ]
+                else:
+                    lines = [
+                        "Pre-production package ready.",
+                        "Production workflow could not be started.",
+                        "",
+                        f"Persona: {concept.get('persona_id') or '-'}",
+                        f"Feature Focus: {concept.get('feature_focus') or '-'}",
+                        f"Goal: {_humanize_token(concept.get('video_goal'))}",
+                        f"Beats: {beat_count}",
+                        "",
+                        "Please try again or contact support.",
+                    ]
                 return {
                     "text": "\n".join(lines),
                     "reply_markup": None,
@@ -954,11 +1090,19 @@ class TelegramRenderer:
                 if output.get("quota_summary"):
                     lines.append("📊 Quota summary ready.")
                 if output.get("persona"):
-                    lines.append(f"👤 Persona: `{output['persona'].get('persona_id', '-')}`")
+                    lines.append(
+                        f"👤 Persona: `{output['persona'].get('persona_id', '-')}`"
+                    )
                 if output.get("content_item"):
                     item = output["content_item"]
-                    lines.append(f"📄 Item: {item.get('title') or item.get('id') or '-'}")
+                    lines.append(
+                        f"📄 Item: {item.get('title') or item.get('id') or '-'}"
+                    )
                     lines.append(f"📡 Status: {_status_badge(item.get('status', ''))}")
-            return {"text": "\n".join(lines), "reply_markup": None, "parse_mode": "Markdown"}
+            return {
+                "text": "\n".join(lines),
+                "reply_markup": None,
+                "parse_mode": "Markdown",
+            }
 
         return cls.render_skill_prompt(session)

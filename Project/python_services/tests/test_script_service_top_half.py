@@ -1,9 +1,10 @@
 import pytest
 from services.script_service import ScriptService
 
+
 @pytest.mark.asyncio
 async def test_generate_script_from_package():
-    # Provide a simple mock package
+    # Provide a simple mock package matching ApprovedProductionPackageContract
     package = {
         "concept_brief": {
             "persona_id": "test_persona",
@@ -16,9 +17,9 @@ async def test_generate_script_from_package():
             "reference_url": "https://example.com",
             "access_level": "public_page_only",
             "source_summary": "test",
-            "tone_resolved": "test"
+            "tone_resolved": "test",
         },
-        "approved_beat_sheet": {
+        "beat_sheet": {
             "beats": [
                 {
                     "idx": 1,
@@ -30,9 +31,6 @@ async def test_generate_script_from_package():
                     "source_ref": "https://playwright.dev",
                     "overlay_text": "Mind blown",
                     "duration_sec": 5,
-                    "narration_draft": "I found this crazy tool that automates everything.",
-                    "onscreen_text": "Crazy Tool",
-                    "visual_concept": "Website hero section"
                 },
                 {
                     "idx": 2,
@@ -43,35 +41,32 @@ async def test_generate_script_from_package():
                     "top_half_capture_hint": "none",
                     "overlay_text": "Write code",
                     "duration_sec": 5,
-                    "narration_draft": "It can even write scripts for you.",
-                    "onscreen_text": "Code faster",
-                    "visual_concept": "A futuristic glowing monitor showing python code"
-                }
+                },
             ]
-        }
+        },
     }
-    
+
     svc = ScriptService()
     script = await svc.generate_script_from_package(
         app_name="Playwright Demo",
         package=package,
-        persona_config={"language_name": "English"}
+        persona_config={"language_name": "English"},
     )
-    
+
     dumped = script.model_dump()
     print("SCRIPT DUMP:", dumped)
 
     assert len(dumped["scenes"]) == 2
-    
+
     # Assert scene 1 has the right public_page_capture setup
     scene1 = dumped["scenes"][0]
     assert scene1["top_half_source_type"] == "public_page_capture"
     assert scene1["source_ref"] == "https://playwright.dev"
-    assert "Crazy Tool" in scene1["caption"] or "crazy tool" in scene1["caption"].lower()
-    
+    assert scene1["prompt"] == "Landing Page"
+
     # Assert scene 2 is the fallback
     scene2 = dumped["scenes"][1]
     assert scene2["top_half_source_type"] == "ai_visual_fallback"
-    assert scene2["prompt"] == "A futuristic glowing monitor showing python code"
-    
+    assert scene2["prompt"] == "Abstract Code"
+
     print("generate_script_from_package passed successfully.")

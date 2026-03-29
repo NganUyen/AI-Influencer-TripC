@@ -27,6 +27,11 @@ class _StubConn:
 
     async def fetchrow(self, query, *args):
         self.fetchrow_calls.append((query, args))
+        normalized = " ".join(query.split()).lower()
+        # Handle _ensure_user_row SELECT query
+        if normalized.startswith("select id from public.users"):
+            return {"id": args[0]}
+        # Handle media_assets INSERT/UPSERT query
         return {
             "id": "asset-123",
             "user_id": args[1],
@@ -97,10 +102,17 @@ async def test_record_asset_writes_explicit_persona_storage_columns(monkeypatch)
         metadata={"source_url": "https://fal.example/avatar.png", "source": "test"},
     )
 
-    assert len(conn.execute_calls) == 1
-    assert len(conn.fetchrow_calls) == 1
+    # _ensure_user_row uses fetchrow for SELECT, _record_media_asset uses fetchrow for INSERT...RETURNING
+    assert len(conn.execute_calls) == 0
+    assert len(conn.fetchrow_calls) == 2
 
-    media_insert_query, media_insert_args = conn.fetchrow_calls[0]
+    # First call is _ensure_user_row checking user exists
+    user_check_query, user_check_args = conn.fetchrow_calls[0]
+    assert "select id from public.users" in " ".join(user_check_query.split()).lower()
+    assert user_check_args[0] == "550e8400-e29b-41d4-a716-446655440000"
+
+    # Second call is the media_assets INSERT
+    media_insert_query, media_insert_args = conn.fetchrow_calls[1]
     assert "persona_id" in media_insert_query
     assert "bucket_name" in media_insert_query
     assert "storage_path" in media_insert_query
@@ -115,11 +127,16 @@ async def test_record_asset_writes_explicit_persona_storage_columns(monkeypatch)
     assert media_insert_args[14] == "job-123"
     assert media_insert_args[17]["persona_id"] == "hero"
     assert media_insert_args[17]["owner_key"] == "telegram:123456"
-    assert media_insert_args[17]["storage_bucket"] == media_storage_service_module.MEDIA_BUCKET
+    assert (
+        media_insert_args[17]["storage_bucket"]
+        == media_storage_service_module.MEDIA_BUCKET
+    )
 
 
 @pytest.mark.asyncio
-async def test_record_asset_rejects_non_canonical_storage_path_in_production(monkeypatch):
+async def test_record_asset_rejects_non_canonical_storage_path_in_production(
+    monkeypatch,
+):
     conn = _ProductionConn()
     pool = _StubPool(conn)
 
@@ -140,7 +157,9 @@ async def test_record_asset_rejects_non_canonical_storage_path_in_production(mon
         "StorageService",
         _StubStorage,
     )
-    monkeypatch.setattr(media_storage_service_module.settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(
+        media_storage_service_module.settings, "ENVIRONMENT", "production"
+    )
     monkeypatch.setattr(media_storage_service_module.settings, "DEBUG", False)
 
     service = media_storage_service_module.MediaStorageService()

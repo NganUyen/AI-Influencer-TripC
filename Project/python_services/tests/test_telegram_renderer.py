@@ -160,7 +160,10 @@ def test_render_video_ai_concept_preview_uses_human_summary():
         collected={"persona_id": "minh_vn"},
         artifacts={
             "concept_brief": _video_concept(),
-            "persona_snapshot": {"display_name": "Minh VN", "tone_resolved": "confident"},
+            "persona_snapshot": {
+                "display_name": "Minh VN",
+                "tone_resolved": "confident",
+            },
         },
         control=SkillControl(status=SkillStatus.preview_ready),
     )
@@ -211,7 +214,10 @@ def test_render_video_waiting_state_explains_follow_up_messages():
     rendered = TelegramRenderer.render_skill_result(result)
 
     assert "Video Generation Started" in rendered["text"]
-    assert "Script review and the final preview will arrive in this chat." in rendered["text"]
+    assert (
+        "Script review and the final preview will arrive in this chat."
+        in rendered["text"]
+    )
 
 
 def test_render_video_ai_beats_preview_lists_beats():
@@ -287,6 +293,7 @@ def test_render_persona_inspector_done_shows_photo_and_details():
 
 
 def test_render_video_ai_done_state_reports_package_ready():
+    """Test that video-ai done state shows workflow started when workflow_id present."""
     package = {
         "concept_brief": _video_concept(),
         "beat_sheet": _video_beats(),
@@ -302,14 +309,45 @@ def test_render_video_ai_done_state_reports_package_ready():
     result = SkillResult(
         success=True,
         next_step="package_ready",
-        output={"approved_production_package": package},
+        output={
+            "approved_production_package": package,
+            "workflow_id": "video-minh_vn-abc123",
+        },
+        session=session,
+    )
+
+    rendered = TelegramRenderer.render_skill_result(result)
+
+    assert "Production workflow started!" in rendered["text"]
+    assert "video-minh_vn-abc123" in rendered["text"]
+    assert rendered["reply_markup"] is None
+
+
+def test_render_video_ai_done_state_shows_error_when_workflow_failed():
+    """Test that video-ai done state shows error when workflow_id missing."""
+    package = {
+        "concept_brief": _video_concept(),
+        "beat_sheet": _video_beats(),
+        "persona_snapshot": {"persona_id": "minh_vn"},
+    }
+    session = SkillSession(
+        skill_name="video-ai",
+        step_key="package_ready",
+        collected={"persona_id": "minh_vn"},
+        artifacts={"approved_production_package": package},
+        control=SkillControl(status=SkillStatus.done),
+    )
+    result = SkillResult(
+        success=True,
+        next_step="package_ready",
+        output={"approved_production_package": package},  # No workflow_id
         session=session,
     )
 
     rendered = TelegramRenderer.render_skill_result(result)
 
     assert "Pre-production package ready." in rendered["text"]
-    assert "No production workflow has started yet." in rendered["text"]
+    assert "Production workflow could not be started." in rendered["text"]
     assert rendered["reply_markup"] is None
 
 

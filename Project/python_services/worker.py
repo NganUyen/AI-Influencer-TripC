@@ -38,6 +38,9 @@ from activities import (
     generate_daily_story,
     send_story_for_approval,
 )
+from activities.approval_activities import (
+    generate_script_from_approved_package_activity,
+)
 from config.settings import settings
 from services.content_persistence_service import ContentPersistenceService
 
@@ -74,6 +77,7 @@ activities = [
     build_split_screen_video,
     generate_daily_story,
     send_story_for_approval,
+    generate_script_from_approved_package_activity,
 ]
 
 

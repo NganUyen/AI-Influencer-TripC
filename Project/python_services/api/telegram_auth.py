@@ -21,8 +21,7 @@ from services.telegram_link_service import TelegramLinkService
 
 router = APIRouter()
 
-# In-memory store for anonymous link tokens (production should use Redis)
-_anonymous_link_tokens: Dict[str, Dict[str, Any]] = {}
+
 
 
 class TelegramLoginRequest(BaseModel):
@@ -167,25 +166,14 @@ async def start_anonymous_telegram_link(payload: AnonymousLinkStartRequest):
     will be consumed when the user clicks the Telegram link.
     """
     ttl_minutes = max(1, min(payload.expires_in_minutes, 60))
-    token = secrets.token_urlsafe(24)
-    expires_at = time.time() + (ttl_minutes * 60)
+    
+    # Use the DB-backed LinkService
+    token_data = await TelegramLinkService.create_link_token(
+        user_id=None,
+        expires_in_minutes=ttl_minutes
+    )
 
-    # Store the token temporarily
-    _anonymous_link_tokens[token] = {
-        "expires_at": expires_at,
-        "used": False,
-    }
-
-    # Clean up expired tokens
-    now = time.time()
-    expired_keys = [k for k, v in _anonymous_link_tokens.items() if v["expires_at"] < now]
-    for k in expired_keys:
-        del _anonymous_link_tokens[k]
-
-    return {
-        "start_token": token,
-        "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(expires_at)),
-    }
+    return token_data
 
 
 @router.post("/link/complete")

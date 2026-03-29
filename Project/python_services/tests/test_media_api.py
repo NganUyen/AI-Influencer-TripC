@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from PIL import Image
 
 from api import media
+from api import security as api_security
 from services.fal_service import FalAIRequestError
 
 
@@ -329,6 +330,12 @@ async def test_carousel_service_builds_slide_assets(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_generate_carousel_endpoint_returns_artifact(monkeypatch):
+    monkeypatch.setattr(
+        api_security.settings,
+        "INTERNAL_API_TOKEN",
+        "test-internal-token",
+    )
+
     async def fake_generate_carousel(self, payload):
         return {
             "type": "carousel",

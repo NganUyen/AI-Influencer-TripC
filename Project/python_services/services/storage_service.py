@@ -138,17 +138,26 @@ class StorageService:
         expires_in = expiration or settings.STORAGE_SIGNED_URL_TTL_SECONDS
 
         if self.provider == "supabase":
-            response = await self._supabase_request(
-                "POST",
-                f"/object/sign/{self._supabase_object_key(normalized_filename)}",
-                json_body={"expiresIn": expires_in},
-            )
-            signed_url = response.get("signedURL") or response.get("signedUrl")
-            if not signed_url:
-                raise RuntimeError("Supabase Storage did not return a signed URL")
-            if signed_url.startswith("/"):
-                return f"{self.supabase_api_url}{signed_url}"
-            return signed_url
+            try:
+                response = await self._supabase_request(
+                    "POST",
+                    f"/object/sign/{self._supabase_object_key(normalized_filename)}",
+                    json_body={"expiresIn": expires_in},
+                )
+                signed_url = response.get("signedURL") or response.get("signedUrl")
+                if not signed_url:
+                    raise RuntimeError("Supabase Storage did not return a signed URL")
+                if signed_url.startswith("/"):
+                    return f"{self.supabase_api_url}{signed_url}"
+                return signed_url
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in {400, 404}:
+                    logger.warning(
+                        "Supabase storage object not found (skipping presigned URL): %s",
+                        normalized_filename,
+                    )
+                    return None
+                raise
 
         return self.s3_client.generate_presigned_url(
             "get_object",

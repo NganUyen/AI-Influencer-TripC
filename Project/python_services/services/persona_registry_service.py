@@ -263,7 +263,18 @@ class PersonaRegistryService:
         async with pool.acquire() as conn:
             rows = await conn.fetch(query, *args)
         records = [cls._record_from_row(dict(row)) for row in rows]
-        return [await cls._decorate_persona_record(item) for item in records]
+        decorated: List[Dict[str, Any]] = []
+        for item in records:
+            try:
+                decorated.append(await cls._decorate_persona_record(item))
+            except Exception as exc:
+                logger.error(
+                    "Failed to decorate persona record %s: %s",
+                    item.get("persona_id"),
+                    exc,
+                )
+                decorated.append(item)
+        return decorated
 
     @classmethod
     async def _list_unowned_from_db(
@@ -306,7 +317,18 @@ class PersonaRegistryService:
         async with pool.acquire() as conn:
             rows = await conn.fetch(query, *args)
         records = [cls._record_from_row(dict(row)) for row in rows]
-        return [await cls._decorate_persona_record(item) for item in records]
+        decorated: List[Dict[str, Any]] = []
+        for item in records:
+            try:
+                decorated.append(await cls._decorate_persona_record(item))
+            except Exception as exc:
+                logger.error(
+                    "Failed to decorate persona record %s: %s",
+                    item.get("persona_id"),
+                    exc,
+                )
+                decorated.append(item)
+        return decorated
 
     @classmethod
     async def _get_from_db(
@@ -427,7 +449,18 @@ class PersonaRegistryService:
                 persona_id,
             )
         records = [cls._record_from_row(dict(row)) for row in rows]
-        return [await cls._decorate_persona_record(item) for item in records]
+        decorated: List[Dict[str, Any]] = []
+        for item in records:
+            try:
+                decorated.append(await cls._decorate_persona_record(item))
+            except Exception as exc:
+                logger.error(
+                    "Failed to decorate persona record %s: %s",
+                    item.get("persona_id"),
+                    exc,
+                )
+                decorated.append(item)
+        return decorated
 
     @classmethod
     def _dedupe_personas(cls, personas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -663,7 +696,7 @@ class PersonaRegistryService:
 
             return []
         except Exception as exc:  # pragma: no cover - degraded-mode fallback
-            logger.warning("Persona DB list failed, using in-memory fallback: %s", exc)
+            logger.exception("Persona DB list failed, using in-memory fallback")
             personas = [
                 item
                 for item in cls._memory_store.values()

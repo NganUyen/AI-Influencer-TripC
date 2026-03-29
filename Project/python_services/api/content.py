@@ -14,14 +14,16 @@ from api.security import require_internal_api_token
 from config.settings import settings
 from services.content_persistence_service import ContentPersistenceService
 from services.growchief_service import GrowChiefService
-from api.workflows import TemporalUnavailableError
+from api.workflows import TemporalUnavailableError, _resolve_workflow_status_payload
 
 router = APIRouter(dependencies=[Depends(require_internal_api_token)])
 logger = logging.getLogger(__name__)
 
 
 class EngagementTriggerRequest(BaseModel):
-    action_types: List[str] = Field(default_factory=lambda: ["like", "comment", "share"])
+    action_types: List[str] = Field(
+        default_factory=lambda: ["like", "comment", "share"]
+    )
     account_count: int = Field(default=5, ge=1, le=50)
     delay_minutes: int = Field(default=30, ge=0, le=240)
 
@@ -41,8 +43,10 @@ def _build_post_data_for_engagement(item: Dict[str, Any]) -> Dict[str, Any]:
         "content_record_id": item.get("content_record_id"),
         "workflow_id": item.get("workflow_id"),
         "platform": item.get("platform"),
-        "platform_post_id": item.get("platform_post_id") or item.get("provider_post_id"),
-        "provider_post_id": item.get("provider_post_id") or item.get("platform_post_id"),
+        "platform_post_id": item.get("platform_post_id")
+        or item.get("provider_post_id"),
+        "provider_post_id": item.get("provider_post_id")
+        or item.get("platform_post_id"),
         "post_url": item.get("post_url"),
     }
 
@@ -95,7 +99,13 @@ async def enrich_items_with_workflow_details(
         if workflow_id not in workflow_cache:
             try:
                 handle = client.get_workflow_handle(workflow_id)
-                workflow_cache[workflow_id] = await handle.query("get_workflow_status")
+                # [SAFETY-3] Use fallback status resolution for closed workflows
+                resolved = await _resolve_workflow_status_payload(handle)
+                status_data = resolved.get("status", {})
+                if isinstance(status_data, dict):
+                    workflow_cache[workflow_id] = status_data
+                else:
+                    workflow_cache[workflow_id] = {}
             except Exception:
                 workflow_cache[workflow_id] = {}
 
@@ -136,7 +146,7 @@ async def list_content_items(
         }
 
         async for workflow_item in client.list_workflows(
-            "WorkflowType = 'WeeklyMarketingWorkflow'"
+            "WorkflowType = 'WeeklyMarketingWorkflow' OR WorkflowType = 'ShortVideoWorkflow'"
         ):
             if workflow_item.id in represented_workflow_ids:
                 continue
@@ -221,8 +231,7 @@ async def retry_content_publish(request: Request, content_id: str) -> Dict[str, 
         from workflows import PostPublishingWorkflow
 
         retry_workflow_id = (
-            f"content-retry-{content_id}-"
-            f"{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}"
+            f"content-retry-{content_id}-{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}"
         )
         retry_post_config = dict(post_config)
         retry_post_config["scheduled_time"] = None
@@ -284,11 +293,19 @@ async def check_content_engagement(content_id: str) -> Dict[str, Any]:
     try:
         item = await _get_content_item_or_404(content_id)
         platform = item.get("platform")
-        post_id = item.get("platform_post_id") or item.get("provider_post_id") or item.get("id")
+        post_id = (
+            item.get("platform_post_id")
+            or item.get("provider_post_id")
+            or item.get("id")
+        )
         if not platform:
-            raise HTTPException(status_code=400, detail="Content item platform is missing")
+            raise HTTPException(
+                status_code=400, detail="Content item platform is missing"
+            )
 
-        metrics = await growchief.get_engagement_metrics(platform=platform, post_id=str(post_id))
+        metrics = await growchief.get_engagement_metrics(
+            platform=platform, post_id=str(post_id)
+        )
         engagement_result = {
             "status": "completed",
             "metrics": metrics,
@@ -326,10 +343,16 @@ async def trigger_content_engagement(
         item = await _get_content_item_or_404(content_id)
         platform = item.get("platform")
         if not platform:
-            raise HTTPException(status_code=400, detail="Content item platform is missing")
+            raise HTTPException(
+                status_code=400, detail="Content item platform is missing"
+            )
 
         post_url = item.get("post_url")
-        post_id = item.get("platform_post_id") or item.get("provider_post_id") or item.get("id")
+        post_id = (
+            item.get("platform_post_id")
+            or item.get("provider_post_id")
+            or item.get("id")
+        )
         if not post_url and post_id:
             post_url = f"{platform}://{post_id}"
         if not post_url:

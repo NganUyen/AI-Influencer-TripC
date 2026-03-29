@@ -3,11 +3,13 @@ Short video workflow for persona-driven vertical video generation.
 """
 
 from __future__ import annotations
+import asyncio
 from datetime import timedelta
 from typing import Any, Dict, List
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
     from activities.approval_activities import (
@@ -81,6 +83,22 @@ class ShortVideoWorkflow:
                     exc,
                 )
 
+        def summarize_exception(exc: Exception) -> Dict[str, str]:
+            """Return a more useful error type/summary for Telegram and status payloads."""
+            if isinstance(exc, ActivityError):
+                cause = getattr(exc, "cause", None)
+                cause_text = str(cause or exc).strip() or "Activity task failed"
+                cause_type = type(cause).__name__ if cause is not None else "UnknownCause"
+                return {
+                    "error_type": f"ActivityError/{cause_type}",
+                    "error_summary": cause_text[:300],
+                }
+
+            return {
+                "error_type": type(exc).__name__,
+                "error_summary": (str(exc).strip() or repr(exc))[:300],
+            }
+
         try:
             start_payload = VideoWorkflowStartPayloadContract.model_validate(payload)
             persona_id = start_payload.persona_id
@@ -106,6 +124,10 @@ class ShortVideoWorkflow:
             if approved_package:
                 self.workflow_status = "generating_script_from_package"
                 self.current_step = "generating_script"
+                await notify_progress(
+                    "Generating script from approved plan",
+                    "Converting the approved concept and beat plan into the production script.",
+                )
 
                 script_result = await workflow.execute_activity(
                     generate_script_from_approved_package_activity,
@@ -123,6 +145,10 @@ class ShortVideoWorkflow:
                     ],
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                await notify_progress(
+                    "Script ready",
+                    "Approved package was converted successfully. Starting top-half and bottom-half generation next.",
                 )
             else:
                 self.workflow_status = "waiting_script_approval"
@@ -331,6 +357,10 @@ class ShortVideoWorkflow:
             image_urls = [
                 scene.get("image_url") for _, scene in valid_scenes_with_index
             ]
+            # [SAFETY-4] Extract is_video flags from scene metadata
+            is_video_flags = [
+                bool(scene.get("is_video")) for _, scene in valid_scenes_with_index
+            ]
             aligned_durations = [
                 scene_durations[i] if i < len(scene_durations) else 4.0
                 for i, _ in valid_scenes_with_index
@@ -365,6 +395,7 @@ class ShortVideoWorkflow:
                         "talking_head_url": talking_head_result.get("url") or None,
                         "scene_captions": aligned_captions,
                         "scene_durations": aligned_durations,
+                        "is_video_flags": is_video_flags,  # [SAFETY-4]
                         "persona_id": persona_id,
                         "owner_key": owner_key,
                         "user_id": user_id,
@@ -434,15 +465,37 @@ class ShortVideoWorkflow:
             self.workflow_status = "failed"
             self.current_step = "failed"
             raise
+        except asyncio.CancelledError:
+            # [SAFETY-1] Handle cancellation explicitly - don't treat as failure
+            self.workflow_status = "cancelled"
+            self.current_step = "cancelled"
+            workflow.logger.info(
+                "Workflow cancelled | workflow_id=%s | topic=%s",
+                workflow_id,
+                fallback_topic,
+            )
+            return {
+                "type": "video",
+                "status": "cancelled",
+                "workflow_id": workflow_id,
+                "persona_id": fallback_persona_id,
+                "topic": fallback_topic,
+                "video_url": None,
+                "storage_key": None,
+                "metadata": {"reason": "Cancelled by user"},
+            }
         except Exception as exc:
             self.workflow_status = "failed"
             self.current_step = "failed"
+            error_details = summarize_exception(exc)
 
             workflow.logger.error(
-                "Workflow failed | workflow_id=%s | topic=%s | error=%s",
+                "Workflow failed | workflow_id=%s | topic=%s | step=%s | error_type=%s | error=%s",
                 workflow_id,
                 fallback_topic,
-                str(exc),
+                getattr(self, "current_step", "unknown"),
+                error_details["error_type"],
+                error_details["error_summary"],
             )
             if telegram_chat_id:
                 try:
@@ -453,8 +506,8 @@ class ShortVideoWorkflow:
                                 "telegram_chat_id": telegram_chat_id,
                                 "workflow_id": workflow_id,
                                 "topic": fallback_topic,
-                                "error_type": type(exc).__name__,
-                                "error_summary": str(exc)[:200],
+                                "error_type": error_details["error_type"],
+                                "error_summary": error_details["error_summary"],
                             }
                         ],
                         start_to_close_timeout=timedelta(seconds=30),
@@ -474,7 +527,11 @@ class ShortVideoWorkflow:
                 "topic": fallback_topic,
                 "video_url": None,
                 "storage_key": None,
-                "metadata": {"reason": str(exc)},
+                "metadata": {
+                    "reason": error_details["error_summary"],
+                    "error_type": error_details["error_type"],
+                    "failed_step": getattr(self, "current_step", "failed"),
+                },
             }
 
     @workflow.query

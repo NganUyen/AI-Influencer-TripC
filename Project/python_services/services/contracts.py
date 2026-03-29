@@ -67,6 +67,8 @@ class SplitScreenVideoInput(BaseModel):
     talking_head_url: Optional[str] = None
     scene_captions: List[str] = Field(default_factory=list)
     scene_durations: List[float] = Field(default_factory=list)
+    # [SAFETY-4] Explicit is_video flags from top-half generation
+    is_video_flags: List[bool] = Field(default_factory=list)
     persona_id: str = "unknown"
     topic: str = "topic"
     duration_per_image: float = 4.0

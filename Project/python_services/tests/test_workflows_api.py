@@ -191,15 +191,10 @@ async def test_get_workflow_status_falls_back_to_completed_result(monkeypatch):
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
     response = await workflows.get_workflow_status(request, workflow_id="wf-closed")
 
-    assert response == {
-        "workflow_id": "wf-closed",
-        "status": {
-            "status": "failed",
-            "current_step": "failed",
-            "workflow_id": "wf-closed",
-            "reason": "module 'temporalio.workflow' has no attribute 'gather'",
-        },
-    }
+    assert response["workflow_id"] == "wf-closed"
+    assert response["status"]["status"]["status"] == "failed"
+    assert response["status"]["execution_status"] == "completed"
+    assert response["status"]["source"] == "result"
     handle.result.assert_awaited_once()
 
 
@@ -222,14 +217,11 @@ async def test_get_workflow_status_falls_back_to_describe_for_running_workflow(
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
     response = await workflows.get_workflow_status(request, workflow_id="wf-running")
 
-    assert response == {
-        "workflow_id": "wf-running",
-        "status": {
-            "status": "running",
-            "current_step": "running",
-            "workflow_id": "wf-running",
-        },
-    }
+    assert response["workflow_id"] == "wf-running"
+    assert response["status"]["status"]["status"] == "running"
+    assert response["status"]["status"]["current_step"] == "running"
+    assert response["status"]["execution_status"] == "running"
+    assert response["status"]["source"] == "describe"
     handle.result.assert_not_awaited()
 
 

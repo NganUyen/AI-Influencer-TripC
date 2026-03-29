@@ -97,7 +97,9 @@ class ScriptService:
             market=market,
         )
 
-        logger.info(f"Generating script | app={app_name} | topic={topic} | lang={language}")
+        logger.info(
+            f"Generating script | app={app_name} | topic={topic} | lang={language}"
+        )
 
         try:
             async with AIService() as ai:
@@ -115,7 +117,9 @@ class ScriptService:
         cleaned = raw.strip()
         if cleaned.startswith("```"):
             lines = cleaned.splitlines()
-            cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+            cleaned = "\n".join(
+                lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
+            )
 
         # Parse JSON
         try:
@@ -128,7 +132,9 @@ class ScriptService:
         try:
             contract = ScriptContract(**data)
         except Exception as e:
-            raise ScriptContractError(f"Script does not match ScriptContract schema: {e}") from e
+            raise ScriptContractError(
+                f"Script does not match ScriptContract schema: {e}"
+            ) from e
 
         logger.info(
             f"Script generated | scenes={len(contract.scenes)} | "
@@ -168,49 +174,51 @@ class ScriptService:
         Generates a ScriptContract directly from an ApprovedProductionPackage.
         It maps Pre-Production beats directly to Top-Half Scene Contracts.
         """
-        if "approved_beat_sheet" not in package or "beats" not in package["approved_beat_sheet"]:
+        if "beat_sheet" not in package or "beats" not in package["beat_sheet"]:
             raise ValueError("Package does not contain a valid beat sheet")
 
-        beats = package["approved_beat_sheet"]["beats"]
-        
-        # We need to construct the script string by concatenating narration drafts
-        script_text = " ".join([b.get("narration_draft", "") for b in beats]).strip()
-        
-        # We also need an estimated duration (roughly 130 words per minute)
-        duration_estimate = (len(script_text.split()) / 130.0) * 60.0
+        beats = package["beat_sheet"]["beats"]
+
+        # We need to construct the script string by concatenating bottom_half_message from beats
+        script_text = " ".join(
+            [b.get("bottom_half_message", "") for b in beats]
+        ).strip()
+
+        # Calculate total duration from beat duration_sec fields
+        duration_estimate = sum(b.get("duration_sec", 0) for b in beats)
         if duration_estimate < 10.0:
             duration_estimate = 30.0
 
         scenes = []
+        current_timestamp = 0.0
         for index, beat in enumerate(beats, start=1):
             top_half_source_type = beat.get("top_half_source_type", "search")
-            top_half_target = beat.get("top_half_target", beat.get("visual_concept", ""))
-            
-            # Combine narration and onscreen text into the caption/dialogue
-            narration = beat.get("narration_draft", "")
-            onscreen_text = beat.get("onscreen_text", "")
-            
+            top_half_target = beat.get("top_half_target", "")
+            beat_duration = float(beat.get("duration_sec", 4))
+
+            # Use bottom_half_message for narration and overlay_text for captions
+            narration = beat.get("bottom_half_message", "")
+            overlay_text = beat.get("overlay_text", "")
+
             scene = SceneContract(
                 id=index,
-                timestamp_start=0.0, # Will need to be calculated based on duration
-                timestamp_end=0.0,
-                caption=onscreen_text or narration[:30],
-                prompt=beat.get("visual_concept", ""),
-                
+                timestamp_start=current_timestamp,
+                timestamp_end=current_timestamp + beat_duration,
+                caption=overlay_text or narration[:30],
+                prompt=top_half_target,
                 # New fields from top-half update
                 top_half_source_type=top_half_source_type,
                 top_half_target=top_half_target,
-                top_half_capture_hint=beat.get("duration_hint", "medium"),
-                source_ref=beat.get("source_ref")
+                top_half_capture_hint=beat.get("top_half_capture_hint", "medium"),
+                source_ref=beat.get("source_ref"),
             )
             scenes.append(scene)
+            current_timestamp += beat_duration
 
         # Assemble the full ScriptContract
         # ScriptContract currently expects script, duration_estimate, and scenes from AI
         contract = ScriptContract(
-            script=script_text,
-            duration_estimate=duration_estimate,
-            scenes=scenes
+            script=script_text, duration_estimate=duration_estimate, scenes=scenes
         )
 
         return contract

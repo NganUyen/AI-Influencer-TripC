@@ -44,7 +44,9 @@ class VideoAISkill(BaseSkill):
     name = "video-ai"
     required_params = list(_DEFINITION.get("required_params", []))
     optional_params = list(_DEFINITION.get("optional_params", []))
-    api_target = _DEFINITION.get("api_call", {}).get("target", "Internal CreativeDirectorService")
+    api_target = _DEFINITION.get("api_call", {}).get(
+        "target", "Internal CreativeDirectorService"
+    )
     backend_status = _DEFINITION.get("status", "partial")
     steps = list(_DEFINITION.get("steps", []))
     session_shape = deepcopy(_DEFINITION.get("session_shape", BaseSkill.session_shape))
@@ -81,11 +83,16 @@ class VideoAISkill(BaseSkill):
         if snapshot.get("persona_id") == persona_id and snapshot.get("tone_resolved"):
             return snapshot
 
+        # Build owner_key from telegram_chat_id for proper scoping
+        telegram_chat_id = session.artifacts.get("telegram_chat_id")
+        owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
+        owner_param = f"?owner_key={owner_key}" if owner_key else ""
+
         readiness = await cls._request_json(
             http_client,
             "GET",
             backend_url,
-            f"/api/personas/{persona_id}/readiness",
+            f"/api/personas/{persona_id}/readiness{owner_param}",
         )
         session.artifacts["persona_readiness"] = readiness
         if not readiness.get("ready"):
@@ -97,12 +104,14 @@ class VideoAISkill(BaseSkill):
             http_client,
             "GET",
             backend_url,
-            f"/api/personas/{persona_id}",
+            f"/api/personas/{persona_id}{owner_param}",
         )
         if not persona.get("persona_id"):
             raise ValueError("Selected persona could not be loaded.")
 
-        tone_resolved = str(persona.get("tone_default") or "natural").strip() or "natural"
+        tone_resolved = (
+            str(persona.get("tone_default") or "natural").strip() or "natural"
+        )
         resolved_snapshot = {
             "persona_id": persona.get("persona_id"),
             "display_name": persona.get("display_name") or persona.get("persona_id"),
@@ -134,24 +143,72 @@ class VideoAISkill(BaseSkill):
         )
 
     @classmethod
-    def _package_ready_result(
+    async def _package_ready_result(
         cls,
         session: SkillSession,
         package: ApprovedProductionPackageContract,
+        backend_url: str,
+        http_client: Any,
     ) -> SkillResult:
+        """Package is ready. Trigger the production workflow."""
         session.control.status = SkillStatus.done
         session.step_key = "package_ready"
-        return SkillResult(
-            success=True,
-            next_step="package_ready",
-            output={
-                "message": (
-                    "Pre-production package is ready. No production workflow has started yet."
-                ),
-                "approved_production_package": package.model_dump(mode="json"),
-            },
-            session=session,
-        )
+
+        # Prepare payload for production workflow
+        persona_id = session.collected.get("persona_id")
+        telegram_chat_id = session.artifacts.get("telegram_chat_id")
+        platform = session.collected.get("platform", "tiktok")
+        topic = session.collected.get("idea_brief", "")
+
+        production_payload = {
+            "persona_id": persona_id,
+            "topic": topic,
+            "tone": "natural",
+            "platform": platform,
+            "telegram_chat_id": telegram_chat_id,
+            "user_id": None,
+            "owner_key": f"telegram:{telegram_chat_id}" if telegram_chat_id else None,
+            "talking_head_optional": False,
+            "approved_package": package.model_dump(mode="json"),
+        }
+
+        # Call the production workflow API
+        try:
+            response = await http_client.post(
+                f"{backend_url}/api/workflows/start-video",
+                json=production_payload,
+            )
+            response.raise_for_status()
+            workflow_data = response.json()
+            workflow_id = workflow_data.get("workflow_id", "unknown")
+
+            return SkillResult(
+                success=True,
+                next_step="package_ready",
+                output={
+                    "message": (
+                        f"Production workflow started! Workflow ID: {workflow_id}\n\n"
+                        "I'm now generating the full video. This may take a few minutes..."
+                    ),
+                    "approved_production_package": package.model_dump(mode="json"),
+                    "workflow_id": workflow_id,
+                },
+                session=session,
+            )
+        except Exception as exc:
+            return SkillResult(
+                success=False,
+                next_step="package_ready",
+                output={
+                    "message": (
+                        "Pre-production package is ready, but I couldn't start the production workflow. "
+                        f"Error: {exc}"
+                    ),
+                    "approved_production_package": package.model_dump(mode="json"),
+                },
+                error=str(exc),
+                session=session,
+            )
 
     @classmethod
     def _retryable_error_result(
@@ -236,7 +293,9 @@ class VideoAISkill(BaseSkill):
                     current,
                     message="Okay. Let's revise the concept inputs first, then I will rebuild the beat plan.",
                 )
-        return cls._error_result(current, f"Unsupported action for {current.step_key}: {action}")
+        return cls._error_result(
+            current, f"Unsupported action for {current.step_key}: {action}"
+        )
 
     @classmethod
     async def execute(
@@ -253,7 +312,9 @@ class VideoAISkill(BaseSkill):
             return cls._collecting_result(current, next_step=next_step)
 
         try:
-            persona_snapshot = await cls._resolve_persona_snapshot(current, backend_url, http_client)
+            persona_snapshot = await cls._resolve_persona_snapshot(
+                current, backend_url, http_client
+            )
         except ValueError as exc:
             return cls._error_result(current, str(exc))
 
@@ -321,7 +382,9 @@ class VideoAISkill(BaseSkill):
 
         if not beat_payload:
             try:
-                beat_sheet = await CreativeDirectorService.build_beat_sheet(concept, persona_snapshot)
+                beat_sheet = await CreativeDirectorService.build_beat_sheet(
+                    concept, persona_snapshot
+                )
             except Exception as exc:
                 return cls._retryable_error_result(
                     current,
@@ -356,16 +419,24 @@ class VideoAISkill(BaseSkill):
         package_payload = current.artifacts.get("approved_production_package")
         if package_payload:
             try:
-                package = ApprovedProductionPackageContract.model_validate(package_payload)
+                package = ApprovedProductionPackageContract.model_validate(
+                    package_payload
+                )
             except ValidationError:
                 current.artifacts["approved_production_package"] = None
             else:
-                return cls._package_ready_result(current, package)
+                return await cls._package_ready_result(
+                    current, package, backend_url, http_client
+                )
 
         package = CreativeDirectorService.build_approved_package(
             concept,
             beat_sheet,
             persona_snapshot,
         )
-        current.artifacts["approved_production_package"] = package.model_dump(mode="json")
-        return cls._package_ready_result(current, package)
+        current.artifacts["approved_production_package"] = package.model_dump(
+            mode="json"
+        )
+        return await cls._package_ready_result(
+            current, package, backend_url, http_client
+        )

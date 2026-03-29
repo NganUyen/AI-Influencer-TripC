@@ -142,7 +142,10 @@ async def test_workflow_api_converts_exceptions(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_start_video_workflow_allows_missing_heygen_avatar(monkeypatch):
+async def test_start_video_workflow_rejects_missing_heygen_avatar_when_talking_head_required(
+    monkeypatch,
+):
+    """When talking_head_optional=False (default), missing heygen_avatar_id should be rejected."""
     handle = SimpleNamespace(id="run-video-1")
     mock_client = AsyncMock()
     mock_client.start_workflow.return_value = handle
@@ -159,7 +162,9 @@ async def test_start_video_workflow_allows_missing_heygen_avatar(monkeypatch):
         }
 
     monkeypatch.setattr(workflows, "get_temporal_client", fake_get_temporal_client)
-    monkeypatch.setattr(workflows.PersonaRegistryService, "get_persona", fake_get_persona)
+    monkeypatch.setattr(
+        workflows.PersonaRegistryService, "get_persona", fake_get_persona
+    )
 
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
     payload = workflows.StartVideoRequest(
@@ -168,12 +173,14 @@ async def test_start_video_workflow_allows_missing_heygen_avatar(monkeypatch):
         tone="natural",
         platform="tiktok",
         telegram_chat_id="123456",
+        # talking_head_optional defaults to False
     )
 
-    response = await workflows.start_video_workflow(request, payload)
+    with pytest.raises(HTTPException) as exc_info:
+        await workflows.start_video_workflow(request, payload)
 
-    assert response["status"] == "started"
-    mock_client.start_workflow.assert_awaited_once()
+    assert exc_info.value.status_code == 400
+    assert "heygen_avatar_id" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
@@ -194,7 +201,9 @@ async def test_start_video_workflow_passes_talking_head_optional(monkeypatch):
         }
 
     monkeypatch.setattr(workflows, "get_temporal_client", fake_get_temporal_client)
-    monkeypatch.setattr(workflows.PersonaRegistryService, "get_persona", fake_get_persona)
+    monkeypatch.setattr(
+        workflows.PersonaRegistryService, "get_persona", fake_get_persona
+    )
 
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
     payload = workflows.StartVideoRequest(
@@ -212,12 +221,16 @@ async def test_start_video_workflow_passes_talking_head_optional(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_video_ai_skill_legacy_topic_payload_no_longer_starts_workflow(monkeypatch):
+async def test_video_ai_skill_legacy_topic_payload_no_longer_starts_workflow(
+    monkeypatch,
+):
     session = VideoAISkill.initial_session()
     session.collected["persona_id"] = "persona-1"
     session.collected["topic"] = "Weekend beach trip"
 
-    request_mock = AsyncMock(side_effect=AssertionError("Legacy workflow start should not run"))
+    request_mock = AsyncMock(
+        side_effect=AssertionError("Legacy workflow start should not run")
+    )
     monkeypatch.setattr(VideoAISkill, "_request_json", request_mock)
 
     result = await VideoAISkill.execute(session, "http://backend", AsyncMock())
@@ -243,7 +256,9 @@ async def test_video_ai_skill_requires_reference_url_before_generation(monkeypat
         }
     )
 
-    request_mock = AsyncMock(side_effect=AssertionError("Persona lookup should wait for full brief"))
+    request_mock = AsyncMock(
+        side_effect=AssertionError("Persona lookup should wait for full brief")
+    )
     monkeypatch.setattr(VideoAISkill, "_request_json", request_mock)
 
     result = await VideoAISkill.execute(session, "http://backend", AsyncMock())
@@ -254,7 +269,9 @@ async def test_video_ai_skill_requires_reference_url_before_generation(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_video_ai_skill_builds_concept_preview_instead_of_starting_workflow(monkeypatch):
+async def test_video_ai_skill_builds_concept_preview_instead_of_starting_workflow(
+    monkeypatch,
+):
     session = VideoAISkill.initial_session()
     session.collected.update(
         {

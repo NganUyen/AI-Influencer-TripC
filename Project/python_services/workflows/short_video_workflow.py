@@ -53,7 +53,9 @@ class ShortVideoWorkflow:
             topic = payload["topic"]
             tone = payload.get("tone", "natural")
             platform = payload.get("platform", "tiktok")
-            telegram_chat_id = payload.get("telegram_chat_id") or settings.TELEGRAM_CHAT_ID
+            telegram_chat_id = (
+                payload.get("telegram_chat_id") or settings.TELEGRAM_CHAT_ID
+            )
             owner_key = payload.get("owner_key")
             talking_head_optional = bool(payload.get("talking_head_optional"))
             if not owner_key and telegram_chat_id:
@@ -66,7 +68,9 @@ class ShortVideoWorkflow:
                 owner_key=owner_key,
             )
             if not persona:
-                raise PersonaConfigurationError(f"Persona '{persona_id}' was not found.")
+                raise PersonaConfigurationError(
+                    f"Persona '{persona_id}' was not found."
+                )
             language = persona.get("language") or "English"
             tts_voice = persona.get("tts_voice")
             heygen_avatar_id = persona.get("heygen_avatar_id")
@@ -77,7 +81,7 @@ class ShortVideoWorkflow:
             if approved_package:
                 self.workflow_status = "generating_script_from_package"
                 self.current_step = "generating_script"
-                
+
                 script_result = await workflow.execute_activity(
                     generate_script_from_approved_package_activity,
                     args=[
@@ -89,7 +93,7 @@ class ShortVideoWorkflow:
                                 "language_name": language,
                                 "voice": tts_voice,
                                 "tts_voice": tts_voice,
-                            }
+                            },
                         }
                     ],
                     start_to_close_timeout=timedelta(minutes=2),
@@ -142,9 +146,9 @@ class ShortVideoWorkflow:
 
             script_json = script_result["script_json"]
             scenes: List[Dict[str, Any]] = script_json.get("scenes", [])
-            
+
             # NOTE: top_half_source_type flows through script_json scenes via SceneContract
-            
+
             scene_payloads = [
                 {
                     "id": scene.get("id"),
@@ -244,6 +248,15 @@ class ShortVideoWorkflow:
 
             self.workflow_status = "assembling"
             self.current_step = "assembling"
+
+            # Extract per-scene durations from timestamps
+            scene_durations = []
+            for scene in scenes:
+                start = scene.get("timestamp_start", 0.0)
+                end = scene.get("timestamp_end", 0.0)
+                duration = end - start if end > start else 4.0
+                scene_durations.append(duration)
+
             final_video = await workflow.execute_activity(
                 build_split_screen_video,
                 args=[
@@ -258,6 +271,7 @@ class ShortVideoWorkflow:
                         "scene_captions": [
                             scene.get("caption", "") for scene in scenes_result
                         ],
+                        "scene_durations": scene_durations,
                         "persona_id": persona_id,
                         "owner_key": owner_key,
                         "user_id": payload.get("user_id"),

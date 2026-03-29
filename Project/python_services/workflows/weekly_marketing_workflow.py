@@ -63,7 +63,9 @@ class WeeklyMarketingWorkflow:
 
         skip_internal_approval = bool(brand_config.get("skip_internal_approval"))
         if skip_internal_approval:
-            workflow.logger.info("Skipping in-workflow approval because review already happened in the web app")
+            workflow.logger.info(
+                "Skipping in-workflow approval because review already happened in the web app"
+            )
             self.approval_received = True
             self.approval_approved = True
             self.workflow_status = "running"
@@ -76,7 +78,9 @@ class WeeklyMarketingWorkflow:
             )
 
             # Step 3: Wait for Telegram callback decision persisted by TelegramService
-            workflow.logger.info(f"Waiting for approval on request: {approval_request_id}")
+            workflow.logger.info(
+                f"Waiting for approval on request: {approval_request_id}"
+            )
             try:
                 approval_result = await workflow.execute_activity(
                     wait_for_approval,
@@ -129,36 +133,37 @@ class WeeklyMarketingWorkflow:
         )
 
         # Step 5: Generate media assets in parallel
-        media_tasks = []
+        # Start all activity futures first, then await them
+        media_futures = []
         media_retry_policy = RetryPolicy(maximum_attempts=3)
         for prompt in media_prompts:
             if prompt["type"] == "image":
-                task = workflow.execute_activity(
+                future = workflow.execute_activity(
                     generate_image,
                     args=[prompt],
                     start_to_close_timeout=timedelta(minutes=3),
                     retry_policy=media_retry_policy,
                 )
             elif prompt["type"] == "video":
-                task = workflow.execute_activity(
+                future = workflow.execute_activity(
                     generate_video,
                     args=[prompt],
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=media_retry_policy,
                 )
             elif prompt["type"] == "audio":
-                task = workflow.execute_activity(
+                future = workflow.execute_activity(
                     generate_audio,
                     args=[prompt],
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=media_retry_policy,
                 )
-            media_tasks.append(task)
+            else:
+                continue  # Skip unknown prompt types
+            media_futures.append(future)
 
-        # Temporal 1.5.1 activity handles are asyncio tasks already. Creating
-        # them above starts the activities in parallel, so awaiting the handles
-        # here preserves concurrency without relying on missing gather helpers.
-        uploaded_assets = [await task for task in media_tasks]
+        # Await all futures - Temporal handles parallel execution
+        uploaded_assets = [await f for f in media_futures]
 
         strategy["workflow_id"] = workflow.info().workflow_id
 

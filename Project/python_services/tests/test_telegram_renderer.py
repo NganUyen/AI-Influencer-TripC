@@ -326,6 +326,8 @@ def test_render_video_ai_done_state_reports_package_ready():
 
     assert "Video Generation Started" in rendered["text"]
     assert "video-minh_vn-abc123" in rendered["text"]
+    assert "The final preview will arrive in this chat." in rendered["text"]
+    assert "Script review and the final preview will arrive in this chat." not in rendered["text"]
     callback_values = {
         button["callback_data"]
         for row in rendered["reply_markup"]["inline_keyboard"]
@@ -375,6 +377,7 @@ def test_render_video_ai_done_state_mentions_voiceover_fallback():
 
     assert "voiceover instead" in rendered["text"]
     assert "video-minh_vn-voiceover" in rendered["text"]
+    assert "Script review and the final preview will arrive in this chat." not in rendered["text"]
 
 
 def test_render_video_ai_done_state_shows_error_when_workflow_failed():

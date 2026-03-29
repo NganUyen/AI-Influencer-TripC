@@ -70,3 +70,48 @@ async def test_generate_script_from_package():
     assert scene2["prompt"] == "Abstract Code"
 
     print("generate_script_from_package passed successfully.")
+
+
+@pytest.mark.asyncio
+async def test_generate_script_from_package_falls_back_to_concept_reference_url():
+    package = {
+        "concept_brief": {
+            "persona_id": "test_persona",
+            "feature_focus": "test",
+            "video_goal": "feature_demo",
+            "audience": "test",
+            "angle": "test",
+            "platform": "tiktok",
+            "cta": "Link in bio",
+            "reference_url": "https://example.com/root",
+            "access_level": "public_page_only",
+            "source_summary": "test",
+            "tone_resolved": "test",
+        },
+        "beat_sheet": {
+            "beats": [
+                {
+                    "idx": 1,
+                    "purpose": "hook",
+                    "bottom_half_message": "Look at this tool!",
+                    "top_half_source_type": "public_page_capture",
+                    "top_half_target": "Landing Page",
+                    "top_half_capture_hint": "Scroll hero section",
+                    "source_ref": None,
+                    "overlay_text": "Mind blown",
+                    "duration_sec": 5,
+                }
+            ]
+        },
+    }
+
+    svc = ScriptService()
+    script = await svc.generate_script_from_package(
+        app_name="Playwright Demo",
+        package=package,
+        persona_config={"language_name": "English"},
+    )
+
+    scene = script.model_dump()["scenes"][0]
+    assert scene["top_half_source_type"] == "public_page_capture"
+    assert scene["source_ref"] == "https://example.com/root"

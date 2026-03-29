@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from temporalio.api.enums.v1 import WorkflowExecutionStatus
 from temporalio.client import Client
 from datetime import timedelta
 import logging
@@ -23,7 +24,6 @@ from services.contracts import (
 from services.persona_registry_service import PersonaRegistryService
 
 try:
-    # TODO: ShortVideoWorkflow needs full registration after Step 3.
     from workflows.short_video_workflow import ShortVideoWorkflow
 except ImportError:  # pragma: no cover - stepwise rollout compatibility
     ShortVideoWorkflow = None
@@ -48,27 +48,78 @@ class StartVideoRequest(BaseModel):
     approved_package: Optional[ApprovedProductionPackageContract] = None
 
 
-def _status_from_workflow_result(
-    workflow_id: str, result: Any, *, default_status: str
-) -> Dict[str, Any]:
-    if not isinstance(result, dict):
-        return {
-            "status": default_status,
-            "current_step": default_status,
-            "workflow_id": workflow_id,
-        }
+def _normalize_execution_status(status_value: Any) -> Optional[str]:
+    """Convert Temporal WorkflowExecutionStatus enum to lowercase string."""
+    try:
+        enum_name = WorkflowExecutionStatus.Name(int(status_value))
+    except Exception:
+        return None
+    normalized = enum_name.replace("WORKFLOW_EXECUTION_STATUS_", "").lower()
+    return normalized or None
 
-    metadata = result.get("metadata")
-    reason = metadata.get("reason") if isinstance(metadata, dict) else None
-    status = str(result.get("status") or default_status)
-    response: Dict[str, Any] = {
-        "status": status,
-        "current_step": status,
-        "workflow_id": str(result.get("workflow_id") or workflow_id),
-    }
-    if reason:
-        response["reason"] = reason
-    return response
+
+def _extract_describe_execution_status(description: Any) -> Optional[str]:
+    """Extract execution status from workflow description."""
+    raw_description = getattr(description, "raw_description", None)
+    workflow_info = getattr(raw_description, "workflow_execution_info", None)
+    status_value = getattr(workflow_info, "status", None)
+    if status_value is None:
+        return None
+    return _normalize_execution_status(status_value)
+
+
+async def _resolve_workflow_status_payload(handle: Any) -> Dict[str, Any]:
+    """
+    Resolve workflow status through multiple fallback strategies:
+    1. Query the workflow directly (if still running)
+    2. Describe + result (if workflow completed/failed)
+    """
+    # Try query first (works for running workflows)
+    try:
+        status = await handle.query("get_workflow_status")
+        return {
+            "status": status,
+            "execution_status": "running",
+            "source": "query",
+        }
+    except Exception as query_exc:
+        logger.info(
+            "Workflow query unavailable, falling back to describe/result: %s", query_exc
+        )
+
+    # Fallback to describe for execution status
+    execution_status = None
+    try:
+        description = await handle.describe()
+        execution_status = _extract_describe_execution_status(description)
+    except Exception as describe_exc:
+        logger.warning("Workflow describe failed: %s", describe_exc)
+
+    # Try to get terminal result for completed/failed workflows
+    try:
+        terminal_result = await handle.result()
+        if isinstance(terminal_result, dict):
+            terminal_status = terminal_result.get("status")
+            if terminal_status:
+                return {
+                    "status": terminal_result,
+                    "execution_status": execution_status or "completed",
+                    "source": "result",
+                }
+        return {
+            "status": execution_status or "completed",
+            "execution_status": execution_status or "completed",
+            "source": "result",
+            "result": terminal_result,
+        }
+    except Exception as result_exc:
+        logger.warning("Workflow result fetch failed: %s", result_exc)
+        return {
+            "status": execution_status or "unknown",
+            "execution_status": execution_status or "unknown",
+            "source": "describe",
+            "error": str(result_exc),
+        }
 
 
 def _build_video_workflow_persona_snapshot(
@@ -244,37 +295,7 @@ async def get_workflow_status(request: Request, workflow_id: str):
         client = await get_temporal_client(request)
 
         handle = client.get_workflow_handle(workflow_id)
-
-        # Query workflow status
-        try:
-            status = await handle.query("get_workflow_status")
-        except Exception as query_exc:
-            description = await handle.describe()
-            described_status = (
-                description.status.name.lower()
-                if getattr(description, "status", None)
-                else "unknown"
-            )
-
-            if described_status == "completed":
-                result = await handle.result()
-                status = _status_from_workflow_result(
-                    workflow_id,
-                    result,
-                    default_status=described_status,
-                )
-            else:
-                logger.warning(
-                    "Workflow query unavailable for %s; falling back to describe status %s: %s",
-                    workflow_id,
-                    described_status,
-                    query_exc,
-                )
-                status = {
-                    "status": described_status,
-                    "current_step": described_status,
-                    "workflow_id": workflow_id,
-                }
+        status = await _resolve_workflow_status_payload(handle)
 
         return {"workflow_id": workflow_id, "status": status}
     except TemporalUnavailableError as exc:
@@ -286,19 +307,20 @@ async def get_workflow_status(request: Request, workflow_id: str):
 
 @router.get("/list")
 async def list_workflows(request: Request, limit: int = 20) -> Dict[str, Any]:
-    """List recent marketing and short-video workflows for dashboard polling."""
+    """List recent weekly marketing and short-video workflows for polling/debugging."""
     try:
         client = await get_temporal_client(request)
         workflows: List[Dict[str, Any]] = []
 
         async for item in client.list_workflows(
-            "WorkflowType = 'WeeklyMarketingWorkflow' or WorkflowType = 'ShortVideoWorkflow'"
+            "WorkflowType = 'WeeklyMarketingWorkflow' OR WorkflowType = 'ShortVideoWorkflow'"
         ):
             workflows.append(
                 {
                     "workflow_id": item.id,
                     "run_id": item.run_id,
                     "status": item.status.name.lower(),
+                    "workflow_type": getattr(item, "workflow_type", None),
                     "start_time": (
                         item.start_time.isoformat() if item.start_time else None
                     ),

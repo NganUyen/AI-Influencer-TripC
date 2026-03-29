@@ -19,6 +19,13 @@ from services.media_storage_service import MediaStorageService
 from services.image_generation_service import ImageGenerationService
 from services.contracts import AudioInput, ImageInput, VideoInput
 from .video_activities import build_split_screen_video
+import services.media_storage_service as media_storage_service_module
+try:
+    import services.browser_automation as browser_automation_module
+except ImportError:  # pragma: no cover - exercised in slim runtime images
+    browser_automation_module = None
+BrowserAutomationService = None
+_DEFAULT_MEDIA_STORAGE_SERVICE_CLASS = MediaStorageService
 from services.content_scenes_service import (
     generate_content_scenes as get_scenes,
     generate_app_tutorial_scenes as get_app_scenes,
@@ -556,16 +563,22 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
         source_ref = scene.get("source_ref")
         scene_id = scene.get("id", "unknown")
         fallback_triggered = False
+        browser = None
 
         # Scenario 1: Using browser to capture public page via Video Recording
         if top_half_type == "public_page_capture" and source_ref:
             try:
-                from services.browser_automation import BrowserAutomationService
-                from services.media_storage_service import MediaStorageService
                 import os
-                import tempfile
 
-                browser = BrowserAutomationService()
+                browser_service_class = BrowserAutomationService
+                if browser_service_class is None and browser_automation_module is not None:
+                    browser_service_class = browser_automation_module.BrowserAutomationService
+                if browser_service_class is None:
+                    raise RuntimeError(
+                        "Browser automation dependencies are not installed in this runtime image."
+                    )
+
+                browser = browser_service_class()
                 os.makedirs("/tmp/tutorials_videos", exist_ok=True)
                 # Ensure we start with video recording enabled
                 await browser.initialize_browser(
@@ -583,7 +596,15 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                         data = f.read()
 
                     # Use MediaStorageService for proper asset tracking
-                    media_storage = MediaStorageService()
+                    media_storage_service_class = MediaStorageService
+                    if (
+                        media_storage_service_class
+                        is _DEFAULT_MEDIA_STORAGE_SERVICE_CLASS
+                    ):
+                        media_storage_service_class = (
+                            media_storage_service_module.MediaStorageService
+                        )
+                    media_storage = media_storage_service_class()
                     storage_result = await media_storage.upload_bytes(
                         data=data,
                         destination_path=key,
@@ -596,7 +617,6 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                         or scene_metadata.get("campaign_id"),
                         user_id=scene.get("user_id") or scene_metadata.get("user_id"),
                     )
-                    await browser.close()
 
                     # Handle case where MediaStorageService returns None (e.g., missing user context)
                     if storage_result is None:
@@ -641,6 +661,16 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                     str(e)[:200],
                 )
                 fallback_triggered = True
+            finally:
+                if browser is not None:
+                    try:
+                        await browser.close()
+                    except Exception as close_exc:
+                        logger.warning(
+                            "Failed to close browser after scene %s capture attempt: %s",
+                            scene_id,
+                            close_exc,
+                        )
 
         # [CP2] Log when source_ref is None but type is public_page_capture
         elif top_half_type == "public_page_capture" and not source_ref:

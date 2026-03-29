@@ -188,6 +188,8 @@ class ScriptService:
             raise ValueError("Package does not contain a valid beat sheet")
 
         beats = package["beat_sheet"]["beats"]
+        concept_brief = package.get("concept_brief") or {}
+        default_source_ref = str(concept_brief.get("reference_url") or "").strip() or None
 
         # We need to construct the script string by concatenating bottom_half_message from beats
         script_text = " ".join(
@@ -216,6 +218,11 @@ class ScriptService:
 
             top_half_target = beat.get("top_half_target", "")
             beat_duration = float(beat.get("duration_sec", 4))
+            source_ref = beat.get("source_ref") or (
+                default_source_ref
+                if top_half_source_type == "public_page_capture"
+                else None
+            )
 
             # Use bottom_half_message for narration and overlay_text for captions
             narration = beat.get("bottom_half_message", "")
@@ -231,7 +238,7 @@ class ScriptService:
                 top_half_source_type=top_half_source_type,
                 top_half_target=top_half_target,
                 top_half_capture_hint=beat.get("top_half_capture_hint", "medium"),
-                source_ref=beat.get("source_ref"),
+                source_ref=source_ref,
             )
 
             # [CP1] Log SceneContract after build

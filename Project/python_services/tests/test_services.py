@@ -484,6 +484,8 @@ async def test_google_tts_service_sanitizes_error_metadata(monkeypatch):
     assert "test_google_tts_key" not in str(exc_info.value)
     assert "test_google_tts_key" not in captured["metadata"]["error_message"]
     assert "?key=" not in str(exc_info.value)
+    # Verify API key is not leaked in request headers
+    assert "test_google_tts_key" not in str(exc_info.value.request.headers)
 
 
 @pytest.mark.asyncio

@@ -76,6 +76,19 @@ class GoogleTTSService:
             return text.replace(self.api_key, "***")
         return text
 
+    def _sanitize_request(self, request: httpx.Request) -> httpx.Request:
+        """Create a copy of the request with sensitive headers removed."""
+        sensitive_headers = {"x-goog-api-key", "authorization"}
+        safe_headers = {
+            k: "***" if k.lower() in sensitive_headers else v
+            for k, v in request.headers.items()
+        }
+        return httpx.Request(
+            method=request.method,
+            url=request.url,
+            headers=safe_headers,
+        )
+
     @staticmethod
     def _normalize_language_name(language: str | None) -> str:
         normalized = str(language or "").strip().lower()
@@ -252,11 +265,17 @@ class GoogleTTSService:
             except httpx.HTTPStatusError as http_exc:
                 # [SECURITY] Keep API keys out of error propagation and suppress
                 # the original chained exception so worker tracebacks stay clean.
+                # Also sanitize request headers to prevent API key leakage.
                 error_msg = self._sanitize_text(http_exc)
+                sanitized_request = self._sanitize_request(http_exc.request)
+                sanitized_response = httpx.Response(
+                    status_code=http_exc.response.status_code,
+                    request=sanitized_request,
+                )
                 sanitized_exc = httpx.HTTPStatusError(
                     error_msg,
-                    request=http_exc.request,
-                    response=http_exc.response,
+                    request=sanitized_request,
+                    response=sanitized_response,
                 )
                 await self._record_usage(
                     text=text,

@@ -17,6 +17,7 @@ with workflow.unsafe.imports_passed_through():
         send_preview_to_telegram,
         wait_for_publish_decision,
         generate_script_from_approved_package_activity,
+        send_telegram_error_notification,
     )
     from activities.media_activities import (
         generate_audio,
@@ -24,7 +25,11 @@ with workflow.unsafe.imports_passed_through():
         create_talking_head_video,
     )
     from activities.video_activities import build_split_screen_video
-    from services.errors import PersonaNotReadyError, PersonaConfigurationError
+    from services.errors import (
+        PersonaNotReadyError,
+        PersonaConfigurationError,
+        SceneAssetMismatchError,
+    )
     from services.persona_registry_service import PersonaRegistryService
     from config.settings import settings
 
@@ -257,21 +262,62 @@ class ShortVideoWorkflow:
                 duration = end - start if end > start else 4.0
                 scene_durations.append(duration)
 
+            # [CRITICAL-1 FIX] Detect failed scenes before assembly
+            image_urls_raw = [scene.get("image_url") for scene in scenes_result]
+            failed_scene_indices = [
+                i for i, url in enumerate(image_urls_raw) if url is None
+            ]
+
+            if failed_scene_indices:
+                workflow.logger.error(
+                    "Scene asset generation failed for indices %s — aborting assembly",
+                    failed_scene_indices,
+                )
+                raise SceneAssetMismatchError(
+                    f"Asset generation failed for {len(failed_scene_indices)} scene(s): indices {failed_scene_indices}"
+                )
+
+            # Build aligned arrays: only include scenes with valid assets
+            valid_scenes_with_index = [
+                (i, scene)
+                for i, scene in enumerate(scenes_result)
+                if scene.get("image_url")
+            ]
+            image_urls = [scene.get("image_url") for _, scene in valid_scenes_with_index]
+            aligned_durations = [
+                scene_durations[i] if i < len(scene_durations) else 4.0
+                for i, _ in valid_scenes_with_index
+            ]
+            aligned_captions = [
+                scene.get("caption", "") for _, scene in valid_scenes_with_index
+            ]
+
+            # Final safety check: arrays must be same length
+            if len(image_urls) != len(aligned_durations):
+                workflow.logger.error(
+                    "MISMATCH duration/image count: durations=%s images=%s",
+                    len(aligned_durations),
+                    len(image_urls),
+                )
+                raise SceneAssetMismatchError(
+                    f"Scene count mismatch: {len(image_urls)} images vs {len(aligned_durations)} durations — aborting assembly"
+                )
+
+            workflow.logger.info(
+                "Pre-assembly check passed | scenes=%s | total_duration=%.1fs",
+                len(image_urls),
+                sum(aligned_durations),
+            )
+
             final_video = await workflow.execute_activity(
                 build_split_screen_video,
                 args=[
                     {
-                        "image_urls": [
-                            scene.get("image_url")
-                            for scene in scenes_result
-                            if scene.get("image_url")
-                        ],
+                        "image_urls": image_urls,
                         "audio_url": audio_result["url"],
                         "talking_head_url": talking_head_result.get("url") or None,
-                        "scene_captions": [
-                            scene.get("caption", "") for scene in scenes_result
-                        ],
-                        "scene_durations": scene_durations,
+                        "scene_captions": aligned_captions,
+                        "scene_durations": aligned_durations,
                         "persona_id": persona_id,
                         "owner_key": owner_key,
                         "user_id": payload.get("user_id"),
@@ -345,7 +391,34 @@ class ShortVideoWorkflow:
         except Exception as exc:
             self.workflow_status = "failed"
             self.current_step = "failed"
-            # FIX 2: strict FinalVideoContract on exception exit
+
+            # [CRITICAL-2 FIX] Notify user on Telegram about workflow failure
+            workflow.logger.error(
+                "Workflow failed | workflow_id=%s | topic=%s | error=%s",
+                workflow_id,
+                payload.get("topic", ""),
+                str(exc),
+            )
+            try:
+                await workflow.execute_activity(
+                    send_telegram_error_notification,
+                    args=[
+                        {
+                            "telegram_chat_id": telegram_chat_id,
+                            "workflow_id": workflow_id,
+                            "topic": payload.get("topic", ""),
+                            "error_type": type(exc).__name__,
+                            "error_summary": str(exc)[:200],
+                        }
+                    ],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            except Exception as notify_exc:
+                workflow.logger.warning(
+                    "Failed to send error notification to Telegram: %s", notify_exc
+                )
+
             return {
                 "type": "video",
                 "status": "failed",

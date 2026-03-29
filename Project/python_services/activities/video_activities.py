@@ -6,6 +6,7 @@ Canonical deterministic lane for final video composition.
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 import asyncio
 import logging
 import os
@@ -21,6 +22,28 @@ from services.storage_service import StorageService
 from services.media_storage_service import MediaStorageService
 
 logger = logging.getLogger(__name__)
+
+
+def _is_video_url(url: str) -> bool:
+    """
+    [MEDIUM-2 FIX] Detect if URL points to a video file.
+    Uses urlparse to strip query params before checking extension.
+    Handles presigned S3 URLs and CDN URLs with query strings.
+    """
+    path = urlparse(url).path.lower()
+    return path.endswith((".webm", ".mp4", ".mov"))
+
+
+def _get_extension_for_url(url: str) -> str:
+    """Get file extension for a URL, handling presigned URLs."""
+    path = urlparse(url).path.lower()
+    if path.endswith(".webm"):
+        return ".webm"
+    elif path.endswith(".mp4"):
+        return ".mp4"
+    elif path.endswith(".mov"):
+        return ".mov"
+    return ".jpg"
 
 
 async def _download_required(url: str, dest: str, label: str) -> None:
@@ -92,12 +115,17 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
         download_tasks: List[asyncio.Future] = []
         image_paths: List[str] = []
         for index, url in enumerate(assembly_input.image_urls):
-            # Support videos dynamically based on URL extension
-            ext = ".jpg"
-            if ".webm" in url.lower():
-                ext = ".webm"
-            elif ".mp4" in url.lower():
-                ext = ".mp4"
+            # [MEDIUM-2 FIX] Use urlparse-based extension detection
+            ext = _get_extension_for_url(url)
+            is_video_asset = _is_video_url(url)
+
+            # [CP5] Log asset type detection
+            logger.debug(
+                "Asset type detected | scene=%s | is_video=%s | url_path=%s",
+                index,
+                is_video_asset,
+                urlparse(url).path[-50:] if url else "NONE",
+            )
 
             image_path = str(tmp_path / f"img_{index:02d}{ext}")
             image_paths.append(image_path)
@@ -146,6 +174,15 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                 scene_durations[idx]
                 if idx < len(scene_durations)
                 else assembly_input.duration_per_image
+            )
+
+            # [CP6] Log assembly per-scene details
+            logger.info(
+                "Assembly scene %s | asset_type=%s | duration=%.2fs | has_talking_head=%s",
+                idx,
+                "video" if is_vid else "image",
+                scene_duration,
+                bool(talking_head_path),
             )
 
             if is_vid:
@@ -267,6 +304,10 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
             and os.path.exists(talking_head_path)
             and os.path.getsize(talking_head_path) >= 100
         ):
+            logger.info(
+                "Using split-screen assembly with talking head | scene_count=%s",
+                len(image_paths),
+            )
             _run_ffmpeg(
                 [
                     "ffmpeg",
@@ -299,6 +340,11 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
             )
         else:
             used_fallback = True
+            # [CP7] Log slideshow fallback
+            logger.info(
+                "No talking head available — using slideshow fallback | scene_count=%s",
+                len(image_paths),
+            )
             _run_ffmpeg(
                 [
                     "ffmpeg",

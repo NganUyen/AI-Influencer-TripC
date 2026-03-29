@@ -118,6 +118,11 @@ class ScriptContractError(PipelineError):
     retryable = False
 
 
+class SceneAssetMismatchError(PipelineError):
+    """Scene asset arrays (images, durations) have mismatched lengths. Non-retryable."""
+    retryable = False
+
+
 # ─── Postiz / GrowChief ──────────────────────────────────────────────────────
 
 class SocialProviderError(PipelineError):

@@ -140,6 +140,15 @@ class VideoAISkill(BaseSkill):
         )
         if not persona.get("persona_id"):
             raise ValueError("Selected persona could not be loaded.")
+        if persona.get("status") != "ready":
+            raise ValueError(
+                readiness.get("blocking_reason") or "Selected persona is not ready."
+            )
+        if not persona.get("tts_voice"):
+            raise ValueError(
+                readiness.get("blocking_reason")
+                or "Selected persona is missing tts_voice."
+            )
 
         talking_head_optional = talking_head_optional and not bool(
             persona.get("heygen_avatar_id")

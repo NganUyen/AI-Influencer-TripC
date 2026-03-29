@@ -205,6 +205,8 @@ async def test_video_ai_allows_voiceover_only_fallback_when_heygen_avatar_missin
     assert result.session.step_key == "confirm_concept"
     assert result.session.artifacts["talking_head_optional"] is True
     assert "voiceover instead" in result.session.artifacts["production_note"]
+    assert result.session.artifacts["persona_readiness"]["ready"] is False
+    assert result.session.artifacts["concept_brief"]["persona_id"] == "minh_vn"
 
 
 @pytest.mark.asyncio

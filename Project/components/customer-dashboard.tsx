@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { customerApiRequest } from "@/lib/customer-api";
@@ -10,100 +10,88 @@ import {
 } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 
+// SkyNet Components
+import SkyNetLayout from "./skynet/SkyNetLayout";
+import CapabilityCloud from "./skynet/CapabilityCloud";
+import SystemHealthWidget from "./skynet/SystemHealthWidget";
+import ModelConfigWidget from "./skynet/ModelConfigWidget";
+import LiveFeed from "./skynet/LiveFeed";
+
 type BrandProfile = {
-  brand_profile_id?: string;
-  product_name: string;
-  website_url?: string | null;
-  audience?: string | null;
-  offer_summary?: string | null;
-  tone_voice?: string | null;
-  campaign_goals?: string[];
-  asset_urls?: string[];
-  timezone?: string;
-  telegram_contact?: string | null;
+  product_name: string | null;
+  website_url: string | null;
+  audience: string | null;
+  offer_summary: string | null;
+  tone_voice: string | null;
+  timezone: string | null;
+  campaign_goals: string[] | null;
+  asset_urls: string[] | null;
+  telegram_contact: string | null;
 };
 
 type SocialAccount = {
   id: string;
   platform: string;
-  display_name?: string | null;
-  account_handle?: string | null;
+  account_handle: string | null;
+  display_name: string | null;
   connection_status: string;
 };
 
 type AssistantThread = {
   id: string;
   title: string;
-  last_message_preview?: string | null;
+  created_at: string;
+  last_message_preview: string | null;
 };
 
 type AssistantMessage = {
   id: string;
-  role: string;
+  role: "user" | "assistant";
   content: string;
+  created_at: string;
 };
 
 type AssistantArtifact = {
   id: string;
   title: string;
-  payload: Record<string, unknown>;
+  type: string;
+  payload: any;
+  created_at: string;
 };
 
 type Campaign = {
   id: string;
   name: string;
-  description?: string | null;
+  description: string | null;
+  target_platforms: string[];
   status: string;
   approval_status: string;
-  target_platforms: string[];
-  active_workflow_id?: string | null;
+  active_workflow_id: string | null;
 };
 
 type ContentItem = {
   id: string;
   title: string;
-  status: string;
   platform: string[];
-  published_at?: string | null;
-  scheduled_at?: string | null;
-};
-
-type Persona = {
-  persona_id: string;
-  display_name: string;
-  language?: string | null;
-  tts_voice?: string | null;
-  avatar_image_url?: string | null;
   status: string;
-  video_count: number;
-  created_at: string;
+  scheduled_at: string | null;
+  published_at: string | null;
 };
-
-type AIBackboneAccessMode =
-  | "platform_managed"
-  | "customer_api_key"
-  | "chatgpt_oauth";
 
 type AIBackboneSettings = {
-  access_mode: AIBackboneAccessMode;
-  workspace_default: {
-    api_url: string;
+  access_mode: "workspace_default" | "customer_api_key" | "chatgpt_oauth";
+  customer_api: {
+    api_url: string | null;
     has_api_key: boolean;
   };
-  customer_api: {
+  workspace_default: {
     api_url: string;
-    has_api_key: boolean;
-    updated_at?: string | null;
   };
   chatgpt_oauth: {
     linked: boolean;
+    chatgpt_subject: string | null;
     session_ready: boolean;
-    chatgpt_subject?: string | null;
-    display_name?: string | null;
-    subscription_tier?: string | null;
-    linked_at?: string | null;
-    last_used_at?: string | null;
-    session_expires_at?: string | null;
+    session_expires_at: string | null;
   };
   effective_status: {
     ready: boolean;
@@ -111,25 +99,20 @@ type AIBackboneSettings = {
   };
 };
 
-type AIBackboneForm = {
-  accessMode: AIBackboneAccessMode;
-  customerApiUrl: string;
-  customerApiKey: string;
-  chatgptSubject: string;
-  chatgptDisplayName: string;
-  chatgptSubscriptionTier: "plus" | "pro";
+type Persona = {
+  persona_id: string;
+  display_name: string;
+  avatar_image_url: string | null;
+  status: string;
+  video_count: number;
 };
 
 type TelegramLinkStatus = {
   linked: boolean;
   link?: {
-    chat_id: number;
-    user_id: string;
-    telegram_username?: string | null;
-    linked_at: string;
-    last_verified_at: string;
-    revoked_at?: string | null;
-  } | null;
+    telegram_username: string | null;
+    chat_id: string;
+  };
 };
 
 type TelegramLinkToken = {
@@ -137,140 +120,134 @@ type TelegramLinkToken = {
   expires_at: string;
 };
 
-const SUPPORTED_PLATFORMS = ["linkedin", "facebook", "twitter", "youtube"];
-const AI_BACKBONE_OPTIONS: Array<{
-  value: AIBackboneAccessMode;
-  title: string;
-  description: string;
-}> = [
-  {
-    value: "platform_managed",
-    title: "Workspace Managed",
-    description: "Use the shared OpenClaw backbone managed by the platform.",
-  },
-  {
-    value: "customer_api_key",
-    title: "Bring Your API",
-    description: "Store your own OpenClaw API key and route assistant runs through it.",
-  },
-  {
-    value: "chatgpt_oauth",
-    title: "GPT Plus / Pro OAuth",
-    description: "Use the connector-backed GPT OAuth path for customer-owned access.",
-  },
-];
+type SystemSummaryData = {
+  services: { name: string; status: "online" | "warning" | "error"; latency: string }[];
+  quota: { name: string; used: number; total: number; unit: string }[];
+};
+
+type SystemWorkflowData = {
+  id: string;
+  name: string;
+  status: "idle" | "running" | "completed" | "error";
+  progress: number;
+};
+
 const EMPTY_BRAND: BrandProfile = {
   product_name: "",
   website_url: "",
   audience: "",
   offer_summary: "",
   tone_voice: "",
+  timezone: "UTC",
   campaign_goals: [],
   asset_urls: [],
-  timezone: "UTC",
   telegram_contact: "",
 };
-const EMPTY_AI_BACKBONE: AIBackboneSettings = {
-  access_mode: "platform_managed",
-  workspace_default: {
-    api_url: "",
-    has_api_key: false,
+
+const SUPPORTED_PLATFORMS = ["linkedin", "facebook", "twitter", "instagram", "tiktok"];
+
+const AI_BACKBONE_OPTIONS = [
+  {
+    value: "workspace_default",
+    title: "Shared Backbone",
+    description: "Use the agency's provisioned AI infrastructure.",
   },
-  customer_api: {
-    api_url: "",
-    has_api_key: false,
-    updated_at: null,
+  {
+    value: "customer_api_key",
+    title: "Customer API Key",
+    description: "Provide your own OpenClaw API key and endpoint.",
   },
-  chatgpt_oauth: {
-    linked: false,
-    session_ready: false,
-    chatgpt_subject: "",
-    display_name: "",
-    subscription_tier: "plus",
-    linked_at: null,
-    last_used_at: null,
-    session_expires_at: null,
+  {
+    value: "chatgpt_oauth",
+    title: "GPT OAuth",
+    description: "Direct connection to your GPT Plus or Pro account.",
   },
-  effective_status: {
-    ready: true,
-    message: "Using workspace-managed OpenClaw access.",
-  },
-};
+] as const;
+
 function buildAiBackboneForm(
   settings: AIBackboneSettings,
-  fallbackDisplayName: string,
-): AIBackboneForm {
+  defaultDisplayName: string,
+) {
   return {
     accessMode: settings.access_mode,
-    customerApiUrl:
-      settings.customer_api.api_url || settings.workspace_default.api_url || "",
+    customerApiUrl: settings.customer_api.api_url || "",
     customerApiKey: "",
     chatgptSubject: settings.chatgpt_oauth.chatgpt_subject || "",
-    chatgptDisplayName:
-      settings.chatgpt_oauth.display_name || fallbackDisplayName || "",
-    chatgptSubscriptionTier:
-      settings.chatgpt_oauth.subscription_tier === "pro" ? "pro" : "plus",
+    chatgptDisplayName: defaultDisplayName,
+    chatgptSubscriptionTier: "plus" as "plus" | "pro",
   };
 }
 
 export default function CustomerDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const {
-    user,
-    isAuthenticated,
-    isLoading,
-    initialized,
-    error: authError,
-    initialize,
-    logout,
-  } = useCustomerAuthStore((state) => ({
-    user: state.user,
-    isAuthenticated: state.isAuthenticated,
-    isLoading: state.isLoading,
-    initialized: state.initialized,
-    error: state.error,
-    initialize: state.initialize,
-    logout: state.logout,
-  }));
+  const { user, isAuthenticated, initialized, isLoading } = useCustomerAuthStore();
+
+  const [activeTab, setActiveTab] = useState("overview");
+  const [systemSummary, setSystemSummary] = useState<SystemSummaryData | null>(null);
+  const [systemWorkflows, setSystemWorkflows] = useState<SystemWorkflowData[]>([]);
 
   const [brandForm, setBrandForm] = useState<BrandProfile>(EMPTY_BRAND);
-  const [telegramBotUrl, setTelegramBotUrl] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [threads, setThreads] = useState<AssistantThread[]>([]);
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [artifacts, setArtifacts] = useState<AssistantArtifact[]>([]);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [composer, setComposer] = useState("");
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [approvals, setApprovals] = useState<Campaign[]>([]);
   const [content, setContent] = useState<ContentItem[]>([]);
+  const [aiBackbone, setAiBackbone] = useState<AIBackboneSettings | null>(null);
+  const [aiBackboneForm, setAiBackboneForm] = useState(() =>
+    buildAiBackboneForm(
+      {
+        access_mode: "workspace_default",
+        customer_api: { api_url: "", has_api_key: false },
+        workspace_default: { api_url: "" },
+        chatgpt_oauth: {
+          linked: false,
+          chatgpt_subject: null,
+          session_ready: false,
+          session_expires_at: null,
+        },
+        effective_status: { ready: false, message: "Initializing..." },
+      },
+      user?.name || user?.email || "",
+    ),
+  );
   const [personas, setPersonas] = useState<Persona[]>([]);
-  const [telegramLink, setTelegramLink] = useState<TelegramLinkStatus | null>(
-    null,
-  );
+  const [telegramLink, setTelegramLink] = useState<TelegramLinkStatus | null>(null);
   const [linkToken, setLinkToken] = useState<TelegramLinkToken | null>(null);
-  const [aiBackbone, setAiBackbone] =
-    useState<AIBackboneSettings>(EMPTY_AI_BACKBONE);
-  const [aiBackboneForm, setAiBackboneForm] = useState<AIBackboneForm>(
-    buildAiBackboneForm(EMPTY_AI_BACKBONE, ""),
-  );
-  const [composer, setComposer] = useState("");
+  const [telegramBotUrl, setTelegramBotUrl] = useState<string | null>(null);
+
   const [campaignDraft, setCampaignDraft] = useState({
     name: "",
     description: "",
     targetPlatforms: "linkedin,facebook,twitter",
   });
-  const [banner, setBanner] = useState<string | null>(null);
-  const [pageError, setPageError] = useState<string | null>(null);
+
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const formattedTelegramContact = formatTelegramContact(
-    brandForm.telegram_contact,
-  );
-  const telegramSetupComplete = Boolean(formattedTelegramContact);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [banner, setBanner] = useState<string | null>(null);
+
+  const fetchSystemData = useCallback(async () => {
+    try {
+      const [summary, workflows] = await Promise.all([
+        customerApiRequest<SystemSummaryData>("/api/customer/system/summary"),
+        customerApiRequest<{ workflows: SystemWorkflowData[] }>("/api/customer/system/workflows"),
+      ]);
+      setSystemSummary(summary);
+      setSystemWorkflows(workflows.workflows);
+    } catch (error) {
+      console.error("Failed to fetch system monitoring data:", error);
+    }
+  }, []);
 
   useEffect(() => {
-    void initialize();
-  }, [initialize]);
+    void fetchSystemData();
+    const interval = setInterval(fetchSystemData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchSystemData]);
 
   useEffect(() => {
     setTelegramBotUrl(buildTelegramBotUrl());
@@ -318,30 +295,17 @@ export default function CustomerDashboard() {
         aiBackboneResponse,
         personasList,
         telegramLinkResponse,
-      ] =
-        await Promise.all([
-          customerApiRequest<{ brand_profile: BrandProfile | null }>(
-            "/api/customer/brand",
-          ),
-          customerApiRequest<{ accounts: SocialAccount[] }>(
-            "/api/customer/social-accounts",
-          ),
-          customerApiRequest<{ threads: AssistantThread[] }>(
-            "/api/customer/assistant/threads",
-          ),
-          customerApiRequest<{ campaigns: Campaign[] }>(
-            "/api/customer/campaigns",
-          ),
-          customerApiRequest<{ approvals: Campaign[] }>(
-            "/api/customer/approvals",
-          ),
-          customerApiRequest<{ items: ContentItem[] }>("/api/customer/content"),
-          customerApiRequest<{ settings: AIBackboneSettings }>(
-            "/api/customer/ai-backbone",
-          ),
-          customerApiRequest<{ personas: Persona[] }>("/api/customer/personas"),
-          customerApiRequest<TelegramLinkStatus>("/api/customer/telegram/link"),
-        ]);
+      ] = await Promise.all([
+        customerApiRequest<{ brand_profile: BrandProfile | null }>("/api/customer/brand"),
+        customerApiRequest<{ accounts: SocialAccount[] }>("/api/customer/social-accounts"),
+        customerApiRequest<{ threads: AssistantThread[] }>("/api/customer/assistant/threads"),
+        customerApiRequest<{ campaigns: Campaign[] }>("/api/customer/campaigns"),
+        customerApiRequest<{ approvals: Campaign[] }>("/api/customer/approvals"),
+        customerApiRequest<{ items: ContentItem[] }>("/api/customer/content"),
+        customerApiRequest<{ settings: AIBackboneSettings }>("/api/customer/ai-backbone"),
+        customerApiRequest<{ personas: Persona[] }>("/api/customer/personas"),
+        customerApiRequest<TelegramLinkStatus>("/api/customer/telegram/link"),
+      ]);
 
       setBrandForm(brand.brand_profile || EMPTY_BRAND);
       setAccounts(social.accounts);
@@ -351,13 +315,9 @@ export default function CustomerDashboard() {
       setContent(contentList.items);
       setPersonas(personasList.personas || []);
       setTelegramLink(telegramLinkResponse);
-      setAiBackbone(aiBackboneResponse.settings);
-      setAiBackboneForm(
-        buildAiBackboneForm(
-          aiBackboneResponse.settings,
-          user?.name || user?.email || "",
-        ),
-      );
+      const settings = aiBackboneResponse.settings;
+      setAiBackbone(settings);
+      setAiBackboneForm(buildAiBackboneForm(settings, user?.name || user?.email || ""));
 
       const nextThreadId = selectedThreadId || assistant.threads[0]?.id || null;
       setSelectedThreadId(nextThreadId);
@@ -455,7 +415,7 @@ export default function CustomerDashboard() {
 
   async function handleSendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedThreadId || !composer.trim() || !aiBackbone.effective_status.ready) {
+    if (!selectedThreadId || !composer.trim() || !aiBackbone?.effective_status.ready) {
       return;
     }
     setBusyKey("assistant");
@@ -660,9 +620,7 @@ export default function CustomerDashboard() {
       );
       setLinkToken(payload);
     } catch (error) {
-      setPageError(
-        error instanceof Error ? error.message : "Failed to start Telegram link",
-      );
+      setPageError(error instanceof Error ? error.message : "Failed to start Telegram link");
     } finally {
       setBusyKey(null);
     }
@@ -677,818 +635,218 @@ export default function CustomerDashboard() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#1f4f46_0%,#091018_38%,#05070b_100%)] text-stone-100">
-      <div className="mx-auto max-w-7xl px-6 py-8">
-        <header className="mb-8 flex flex-col gap-4 rounded-[28px] border border-emerald-200/10 bg-white/5 p-6 backdrop-blur md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-sm uppercase tracking-[0.3em] text-emerald-200/70">
-              Customer Workspace
-            </p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-tight text-white">
-              Launch campaigns from one guided control room
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm text-stone-300">
-              Connect your official accounts, shape the campaign with OpenClaw,
-              review the plan, and launch the workflow into Temporal without exposing
-              Postiz or GrowChief directly.
-            </p>
+    <SkyNetLayout activeTab={activeTab} onTabChange={setActiveTab}>
+      {activeTab === "overview" && (
+        <div className="space-y-6">
+          <CapabilityCloud />
+          
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <SystemHealthWidget services={systemSummary?.services} quota={systemSummary?.quota} />
+            <ModelConfigWidget settings={aiBackbone} />
           </div>
-          <div className="rounded-3xl border border-white/10 bg-black/20 px-5 py-4 text-sm text-stone-200">
-            <p className="font-medium text-white">{user?.name || user?.email}</p>
-            <p>{user?.email}</p>
-            <button
-              type="button"
-              onClick={() => void logout().then(() => router.replace("/auth"))}
-              className="mt-3 rounded-full border border-white/15 px-4 py-2 text-xs uppercase tracking-[0.2em] text-stone-100 transition hover:border-emerald-300 hover:text-emerald-200"
-            >
-              Sign Out
-            </button>
-          </div>
-        </header>
 
-        {(banner || pageError || authError) && (
-          <div className="mb-6 rounded-2xl border border-white/10 bg-black/30 p-4 text-sm">
-            {banner && <p className="text-emerald-200">{banner}</p>}
-            {(pageError || authError) && (
-              <p className="text-rose-200">{pageError || authError}</p>
-            )}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+             <div className="lg:col-span-2">
+                <LiveFeed />
+             </div>
+             <div className="space-y-6">
+                <Panel title="Quick Stats" subtitle="Current workflow pulse">
+                   <div className="space-y-4">
+                      <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
+                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Active Workflows</p>
+                        <p className="text-2xl font-bold text-emerald-400">{systemWorkflows.length}</p>
+                      </div>
+                      <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
+                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Pending Approvals</p>
+                        <p className="text-2xl font-bold text-amber-400">{approvals.length}</p>
+                      </div>
+                   </div>
+                </Panel>
+             </div>
           </div>
-        )}
+        </div>
+      )}
 
+      {activeTab === "ops" && (
         <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <section className="space-y-6">
-            <Panel title="Brand Onboarding" subtitle="This becomes the canonical planning input for weekly strategy generation.">
-              <form className="grid gap-4 md:grid-cols-2" onSubmit={handleBrandSave}>
-                <Field
-                  label="Product Name"
-                  value={brandForm.product_name || ""}
-                  onChange={(value) => setBrandForm((current) => ({ ...current, product_name: value }))}
-                />
-                <Field
-                  label="Website"
-                  value={brandForm.website_url || ""}
-                  onChange={(value) => setBrandForm((current) => ({ ...current, website_url: value }))}
-                />
-                <Field
-                  label="Audience"
-                  value={brandForm.audience || ""}
-                  onChange={(value) => setBrandForm((current) => ({ ...current, audience: value }))}
-                />
-                <Field
-                  label="Offer"
-                  value={brandForm.offer_summary || ""}
-                  onChange={(value) => setBrandForm((current) => ({ ...current, offer_summary: value }))}
-                />
-                <Field
-                  label="Tone"
-                  value={brandForm.tone_voice || ""}
-                  onChange={(value) => setBrandForm((current) => ({ ...current, tone_voice: value }))}
-                />
-                <Field
-                  label="Timezone"
-                  value={brandForm.timezone || "UTC"}
-                  onChange={(value) => setBrandForm((current) => ({ ...current, timezone: value }))}
-                />
-                <TextAreaField
-                  className="md:col-span-2"
-                  label="Campaign Goals"
-                  value={(brandForm.campaign_goals || []).join(", ")}
-                  onChange={(value) =>
-                    setBrandForm((current) => ({ ...current, campaign_goals: splitList(value) }))
-                  }
-                />
-                <TextAreaField
-                  className="md:col-span-2"
-                  label="Asset URLs"
-                  value={(brandForm.asset_urls || []).join(", ")}
-                  onChange={(value) =>
-                    setBrandForm((current) => ({ ...current, asset_urls: splitList(value) }))
-                  }
-                />
-                <Field
-                  label="Telegram Contact"
-                  value={brandForm.telegram_contact || ""}
-                  onChange={(value) => setBrandForm((current) => ({ ...current, telegram_contact: value }))}
-                />
-                <div className="flex items-end">
-                  <button
-                    type="submit"
-                    disabled={busyKey === "brand"}
-                    className="w-full rounded-full bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {busyKey === "brand" ? "Saving..." : "Save Brand Profile"}
-                  </button>
-                </div>
-              </form>
-            </Panel>
-
-            <Panel title="In-App OpenClaw Assistant" subtitle="Use this thread to refine positioning, weekly plans, and campaign artifacts before launch.">
-              <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-                <div className="space-y-3 rounded-3xl border border-white/10 bg-black/20 p-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-stone-300">
-                      Threads
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => void handleCreateThread()}
-                      disabled={busyKey === "thread"}
-                      className="rounded-full border border-emerald-300/40 px-3 py-1 text-xs uppercase tracking-[0.18em] text-emerald-200 transition hover:border-emerald-200"
-                    >
-                      New
-                    </button>
+           <section className="space-y-6">
+              <Panel title="In-App OpenClaw Assistant" subtitle="Refine positioning and content plans.">
+                <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+                  <div className="space-y-3 rounded-3xl border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-stone-300">Threads</h3>
+                      <button type="button" onClick={() => void handleCreateThread()} disabled={busyKey === "thread"} className="rounded-full border border-emerald-300/40 px-3 py-1 text-xs uppercase tracking-[0.18em] text-emerald-200 transition hover:border-emerald-200">New</button>
+                    </div>
+                    <div className="space-y-2">
+                       {threads.length === 0 && <p className="text-xs text-slate-500">No threads yet.</p>}
+                      {threads.map((thread) => (
+                        <button key={thread.id} type="button" onClick={() => setSelectedThreadId(thread.id)} className={`w-full rounded-2xl border px-4 py-3 text-left transition ${selectedThreadId === thread.id ? "border-emerald-300 bg-emerald-200/10" : "border-white/8 bg-white/5 hover:border-white/20"}`}>
+                          <p className="font-medium text-white truncate">{thread.title}</p>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    {threads.length === 0 && (
-                      <p className="text-sm text-stone-400">
-                        Create your first planning thread to brief OpenClaw.
-                      </p>
-                    )}
-                    {threads.map((thread) => (
-                      <button
-                        key={thread.id}
-                        type="button"
-                        onClick={() => setSelectedThreadId(thread.id)}
-                        className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
-                          selectedThreadId === thread.id
-                            ? "border-emerald-300 bg-emerald-200/10"
-                            : "border-white/8 bg-white/5 hover:border-white/20"
-                        }`}
-                      >
-                        <p className="font-medium text-white">{thread.title}</p>
-                        <p className="mt-1 text-xs text-stone-400">
-                          {thread.last_message_preview || "No messages yet"}
-                        </p>
-                      </button>
-                    ))}
+                  <div className="space-y-4 rounded-3xl border border-white/10 bg-black/20 p-4">
+                     <div className="max-h-[420px] overflow-y-auto pr-2 space-y-3">
+                        {messages.map((message) => (
+                          <div key={message.id} className={`rounded-3xl px-4 py-3 text-sm ${message.role === "assistant" ? "bg-emerald-200/10 text-stone-100" : "bg-white/8 text-stone-200"}`}>
+                            <p className="mb-1 text-[10px] uppercase text-stone-500">{message.role}</p>
+                            <p className="whitespace-pre-wrap">{message.content}</p>
+                          </div>
+                        ))}
+                     </div>
+                     <form className="space-y-2" onSubmit={handleSendMessage}>
+                        <textarea value={composer} onChange={(e) => setComposer(e.target.value)} placeholder="Type a message..." className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500" />
+                        <button type="submit" disabled={busyKey === "assistant"} className="w-full bg-emerald-500 text-slate-950 font-bold py-2 rounded-xl hover:bg-emerald-400 transition-colors disabled:opacity-50">
+                           {busyKey === "assistant" ? "OpenClaw Thinking..." : "Send to AI"}
+                        </button>
+                     </form>
                   </div>
                 </div>
-
-                <div className="space-y-4 rounded-3xl border border-white/10 bg-black/20 p-4">
-                  <div className="max-h-[420px] space-y-3 overflow-y-auto pr-2">
-                    {messages.length === 0 && (
-                      <p className="text-sm text-stone-400">
-                        Ask for a weekly content angle, a launch narrative, or a plan built from your brand profile.
-                      </p>
-                    )}
-                    {messages.map((message) => (
-                      <div
-                        key={message.id}
-                        className={`rounded-3xl px-4 py-3 text-sm ${
-                          message.role === "assistant"
-                            ? "bg-emerald-200/10 text-stone-100"
-                            : "bg-white/8 text-stone-200"
-                        }`}
-                      >
-                        <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-stone-400">
-                          {message.role}
-                        </p>
-                        <p className="whitespace-pre-wrap">{message.content}</p>
+              </Panel>
+              
+              <Panel title="Campaign Control" subtitle="Manage workflow drafts.">
+                 <div className="space-y-4">
+                    {campaigns.map(c => (
+                      <div key={c.id} className="p-4 bg-white/5 border border-white/10 rounded-2xl hover:border-emerald-500/30 transition-all">
+                        <div className="flex justify-between items-center">
+                          <h4 className="font-bold text-white">{c.name}</h4>
+                          <StatusBadge label={c.status} />
+                        </div>
+                        <div className="mt-4 flex gap-2">
+                           <button onClick={() => handleLaunch(c.id)} disabled={c.approval_status !== "approved" || busyKey === `launch-${c.id}`} className="px-4 py-1.5 bg-white text-slate-900 rounded-full text-xs font-bold hover:bg-emerald-200 transition-colors disabled:opacity-50">
+                              {busyKey === `launch-${c.id}` ? "Launching..." : "Launch"}
+                           </button>
+                        </div>
                       </div>
                     ))}
-                  </div>
+                    {campaigns.length === 0 && <p className="text-sm text-slate-500 italic">Queue clear.</p>}
+                 </div>
+              </Panel>
+           </section>
+           
+           <section className="space-y-6">
+              <Panel title="Pending Approvals" subtitle="Action items.">
+                 <div className="space-y-3">
+                    {approvals.map(a => (
+                      <div key={a.id} className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-2xl">
+                        <p className="font-medium text-amber-100">{a.name}</p>
+                        <div className="mt-4 flex gap-2">
+                           <button onClick={() => handleApprove(a.id, true)} className="px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold hover:bg-emerald-500/30">Approve</button>
+                           <button onClick={() => handleApprove(a.id, false)} className="px-3 py-1 bg-rose-500/20 text-rose-400 rounded-lg text-xs font-bold hover:bg-rose-500/30">Reject</button>
+                        </div>
+                      </div>
+                    ))}
+                    {approvals.length === 0 && <p className="text-sm text-slate-500 italic">System clear.</p>}
+                 </div>
+              </Panel>
 
-                  <form className="space-y-3" onSubmit={handleSendMessage}>
-                    <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-stone-300">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-200/80">
-                        Backbone Status
-                      </p>
-                      <p className="mt-1">{aiBackbone.effective_status.message}</p>
-                    </div>
-                    <textarea
-                      value={composer}
-                      onChange={(event) => setComposer(event.target.value)}
-                      placeholder="Create a review-first weekly launch plan for my current brand profile and propose target platforms."
-                      className="min-h-[120px] w-full rounded-3xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-300"
-                    />
-                    <button
-                      type="submit"
-                      disabled={
-                        !selectedThreadId ||
-                        busyKey === "assistant" ||
-                        !aiBackbone.effective_status.ready
-                      }
-                      className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {busyKey === "assistant"
-                        ? "Running OpenClaw..."
-                        : aiBackbone.effective_status.ready
-                          ? "Send To OpenClaw"
-                          : "Resolve AI Access First"}
-                    </button>
-                  </form>
+              <Panel title="Output Stream" subtitle="Recently published.">
+                 <div className="space-y-2">
+                    {content.slice(0, 5).map(item => (
+                      <div key={item.id} className="p-3 bg-white/5 border border-white/10 rounded-xl text-xs flex justify-between items-center">
+                         <span className="text-slate-300 truncate mr-2">{item.title}</span>
+                         <StatusBadge label={item.status} />
+                      </div>
+                    ))}
+                 </div>
+              </Panel>
+           </section>
+        </div>
+      )}
 
-                  {artifacts.length > 0 && (
-                    <div className="rounded-3xl border border-emerald-300/20 bg-emerald-300/5 p-4">
-                      <p className="text-xs uppercase tracking-[0.18em] text-emerald-200/80">
-                        Latest Assistant Artifact
-                      </p>
-                      <p className="mt-2 text-sm font-medium text-white">
-                        {artifacts[0].title}
-                      </p>
-                      <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap text-xs text-stone-300">
-                        {JSON.stringify(artifacts[0].payload, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </Panel>
-
-            <Panel
-              title="My AI Personas"
-              subtitle="Personas linked to your account via Telegram. Sync happens automatically when you create them in the bot."
-            >
-              {personas.length === 0 ? (
-                <div className="flex flex-col items-center justify-center rounded-3xl border border-white/5 bg-white/5 py-10 text-center">
-                  <p className="text-sm text-stone-400">
-                    No personas linked yet.
-                  </p>
-                  <p className="mt-2 text-xs text-stone-500">
-                    Chat with your bot to create your first AI influencer.
-                  </p>
-                  {telegramBotUrl && (
-                    <a
-                      href={telegramBotUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-6 rounded-full border border-emerald-300/40 px-4 py-2 text-xs font-medium uppercase tracking-[0.18em] text-emerald-200 transition hover:bg-emerald-300/10"
-                    >
-                      Open Bot
-                    </a>
-                  )}
-                </div>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {personas.map((persona) => (
-                    <div
-                      key={persona.persona_id}
-                      className="group flex items-center gap-4 rounded-3xl border border-white/8 bg-black/20 p-4 transition hover:border-white/20"
-                    >
-                      <div className="relative h-16 w-16 overflow-hidden rounded-2xl bg-slate-800">
-                        {persona.avatar_image_url ? (
-                          <img
-                            src={persona.avatar_image_url}
-                            alt={persona.display_name}
-                            className="h-full w-full object-cover transition duration-500 group-hover:scale-110"
-                          />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center text-xl font-bold text-stone-600">
-                            {persona.display_name.charAt(0)}
-                          </div>
-                        )}
+      {activeTab === "skills" && (
+        <div className="space-y-6">
+           <Panel title="AI Influencer Personas" subtitle="Your account-linked characters.">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                 {personas.map(p => (
+                   <div key={p.persona_id} className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 flex items-center gap-4 hover:border-emerald-500/30 transition-all group">
+                      <div className="w-16 h-16 bg-slate-800 rounded-xl overflow-hidden">
+                        {p.avatar_image_url && <img src={p.avatar_image_url} alt={p.display_name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h4 className="truncate text-base font-medium text-white">
-                          {persona.display_name}
-                        </h4>
-                        <div className="mt-1 flex items-center gap-3">
-                          <StatusBadge label={persona.status} />
-                          <span className="text-[10px] uppercase tracking-widest text-stone-500">
-                            {persona.video_count} videos
-                          </span>
-                        </div>
+                        <h4 className="font-bold text-white truncate">{p.display_name}</h4>
+                        <StatusBadge label={p.status} />
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Panel>
-
-            <Panel title="Campaign Control" subtitle="Create a draft from your connected accounts, approve it, then launch it into Temporal.">
-              <form className="grid gap-4 md:grid-cols-3" onSubmit={handleCreateCampaign}>
-                <Field
-                  label="Campaign Name"
-                  value={campaignDraft.name}
-                  onChange={(value) => setCampaignDraft((current) => ({ ...current, name: value }))}
-                />
-                <Field
-                  label="Platforms"
-                  value={campaignDraft.targetPlatforms}
-                  onChange={(value) => setCampaignDraft((current) => ({ ...current, targetPlatforms: value }))}
-                />
-                <div className="flex items-end">
-                  <button
-                    type="submit"
-                    disabled={busyKey === "campaign"}
-                    className="w-full rounded-full bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {busyKey === "campaign" ? "Saving..." : "Create Draft"}
-                  </button>
-                </div>
-                <TextAreaField
-                  className="md:col-span-3"
-                  label="Description"
-                  value={campaignDraft.description}
-                  onChange={(value) => setCampaignDraft((current) => ({ ...current, description: value }))}
-                />
-              </form>
-
-              <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                <div className="space-y-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-stone-400">
-                    Active Campaigns
-                  </p>
-                  {campaigns.length === 0 && (
-                    <p className="text-sm text-stone-400">
-                      No campaign drafts yet. Use the assistant, then create a draft here.
-                    </p>
-                  )}
-                  {campaigns.map((campaign) => (
-                    <div
-                      key={campaign.id}
-                      className="rounded-3xl border border-white/10 bg-black/20 p-4"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="text-lg font-medium text-white">{campaign.name}</p>
-                          <p className="mt-1 text-sm text-stone-400">
-                            {campaign.description || "No description"}
-                          </p>
-                        </div>
-                        <StatusBadge label={`${campaign.approval_status} / ${campaign.status}`} />
-                      </div>
-                      <p className="mt-3 text-xs uppercase tracking-[0.18em] text-stone-500">
-                        {campaign.target_platforms.join(" • ") || "No platforms set"}
-                      </p>
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void handleApprove(campaign.id, true)}
-                          disabled={busyKey === `approve-${campaign.id}`}
-                          className="rounded-full border border-emerald-300/40 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-emerald-200 transition hover:border-emerald-200"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleApprove(campaign.id, false)}
-                          disabled={busyKey === `approve-${campaign.id}`}
-                          className="rounded-full border border-rose-300/30 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-rose-200 transition hover:border-rose-200"
-                        >
-                          Reject
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleLaunch(campaign.id)}
-                          disabled={campaign.approval_status !== "approved" || busyKey === `launch-${campaign.id}`}
-                          className="rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Launch
-                        </button>
-                      </div>
-                      {campaign.active_workflow_id && (
-                        <p className="mt-3 text-xs text-emerald-200">
-                          Workflow: {campaign.active_workflow_id}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="space-y-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-stone-400">
-                    Pending Review
-                  </p>
-                  {approvals.length === 0 && (
-                    <p className="text-sm text-stone-400">
-                      Nothing is waiting for approval right now.
-                    </p>
-                  )}
-                  {approvals.map((campaign) => (
-                    <div
-                      key={campaign.id}
-                      className="rounded-3xl border border-amber-300/20 bg-amber-300/5 p-4"
-                    >
-                      <p className="font-medium text-white">{campaign.name}</p>
-                      <p className="mt-1 text-sm text-stone-300">
-                        Ready for review across {campaign.target_platforms.join(", ")}.
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </Panel>
-          </section>
-
-          <section className="space-y-6">
-            <Panel 
-              title="Telegram Connection" 
-              subtitle="Link your Telegram account to enable approvals, persona syncing, and automated workflows."
-            >
-              <div className="space-y-4">
-                {/* Connection Status */}
-                {telegramLink?.linked ? (
-                  <div className="rounded-3xl border border-emerald-300/15 bg-emerald-300/5 p-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.18em] text-emerald-100/80">
-                          Connected Account
-                        </p>
-                        <p className="mt-2 text-sm font-semibold text-stone-200">
-                          {telegramLink.link?.telegram_username
-                            ? `@${telegramLink.link.telegram_username}`
-                            : `Chat ID: ${telegramLink.link?.chat_id}`}
-                        </p>
-                        <p className="mt-1 text-xs text-stone-400">
-                          Your personas and approvals are synced to this Telegram chat
-                        </p>
-                      </div>
-                      <StatusBadge label="linked" />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-3xl border border-cyan-300/15 bg-cyan-300/5 p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.18em] text-cyan-100/80">
-                          Not Connected
-                        </p>
-                        <p className="mt-2 text-sm text-stone-200">
-                          Link your Telegram to enable automated persona syncing and approval workflows
-                        </p>
-                      </div>
-                      <StatusBadge label="needs_setup" />
-                    </div>
-                  </div>
-                )}
-
-                {/* Contact Info */}
-                {formattedTelegramContact && (
-                  <div className="grid gap-3">
-                    <TelegramDetail
-                      label="Saved Contact"
-                      value={formattedTelegramContact}
-                    />
-                  </div>
-                )}
-
-                {/* Setup Steps for Unlinked Users */}
-                {!telegramLink?.linked && (
-                  <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-stone-400">
-                      Connection Flow
-                    </p>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                      <TelegramStep
-                        title="1. Generate Link"
-                        description="Click 'Link My Telegram' to create a secure one-time connection token."
-                      />
-                      <TelegramStep
-                        title="2. Open Bot"
-                        description="Click the generated link to automatically open the bot and establish the connection."
-                      />
-                      <TelegramStep
-                        title="3. Instant Sync"
-                        description="Your personas and approvals will be immediately available in your Telegram chat."
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Action Buttons */}
-                {!telegramLink?.linked && (
-                  <div className="space-y-4">
-                    {linkToken && telegramBotUrl ? (
-                      <div className="space-y-3 rounded-3xl border border-amber-300/20 bg-amber-300/5 p-4">
-                        <p className="text-xs uppercase tracking-[0.18em] text-amber-200/80">
-                          🔐 Secure Link Generated
-                        </p>
-                        <p className="text-sm text-white">
-                          Click the button below to open the bot and complete the connection.
-                          This link is valid for 15 minutes.
-                        </p>
-                        <a
-                          href={`${telegramBotUrl}?start=${linkToken.start_token}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex w-full items-center justify-center rounded-full bg-amber-200 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-100"
-                        >
-                          🚀 Open Bot & Connect Now
-                        </a>
-                        <p className="text-[10px] text-stone-500">
-                          Expires at:{" "}
-                          {new Date(linkToken.expires_at).toLocaleTimeString()}
-                        </p>
-                      </div>
-                    ) : linkToken ? (
-                      <div className="space-y-3 rounded-3xl border border-rose-300/20 bg-rose-300/5 p-4">
-                        <p className="text-xs uppercase tracking-[0.18em] text-rose-200/80">
-                          Telegram Bot URL Missing
-                        </p>
-                        <p className="text-sm text-white">
-                          The secure link was created, but the dashboard has no Telegram bot URL configured to open it.
-                        </p>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => void handleStartTelegramLink()}
-                        disabled={busyKey === "telegram-link"}
-                        className="w-full rounded-full bg-emerald-200 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-100 disabled:opacity-50"
-                      >
-                        {busyKey === "telegram-link"
-                          ? "Generating Secure Link..."
-                          : "🔗 Link My Telegram"}
-                      </button>
+                   </div>
+                 ))}
+                 
+                 <div className="border border-dashed border-slate-700 rounded-2xl p-8 flex flex-col items-center justify-center text-center space-y-4 hover:bg-white/5 transition-colors group cursor-pointer">
+                    <p className="text-xs text-slate-500">Create more characters on Telegram</p>
+                    {telegramBotUrl && (
+                      <a href={telegramBotUrl} target="_blank" rel="noreferrer" className="px-6 py-2 bg-emerald-500 text-slate-950 font-bold rounded-full text-[10px] uppercase tracking-widest hover:bg-emerald-400 transition-all">Open Bot</a>
                     )}
-                  </div>
-                )}
-
-                {/* What You Get */}
-                <div className="rounded-3xl border border-white/5 bg-black/10 p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-stone-400">
-                    What You Get
-                  </p>
-                  <ul className="mt-2 space-y-1 text-sm text-stone-300">
-                    <li>✓ Persona ownership tied to your Telegram account</li>
-                    <li>✓ Approve content directly from your chat</li>
-                    <li>✓ Daily story prompts and notifications</li>
-                    <li>✓ Secure, private communication channel</li>
-                  </ul>
-                </div>
+                 </div>
               </div>
-            </Panel>
-
-            <Panel title="AI Backbone Access" subtitle="Choose whether customer runs use the shared OpenClaw backbone, a customer-provided API key, or the connector-backed GPT OAuth path.">
-              <form className="space-y-5" onSubmit={handleAiBackboneSave}>
-                <div className="grid gap-3">
-                  {AI_BACKBONE_OPTIONS.map((option) => (
-                    <label
-                      key={option.value}
-                      className={`cursor-pointer rounded-3xl border p-4 transition ${
-                        aiBackboneForm.accessMode === option.value
-                          ? "border-emerald-300 bg-emerald-200/10"
-                          : "border-white/10 bg-black/20 hover:border-white/20"
-                      }`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <input
-                          type="radio"
-                          name="ai-backbone-access-mode"
-                          checked={aiBackboneForm.accessMode === option.value}
-                          onChange={() =>
-                            setAiBackboneForm((current) => ({
-                              ...current,
-                              accessMode: option.value,
-                            }))
-                          }
-                          className="mt-1 h-4 w-4 border-white/30 bg-slate-950 text-emerald-300 focus:ring-emerald-300"
-                        />
-                        <div>
-                          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-white">
-                            {option.title}
-                          </p>
-                          <p className="mt-2 text-sm text-stone-300">
-                            {option.description}
-                          </p>
-                        </div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-
-                <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.18em] text-emerald-200/80">
-                        Effective Status
-                      </p>
-                      <p className="mt-2 text-sm text-stone-200">
-                        {aiBackbone.effective_status.message}
-                      </p>
-                    </div>
-                    <StatusBadge
-                      label={aiBackbone.effective_status.ready ? "ready" : "attention"}
-                    />
-                  </div>
-                </div>
-
-                {aiBackboneForm.accessMode === "customer_api_key" && (
-                  <div className="grid gap-4">
-                    <Field
-                      label="Customer OpenClaw URL"
-                      value={aiBackboneForm.customerApiUrl}
-                      onChange={(value) =>
-                        setAiBackboneForm((current) => ({
-                          ...current,
-                          customerApiUrl: value,
-                        }))
-                      }
-                      placeholder={aiBackbone.workspace_default.api_url}
-                    />
-                    <Field
-                      label="Customer OpenClaw API Key"
-                      value={aiBackboneForm.customerApiKey}
-                      onChange={(value) =>
-                        setAiBackboneForm((current) => ({
-                          ...current,
-                          customerApiKey: value,
-                        }))
-                      }
-                      type="password"
-                      placeholder={
-                        aiBackbone.customer_api.has_api_key
-                          ? "Saved key on file. Leave blank to keep it."
-                          : "Paste the customer OpenClaw API key"
-                      }
-                    />
-                    {aiBackbone.customer_api.has_api_key && (
-                      <p className="text-xs text-stone-400">
-                        A customer API key is already stored. Leave the field blank to keep the existing secret.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={
-                    busyKey === "ai-backbone" ||
-                    (aiBackboneForm.accessMode === "chatgpt_oauth" &&
-                      !aiBackbone.chatgpt_oauth.session_ready)
-                  }
-                  className="w-full rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {busyKey === "ai-backbone"
-                    ? "Saving..."
-                    : aiBackboneForm.accessMode === "chatgpt_oauth"
-                      ? "Use Linked GPT OAuth"
-                      : "Save AI Backbone"}
-                </button>
-              </form>
-
-              <form className="mt-5 space-y-4 rounded-3xl border border-cyan-300/15 bg-cyan-300/5 p-4" onSubmit={handleLinkChatgptOAuth}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.18em] text-cyan-100/80">
-                      GPT OAuth Link
-                    </p>
-                    <p className="mt-2 text-sm text-stone-200">
-                      {aiBackbone.chatgpt_oauth.linked
-                        ? `${aiBackbone.chatgpt_oauth.chatgpt_subject || "Linked GPT account"} connected`
-                        : "No GPT Plus or Pro account linked yet."}
-                    </p>
-                  </div>
-                  <StatusBadge
-                    label={
-                      aiBackbone.chatgpt_oauth.session_ready
-                        ? "linked"
-                        : aiBackbone.chatgpt_oauth.linked
-                          ? "reconnect"
-                          : "not_linked"
-                    }
-                  />
-                </div>
-
-                <Field
-                  label="ChatGPT Account"
-                  value={aiBackboneForm.chatgptSubject}
-                  onChange={(value) =>
-                    setAiBackboneForm((current) => ({
-                      ...current,
-                      chatgptSubject: value,
-                    }))
-                  }
-                  placeholder="customer@company.com"
-                />
-                <Field
-                  label="Display Name"
-                  value={aiBackboneForm.chatgptDisplayName}
-                  onChange={(value) =>
-                    setAiBackboneForm((current) => ({
-                      ...current,
-                      chatgptDisplayName: value,
-                    }))
-                  }
-                  placeholder={user?.name || user?.email || "Customer name"}
-                />
-                <SelectField
-                  label="Subscription Tier"
-                  value={aiBackboneForm.chatgptSubscriptionTier}
-                  onChange={(value) =>
-                    setAiBackboneForm((current) => ({
-                      ...current,
-                      chatgptSubscriptionTier: value as "plus" | "pro",
-                    }))
-                  }
-                  options={[
-                    { value: "plus", label: "GPT Plus" },
-                    { value: "pro", label: "GPT Pro" },
-                  ]}
-                />
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <button
-                    type="submit"
-                    disabled={busyKey === "chatgpt-link"}
-                    className="rounded-full bg-cyan-200 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {busyKey === "chatgpt-link" ? "Linking..." : "Link GPT OAuth"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleDisconnectChatgptOAuth()}
-                    disabled={
-                      busyKey === "chatgpt-disconnect" ||
-                      !aiBackbone.chatgpt_oauth.linked
-                    }
-                    className="rounded-full border border-rose-300/30 px-4 py-3 text-sm font-semibold text-rose-200 transition hover:border-rose-200 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {busyKey === "chatgpt-disconnect"
-                      ? "Disconnecting..."
-                      : "Disconnect GPT OAuth"}
-                  </button>
-                </div>
-
-                {aiBackbone.chatgpt_oauth.session_expires_at && (
-                  <p className="text-xs text-stone-400">
-                    Session expires at {new Date(aiBackbone.chatgpt_oauth.session_expires_at).toUTCString()}.
-                  </p>
-                )}
-              </form>
-            </Panel>
-
-            <Panel title="Connected Accounts" subtitle="Official OAuth-first account links for customer-owned publishing.">
-              <div className="grid gap-3">
-                {SUPPORTED_PLATFORMS.map((platform) => {
-                  const account = accounts.find((item) => item.platform === platform);
-                  return (
-                    <div key={platform} className="rounded-3xl border border-white/10 bg-black/20 p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-lg font-medium capitalize text-white">{platform}</p>
-                          <p className="text-sm text-stone-400">
-                            {account
-                              ? account.display_name || account.account_handle || "Connected"
-                              : "Not connected yet"}
-                          </p>
-                        </div>
-                        <StatusBadge label={account?.connection_status || "disconnected"} />
-                      </div>
-                      <div className="mt-4 flex gap-2">
-                        {!account || account.connection_status !== "connected" ? (
-                          <button
-                            type="button"
-                            onClick={() => void handleConnect(platform)}
-                            disabled={busyKey === `connect-${platform}`}
-                            className="rounded-full bg-emerald-300 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-950 transition hover:bg-emerald-200"
-                          >
-                            Connect
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => void handleDisconnect(account.id)}
-                            disabled={busyKey === `disconnect-${account.id}`}
-                            className="rounded-full border border-rose-300/30 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-rose-200 transition hover:border-rose-200"
-                          >
-                            Disconnect
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </Panel>
-
-            <Panel title="Content Queue" subtitle="Customer-safe publish state pulled from persisted content records.">
-              <div className="space-y-3">
-                {content.length === 0 && (
-                  <p className="text-sm text-stone-400">
-                    Content will appear here once a campaign starts generating output.
-                  </p>
-                )}
-                {content.map((item) => (
-                  <div key={item.id} className="rounded-3xl border border-white/10 bg-black/20 p-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="font-medium text-white">{item.title}</p>
-                        <p className="mt-1 text-xs uppercase tracking-[0.16em] text-stone-500">
-                          {item.platform.join(" • ") || "No platform"}
-                        </p>
-                      </div>
-                      <StatusBadge label={item.status} />
-                    </div>
-                    {item.scheduled_at && (
-                      <p className="mt-2 text-sm text-stone-400">
-                        Scheduled for {new Date(item.scheduled_at).toUTCString()}
-                      </p>
-                    )}
-                    {item.published_at && (
-                      <p className="mt-2 text-sm text-emerald-200">
-                        Published at {new Date(item.published_at).toUTCString()}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </Panel>
-          </section>
+           </Panel>
         </div>
-      </div>
-    </main>
+      )}
+
+      {activeTab === "memory" && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+           <Panel title="Brand Context" subtitle="Knowledge assets.">
+              <form className="space-y-4" onSubmit={handleBrandSave}>
+                 <Field label="Brand Name" value={brandForm.product_name || ""} onChange={v => setBrandForm(c => ({...c, product_name: v}))} />
+                 <TextAreaField label="Audience" value={brandForm.audience || ""} onChange={v => setBrandForm(c => ({...c, audience: v}))} />
+                 <TextAreaField label="Offer Summary" value={brandForm.offer_summary || ""} onChange={v => setBrandForm(c => ({...c, offer_summary: v}))} />
+                 <button type="submit" className="w-full bg-emerald-500 text-slate-950 font-bold py-3 rounded-xl hover:bg-emerald-400 transition-colors">Update Memory</button>
+              </form>
+           </Panel>
+
+           <div className="space-y-6">
+              <Panel title="Intelligence Settings" subtitle="AI configurations.">
+                 <div className="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl">
+                    <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Access Mode</p>
+                    <p className="text-lg font-bold text-white mt-1 uppercase">{aiBackbone?.access_mode.replace(/_/g, " ")}</p>
+                    <p className="text-xs text-slate-400 mt-2">{aiBackbone?.effective_status.message}</p>
+                 </div>
+              </Panel>
+
+              <Panel title="System Bridge" subtitle="Telegram sync.">
+                 {telegramLink?.linked ? (
+                   <div className="flex justify-between items-center p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl">
+                      <div>
+                        <p className="text-sm font-bold text-white">@{telegramLink.link?.telegram_username || "Linked Account"}</p>
+                        <p className="text-[10px] text-slate-500 uppercase">Chat ID: {telegramLink.link?.chat_id}</p>
+                      </div>
+                      <StatusBadge label="Linked" />
+                   </div>
+                 ) : (
+                   <button onClick={handleStartTelegramLink} className="w-full bg-white text-slate-900 font-bold py-3 rounded-xl hover:bg-emerald-200 transition-colors">Connect Telegram</button>
+                 )}
+                 {linkToken && (
+                    <div className="mt-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-center">
+                       <p className="text-xs text-amber-200 mb-3 font-medium">Link established. Verify in app.</p>
+                       <a href={`${telegramBotUrl}?start=${linkToken.start_token}`} target="_blank" rel="noreferrer" className="bg-amber-400 text-slate-900 px-6 py-2 rounded-full font-bold text-[10px] uppercase tracking-widest hover:bg-amber-300 transition-colors inline-block">Verify Now</a>
+                    </div>
+                 )}
+              </Panel>
+
+              <Panel title="Social Grid" subtitle="Publishing targets.">
+                 <div className="grid grid-cols-2 gap-3">
+                    {SUPPORTED_PLATFORMS.map(p => {
+                      const acc = accounts.find(a => a.platform === p);
+                      return (
+                        <div key={p} className="p-3 bg-white/5 border border-white/10 rounded-xl flex justify-between items-center">
+                           <p className="text-[10px] font-bold uppercase">{p}</p>
+                           {acc ? <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" /> : (
+                             <button onClick={() => handleConnect(p)} className="text-[10px] text-slate-500 hover:text-white uppercase font-bold tracking-tighter">Link</button>
+                           )}
+                        </div>
+                      );
+                    })}
+                 </div>
+              </Panel>
+           </div>
+        </div>
+      )}
+
+      {activeTab === "live_feed" && (
+        <div className="h-[calc(100vh-140px)] border border-white/5 rounded-3xl overflow-hidden shadow-2xl">
+           <LiveFeed />
+        </div>
+      )}
+    </SkyNetLayout>
   );
 }
 
@@ -1504,45 +862,13 @@ function Panel({
   return (
     <section className="rounded-[30px] border border-white/10 bg-white/5 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.25)] backdrop-blur">
       <div className="mb-5">
-        <p className="text-xs uppercase tracking-[0.24em] text-emerald-200/70">
+        <p className="text-xs uppercase tracking-[0.24em] text-emerald-200/70 font-bold">
           {title}
         </p>
-        <p className="mt-2 max-w-2xl text-sm text-stone-400">{subtitle}</p>
+        <p className="mt-2 max-w-2xl text-sm text-stone-400 leading-relaxed font-medium">{subtitle}</p>
       </div>
       {children}
     </section>
-  );
-}
-
-function TelegramDetail({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-stone-400">
-        {label}
-      </p>
-      <p className="mt-2 text-sm text-stone-200">{value}</p>
-    </div>
-  );
-}
-
-function TelegramStep({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-      <p className="text-sm font-semibold text-white">{title}</p>
-      <p className="mt-2 text-sm text-stone-300">{description}</p>
-    </div>
   );
 }
 
@@ -1561,7 +887,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-xs uppercase tracking-[0.18em] text-stone-400">
+      <span className="mb-2 block text-xs uppercase tracking-[0.18em] text-slate-500 font-bold">
         {label}
       </span>
       <input
@@ -1569,39 +895,8 @@ function Field({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-300"
+        className="w-full rounded-2xl border border-white/5 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-500"
       />
-    </label>
-  );
-}
-
-function SelectField({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-xs uppercase tracking-[0.18em] text-stone-400">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-300"
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
     </label>
   );
 }
@@ -1619,13 +914,13 @@ function TextAreaField({
 }) {
   return (
     <label className={className}>
-      <span className="mb-2 block text-xs uppercase tracking-[0.18em] text-stone-400">
+      <span className="mb-2 block text-xs uppercase tracking-[0.18em] text-slate-500 font-bold">
         {label}
       </span>
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="min-h-[92px] w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-300"
+        className="min-h-[92px] w-full rounded-2xl border border-white/5 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-500"
       />
     </label>
   );
@@ -1633,7 +928,7 @@ function TextAreaField({
 
 function StatusBadge({ label }: { label: string }) {
   return (
-    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-stone-200">
+    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-emerald-200">
       {label.replaceAll("_", " ")}
     </span>
   );
@@ -1644,29 +939,6 @@ function splitCsv(value: string): string[] {
     .split(",")
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
-}
-
-function splitList(value: string): string[] {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function formatTelegramContact(value?: string | null): string | null {
-  const normalized = value?.trim();
-  if (!normalized) {
-    return null;
-  }
-  if (
-    normalized.startsWith("@") ||
-    normalized.startsWith("http://") ||
-    normalized.startsWith("https://") ||
-    normalized.startsWith("t.me/")
-  ) {
-    return normalized;
-  }
-  return `@${normalized}`;
 }
 
 function buildTelegramBotUrl(): string | null {

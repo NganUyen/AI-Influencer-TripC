@@ -133,7 +133,7 @@ class TelegramLinkService:
     async def create_link_token(
         cls,
         *,
-        user_id: str,
+        user_id: str | None = None,
         expires_in_minutes: int | None = None,
     ) -> Dict[str, Any]:
         ttl_minutes = max(1, int(expires_in_minutes or cls.DEFAULT_TOKEN_TTL_MINUTES))
@@ -206,7 +206,32 @@ class TelegramLinkService:
                     if row["expires_at"] <= _utcnow():
                         raise TelegramLinkError("Telegram link token has expired.")
 
-                    user_id = str(row["user_id"])
+                    user_id = row.get("user_id")
+                    if user_id is None:
+                        # New signup flow without a pre-bound user_id
+                        # We use a deterministic user_id based on chat_id
+                        user_id = str(uuid.uuid5(USER_NAMESPACE, f"tg:{chat_id}"))
+
+                        # Ensure user exists in public.users
+                        email = f"tg_{chat_id}@ai-influencer.invalid"
+                        display_name = f"Telegram User {chat_id}"
+                        if telegram_username:
+                            display_name = f"@{telegram_username}"
+
+                        await conn.execute(
+                            """
+                            INSERT INTO public.users (id, email, name)
+                            VALUES ($1::uuid, $2, $3)
+                            ON CONFLICT (id) DO UPDATE
+                            SET name = COALESCE(EXCLUDED.name, public.users.name),
+                                updated_at = NOW()
+                            """,
+                            user_id,
+                            email,
+                            display_name,
+                        )
+
+                    user_id = str(user_id)
 
                     await conn.execute(
                         """

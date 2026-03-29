@@ -95,10 +95,6 @@ class VideoAISkill(BaseSkill):
             f"/api/personas/{persona_id}/readiness{owner_param}",
         )
         session.artifacts["persona_readiness"] = readiness
-        if not readiness.get("ready"):
-            raise ValueError(
-                readiness.get("blocking_reason") or "Selected persona is not ready."
-            )
 
         persona = await cls._request_json(
             http_client,
@@ -108,6 +104,15 @@ class VideoAISkill(BaseSkill):
         )
         if not persona.get("persona_id"):
             raise ValueError("Selected persona could not be loaded.")
+        if persona.get("status") != "ready":
+            raise ValueError(
+                readiness.get("blocking_reason") or "Selected persona is not ready."
+            )
+        if not persona.get("tts_voice"):
+            raise ValueError(
+                readiness.get("blocking_reason")
+                or "Selected persona is missing tts_voice."
+            )
 
         tone_resolved = (
             str(persona.get("tone_default") or "natural").strip() or "natural"

@@ -160,6 +160,48 @@ async def test_video_ai_builds_concept_with_persona_tone(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_video_ai_allows_preproduction_when_only_heygen_is_missing(monkeypatch):
+    persona_payload = _persona_payload()
+    persona_payload["heygen_avatar_id"] = None
+
+    async def fake_request_json(cls, http_client, method, backend_url, path, **kwargs):
+        base_path = path.split("?")[0]
+        if base_path.endswith("/readiness"):
+            return {
+                "ready": False,
+                "blocking_reason": "Missing heygen_avatar_id. Run persona avatar setup first.",
+                "checks": {
+                    "status_ready": True,
+                    "has_tts_voice": True,
+                    "has_avatar_asset": True,
+                    "has_heygen_avatar_id": False,
+                },
+            }
+        if base_path.endswith("/personas/minh_vn"):
+            return persona_payload
+        raise AssertionError(f"Unexpected path: {path}")
+
+    async def fake_build_concept_brief(cls, collected, persona_snapshot):
+        assert persona_snapshot["heygen_avatar_id"] is None
+        return _concept_contract()
+
+    monkeypatch.setattr(VideoAISkill, "_request_json", classmethod(fake_request_json))
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_concept_brief",
+        classmethod(fake_build_concept_brief),
+    )
+
+    session = _filled_session()
+    result = await VideoAISkill.execute(session, "http://backend", object())
+
+    assert result.success is True
+    assert result.session.step_key == "confirm_concept"
+    assert result.session.artifacts["persona_readiness"]["ready"] is False
+    assert result.session.artifacts["concept_brief"]["persona_id"] == "minh_vn"
+
+
+@pytest.mark.asyncio
 async def test_video_ai_approval_flow_reaches_package_ready(monkeypatch):
     _patch_persona_lookup(monkeypatch)
 

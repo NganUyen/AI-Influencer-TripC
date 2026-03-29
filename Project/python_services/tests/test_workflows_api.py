@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
+from temporalio.api.enums.v1 import WorkflowExecutionStatus
 
 from api import workflows
 from services.contracts import ConceptBriefContract
@@ -131,7 +132,41 @@ async def test_get_workflow_status_returns_query(monkeypatch):
     response = await workflows.get_workflow_status(request, workflow_id="wf-1")
 
     assert response["workflow_id"] == "wf-1"
-    assert response["status"]["status"] == "waiting_approval"
+    assert response["status"]["status"]["status"] == "waiting_approval"
+    assert response["status"]["execution_status"] == "running"
+    assert response["status"]["source"] == "query"
+
+
+@pytest.mark.asyncio
+async def test_get_workflow_status_falls_back_to_terminal_result(monkeypatch):
+    handle = AsyncMock()
+    handle.query.side_effect = RuntimeError("workflow already closed")
+    handle.describe.return_value = SimpleNamespace(
+        raw_description=SimpleNamespace(
+            workflow_execution_info=SimpleNamespace(
+                status=WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_COMPLETED
+            )
+        )
+    )
+    handle.result.return_value = {
+        "status": "failed",
+        "workflow_id": "wf-closed",
+        "metadata": {"reason": "module 'temporalio.workflow' has no attribute 'gather'"},
+    }
+    mock_client = SimpleNamespace(get_workflow_handle=lambda _workflow_id: handle)
+
+    async def fake_get_temporal_client(_request):
+        return mock_client
+
+    monkeypatch.setattr(workflows, "get_temporal_client", fake_get_temporal_client)
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    response = await workflows.get_workflow_status(request, workflow_id="wf-closed")
+
+    assert response["workflow_id"] == "wf-closed"
+    assert response["status"]["status"]["status"] == "failed"
+    assert response["status"]["execution_status"] == "completed"
+    assert response["status"]["source"] == "result"
 
 
 @pytest.mark.asyncio
@@ -160,6 +195,33 @@ async def test_list_workflows_happy_path(monkeypatch):
     assert len(response["workflows"]) == 2
     assert response["workflows"][0]["workflow_id"] == "wf-1"
     assert response["workflows"][0]["status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_list_workflows_queries_weekly_and_short_video(monkeypatch):
+    captured = {}
+
+    async def iter_workflows(*_args, **_kwargs):
+        if False:
+            yield None
+
+    def fake_list_workflows(query):
+        captured["query"] = query
+        return iter_workflows()
+
+    mock_client = SimpleNamespace(list_workflows=fake_list_workflows)
+
+    async def fake_get_temporal_client(_request):
+        return mock_client
+
+    monkeypatch.setattr(workflows, "get_temporal_client", fake_get_temporal_client)
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    response = await workflows.list_workflows(request, limit=10)
+
+    assert response["workflows"] == []
+    assert "WeeklyMarketingWorkflow" in captured["query"]
+    assert "ShortVideoWorkflow" in captured["query"]
 
 
 @pytest.mark.asyncio

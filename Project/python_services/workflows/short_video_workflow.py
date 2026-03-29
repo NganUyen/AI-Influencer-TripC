@@ -17,6 +17,7 @@ with workflow.unsafe.imports_passed_through():
         send_preview_to_telegram,
         wait_for_publish_decision,
         generate_script_from_approved_package_activity,
+        send_telegram_progress_update,
         send_telegram_error_notification,
     )
     from activities.media_activities import (
@@ -55,6 +56,31 @@ class ShortVideoWorkflow:
         fallback_persona_id = payload_dict.get("persona_id", "")
         fallback_topic = payload_dict.get("topic", "")
         telegram_chat_id = payload_dict.get("telegram_chat_id")
+
+        async def notify_progress(stage_label: str, details: str = "") -> None:
+            if not telegram_chat_id:
+                return
+            try:
+                await workflow.execute_activity(
+                    send_telegram_progress_update,
+                    args=[
+                        {
+                            "telegram_chat_id": telegram_chat_id,
+                            "workflow_id": workflow_id,
+                            "stage_label": stage_label,
+                            "details": details,
+                        }
+                    ],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            except Exception as exc:
+                workflow.logger.warning(
+                    "Progress notification failed | workflow_id=%s | stage=%s | error=%s",
+                    workflow_id,
+                    stage_label,
+                    exc,
+                )
 
         try:
             start_payload = VideoWorkflowStartPayloadContract.model_validate(payload)
@@ -142,7 +168,11 @@ class ShortVideoWorkflow:
                     }
 
             self.workflow_status = "generating_assets"
-            self.current_step = "generating_assets"
+            self.current_step = "generating_top_half_and_audio"
+            await notify_progress(
+                "Starting top-half and bottom-half generation",
+                "Top-half visuals and bottom-half audio are now running in parallel.",
+            )
 
             script_json = script_result["script_json"]
             scenes: List[Dict[str, Any]] = script_json.get("scenes", [])
@@ -164,56 +194,61 @@ class ShortVideoWorkflow:
             ]
 
             # FIX 1: Stage A — audio and scenes truly in parallel
-            audio_result, scenes_result = await workflow.gather(
-                workflow.execute_activity(
-                    generate_audio,
-                    args=[
-                        {
-                            "script": script_json.get("script", ""),
-                            "metadata": {
-                                "day": 1,
-                                "platform": platform,
-                                "persona_id": persona_id,
-                                "owner_key": owner_key,
-                                "user_id": user_id,
-                            },
+            audio_task = workflow.execute_activity(
+                generate_audio,
+                args=[
+                    {
+                        "script": script_json.get("script", ""),
+                        "metadata": {
+                            "day": 1,
+                            "platform": platform,
                             "persona_id": persona_id,
                             "owner_key": owner_key,
                             "user_id": user_id,
-                            "config": {"voice": tts_voice},
-                        }
-                    ],
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=MEDIA_RETRY_POLICY,
-                ),
-                workflow.execute_activity(
-                    generate_scene_images,
-                    args=[
-                        [
-                            {
-                                **scene,
-                                "metadata": {
-                                    **(scene.get("metadata") or {}),
-                                    "persona_id": persona_id,
-                                    "owner_key": owner_key,
-                                    "user_id": user_id,
-                                    "day": 1,
-                                    "platform": platform,
-                                },
-                            }
-                            for scene in scene_payloads
-                        ]
-                    ],
-                    start_to_close_timeout=timedelta(minutes=10),
-                    retry_policy=MEDIA_RETRY_POLICY,
-                ),
+                        },
+                        "persona_id": persona_id,
+                        "owner_key": owner_key,
+                        "user_id": user_id,
+                        "config": {"voice": tts_voice},
+                    }
+                ],
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=MEDIA_RETRY_POLICY,
             )
+            scenes_task = workflow.execute_activity(
+                generate_scene_images,
+                args=[
+                    [
+                        {
+                            **scene,
+                            "metadata": {
+                                **(scene.get("metadata") or {}),
+                                "persona_id": persona_id,
+                                "owner_key": owner_key,
+                                "user_id": user_id,
+                                "day": 1,
+                                "platform": platform,
+                            },
+                        }
+                        for scene in scene_payloads
+                    ]
+                ],
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=MEDIA_RETRY_POLICY,
+            )
+
+            audio_result = await audio_task
+            talking_head_task = None
 
             # FIX 1: Stage B — talking head starts as soon as audio is ready
             if not heygen_avatar_id:
                 workflow.logger.info(
                     "Skipping talking-head generation for persona %s because heygen_avatar_id is missing.",
                     persona_id,
+                )
+                await notify_progress(
+                    "Bottom-half audio ready",
+                    "This persona is in voiceover-only mode, so the workflow will continue without a talking-head avatar clip.",
                 )
                 talking_head_result = {
                     "url": "",
@@ -225,29 +260,44 @@ class ShortVideoWorkflow:
                     ),
                 }
             else:
+                self.current_step = "generating_talking_head"
+                await notify_progress(
+                    "Bottom-half audio ready",
+                    "Starting talking-head generation while top-half assets continue processing.",
+                )
+                talking_head_task = workflow.execute_activity(
+                    create_talking_head_video,
+                    args=[
+                        {
+                            "avatar_id": heygen_avatar_id,
+                            "audio_url": audio_result["url"],
+                            "day": 1,
+                            "topic": topic,
+                            "persona_id": persona_id,
+                            "owner_key": owner_key,
+                            "user_id": user_id,
+                        }
+                    ],
+                    start_to_close_timeout=timedelta(minutes=20),
+                    retry_policy=MEDIA_RETRY_POLICY,
+                )
+
+            self.current_step = "generating_top_half"
+            scenes_result = await scenes_task
+
+            if talking_head_task is not None:
                 try:
-                    talking_head_result = await workflow.execute_activity(
-                        create_talking_head_video,
-                        args=[
-                            {
-                                "avatar_id": heygen_avatar_id,
-                                "audio_url": audio_result["url"],
-                                "day": 1,
-                                "topic": topic,
-                                "persona_id": persona_id,
-                                "owner_key": owner_key,
-                                "user_id": user_id,
-                            }
-                        ],
-                        start_to_close_timeout=timedelta(minutes=20),
-                        retry_policy=MEDIA_RETRY_POLICY,
-                    )
+                    talking_head_result = await talking_head_task
                 except Exception as exc:  # Fallback to slideshow+audio lane
                     workflow.logger.warning("Talking head generation failed: %s", exc)
                     talking_head_result = {"url": "", "status": "failed"}
 
             self.workflow_status = "assembling"
             self.current_step = "assembling"
+            await notify_progress(
+                "Top-half assets ready",
+                "Combining top half and bottom half with ffmpeg now.",
+            )
 
             # Extract per-scene durations from timestamps
             scene_durations = []

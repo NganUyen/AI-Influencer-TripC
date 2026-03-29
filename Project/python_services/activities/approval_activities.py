@@ -259,6 +259,50 @@ async def generate_script_from_approved_package_activity(config: dict) -> dict:
 
 
 @activity.defn
+async def send_telegram_progress_update(config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Send a best-effort Telegram progress update for long-running video workflows.
+    """
+    chat_id = config.get("telegram_chat_id")
+    if not chat_id:
+        logger.warning("No telegram_chat_id provided — skipping progress notification")
+        return {"status": "skipped", "reason": "no_chat_id"}
+
+    workflow_id = config.get("workflow_id", "unknown")
+    stage_label = str(config.get("stage_label") or "Workflow update").strip()
+    details = str(config.get("details") or "").strip()
+
+    progress_lines = [
+        f"⏳ *{stage_label}*",
+        f"• *Workflow ID*: `{workflow_id}`",
+    ]
+    if details:
+        progress_lines.extend(["", details])
+
+    tg = TelegramService()
+    try:
+        await tg.bot.send_message(
+            chat_id=chat_id,
+            text="\n".join(progress_lines),
+            parse_mode="Markdown",
+        )
+        logger.info(
+            "Progress notification sent | workflow_id=%s | stage=%s",
+            workflow_id,
+            stage_label,
+        )
+        return {"status": "sent", "chat_id": chat_id, "stage_label": stage_label}
+    except Exception as exc:
+        logger.warning(
+            "Failed to send progress notification | workflow_id=%s | stage=%s | error=%s",
+            workflow_id,
+            stage_label,
+            exc,
+        )
+        return {"status": "failed", "error": str(exc), "stage_label": stage_label}
+
+
+@activity.defn
 async def send_telegram_error_notification(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Send error notification to user when workflow fails.
@@ -295,4 +339,3 @@ async def send_telegram_error_notification(config: Dict[str, Any]) -> Dict[str, 
     except Exception as e:
         logger.error("Failed to send error notification: %s", e)
         return {"status": "failed", "error": str(e)}
-

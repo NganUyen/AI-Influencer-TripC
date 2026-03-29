@@ -1097,6 +1097,11 @@ class TelegramRenderer:
                 )
                 tone = session.collected.get("tone", "natural")
                 platform = session.collected.get("platform", "N/A")
+                approved_package_started = bool(
+                    output.get("approved_production_package")
+                    or session.artifacts.get("approved_production_package")
+                    or session.step_key == "package_ready"
+                )
                 production_note = (
                     output.get("production_note")
                     or session.artifacts.get("production_note")
@@ -1110,7 +1115,11 @@ class TelegramRenderer:
                     f"• *Platform*: {platform}",
                     "",
                     f"Workflow ID: `{workflow_id}`",
-                    "Script review and the final preview will arrive in this chat.",
+                    (
+                        "The final preview will arrive in this chat."
+                        if approved_package_started
+                        else "Script review and the final preview will arrive in this chat."
+                    ),
                 ]
                 if production_note:
                     lines.extend(["", production_note])

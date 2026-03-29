@@ -81,6 +81,23 @@ def _safe_topic_fragment(topic: str) -> str:
     return cleaned.strip("_") or "topic"
 
 
+def _escape_drawtext_text(text: str) -> str:
+    value = str(text or "")
+    replacements = {
+        "\\": "\\\\",
+        "'": "\\'",
+        ":": "\\:",
+        ",": "\\,",
+        ";": "\\;",
+        "[": "\\[",
+        "]": "\\]",
+        "%": "\\%",
+    }
+    for source, target in replacements.items():
+        value = value.replace(source, target)
+    return value
+
+
 @activity.defn
 async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -163,6 +180,14 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
 
         # Use per-scene durations if available, otherwise fall back to duration_per_image
         scene_durations = assembly_input.scene_durations or []
+
+        # Warn if scene_durations array doesn't match image count
+        if scene_durations and len(scene_durations) != len(image_paths):
+            logger.warning(
+                "Scene durations array length mismatch | durations=%s | images=%s | using fallback for missing",
+                len(scene_durations),
+                len(image_paths),
+            )
 
         for idx, p in enumerate(image_paths):
             std_p = str(tmp_path / f"std_{idx:02d}.mp4")
@@ -268,7 +293,7 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                 )
                 start_ts = current_ts
                 end_ts = current_ts + scene_duration
-                safe_caption = caption.replace("'", "\\'").replace(":", "\\:")[:60]
+                safe_caption = _escape_drawtext_text(caption)[:60]
                 drawtext_filters.append(
                     "drawtext="
                     f"text='{safe_caption}':fontsize=30:fontcolor=white:"

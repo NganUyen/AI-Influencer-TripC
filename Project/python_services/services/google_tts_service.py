@@ -56,6 +56,12 @@ class GoogleTTSService:
         if not self.api_key:
             raise ValueError("GOOGLE_TTS_API_KEY không được cấu hình trong .env")
 
+    def _sanitize_text(self, value: object) -> str:
+        text = str(value)
+        if self.api_key:
+            return text.replace(self.api_key, "***")
+        return text
+
     @staticmethod
     def _normalize_language_name(language: str | None) -> str:
         normalized = str(language or "").strip().lower()
@@ -129,7 +135,7 @@ class GoogleTTSService:
         }
         if error:
             metadata["error_type"] = type(error).__name__
-            metadata["error_message"] = str(error)
+            metadata["error_message"] = self._sanitize_text(error)
 
         usage = {
             "requests": 1,
@@ -183,29 +189,30 @@ class GoogleTTSService:
             },
         }
 
-        url = f"{GOOGLE_TTS_ENDPOINT}?key={self.api_key}"
+        url = GOOGLE_TTS_ENDPOINT
+        headers = {"X-Goog-Api-Key": self.api_key}
         logger.info(f"Gọi Google TTS | Voice: {resolved_voice} | {len(text)} ký tự")
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
             except httpx.HTTPStatusError as http_exc:
-                # [SECURITY] Sanitize API key from error message before re-raising
-                sanitized_url = GOOGLE_TTS_ENDPOINT + "?key=***"
-                error_msg = str(http_exc).replace(url, sanitized_url)
+                # [SECURITY] Keep API keys out of error propagation and suppress
+                # the original chained exception so worker tracebacks stay clean.
+                error_msg = self._sanitize_text(http_exc)
+                sanitized_exc = httpx.HTTPStatusError(
+                    error_msg,
+                    request=http_exc.request,
+                    response=http_exc.response,
+                )
                 await self._record_usage(
                     text=text,
                     voice=resolved_voice,
                     output_format=output_format,
-                    error=http_exc,
+                    error=sanitized_exc,
                 )
-                # Create new exception with sanitized message
-                raise httpx.HTTPStatusError(
-                    error_msg,
-                    request=http_exc.request,
-                    response=http_exc.response,
-                ) from http_exc
+                raise sanitized_exc from None
             except Exception as exc:
                 await self._record_usage(
                     text=text,

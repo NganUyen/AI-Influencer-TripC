@@ -398,8 +398,8 @@ async def test_google_tts_service_records_usage(monkeypatch):
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-        async def post(self, url, json):
-            requests.append((url, json))
+        async def post(self, url, json, headers=None):
+            requests.append((url, json, headers))
             return StubResponse()
 
     async def fake_record_runtime_usage(**kwargs):
@@ -428,8 +428,62 @@ async def test_google_tts_service_records_usage(monkeypatch):
     assert captured["usage"]["bytes"] == len(b"hello")
     assert captured["metadata"]["operation"] == "generate_audio"
     assert captured["metadata"]["voice"] == "en-US-Studio-O"
+    assert requests[0][0] == "https://texttospeech.googleapis.com/v1/text:synthesize"
     assert requests[0][1]["voice"]["name"] == "en-US-Studio-O"
     assert requests[0][1]["voice"]["languageCode"] == "en-US"
+    assert requests[0][2]["X-Goog-Api-Key"] == "test_google_tts_key"
+
+
+@pytest.mark.asyncio
+async def test_google_tts_service_sanitizes_error_metadata(monkeypatch):
+    captured = {}
+
+    class StubResponse:
+        def __init__(self, request):
+            self.request = request
+
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError(
+                f"Client error '403 Forbidden' for url '{self.request.url}'",
+                request=self.request,
+                response=httpx.Response(403, request=self.request),
+            )
+
+    class StubClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, json, headers=None):
+            request = httpx.Request("POST", url, headers=headers)
+            return StubResponse(request)
+
+    async def fake_record_runtime_usage(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "services.google_tts_service.httpx.AsyncClient",
+        lambda **_: StubClient(),
+    )
+    monkeypatch.setattr(
+        "services.google_tts_service.QuotaMonitorService.record_runtime_usage",
+        fake_record_runtime_usage,
+    )
+    monkeypatch.setattr(
+        "services.google_tts_service.settings.GOOGLE_TTS_API_KEY",
+        "test_google_tts_key",
+    )
+
+    service = GoogleTTSService()
+
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        await service.generate_audio(text="Hello there")
+
+    assert "test_google_tts_key" not in str(exc_info.value)
+    assert "test_google_tts_key" not in captured["metadata"]["error_message"]
+    assert "?key=" not in str(exc_info.value)
 
 
 @pytest.mark.asyncio

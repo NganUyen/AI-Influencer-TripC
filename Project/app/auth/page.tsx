@@ -91,7 +91,7 @@ export default function AuthPage() {
     }
 
     let cancelled = false;
-    let timeoutId: ReturnType<typeof window.setTimeout> | null = null;
+    let timeoutId: number | undefined;
     const expiresAt = Date.parse(linkToken.expires_at);
 
     const pollForCompletion = async () => {
@@ -164,7 +164,7 @@ export default function AuthPage() {
 
     return () => {
       cancelled = true;
-      if (timeoutId !== null) {
+      if (timeoutId !== undefined) {
         window.clearTimeout(timeoutId);
       }
     };

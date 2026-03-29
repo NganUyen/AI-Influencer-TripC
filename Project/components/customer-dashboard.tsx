@@ -316,7 +316,7 @@ export default function CustomerDashboard() {
     }
 
     let cancelled = false;
-    let timeoutId: ReturnType<typeof window.setTimeout> | null = null;
+    let timeoutId: number | undefined;
     const expiresAt = Date.parse(linkToken.expires_at);
 
     const pollTelegramLink = async () => {
@@ -369,7 +369,7 @@ export default function CustomerDashboard() {
 
     return () => {
       cancelled = true;
-      if (timeoutId !== null) {
+      if (timeoutId !== undefined) {
         window.clearTimeout(timeoutId);
       }
     };

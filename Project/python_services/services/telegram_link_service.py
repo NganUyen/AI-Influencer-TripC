@@ -164,6 +164,7 @@ class TelegramLinkService:
                 ) from exc
             raise
 
+        logger.info("create_link_token: created token=%s... hash=%s... expires=%s", token[:8], token_hash[:16], expires_at.isoformat())
         return {
             "start_token": token,
             "expires_at": expires_at.isoformat(),
@@ -182,6 +183,7 @@ class TelegramLinkService:
             raise TelegramLinkError("Missing Telegram link token.")
 
         token_hash = _hash_token(normalized_token)
+        logger.info("consume_link_token: token=%s... hash=%s...", normalized_token[:8], token_hash[:16])
         pool = await DatabaseService.get_pool()
 
         try:
@@ -197,6 +199,7 @@ class TelegramLinkService:
                         """,
                         token_hash,
                     )
+                    logger.info("consume_link_token: DB lookup result=%s", "found" if row else "NOT FOUND")
                     if row is None:
                         raise TelegramLinkError("Telegram link token is invalid.")
                     if row["used_at"] is not None:

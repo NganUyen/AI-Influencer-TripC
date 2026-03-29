@@ -715,6 +715,7 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
             logger.warning("Failed to upsert subscriber chat_id=%s: %s", chat_id, exc)
 
         if start_token:
+            logger.info("Telegram /start with token: %s (length=%d)", start_token[:8] + "...", len(start_token))
             try:
                 link_result = await TelegramLinkService.consume_link_token(
                     token=start_token,
@@ -735,6 +736,7 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                 )
                 return
             except TelegramLinkError as exc:
+                logger.warning("Telegram link failed for token=%s: %s", start_token[:8] + "...", exc)
                 await send_message(
                     chat_id,
                     (

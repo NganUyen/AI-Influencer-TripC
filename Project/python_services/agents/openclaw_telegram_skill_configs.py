@@ -356,8 +356,8 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "role": "Prepare AI influencer video concepts before production",
         "description": (
             "Collect a video idea brief, normalize it into an approved concept,"
-            " generate an approved beat sheet, and store a production-ready"
-            " package in the Telegram session without starting the workflow yet."
+            " generate an approved beat sheet, and hand the approved package"
+            " into the production workflow from Telegram."
         ),
         "status": "partial",
         "kind": "leaf",
@@ -390,16 +390,17 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "creative-director",
         ],
         "api_call": {
-            "target": "Internal CreativeDirectorService + Telegram session store",
-            "current_repo_support": False,
+            "target": "Internal CreativeDirectorService + POST /api/workflows/start-video",
+            "current_repo_support": True,
             "note": (
-                "V1 stops at an ApprovedProductionPackage stored in the current"
-                " Telegram session. Production workflow integration comes later."
+                "The Telegram flow stores the approved package, then starts the"
+                " short-video production workflow and keeps the session attached"
+                " for cancel/status actions."
             ),
         },
-        "output": "Approved production package stored in Telegram session",
+        "output": "Approved production package plus active production workflow session",
         "implementation_priority": 3,
-        "integration_note": "Pre-production only in v1. No workflow starts from this skill.",
+        "integration_note": "Pre-production review now hands off directly into the live production workflow.",
         "steps": [
             "pick_persona",
             "collect_idea_brief",

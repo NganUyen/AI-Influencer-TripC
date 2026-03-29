@@ -57,6 +57,7 @@ class VideoAISkill(BaseSkill):
         session.collected["platform"] = session.collected.get("platform") or "tiktok"
         session.artifacts.setdefault("persona_snapshot", None)
         session.artifacts.setdefault("persona_readiness", None)
+        session.artifacts.setdefault("workflow_id", None)
         session.artifacts.setdefault("talking_head_optional", False)
         session.artifacts.setdefault("production_note", None)
         session.artifacts.setdefault("concept_brief", None)
@@ -192,6 +193,54 @@ class VideoAISkill(BaseSkill):
         )
 
     @classmethod
+    def _active_workflow_id(cls, session: SkillSession) -> Optional[str]:
+        workflow_id = session.control.workflow_id or session.artifacts.get("workflow_id")
+        normalized = str(workflow_id or "").strip()
+        return normalized or None
+
+    @classmethod
+    def _workflow_started_result(
+        cls,
+        session: SkillSession,
+        *,
+        workflow_id: str,
+        message: Optional[str] = None,
+    ) -> SkillResult:
+        talking_head_optional = bool(session.artifacts.get("talking_head_optional"))
+        production_note = session.artifacts.get("production_note") or cls._production_note(
+            talking_head_optional=talking_head_optional
+        )
+        session.artifacts["production_note"] = production_note
+        session.artifacts["workflow_id"] = workflow_id
+        session.control.status = SkillStatus.waiting_approval
+        session.control.workflow_id = workflow_id
+        session.control.approval_required = False
+        session.control.error_message = None
+        session.step_key = "package_ready"
+        return SkillResult(
+            success=True,
+            next_step="poll_status",
+            output={
+                "message": message
+                or (
+                    "Production workflow is already running.\n\n"
+                    "I’m keeping this session attached so you can cancel it if needed."
+                ),
+                "approved_production_package": session.artifacts.get(
+                    "approved_production_package"
+                ),
+                "workflow_id": workflow_id,
+                "status": "started",
+                "talking_head_optional": talking_head_optional,
+                "production_mode": (
+                    "voiceover_only" if talking_head_optional else "talking_head"
+                ),
+                "production_note": production_note,
+            },
+            session=session,
+        )
+
+    @classmethod
     async def _package_ready_result(
         cls,
         session: SkillSession,
@@ -200,8 +249,13 @@ class VideoAISkill(BaseSkill):
         http_client: Any,
     ) -> SkillResult:
         """Package is ready. Trigger the production workflow."""
-        session.control.status = SkillStatus.done
         session.step_key = "package_ready"
+        existing_workflow_id = cls._active_workflow_id(session)
+        if existing_workflow_id:
+            return cls._workflow_started_result(
+                session,
+                workflow_id=existing_workflow_id,
+            )
 
         # Prepare payload for production workflow
         persona_id = session.collected.get("persona_id")
@@ -236,36 +290,27 @@ class VideoAISkill(BaseSkill):
             response.raise_for_status()
             workflow_data = response.json()
             workflow_id = workflow_data.get("workflow_id", "unknown")
-
-            return SkillResult(
-                success=True,
-                next_step="package_ready",
-                output={
-                    "message": (
-                        f"Production workflow started! Workflow ID: {workflow_id}\n\n"
-                        "I'm now generating the full video. This may take a few minutes..."
-                    ),
-                    "approved_production_package": package.model_dump(mode="json"),
-                    "workflow_id": workflow_id,
-                    "talking_head_optional": talking_head_optional,
-                    "production_mode": (
-                        "voiceover_only"
-                        if talking_head_optional
-                        else "talking_head"
-                    ),
-                    "production_note": production_note,
-                },
-                session=session,
+            session.artifacts["approved_production_package"] = package.model_dump(
+                mode="json"
+            )
+            return cls._workflow_started_result(
+                session,
+                workflow_id=workflow_id,
+                message=(
+                    f"Production workflow started! Workflow ID: {workflow_id}\n\n"
+                    "I'm now generating the full video. This may take a few minutes..."
+                ),
             )
         except Exception as exc:
+            session.control.status = SkillStatus.failed
+            session.control.workflow_id = None
+            session.control.error_message = str(exc)
+            session.artifacts["workflow_id"] = None
             return SkillResult(
                 success=False,
                 next_step="package_ready",
                 output={
-                    "message": (
-                        "Pre-production package is ready, but I couldn't start the production workflow. "
-                        f"Error: {exc}"
-                    ),
+                    "message": "Pre-production package is ready, but I couldn't start the production workflow.",
                     "approved_production_package": package.model_dump(mode="json"),
                     "talking_head_optional": talking_head_optional,
                     "production_mode": (
@@ -311,8 +356,12 @@ class VideoAISkill(BaseSkill):
         session.artifacts["concept_brief"] = None
         session.artifacts["beat_sheet"] = None
         session.artifacts["approved_production_package"] = None
+        session.artifacts["workflow_id"] = None
         session.artifacts["concept_approved"] = False
         session.artifacts["beat_sheet_approved"] = False
+        session.control.workflow_id = None
+        session.control.approval_required = False
+        session.control.error_message = None
         session.control.status = SkillStatus.collecting
         session.step_key = "collect_idea_brief"
         return SkillResult(
@@ -331,6 +380,37 @@ class VideoAISkill(BaseSkill):
         http_client: Any,
     ) -> SkillResult:
         current = cls._normalize_session(session)
+        active_workflow_id = cls._active_workflow_id(current)
+        if active_workflow_id:
+            return cls._workflow_started_result(
+                current,
+                workflow_id=active_workflow_id,
+            )
+
+        if current.step_key == "package_ready" and action in {"approve", "retry_start"}:
+            package_payload = current.artifacts.get("approved_production_package")
+            if not package_payload:
+                return cls._error_result(
+                    current,
+                    "Approved production package is missing. Please rebuild the beat plan first.",
+                )
+            try:
+                package = ApprovedProductionPackageContract.model_validate(
+                    package_payload
+                )
+            except ValidationError:
+                current.artifacts["approved_production_package"] = None
+                return cls._error_result(
+                    current,
+                    "Approved production package is invalid. Please regenerate the beat plan and try again.",
+                )
+            return await cls._package_ready_result(
+                current,
+                package,
+                backend_url,
+                http_client,
+            )
+
         if current.step_key == "confirm_concept":
             if action == "approve":
                 current.artifacts["concept_approved"] = True
@@ -377,6 +457,12 @@ class VideoAISkill(BaseSkill):
     ) -> SkillResult:
         current = cls._normalize_session(session)
         current.collected["platform"] = current.collected.get("platform") or "tiktok"
+        active_workflow_id = cls._active_workflow_id(current)
+        if active_workflow_id:
+            return cls._workflow_started_result(
+                current,
+                workflow_id=active_workflow_id,
+            )
 
         next_step = cls._missing_step(current)
         if next_step:

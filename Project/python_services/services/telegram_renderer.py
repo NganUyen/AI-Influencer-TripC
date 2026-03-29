@@ -540,6 +540,41 @@ class TelegramRenderer:
                 "parse_mode": None,
             }
 
+        if session.skill_name == "video-ai" and session.step_key == "package_ready":
+            workflow_id = session.control.workflow_id or session.artifacts.get(
+                "workflow_id"
+            )
+            if workflow_id:
+                production_note = session.artifacts.get("production_note")
+                topic = (
+                    session.collected.get("topic")
+                    or session.collected.get("idea_brief")
+                    or "N/A"
+                )
+                tone = session.collected.get("tone", "natural")
+                platform = session.collected.get("platform", "N/A")
+                lines = [
+                    "🎬 *Video Generation Started!*",
+                    "",
+                    f"• *Persona*: {session.collected.get('persona_id', 'N/A')}",
+                    f"• *Topic*: {topic}",
+                    f"• *Tone*: {tone}",
+                    f"• *Platform*: {platform}",
+                    "",
+                    f"Workflow ID: `{workflow_id}`",
+                    "Script review and the final preview will arrive in this chat.",
+                ]
+                if production_note:
+                    lines.extend(["", production_note])
+                return {
+                    "text": "\n".join(lines),
+                    "reply_markup": _inline_keyboard_from_options(
+                        [{"label": "Cancel", "value": "cancel"}],
+                        prefix="action::",
+                    ),
+                    "parse_mode": "Markdown",
+                }
+
         if (
             session.skill_name == "image-scene"
             and session.step_key == "selecting_images"
@@ -686,6 +721,52 @@ class TelegramRenderer:
             }
 
         if not result.success:
+            if session.skill_name == "video-ai" and session.step_key == "package_ready":
+                output = result.output or {}
+                package = (
+                    output.get("approved_production_package")
+                    or session.artifacts.get("approved_production_package")
+                    or {}
+                )
+                concept = (
+                    package.get("concept_brief")
+                    or session.artifacts.get("concept_brief")
+                    or {}
+                )
+                beat_sheet = (
+                    package.get("beat_sheet")
+                    or session.artifacts.get("beat_sheet")
+                    or {}
+                )
+                beat_count = len(beat_sheet.get("beats") or [])
+                production_note = (
+                    output.get("production_note")
+                    or session.artifacts.get("production_note")
+                )
+                lines = [
+                    "Pre-production package ready.",
+                    "Production workflow could not be started.",
+                    "",
+                    f"Persona: {concept.get('persona_id') or '-'}",
+                    f"Feature Focus: {concept.get('feature_focus') or '-'}",
+                    f"Goal: {_humanize_token(concept.get('video_goal'))}",
+                    f"Beats: {beat_count}",
+                ]
+                if production_note:
+                    lines.extend(["", production_note])
+                if result.error:
+                    lines.extend(["", f"Start error: {result.error}"])
+                return {
+                    "text": "\n".join(lines),
+                    "reply_markup": _inline_keyboard_from_options(
+                        [
+                            {"label": "Retry Start", "value": "retry_start"},
+                            {"label": "Cancel", "value": "cancel"},
+                        ],
+                        prefix="action::",
+                    ),
+                    "parse_mode": None,
+                }
             if session.skill_name == "video-ai" and session.step_key in {
                 "confirm_concept",
                 "confirm_beats",
@@ -1001,7 +1082,7 @@ class TelegramRenderer:
             return payload
 
         if (
-            session.control.status == SkillStatus.waiting_approval
+            session.control.status in {SkillStatus.waiting_approval, SkillStatus.running}
             or result.next_step == "poll_status"
         ):
             output = result.output or {}
@@ -1009,18 +1090,31 @@ class TelegramRenderer:
 
             if session.skill_name in ("video-ai", "video_generation"):
                 persona = session.collected.get("persona_id", "N/A")
-                topic = session.collected.get("topic", "N/A")
-                tone = session.collected.get("tone", "N/A")
-                platform = session.collected.get("platform", "N/A")
-                text = (
-                    f"🎬 *Video Generation Started!*\n\n"
-                    f"• *Persona*: {persona}\n"
-                    f"• *Topic*: {topic}\n"
-                    f"• *Tone*: {tone}\n"
-                    f"• *Platform*: {platform}\n\n"
-                    f"Workflow ID: `{workflow_id}`\n"
-                    "Script review and the final preview will arrive in this chat."
+                topic = (
+                    session.collected.get("topic")
+                    or session.collected.get("idea_brief")
+                    or "N/A"
                 )
+                tone = session.collected.get("tone", "natural")
+                platform = session.collected.get("platform", "N/A")
+                production_note = (
+                    output.get("production_note")
+                    or session.artifacts.get("production_note")
+                )
+                lines = [
+                    "🎬 *Video Generation Started!*",
+                    "",
+                    f"• *Persona*: {persona}",
+                    f"• *Topic*: {topic}",
+                    f"• *Tone*: {tone}",
+                    f"• *Platform*: {platform}",
+                    "",
+                    f"Workflow ID: `{workflow_id}`",
+                    "Script review and the final preview will arrive in this chat.",
+                ]
+                if production_note:
+                    lines.extend(["", production_note])
+                text = "\n".join(lines)
             else:
                 text = f"🚀 Workflow started.\nWorkflow ID: `{workflow_id}`\n⏳ Waiting for approval or status updates..."
 

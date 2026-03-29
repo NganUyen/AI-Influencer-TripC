@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last verified: 2026-03-28 (UTC)
+Last verified: 2026-03-29 (UTC)
 
 This is the canonical deployment and operations guide for the current repo. It replaces the older split across separate VPS, single-domain, database-plan, provider-bootstrap, and deployment-log docs.
 
@@ -26,6 +26,11 @@ Private or localhost-only services in both cases:
 - GrowChief
 - PostgreSQL
 - Redis
+
+Clarification:
+
+- this repo currently supports local/dev and production wiring; there is no separate infra-level preproduction deploy target
+- when other docs say "pre-production" they refer to the video planning and approval lane, not a second VPS stack
 
 ## Repo Assets Used In Production
 
@@ -64,6 +69,12 @@ PYTHON_BACKEND_URL=http://backend:8000
 OPENAI_OAUTH_REDIRECT_URI=https://connector.ai-influencer.tripc.ai/oauth/callback
 CORS_ORIGINS=https://ai-influencer.tripc.ai,https://api.ai-influencer.tripc.ai,https://connector.ai-influencer.tripc.ai
 ```
+
+Routing note:
+
+- `NEXT_PUBLIC_API_URL` is intentionally browser-facing and should resolve to the frontend host
+- the Next.js app then proxies server-side requests to FastAPI through `PYTHON_BACKEND_URL`
+- browser clients should not be wired directly to the private container-network FastAPI address
 
 Minimum changes for the single-domain fallback:
 

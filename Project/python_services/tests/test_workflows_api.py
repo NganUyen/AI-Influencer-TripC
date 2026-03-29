@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from api import workflows
 from services.contracts import ConceptBriefContract
@@ -22,6 +23,43 @@ class _WorkflowItem:
         self.run_id = run_id
         self.status = _WorkflowStatus(status)
         self.start_time = datetime(2026, 3, 2, 10, 0, 0)
+
+
+def _approved_package_payload(persona_id: str = "persona-1") -> dict:
+    return {
+        "concept_brief": {
+            "persona_id": persona_id,
+            "feature_focus": "AI itinerary planner",
+            "video_goal": "feature_demo",
+            "audience": "young travelers",
+            "angle": "problem_solution",
+            "platform": "tiktok",
+            "cta": "Try TripC free",
+            "reference_url": "https://tripc.ai",
+            "access_level": "public_page_only",
+            "source_summary": "TripC is presented as a trip planning product.",
+            "tone_resolved": "confident",
+        },
+        "beat_sheet": {
+            "beats": [
+                {
+                    "idx": idx,
+                    "purpose": purpose,
+                    "bottom_half_message": f"Beat {idx} message",
+                    "top_half_source_type": "public_page_capture",
+                    "top_half_target": f"section_{idx}",
+                    "top_half_capture_hint": f"Show section {idx}",
+                    "overlay_text": f"Overlay {idx}",
+                    "duration_sec": 4,
+                }
+                for idx, purpose in enumerate(
+                    ["hook", "problem", "solution_intro", "feature_demo", "cta"],
+                    start=1,
+                )
+            ]
+        },
+        "persona_snapshot": {"persona_id": persona_id},
+    }
 
 
 @pytest.mark.asyncio
@@ -218,6 +256,70 @@ async def test_start_video_workflow_passes_talking_head_optional(monkeypatch):
     assert response["status"] == "started"
     started_payload = mock_client.start_workflow.await_args.kwargs["args"][0]
     assert started_payload["talking_head_optional"] is True
+    assert started_payload["owner_key"] == "telegram:999"
+    assert started_payload["persona_snapshot"] == {
+        "display_name": None,
+        "language": "English",
+        "tts_voice": "male_friendly",
+        "heygen_avatar_id": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_start_video_workflow_passes_validated_approved_package_and_snapshot(
+    monkeypatch,
+):
+    handle = SimpleNamespace(id="run-video-3")
+    mock_client = AsyncMock()
+    mock_client.start_workflow.return_value = handle
+
+    async def fake_get_temporal_client(_request):
+        return mock_client
+
+    async def fake_get_persona(_persona_id, user_id=None, owner_key=None):
+        return {
+            "persona_id": "persona-3",
+            "display_name": "Persona 3",
+            "language": "Vietnamese",
+            "status": "ready",
+            "tts_voice": "vi-VN-Neural2-A",
+            "heygen_avatar_id": "avatar-3",
+        }
+
+    monkeypatch.setattr(workflows, "get_temporal_client", fake_get_temporal_client)
+    monkeypatch.setattr(
+        workflows.PersonaRegistryService, "get_persona", fake_get_persona
+    )
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    payload = workflows.StartVideoRequest(
+        persona_id="persona-3",
+        topic="Hoi An cafe guide",
+        telegram_chat_id="333",
+        approved_package=_approved_package_payload("persona-3"),
+    )
+
+    response = await workflows.start_video_workflow(request, payload)
+
+    assert response["status"] == "started"
+    started_payload = mock_client.start_workflow.await_args.kwargs["args"][0]
+    assert started_payload["approved_package"]["concept_brief"]["persona_id"] == "persona-3"
+    assert started_payload["approved_package"]["beat_sheet"]["beats"][0]["purpose"] == "hook"
+    assert started_payload["persona_snapshot"] == {
+        "display_name": "Persona 3",
+        "language": "Vietnamese",
+        "tts_voice": "vi-VN-Neural2-A",
+        "heygen_avatar_id": "avatar-3",
+    }
+
+
+def test_start_video_request_rejects_invalid_approved_package():
+    with pytest.raises(ValidationError):
+        workflows.StartVideoRequest(
+            persona_id="persona-4",
+            topic="Broken package",
+            approved_package={"concept_brief": {"persona_id": "persona-4"}},
+        )
 
 
 @pytest.mark.asyncio

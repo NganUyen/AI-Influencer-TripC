@@ -1,4 +1,5 @@
 from copy import deepcopy
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -8,6 +9,17 @@ from services.skill_dispatcher import SkillDispatcher
 from services.skill_session_store import TelegramSkillSessionStore
 from skills import video_ai as video_ai_module
 from skills.video_ai import VideoAISkill
+
+
+class _AsyncClientContext:
+    def __init__(self, client):
+        self._client = client
+
+    async def __aenter__(self):
+        return self._client
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
 
 
 @pytest.fixture(autouse=True)
@@ -84,6 +96,16 @@ def _filled_session():
         }
     )
     return session
+
+
+def _mock_workflow_start_client(workflow_id: str = "video-minh_vn-test123"):
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"workflow_id": workflow_id}
+    mock_response.raise_for_status = MagicMock()
+
+    mock_http_client = AsyncMock()
+    mock_http_client.post.return_value = mock_response
+    return mock_http_client
 
 
 def _patch_persona_lookup(monkeypatch):
@@ -230,24 +252,32 @@ async def test_video_ai_approval_flow_reaches_package_ready(monkeypatch):
         classmethod(fake_build_beat_sheet),
     )
 
+    mock_http_client = _mock_workflow_start_client("video-minh_vn-flow")
+
     session = _filled_session()
-    concept_result = await VideoAISkill.execute(session, "http://backend", object())
+    session.artifacts["telegram_chat_id"] = "123456"
+    concept_result = await VideoAISkill.execute(
+        session, "http://backend", mock_http_client
+    )
     beat_result = await VideoAISkill.handle_preproduction_action(
         concept_result.session,
         "approve",
         "http://backend",
-        object(),
+        mock_http_client,
     )
     package_result = await VideoAISkill.handle_preproduction_action(
         beat_result.session,
         "approve",
         "http://backend",
-        object(),
+        mock_http_client,
     )
 
     assert beat_result.session.step_key == "confirm_beats"
     assert package_result.session.step_key == "package_ready"
-    assert package_result.session.control.status.value == "done"
+    assert package_result.next_step == "poll_status"
+    assert package_result.session.control.status.value == "waiting_approval"
+    assert package_result.session.control.workflow_id == "video-minh_vn-flow"
+    assert package_result.session.artifacts["workflow_id"] == "video-minh_vn-flow"
     assert (
         package_result.session.artifacts["approved_production_package"][
             "concept_brief"
@@ -277,8 +307,17 @@ async def test_dispatcher_persists_video_ai_package_ready_session(monkeypatch):
         classmethod(fake_build_beat_sheet),
     )
 
+    mock_http_client = _mock_workflow_start_client("video-minh_vn-dispatch")
+    monkeypatch.setattr(
+        SkillDispatcher,
+        "_transport_client",
+        lambda _app: _AsyncClientContext(mock_http_client),
+    )
+
     session = _filled_session()
-    concept_result = await VideoAISkill.execute(session, "http://backend", object())
+    concept_result = await VideoAISkill.execute(
+        session, "http://backend", mock_http_client
+    )
     await TelegramSkillSessionStore.set_session(123, concept_result.session)
 
     app = FastAPI()
@@ -296,6 +335,9 @@ async def test_dispatcher_persists_video_ai_package_ready_session(monkeypatch):
     assert package_result.session.step_key == "package_ready"
     assert stored is not None
     assert stored.artifacts["approved_production_package"] is not None
+    assert stored.artifacts["workflow_id"] == "video-minh_vn-dispatch"
+    assert stored.control.workflow_id == "video-minh_vn-dispatch"
+    assert stored.control.status.value == "waiting_approval"
 
 
 @pytest.mark.asyncio
@@ -379,8 +421,6 @@ async def test_video_ai_package_ready_posts_to_start_video(monkeypatch):
     Verify that when beat sheet is approved and package is ready,
     video_ai actually POSTs to /api/workflows/start-video with the approved_package.
     """
-    from unittest.mock import AsyncMock, MagicMock
-
     _patch_persona_lookup(monkeypatch)
 
     async def fake_build_concept_brief(cls, collected, persona_snapshot):
@@ -400,13 +440,7 @@ async def test_video_ai_package_ready_posts_to_start_video(monkeypatch):
         classmethod(fake_build_beat_sheet),
     )
 
-    # Create a mock http_client that tracks calls
-    mock_response = MagicMock()
-    mock_response.json.return_value = {"workflow_id": "video-minh_vn-test123"}
-    mock_response.raise_for_status = MagicMock()
-
-    mock_http_client = AsyncMock()
-    mock_http_client.post.return_value = mock_response
+    mock_http_client = _mock_workflow_start_client("video-minh_vn-test123")
     monkeypatch.setenv("INTERNAL_API_TOKEN", "test-internal-token")
 
     # Run through the full approval flow
@@ -451,15 +485,69 @@ async def test_video_ai_package_ready_posts_to_start_video(monkeypatch):
     # Verify result
     assert package_result.success is True
     assert package_result.session.step_key == "package_ready"
+    assert package_result.next_step == "poll_status"
     assert package_result.output["workflow_id"] == "video-minh_vn-test123"
+    assert package_result.session.control.workflow_id == "video-minh_vn-test123"
+    assert package_result.session.artifacts["workflow_id"] == "video-minh_vn-test123"
+
+
+@pytest.mark.asyncio
+async def test_video_ai_package_ready_reuses_existing_workflow_id(monkeypatch):
+    _patch_persona_lookup(monkeypatch)
+
+    async def fake_build_concept_brief(cls, collected, persona_snapshot):
+        return _concept_contract()
+
+    async def fake_build_beat_sheet(cls, concept_brief, persona_snapshot):
+        return _beat_sheet_contract()
+
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_concept_brief",
+        classmethod(fake_build_concept_brief),
+    )
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_beat_sheet",
+        classmethod(fake_build_beat_sheet),
+    )
+
+    mock_http_client = _mock_workflow_start_client("video-minh_vn-idempotent")
+
+    session = _filled_session()
+    session.artifacts["telegram_chat_id"] = "123456"
+
+    concept_result = await VideoAISkill.execute(
+        session, "http://backend", mock_http_client
+    )
+    beat_result = await VideoAISkill.handle_preproduction_action(
+        concept_result.session,
+        "approve",
+        "http://backend",
+        mock_http_client,
+    )
+    package_result = await VideoAISkill.handle_preproduction_action(
+        beat_result.session,
+        "approve",
+        "http://backend",
+        mock_http_client,
+    )
+    repeated_result = await VideoAISkill.execute(
+        package_result.session,
+        "http://backend",
+        mock_http_client,
+    )
+
+    mock_http_client.post.assert_called_once()
+    assert repeated_result.success is True
+    assert repeated_result.next_step == "poll_status"
+    assert repeated_result.output["workflow_id"] == "video-minh_vn-idempotent"
 
 
 @pytest.mark.asyncio
 async def test_video_ai_package_ready_uses_voiceover_mode_when_heygen_avatar_missing(
     monkeypatch,
 ):
-    from unittest.mock import AsyncMock, MagicMock
-
     _patch_persona_lookup_missing_heygen(monkeypatch)
 
     async def fake_build_concept_brief(cls, collected, persona_snapshot):
@@ -479,12 +567,7 @@ async def test_video_ai_package_ready_uses_voiceover_mode_when_heygen_avatar_mis
         classmethod(fake_build_beat_sheet),
     )
 
-    mock_response = MagicMock()
-    mock_response.json.return_value = {"workflow_id": "video-minh_vn-voiceover"}
-    mock_response.raise_for_status = MagicMock()
-
-    mock_http_client = AsyncMock()
-    mock_http_client.post.return_value = mock_response
+    mock_http_client = _mock_workflow_start_client("video-minh_vn-voiceover")
 
     session = _filled_session()
     session.artifacts["telegram_chat_id"] = "123456"
@@ -517,7 +600,6 @@ async def test_video_ai_package_ready_handles_api_failure(monkeypatch):
     Verify that when the production API call fails, video_ai returns
     a failed result with appropriate error message.
     """
-    from unittest.mock import AsyncMock, MagicMock
     import httpx
 
     _patch_persona_lookup(monkeypatch)
@@ -568,3 +650,69 @@ async def test_video_ai_package_ready_handles_api_failure(monkeypatch):
     assert package_result.session.step_key == "package_ready"
     assert "Connection refused" in package_result.error
     assert package_result.output["approved_production_package"] is not None
+    assert package_result.session.control.workflow_id is None
+    assert package_result.session.artifacts["workflow_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_video_ai_package_ready_retry_start_retries_failed_launch(monkeypatch):
+    import httpx
+
+    _patch_persona_lookup(monkeypatch)
+
+    async def fake_build_concept_brief(cls, collected, persona_snapshot):
+        return _concept_contract()
+
+    async def fake_build_beat_sheet(cls, concept_brief, persona_snapshot):
+        return _beat_sheet_contract()
+
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_concept_brief",
+        classmethod(fake_build_concept_brief),
+    )
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_beat_sheet",
+        classmethod(fake_build_beat_sheet),
+    )
+
+    success_response = MagicMock()
+    success_response.json.return_value = {"workflow_id": "video-minh_vn-retried"}
+    success_response.raise_for_status = MagicMock()
+
+    mock_http_client = AsyncMock()
+    mock_http_client.post.side_effect = [
+        httpx.HTTPError("Connection refused"),
+        success_response,
+    ]
+
+    session = _filled_session()
+    session.artifacts["telegram_chat_id"] = "123456"
+
+    concept_result = await VideoAISkill.execute(
+        session, "http://backend", mock_http_client
+    )
+    beat_result = await VideoAISkill.handle_preproduction_action(
+        concept_result.session,
+        "approve",
+        "http://backend",
+        mock_http_client,
+    )
+    failed_result = await VideoAISkill.handle_preproduction_action(
+        beat_result.session,
+        "approve",
+        "http://backend",
+        mock_http_client,
+    )
+    retry_result = await VideoAISkill.handle_preproduction_action(
+        failed_result.session,
+        "retry_start",
+        "http://backend",
+        mock_http_client,
+    )
+
+    assert mock_http_client.post.await_count == 2
+    assert retry_result.success is True
+    assert retry_result.next_step == "poll_status"
+    assert retry_result.output["workflow_id"] == "video-minh_vn-retried"

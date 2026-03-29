@@ -15,6 +15,11 @@ import logging
 from api.security import require_internal_api_token
 from workflows import WeeklyMarketingWorkflow
 from config.settings import settings
+from services.contracts import (
+    ApprovedProductionPackageContract,
+    VideoWorkflowPersonaSnapshotContract,
+    VideoWorkflowStartPayloadContract,
+)
 from services.persona_registry_service import PersonaRegistryService
 
 try:
@@ -40,7 +45,18 @@ class StartVideoRequest(BaseModel):
     user_id: Optional[str] = None
     owner_key: Optional[str] = None
     talking_head_optional: bool = False
-    approved_package: Optional[dict] = None
+    approved_package: Optional[ApprovedProductionPackageContract] = None
+
+
+def _build_video_workflow_persona_snapshot(
+    persona: Dict[str, Any],
+) -> VideoWorkflowPersonaSnapshotContract:
+    return VideoWorkflowPersonaSnapshotContract(
+        display_name=persona.get("display_name"),
+        language=persona.get("language") or "English",
+        tts_voice=persona.get("tts_voice"),
+        heygen_avatar_id=persona.get("heygen_avatar_id"),
+    )
 
 
 async def get_temporal_client(request: Request) -> Client:
@@ -97,9 +113,10 @@ async def start_video_workflow(request: Request, payload: StartVideoRequest):
     """
     Start a new short-video workflow.
     """
+    telegram_chat_id = payload.telegram_chat_id or settings.TELEGRAM_CHAT_ID
     owner_key = payload.owner_key
-    if not owner_key and payload.telegram_chat_id:
-        owner_key = f"telegram:{payload.telegram_chat_id}"
+    if not owner_key and telegram_chat_id:
+        owner_key = f"telegram:{telegram_chat_id}"
 
     persona = await PersonaRegistryService.get_persona(
         payload.persona_id,
@@ -136,22 +153,22 @@ async def start_video_workflow(request: Request, payload: StartVideoRequest):
     try:
         client = await get_temporal_client(request)
         workflow_id = f"video-{payload.persona_id}-{uuid4().hex[:8]}"
+        start_payload = VideoWorkflowStartPayloadContract(
+            persona_id=payload.persona_id,
+            topic=payload.topic,
+            tone=payload.tone,
+            platform=payload.platform,
+            telegram_chat_id=telegram_chat_id,
+            user_id=payload.user_id,
+            owner_key=owner_key,
+            talking_head_optional=payload.talking_head_optional,
+            approved_package=payload.approved_package,
+            persona_snapshot=_build_video_workflow_persona_snapshot(persona),
+        )
 
         handle = await client.start_workflow(
             ShortVideoWorkflow.run,
-            args=[
-                {
-                    "persona_id": payload.persona_id,
-                    "topic": payload.topic,
-                    "tone": payload.tone,
-                    "platform": payload.platform,
-                    "telegram_chat_id": payload.telegram_chat_id,
-                    "user_id": payload.user_id,
-                    "owner_key": owner_key,
-                    "talking_head_optional": payload.talking_head_optional,
-                    "approved_package": payload.approved_package,
-                }
-            ],
+            args=[start_payload.model_dump(mode="json")],
             id=workflow_id,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             execution_timeout=timedelta(hours=2),

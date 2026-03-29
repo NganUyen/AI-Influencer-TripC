@@ -24,9 +24,8 @@ with workflow.unsafe.imports_passed_through():
         create_talking_head_video,
     )
     from activities.video_activities import build_split_screen_video
+    from services.contracts import VideoWorkflowStartPayloadContract
     from services.errors import PersonaNotReadyError, PersonaConfigurationError
-    from services.persona_registry_service import PersonaRegistryService
-    from config.settings import settings
 
 
 MEDIA_RETRY_POLICY = RetryPolicy(
@@ -49,34 +48,26 @@ class ShortVideoWorkflow:
         workflow_id = workflow.info().workflow_id
 
         try:
-            persona_id = payload["persona_id"]
-            topic = payload["topic"]
-            tone = payload.get("tone", "natural")
-            platform = payload.get("platform", "tiktok")
-            telegram_chat_id = (
-                payload.get("telegram_chat_id") or settings.TELEGRAM_CHAT_ID
-            )
-            owner_key = payload.get("owner_key")
-            talking_head_optional = bool(payload.get("talking_head_optional"))
-            if not owner_key and telegram_chat_id:
-                owner_key = f"telegram:{telegram_chat_id}"
-
-            # FIX 3: resolve persona fields only — no duplicate status/heygen check
-            persona = await PersonaRegistryService.get_persona(
-                persona_id,
-                user_id=payload.get("user_id"),
-                owner_key=owner_key,
-            )
-            if not persona:
-                raise PersonaConfigurationError(
-                    f"Persona '{persona_id}' was not found."
-                )
-            language = persona.get("language") or "English"
-            tts_voice = persona.get("tts_voice")
-            heygen_avatar_id = persona.get("heygen_avatar_id")
+            start_payload = VideoWorkflowStartPayloadContract.model_validate(payload)
+            persona_id = start_payload.persona_id
+            topic = start_payload.topic
+            tone = start_payload.tone
+            platform = start_payload.platform
+            telegram_chat_id = start_payload.telegram_chat_id
+            owner_key = start_payload.owner_key
+            talking_head_optional = start_payload.talking_head_optional
+            persona_snapshot = start_payload.persona_snapshot
+            language = persona_snapshot.language or "English"
+            tts_voice = persona_snapshot.tts_voice
+            heygen_avatar_id = persona_snapshot.heygen_avatar_id
+            user_id = start_payload.user_id
 
             # Check if this workflow was kicked off with an approved production package
-            approved_package = payload.get("approved_package")
+            approved_package = (
+                start_payload.approved_package.model_dump(mode="json")
+                if start_payload.approved_package
+                else None
+            )
 
             if approved_package:
                 self.workflow_status = "generating_script_from_package"
@@ -175,11 +166,11 @@ class ShortVideoWorkflow:
                                 "platform": platform,
                                 "persona_id": persona_id,
                                 "owner_key": owner_key,
-                                "user_id": payload.get("user_id"),
+                                "user_id": user_id,
                             },
                             "persona_id": persona_id,
                             "owner_key": owner_key,
-                            "user_id": payload.get("user_id"),
+                            "user_id": user_id,
                             "config": {"voice": tts_voice},
                         }
                     ],
@@ -196,7 +187,7 @@ class ShortVideoWorkflow:
                                     **(scene.get("metadata") or {}),
                                     "persona_id": persona_id,
                                     "owner_key": owner_key,
-                                    "user_id": payload.get("user_id"),
+                                    "user_id": user_id,
                                     "day": 1,
                                     "platform": platform,
                                 },
@@ -236,7 +227,7 @@ class ShortVideoWorkflow:
                                 "topic": topic,
                                 "persona_id": persona_id,
                                 "owner_key": owner_key,
-                                "user_id": payload.get("user_id"),
+                                "user_id": user_id,
                             }
                         ],
                         start_to_close_timeout=timedelta(minutes=20),
@@ -274,7 +265,7 @@ class ShortVideoWorkflow:
                         "scene_durations": scene_durations,
                         "persona_id": persona_id,
                         "owner_key": owner_key,
-                        "user_id": payload.get("user_id"),
+                        "user_id": user_id,
                         "topic": topic,
                         "duration_per_image": 4.0,
                     }

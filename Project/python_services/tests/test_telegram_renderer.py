@@ -293,7 +293,7 @@ def test_render_persona_inspector_done_shows_photo_and_details():
 
 
 def test_render_video_ai_done_state_reports_package_ready():
-    """Test that video-ai done state shows workflow started when workflow_id present."""
+    """Test that a package-started video session renders as a live workflow with cancel."""
     package = {
         "concept_brief": _video_concept(),
         "beat_sheet": _video_beats(),
@@ -302,13 +302,19 @@ def test_render_video_ai_done_state_reports_package_ready():
     session = SkillSession(
         skill_name="video-ai",
         step_key="package_ready",
-        collected={"persona_id": "minh_vn"},
-        artifacts={"approved_production_package": package},
-        control=SkillControl(status=SkillStatus.done),
+        collected={"persona_id": "minh_vn", "idea_brief": "TripC demo"},
+        artifacts={
+            "approved_production_package": package,
+            "workflow_id": "video-minh_vn-abc123",
+        },
+        control=SkillControl(
+            status=SkillStatus.waiting_approval,
+            workflow_id="video-minh_vn-abc123",
+        ),
     )
     result = SkillResult(
         success=True,
-        next_step="package_ready",
+        next_step="poll_status",
         output={
             "approved_production_package": package,
             "workflow_id": "video-minh_vn-abc123",
@@ -318,9 +324,14 @@ def test_render_video_ai_done_state_reports_package_ready():
 
     rendered = TelegramRenderer.render_skill_result(result)
 
-    assert "Production workflow started!" in rendered["text"]
+    assert "Video Generation Started" in rendered["text"]
     assert "video-minh_vn-abc123" in rendered["text"]
-    assert rendered["reply_markup"] is None
+    callback_values = {
+        button["callback_data"]
+        for row in rendered["reply_markup"]["inline_keyboard"]
+        for button in row
+    }
+    assert callback_values == {"action::cancel"}
 
 
 def test_render_video_ai_done_state_mentions_voiceover_fallback():
@@ -332,13 +343,23 @@ def test_render_video_ai_done_state_mentions_voiceover_fallback():
     session = SkillSession(
         skill_name="video-ai",
         step_key="package_ready",
-        collected={"persona_id": "minh_vn"},
-        artifacts={"approved_production_package": package},
-        control=SkillControl(status=SkillStatus.done),
+        collected={"persona_id": "minh_vn", "idea_brief": "TripC demo"},
+        artifacts={
+            "approved_production_package": package,
+            "workflow_id": "video-minh_vn-voiceover",
+            "production_note": (
+                "This persona does not have a HeyGen talking-head avatar yet, "
+                "so the video will use scene visuals with voiceover instead."
+            ),
+        },
+        control=SkillControl(
+            status=SkillStatus.waiting_approval,
+            workflow_id="video-minh_vn-voiceover",
+        ),
     )
     result = SkillResult(
         success=True,
-        next_step="package_ready",
+        next_step="poll_status",
         output={
             "approved_production_package": package,
             "workflow_id": "video-minh_vn-voiceover",
@@ -357,7 +378,7 @@ def test_render_video_ai_done_state_mentions_voiceover_fallback():
 
 
 def test_render_video_ai_done_state_shows_error_when_workflow_failed():
-    """Test that video-ai done state shows error when workflow_id missing."""
+    """Test that workflow start failure keeps retry-start controls available."""
     package = {
         "concept_brief": _video_concept(),
         "beat_sheet": _video_beats(),
@@ -368,12 +389,13 @@ def test_render_video_ai_done_state_shows_error_when_workflow_failed():
         step_key="package_ready",
         collected={"persona_id": "minh_vn"},
         artifacts={"approved_production_package": package},
-        control=SkillControl(status=SkillStatus.done),
+        control=SkillControl(status=SkillStatus.failed),
     )
     result = SkillResult(
-        success=True,
+        success=False,
         next_step="package_ready",
-        output={"approved_production_package": package},  # No workflow_id
+        output={"approved_production_package": package},
+        error="Connection refused",
         session=session,
     )
 
@@ -381,7 +403,13 @@ def test_render_video_ai_done_state_shows_error_when_workflow_failed():
 
     assert "Pre-production package ready." in rendered["text"]
     assert "Production workflow could not be started." in rendered["text"]
-    assert rendered["reply_markup"] is None
+    assert "Connection refused" in rendered["text"]
+    callback_values = {
+        button["callback_data"]
+        for row in rendered["reply_markup"]["inline_keyboard"]
+        for button in row
+    }
+    assert callback_values == {"action::retry_start", "action::cancel"}
 
 
 def test_render_persona_inspector_done_reports_missing_image():

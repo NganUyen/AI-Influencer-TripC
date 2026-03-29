@@ -1,6 +1,6 @@
 # Environment Reference
 
-Last verified: 2026-03-24 (UTC)
+Last verified: 2026-03-29 (UTC)
 
 The source of truth for the env contract is `Project/.env.example`. This document groups the variables by runtime purpose and explains what each group does.
 
@@ -12,6 +12,11 @@ The source of truth for the env contract is `Project/.env.example`. This documen
 - `NEXT_PUBLIC_API_URL`: browser-facing base URL for the app
 - `PYTHON_BACKEND_URL`: internal URL that Next.js uses to reach FastAPI
 - `CORS_ORIGINS`: allowed browser origins for FastAPI
+
+Important:
+
+- there is no separate infra-level preproduction environment in this repo; the deploy targets are local/dev and production
+- `NEXT_PUBLIC_API_URL` is intentionally same-origin/browser-facing, while `PYTHON_BACKEND_URL` stays private to the Next.js server runtime for backend proxying
 
 ## Frontend And Supabase
 

@@ -271,3 +271,23 @@ class ApprovedProductionPackageContract(BaseModel):
     concept_brief: ConceptBriefContract
     beat_sheet: BeatSheetContract
     persona_snapshot: Dict[str, Any] = Field(default_factory=dict)
+
+
+class VideoWorkflowPersonaSnapshotContract(BaseModel):
+    language: str = "English"
+    tts_voice: str
+    heygen_avatar_id: Optional[str] = None
+    display_name: Optional[str] = None
+
+
+class VideoWorkflowStartPayloadContract(BaseModel):
+    persona_id: str
+    topic: str
+    tone: str = "natural"
+    platform: str = "tiktok"
+    telegram_chat_id: Optional[str] = None
+    user_id: Optional[str] = None
+    owner_key: Optional[str] = None
+    talking_head_optional: bool = False
+    approved_package: Optional[ApprovedProductionPackageContract] = None
+    persona_snapshot: VideoWorkflowPersonaSnapshotContract

@@ -380,6 +380,7 @@ class SkillDispatcher:
             "approve",
             "edit",
             "regenerate",
+            "retry_start",
         }:
             async with cls._transport_client(app) as client:
                 result = await skill_cls.handle_preproduction_action(

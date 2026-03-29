@@ -40,7 +40,7 @@ _TEST_ENV = {
 
 with patch.dict(os.environ, _TEST_ENV, clear=False):
     from api.telegram_auth import generate_supabase_jwt
-    from services.customer_auth_service import CustomerAuthService
+    from services.customer_auth_service import CustomerAuthError, CustomerAuthService
 
 
 class _FailingResponse:
@@ -57,6 +57,7 @@ async def test_resolve_session_falls_back_to_local_jwt_when_remote_validation_re
         "founder@example.com",
         display_name="TripC Founder",
         avatar_url="https://cdn.example/avatar.png",
+        mock_session=True,
     )
     fake_client = AsyncMock()
     fake_client.get = AsyncMock(return_value=_FailingResponse())
@@ -78,3 +79,23 @@ async def test_resolve_session_falls_back_to_local_jwt_when_remote_validation_re
     assert session.display_name == "TripC Founder"
     assert session.avatar_url == "https://cdn.example/avatar.png"
     ensure_user_record.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_resolve_session_rejects_non_mock_local_jwt_when_remote_validation_rejects():
+    token = generate_supabase_jwt(
+        "550e8400-e29b-41d4-a716-446655440000",
+        "founder@example.com",
+        display_name="TripC Founder",
+    )
+    fake_client = AsyncMock()
+    fake_client.get = AsyncMock(return_value=_FailingResponse())
+    fake_client.__aenter__.return_value = fake_client
+    fake_client.__aexit__.return_value = False
+
+    with patch(
+        "services.customer_auth_service.httpx.AsyncClient",
+        return_value=fake_client,
+    ):
+        with pytest.raises(CustomerAuthError):
+            await CustomerAuthService.resolve_session(f"Bearer {token}")

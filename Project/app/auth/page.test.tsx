@@ -61,7 +61,9 @@ describe("Auth page", () => {
           expires_at: "2099-03-29T12:00:00Z",
           authenticated_at: "2099-03-29T11:59:00Z",
           access_token: "telegram-access-token",
+          refresh_token: "telegram-refresh-token",
           token_type: "bearer",
+          expires_in: 3600,
           user: {
             id: "user-1",
             email: "founder@example.com",
@@ -110,6 +112,7 @@ describe("Auth page", () => {
           email: "founder@example.com",
           name: "Founder",
         }),
+        "telegram-refresh-token",
       );
     });
     expect(replace).toHaveBeenCalledWith("/dashboard");

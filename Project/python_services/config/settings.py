@@ -14,6 +14,7 @@ PLACEHOLDER_SECRET_VALUES = {
     "change-this-in-production",
     "change-this-internal-api-token",
     "change-this-postiz-webhook-secret",
+    "change-this-telegram-auth-bridge-secret",
     "dev-connector-secret",
 }
 
@@ -116,6 +117,7 @@ class Settings(BaseSettings):
     # Only set this if you need a legacy hardcoded fallback.
     TELEGRAM_CHAT_ID: Optional[str] = None
     TELEGRAM_WEBHOOK_SECRET: Optional[str] = None  # Set via setWebhook secret_token
+    TELEGRAM_AUTH_BRIDGE_SECRET: Optional[str] = None
 
     # Temporal
     TEMPORAL_ADDRESS: str = "localhost:7233"
@@ -198,6 +200,7 @@ class Settings(BaseSettings):
         "CHATGPT_CONNECTOR_PUBLIC_URL",
         "OPENAI_OAUTH_REDIRECT_URI",
         "TELEGRAM_WEBHOOK_SECRET",
+        "TELEGRAM_AUTH_BRIDGE_SECRET",
         "POSTIZ_WEBHOOK_SECRET",
         "GROWCHIEF_WEBHOOK_SECRET",
         "CHATGPT_CONNECTOR_SESSION_SECRET",

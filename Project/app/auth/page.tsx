@@ -16,7 +16,9 @@ interface TelegramLinkCompleteResponse {
   expires_at?: string | null;
   authenticated_at?: string | null;
   access_token?: string | null;
+  refresh_token?: string | null;
   token_type?: string | null;
+  expires_in?: number | null;
   user?: {
     id: string;
     email: string;
@@ -127,6 +129,7 @@ export default function AuthPage() {
           await establishSessionFromAccessToken(
             payload.access_token,
             payload.user || null,
+            payload.refresh_token || null,
           );
           if (cancelled) {
             return;

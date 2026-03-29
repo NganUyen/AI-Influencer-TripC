@@ -37,6 +37,10 @@ os.environ.setdefault("IPROYAL_USERNAME", "test_ipro_user")
 os.environ.setdefault("IPROYAL_PASSWORD", "test_ipro_password")
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test_telegram_token")
 os.environ.setdefault("TELEGRAM_CHAT_ID", "test_telegram_chat")
+os.environ.setdefault(
+    "TELEGRAM_AUTH_BRIDGE_SECRET",
+    "test_telegram_auth_bridge_secret",
+)
 
 
 class _TelegramStub:

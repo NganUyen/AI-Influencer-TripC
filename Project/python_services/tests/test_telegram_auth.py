@@ -1,9 +1,9 @@
 import os
 import sys
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-import jwt
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,11 +37,14 @@ _TEST_ENV = {
     "JWT_SECRET_KEY": "test-jwt-secret",
     "APP_ADMIN_TOKEN": "test-admin-token",
     "INTERNAL_API_TOKEN": "test-internal-token",
+    "TELEGRAM_AUTH_BRIDGE_SECRET": "test-telegram-auth-bridge-secret",
 }
 
 with patch.dict(os.environ, _TEST_ENV, clear=False):
     from api import telegram_auth
+    from services.supabase_auth_bridge_service import SupabaseAuthSession
     from services.telegram_identity_service import TelegramIdentity
+    from utils import jwt_compat as jwt
 
 
 class _Acquire:
@@ -106,7 +109,9 @@ async def test_link_complete_returns_pending_status():
         "expires_at": "2026-03-29T12:00:00Z",
         "authenticated_at": None,
         "access_token": None,
+        "refresh_token": None,
         "token_type": None,
+        "expires_in": None,
         "user": None,
     }
 
@@ -141,6 +146,17 @@ async def test_link_complete_returns_authenticated_session():
         telegram_auth.TelegramIdentityService,
         "get_identity_for_user_id",
         AsyncMock(return_value=identity),
+    ), patch.object(
+        telegram_auth.SupabaseAuthBridgeService,
+        "provision_identity_session",
+        AsyncMock(
+            return_value=SupabaseAuthSession(
+                access_token="supabase-access-token",
+                refresh_token="supabase-refresh-token",
+                token_type="bearer",
+                expires_in=3600,
+            )
+        ),
     ):
         response = await telegram_auth.complete_anonymous_telegram_link(
             telegram_auth.TelegramLinkCompleteRequest(start_token="anon-token"),
@@ -149,16 +165,9 @@ async def test_link_complete_returns_authenticated_session():
     assert response["status"] == "authenticated"
     assert response["user"]["id"] == identity.user_id
     assert response["user"]["email"] == identity.email
-    claims = jwt.decode(
-        response["access_token"],
-        _TEST_ENV["JWT_SECRET_KEY"],
-        algorithms=["HS256"],
-        audience="authenticated",
-    )
-    assert claims["sub"] == identity.user_id
-    assert claims["email"] == identity.email
-    assert claims["user_metadata"]["full_name"] == identity.display_name
-    assert claims["user_metadata"]["avatar_url"] == identity.avatar_url
+    assert response["access_token"] == "supabase-access-token"
+    assert response["refresh_token"] == "supabase-refresh-token"
+    assert response["expires_in"] == 3600
 
 
 @pytest.mark.asyncio
@@ -220,6 +229,14 @@ async def test_login_uses_shared_identity_resolution_and_linking():
         )
 
     assert response["user"]["email"] == identity.email
+    claims = jwt.decode(
+        response["access_token"],
+        _TEST_ENV["JWT_SECRET_KEY"],
+        algorithms=["HS256"],
+        audience="authenticated",
+    )
+    assert claims["mock_telegram_login"] is True
+    assert response.get("refresh_token") is None
     resolve_or_create_identity.assert_awaited_once()
     upsert_telegram_link.assert_awaited_once_with(
         resolve_or_create_identity.await_args.args[0],
@@ -227,3 +244,60 @@ async def test_login_uses_shared_identity_resolution_and_linking():
         user_id=identity.user_id,
         telegram_username="tripc",
     )
+
+
+@pytest.mark.asyncio
+async def test_login_uses_supabase_bridge_for_real_telegram_sign_in():
+    identity = TelegramIdentity(
+        chat_id=123456789,
+        user_id="550e8400-e29b-41d4-a716-446655440000",
+        email="founder@example.com",
+        display_name="TripC Founder",
+        avatar_url="https://cdn.example/avatar.png",
+        telegram_username="tripc",
+    )
+
+    with patch.object(
+        telegram_auth.DatabaseService,
+        "get_pool",
+        AsyncMock(return_value=_StubPool(_StubConn())),
+    ), patch.object(
+        telegram_auth.TelegramIdentityService,
+        "resolve_or_create_identity",
+        AsyncMock(return_value=identity),
+    ), patch.object(
+        telegram_auth.TelegramIdentityService,
+        "upsert_telegram_link",
+        AsyncMock(),
+    ), patch.object(
+        telegram_auth,
+        "verify_telegram_hash",
+        return_value=True,
+    ), patch.object(
+        telegram_auth.SupabaseAuthBridgeService,
+        "provision_identity_session",
+        AsyncMock(
+            return_value=SupabaseAuthSession(
+                access_token="supabase-access-token",
+                refresh_token="supabase-refresh-token",
+                token_type="bearer",
+                expires_in=3600,
+            )
+        ),
+    ) as provision_identity_session:
+        response = await telegram_auth.telegram_login(
+            telegram_auth.TelegramLoginRequest(
+                id=123456789,
+                first_name="TripC",
+                last_name="Founder",
+                username="tripc",
+                photo_url="https://cdn.example/avatar.png",
+                auth_date=int(time.time()),
+                hash="verified-hash",
+            ),
+        )
+
+    assert response["access_token"] == "supabase-access-token"
+    assert response["refresh_token"] == "supabase-refresh-token"
+    assert response["expires_in"] == 3600
+    provision_identity_session.assert_awaited_once_with(identity)

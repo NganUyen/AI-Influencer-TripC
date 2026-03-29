@@ -8,15 +8,19 @@ import hashlib
 import hmac
 import time
 from typing import Any, Dict, Literal, Optional
-
-import jwt
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from config.settings import settings
 from services.database_service import DatabaseService
+from services.supabase_auth_bridge_service import (
+    SupabaseAuthBridgeCollisionError,
+    SupabaseAuthBridgeError,
+    SupabaseAuthBridgeService,
+)
 from services.telegram_identity_service import TelegramIdentity, TelegramIdentityService
 from services.telegram_link_service import TelegramLinkError, TelegramLinkService
+from utils import jwt_compat as jwt
 
 router = APIRouter()
 
@@ -51,7 +55,9 @@ class TelegramLinkCompleteResponse(BaseModel):
     expires_at: Optional[str] = None
     authenticated_at: Optional[str] = None
     access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
     token_type: Optional[str] = None
+    expires_in: Optional[int] = None
     user: Optional[TelegramAuthUser] = None
 
 
@@ -75,8 +81,9 @@ def generate_supabase_jwt(
     display_name: Optional[str] = None,
     avatar_url: Optional[str] = None,
     expires_in: int = 3600 * 24 * 7,
+    mock_session: bool = False,
 ) -> str:
-    """Generate a JWT compatible with the current customer session model."""
+    """Generate a development-only JWT compatible with the current customer session model."""
     now = int(time.time())
     user_metadata: Dict[str, Any] = {}
     if display_name:
@@ -93,9 +100,14 @@ def generate_supabase_jwt(
         "sub": user_id,
         "email": email,
         "role": "authenticated",
-        "app_metadata": {"provider": "telegram", "providers": ["telegram"]},
+        "app_metadata": {
+            "provider": "telegram_dev_mock" if mock_session else "telegram",
+            "providers": ["telegram_dev_mock"] if mock_session else ["telegram"],
+        },
         "user_metadata": user_metadata,
     }
+    if mock_session:
+        payload["mock_telegram_login"] = True
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm="HS256")
 
 
@@ -104,7 +116,7 @@ def _display_name_from_payload(payload: TelegramLoginRequest) -> str:
 
 
 def _validate_telegram_login_payload(payload: TelegramLoginRequest) -> None:
-    is_mock = payload.hash == "__MOCK_DEV_LOGIN__" and not settings.is_production_like
+    is_mock = _is_mock_telegram_login(payload)
     if not is_mock and not verify_telegram_hash(
         payload.model_dump(),
         settings.TELEGRAM_BOT_TOKEN,
@@ -115,16 +127,21 @@ def _validate_telegram_login_payload(payload: TelegramLoginRequest) -> None:
         raise HTTPException(status_code=401, detail="Telegram login session expired")
 
 
-def _build_auth_response(identity: TelegramIdentity) -> Dict[str, Any]:
-    access_token = generate_supabase_jwt(
-        identity.user_id,
-        identity.email,
-        display_name=identity.display_name,
-        avatar_url=identity.avatar_url,
-    )
-    return {
+def _is_mock_telegram_login(payload: TelegramLoginRequest) -> bool:
+    return payload.hash == "__MOCK_DEV_LOGIN__" and not settings.is_production_like
+
+
+def _build_auth_response(
+    identity: TelegramIdentity,
+    *,
+    access_token: str,
+    refresh_token: Optional[str] = None,
+    token_type: str = "bearer",
+    expires_in: Optional[int] = None,
+) -> Dict[str, Any]:
+    response: Dict[str, Any] = {
         "access_token": access_token,
-        "token_type": "bearer",
+        "token_type": token_type,
         "user": {
             "id": identity.user_id,
             "email": identity.email,
@@ -132,11 +149,45 @@ def _build_auth_response(identity: TelegramIdentity) -> Dict[str, Any]:
             "avatar_url": identity.avatar_url,
         },
     }
+    if refresh_token:
+        response["refresh_token"] = refresh_token
+    if expires_in is not None:
+        response["expires_in"] = expires_in
+    return response
+
+
+def _build_mock_auth_response(identity: TelegramIdentity) -> Dict[str, Any]:
+    access_token = generate_supabase_jwt(
+        identity.user_id,
+        identity.email,
+        display_name=identity.display_name,
+        avatar_url=identity.avatar_url,
+        mock_session=True,
+    )
+    return _build_auth_response(identity, access_token=access_token)
+
+
+async def _build_supabase_auth_response(identity: TelegramIdentity) -> Dict[str, Any]:
+    try:
+        session = await SupabaseAuthBridgeService.provision_identity_session(identity)
+    except SupabaseAuthBridgeCollisionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except SupabaseAuthBridgeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return _build_auth_response(
+        identity,
+        access_token=session.access_token,
+        refresh_token=session.refresh_token,
+        token_type=session.token_type,
+        expires_in=session.expires_in,
+    )
 
 
 @router.post("/login")
 async def telegram_login(payload: TelegramLoginRequest):
     _validate_telegram_login_payload(payload)
+    is_mock = _is_mock_telegram_login(payload)
 
     pool = await DatabaseService.get_pool()
     async with pool.acquire() as conn:
@@ -154,7 +205,10 @@ async def telegram_login(payload: TelegramLoginRequest):
             telegram_username=payload.username,
         )
 
-    return _build_auth_response(identity)
+    if is_mock:
+        return _build_mock_auth_response(identity)
+
+    return await _build_supabase_auth_response(identity)
 
 
 @router.post("/link/start")
@@ -196,5 +250,5 @@ async def complete_anonymous_telegram_link(payload: TelegramLinkCompleteRequest)
         "status": "authenticated",
         "expires_at": completion.get("expires_at"),
         "authenticated_at": completion.get("authenticated_at"),
-        **_build_auth_response(identity),
+        **(await _build_supabase_auth_response(identity)),
     }

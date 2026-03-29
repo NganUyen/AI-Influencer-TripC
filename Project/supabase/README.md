@@ -28,6 +28,8 @@ supabase/
     |-- 20260326_personas_user_scoped_unique.sql
     |-- 20260326_telegram_owner_links_and_avatar_assets.sql
     |-- 20260327_supabase_canonical_consolidation.sql
+    |-- 20260329_supabase_auth_user_sync.sql
+    |-- 20260329_telegram_link_tokens_anonymous_auth.sql
     `-- latest.sql
 ```
 

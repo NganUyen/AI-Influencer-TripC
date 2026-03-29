@@ -1,4 +1,5 @@
 import {
+  buildTelegramBotLaunchUrl,
   DEFAULT_PUBLIC_ENV,
   deriveTelegramBotUsername,
   type PublicEnv,
@@ -16,6 +17,11 @@ export function getServerPublicEnv(): PublicEnv {
   const telegramBotUsername =
     readProcessEnvValue("NEXT_PUBLIC_TELEGRAM_BOT_USERNAME") ||
     deriveTelegramBotUsername(telegramBotUrl);
+  const browserTelegramBotUrl =
+    buildTelegramBotLaunchUrl({
+      botUrl: telegramBotUrl,
+      botUsername: telegramBotUsername,
+    }) || "";
 
   return {
     NEXT_PUBLIC_API_URL:
@@ -35,7 +41,7 @@ export function getServerPublicEnv(): PublicEnv {
       readProcessEnvValue("SUPABASE_PUBLISHABLE_KEY") ||
       DEFAULT_PUBLIC_ENV.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     NEXT_PUBLIC_TELEGRAM_BOT_URL:
-      telegramBotUrl || DEFAULT_PUBLIC_ENV.NEXT_PUBLIC_TELEGRAM_BOT_URL,
+      browserTelegramBotUrl || DEFAULT_PUBLIC_ENV.NEXT_PUBLIC_TELEGRAM_BOT_URL,
     NEXT_PUBLIC_TELEGRAM_BOT_USERNAME:
       telegramBotUsername || DEFAULT_PUBLIC_ENV.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME,
     NEXT_PUBLIC_ENABLE_WORKFLOWS:

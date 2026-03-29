@@ -3,10 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import {
-  deriveTelegramBotUsername,
-  getClientPublicEnvValue,
-} from "@/lib/public-env";
+import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 
 interface TelegramLinkToken {
@@ -50,7 +47,6 @@ async function customerApiRequest<T>(
 
 export default function AuthPage() {
   const router = useRouter();
-  const telegramBotUrl = buildTelegramBotUrl();
   const {
     establishSessionFromAccessToken,
     loginWithTelegram,
@@ -72,6 +68,10 @@ export default function AuthPage() {
   const [isGeneratingToken, setIsGeneratingToken] = useState(false);
   const [isAwaitingTelegram, setIsAwaitingTelegram] = useState(false);
   const [isCompletingSession, setIsCompletingSession] = useState(false);
+  const telegramSignInUrl = getClientTelegramBotLaunchUrl(
+    linkToken?.start_token,
+    "TripCInternBot",
+  );
 
   useEffect(() => {
     void initialize();
@@ -124,7 +124,10 @@ export default function AuthPage() {
 
         if (payload.status === "authenticated" && payload.access_token) {
           setIsCompletingSession(true);
-          await establishSessionFromAccessToken(payload.access_token);
+          await establishSessionFromAccessToken(
+            payload.access_token,
+            payload.user || null,
+          );
           if (cancelled) {
             return;
           }
@@ -285,17 +288,19 @@ export default function AuthPage() {
                       automatically here.
                     </p>
                   </div>
-                  <a
-                    href={`${telegramBotUrl}?start=${linkToken.start_token}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex w-full items-center justify-center gap-2 rounded-full bg-emerald-300 px-5 py-4 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200"
-                  >
-                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.461-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.442-.751-.244-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635.099-.002.321.023.465.141.121.099.154.232.17.325.015.094.034.31.019.478z" />
-                    </svg>
-                    Open Telegram & Sign In
-                  </a>
+                  {telegramSignInUrl && (
+                    <a
+                      href={telegramSignInUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex w-full items-center justify-center gap-2 rounded-full bg-emerald-300 px-5 py-4 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200"
+                    >
+                      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.461-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.442-.751-.244-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635.099-.002.321.023.465.141.121.099.154.232.17.325.015.094.034.31.019.478z" />
+                      </svg>
+                      Open Telegram & Sign In
+                    </a>
+                  )}
                   <p className="text-center text-[10px] text-stone-500">
                     Link expires at: {new Date(linkToken.expires_at).toLocaleTimeString()}
                   </p>
@@ -404,18 +409,4 @@ function FeatureCard({
       <p className="mt-2 text-sm text-stone-400">{description}</p>
     </div>
   );
-}
-
-function buildTelegramBotUrl(): string {
-  const explicitUrl = getClientPublicEnvValue("NEXT_PUBLIC_TELEGRAM_BOT_URL").trim();
-  if (explicitUrl) {
-    return explicitUrl;
-  }
-
-  const username =
-    getClientPublicEnvValue("NEXT_PUBLIC_TELEGRAM_BOT_USERNAME").trim() ||
-    deriveTelegramBotUsername(explicitUrl) ||
-    "TripCInternBot";
-
-  return `https://t.me/${username.replace(/^@/, "")}`;
 }

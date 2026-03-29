@@ -2,6 +2,13 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 
 import {
+  buildPersistedCustomerSession,
+  clearPersistedCustomerSession,
+  persistCustomerSession,
+  readPersistedCustomerSession,
+  type PersistedCustomerSession,
+} from "@/lib/customer-session";
+import {
   getSupabaseClient,
   hasSupabaseConfig,
   type SupabaseSession,
@@ -22,7 +29,15 @@ interface CustomerAuthState {
   initialized: boolean;
   error: string | null;
   initialize: () => Promise<void>;
-  establishSessionFromAccessToken: (accessToken: string) => Promise<void>;
+  establishSessionFromAccessToken: (
+    accessToken: string,
+    user?: {
+      id: string;
+      email: string;
+      name?: string | null;
+      avatar_url?: string | null;
+    } | null,
+  ) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   loginWithTelegram: (telegramData: any) => Promise<void>;
   signup: (payload: {
@@ -66,10 +81,43 @@ async function establishSupabaseSession(
   });
 
   if (error) {
+    if (error.message === "Auth session missing!") {
+      return null;
+    }
     throw error;
   }
 
   return data.session;
+}
+
+function mapPersistedSession(
+  persistedSession: PersistedCustomerSession | null,
+): Pick<CustomerAuthState, "user" | "accessToken" | "isAuthenticated"> {
+  return {
+    user: persistedSession?.user || null,
+    accessToken: persistedSession?.accessToken || null,
+    isAuthenticated: Boolean(
+      persistedSession?.accessToken && persistedSession?.user,
+    ),
+  };
+}
+
+function persistMappedSession(
+  state: Pick<CustomerAuthState, "user" | "accessToken">,
+): void {
+  if (!state.user || !state.accessToken) {
+    clearPersistedCustomerSession();
+    return;
+  }
+
+  persistCustomerSession(
+    buildPersistedCustomerSession(state.accessToken, {
+      id: state.user.id,
+      email: state.user.email,
+      name: state.user.name,
+      avatarUrl: state.user.avatarUrl,
+    }),
+  );
 }
 
 export const useCustomerAuthStore = create<CustomerAuthState>()(
@@ -82,14 +130,16 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
     error: null,
 
     initialize: async () => {
+      const persistedSession = readPersistedCustomerSession();
+
       if (!hasSupabaseConfig()) {
         set({
-          user: null,
-          accessToken: null,
-          isAuthenticated: false,
+          ...mapPersistedSession(persistedSession),
           isLoading: false,
           initialized: true,
-          error: "Supabase public environment variables are missing.",
+          error: persistedSession
+            ? null
+            : "Supabase public environment variables are missing.",
         });
         return;
       }
@@ -98,8 +148,21 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
 
       if (!authSubscriptionBound) {
         supabase.auth.onAuthStateChange((_event, session) => {
+          if (session) {
+            const mapped = mapUser(session);
+            persistMappedSession(mapped);
+            set({
+              ...mapped,
+              isLoading: false,
+              initialized: true,
+              error: null,
+            });
+            return;
+          }
+
+          const storedSession = readPersistedCustomerSession();
           set({
-            ...mapUser(session),
+            ...mapPersistedSession(storedSession),
             isLoading: false,
             initialized: true,
             error: null,
@@ -110,31 +173,57 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
 
       const { data, error } = await supabase.auth.getSession();
       if (error) {
+        const storedSession = readPersistedCustomerSession();
         set({
-          user: null,
-          accessToken: null,
-          isAuthenticated: false,
+          ...mapPersistedSession(storedSession),
           isLoading: false,
           initialized: true,
-          error: error.message,
+          error: storedSession ? null : error.message,
         });
         return;
       }
 
+      const mapped = data.session
+        ? mapUser(data.session)
+        : mapPersistedSession(persistedSession);
+      persistMappedSession(mapped);
       set({
-        ...mapUser(data.session),
+        ...mapped,
         isLoading: false,
         initialized: true,
         error: null,
       });
     },
 
-    establishSessionFromAccessToken: async (accessToken: string) => {
+    establishSessionFromAccessToken: async (accessToken: string, user) => {
       set({ isLoading: true, error: null });
       try {
         const session = await establishSupabaseSession(accessToken);
+        if (!session) {
+          const persistedSession = buildPersistedCustomerSession(accessToken, {
+            id: user?.id,
+            email: user?.email,
+            name: user?.name || undefined,
+            avatar_url: user?.avatar_url || undefined,
+          });
+          if (!persistedSession) {
+            throw new Error("Unable to establish customer session");
+          }
+
+          persistCustomerSession(persistedSession);
+          set({
+            ...mapPersistedSession(persistedSession),
+            isLoading: false,
+            initialized: true,
+            error: null,
+          });
+          return;
+        }
+
+        const mapped = mapUser(session);
+        persistMappedSession(mapped);
         set({
-          ...mapUser(session),
+          ...mapped,
           isLoading: false,
           initialized: true,
           error: null,
@@ -162,6 +251,7 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
         set({ isLoading: false, error: error.message });
         throw error;
       }
+      persistMappedSession(mapUser(data.session));
       set({
         ...mapUser(data.session),
         isLoading: false,
@@ -186,6 +276,7 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
         set({ isLoading: false, error: error.message });
         throw error;
       }
+      persistMappedSession(mapUser(data.session || null));
       set({
         ...mapUser(data.session || null),
         isLoading: false,
@@ -210,15 +301,11 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
           throw new Error(errorData.detail || "Telegram login failed");
         }
 
-        const { access_token } = await response.json();
-        const session = await establishSupabaseSession(access_token);
-
-        set({
-          ...mapUser(session),
-          isLoading: false,
-          initialized: true,
-          error: null,
-        });
+        const payload = await response.json();
+        await get().establishSessionFromAccessToken(
+          payload.access_token,
+          payload.user || null,
+        );
       } catch (err) {
         set({
           isLoading: false,
@@ -229,6 +316,7 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
     },
 
     logout: async () => {
+      clearPersistedCustomerSession();
       if (hasSupabaseConfig()) {
         await getSupabaseClient().auth.signOut();
       }

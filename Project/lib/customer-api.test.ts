@@ -1,0 +1,58 @@
+import {
+  buildPersistedCustomerSession,
+  persistCustomerSession,
+} from "@/lib/customer-session";
+import { customerApiRequest } from "@/lib/customer-api";
+
+const getSession = jest.fn();
+
+jest.mock("@/lib/supabase", () => ({
+  getSupabaseClient: () => ({
+    auth: {
+      getSession,
+    },
+  }),
+}));
+
+function createToken(payload: Record<string, unknown>): string {
+  const encode = (value: Record<string, unknown>) =>
+    Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${encode({ alg: "HS256", typ: "JWT" })}.${encode(payload)}.signature`;
+}
+
+describe("customerApiRequest", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    jest.clearAllMocks();
+    getSession.mockResolvedValue({
+      data: { session: null },
+    });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true }),
+    });
+  });
+
+  it("falls back to the persisted customer session token when Supabase has no session", async () => {
+    const token = createToken({
+      sub: "user-1",
+      email: "founder@example.com",
+      exp: 4102444800,
+      user_metadata: {
+        full_name: "Founder",
+      },
+    });
+
+    persistCustomerSession(buildPersistedCustomerSession(token));
+
+    await customerApiRequest("/api/customer/example");
+
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    const headers = new Headers(init.headers);
+
+    expect(headers.get("Authorization")).toBe(`Bearer ${token}`);
+  });
+});

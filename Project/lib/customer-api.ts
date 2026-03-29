@@ -1,3 +1,4 @@
+import { readPersistedCustomerSession } from "@/lib/customer-session";
 import { getSupabaseClient } from "@/lib/supabase";
 
 export async function customerApiRequest<T>(
@@ -8,11 +9,13 @@ export async function customerApiRequest<T>(
   const {
     data: { session },
   } = await supabase.auth.getSession();
+  const persistedSession = readPersistedCustomerSession();
+  const accessToken = session?.access_token || persistedSession?.accessToken;
 
   const headers = new Headers(init?.headers || {});
   headers.set("Content-Type", "application/json");
-  if (session?.access_token) {
-    headers.set("Authorization", `Bearer ${session.access_token}`);
+  if (accessToken) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
   const response = await fetch(path, {

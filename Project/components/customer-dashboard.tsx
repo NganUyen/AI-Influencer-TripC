@@ -12,10 +12,7 @@ import {
 } from "lucide-react";
 
 import { customerApiRequest } from "@/lib/customer-api";
-import {
-  deriveTelegramBotUsername,
-  getClientPublicEnvValue,
-} from "@/lib/public-env";
+import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 
 type BrandProfile = {
@@ -245,7 +242,6 @@ export default function CustomerDashboard() {
   const [telegramLink, setTelegramLink] = useState<TelegramLinkStatus | null>(null);
   const [linkToken, setLinkToken] = useState<TelegramLinkToken | null>(null);
   const [isPollingTelegramLink, setIsPollingTelegramLink] = useState(false);
-  const [telegramBotUrl, setTelegramBotUrl] = useState<string | null>(null);
 
   const [campaignDraft, setCampaignDraft] = useState({
     name: "",
@@ -256,6 +252,8 @@ export default function CustomerDashboard() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const telegramBotUrl = getClientTelegramBotLaunchUrl();
+  const telegramVerificationUrl = getClientTelegramBotLaunchUrl(linkToken?.start_token);
 
   const fetchSystemData = useCallback(async () => {
     try {
@@ -275,10 +273,6 @@ export default function CustomerDashboard() {
     const interval = setInterval(fetchSystemData, 30000);
     return () => clearInterval(interval);
   }, [fetchSystemData]);
-
-  useEffect(() => {
-    setTelegramBotUrl(buildTelegramBotUrl());
-  }, []);
 
   useEffect(() => {
     const oauthStatus = searchParams.get("oauth_status");
@@ -1083,7 +1077,9 @@ export default function CustomerDashboard() {
                             ? "Waiting for Telegram confirmation. This card updates automatically."
                             : "Secure link ready. Finish the confirmation in Telegram."}
                        </p>
-                       <a href={`${telegramBotUrl}?start=${linkToken.start_token}`} target="_blank" rel="noreferrer" className="bg-amber-400 text-slate-900 px-6 py-2 rounded-full font-bold text-[10px] uppercase tracking-widest hover:bg-amber-300 transition-colors inline-block">Verify Now</a>
+                       {telegramVerificationUrl && (
+                         <a href={telegramVerificationUrl} target="_blank" rel="noreferrer" className="bg-amber-400 text-slate-900 px-6 py-2 rounded-full font-bold text-[10px] uppercase tracking-widest hover:bg-amber-300 transition-colors inline-block">Verify Now</a>
+                       )}
                     </div>
                  )}
               </Panel>
@@ -1324,22 +1320,6 @@ function splitCsv(value: string): string[] {
     .split(",")
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
-}
-
-function buildTelegramBotUrl(): string | null {
-  const explicitUrl = getClientPublicEnvValue("NEXT_PUBLIC_TELEGRAM_BOT_URL").trim();
-  if (explicitUrl) {
-    return explicitUrl;
-  }
-
-  const username =
-    getClientPublicEnvValue("NEXT_PUBLIC_TELEGRAM_BOT_USERNAME").trim() ||
-    deriveTelegramBotUsername(explicitUrl);
-  if (!username) {
-    return null;
-  }
-
-  return `https://t.me/${username.replace(/^@/, "")}`;
 }
 
 function buildActivityItems({

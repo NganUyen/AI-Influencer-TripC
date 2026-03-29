@@ -30,6 +30,7 @@ describe("Auth page", () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     global.fetch = jest.fn();
+    window.__AI_INFLUENCER_PUBLIC_ENV__ = {};
   });
 
   afterEach(() => {
@@ -71,9 +72,11 @@ describe("Auth page", () => {
 
     render(<AuthPage />);
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Continue with Telegram" }),
-    );
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Continue with Telegram" }),
+      );
+    });
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenNthCalledWith(
@@ -102,6 +105,11 @@ describe("Auth page", () => {
     await waitFor(() => {
       expect(establishSessionFromAccessToken).toHaveBeenCalledWith(
         "telegram-access-token",
+        expect.objectContaining({
+          id: "user-1",
+          email: "founder@example.com",
+          name: "Founder",
+        }),
       );
     });
     expect(replace).toHaveBeenCalledWith("/dashboard");

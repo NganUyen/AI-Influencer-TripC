@@ -21,6 +21,36 @@ APPROVAL_TIMEOUT = 1800
 LEGACY_APPROVAL_TIMEOUT = max(settings.APPROVAL_TIMEOUT_DAYS, 1) * 24 * 60 * 60
 
 
+def escape_markdown(text: str) -> str:
+    """
+    Escape special characters for Telegram Markdown V1.
+
+    In Telegram MarkdownV1, only these characters need escaping:
+    _ * [ ] ( ) ~ ` > # + - = | { } . !
+
+    However, being overly aggressive with escaping can cause issues.
+    We'll focus on the most problematic ones that commonly appear in error messages.
+    """
+    if not text:
+        return text
+
+    # Characters that commonly cause parse errors in Telegram messages
+    # Prioritize escaping characters that appear in URLs and error messages
+    replacements = {
+        "_": "\\_",
+        "*": "\\*",
+        "[": "\\[",
+        "]": "\\]",
+        "`": "\\`",
+    }
+
+    escaped = text
+    for char, replacement in replacements.items():
+        escaped = escaped.replace(char, replacement)
+
+    return escaped
+
+
 @activity.defn
 async def send_telegram_approval_request(user_id: str, strategy: Dict[str, Any]) -> str:
     """
@@ -331,12 +361,17 @@ async def send_telegram_progress_update(config: Dict[str, Any]) -> Dict[str, Any
     stage_label = str(config.get("stage_label") or "Workflow update").strip()
     details = str(config.get("details") or "").strip()
 
+    # Escape dynamic content to prevent Markdown parsing errors
+    safe_stage_label = escape_markdown(stage_label)
+    safe_workflow_id = escape_markdown(workflow_id)
+    safe_details = escape_markdown(details) if details else ""
+
     progress_lines = [
-        f"⏳ *{stage_label}*",
-        f"• *Workflow ID*: `{workflow_id}`",
+        f"⏳ *{safe_stage_label}*",
+        f"• *Workflow ID*: `{safe_workflow_id}`",
     ]
-    if details:
-        progress_lines.extend(["", details])
+    if safe_details:
+        progress_lines.extend(["", safe_details])
 
     tg = TelegramService()
     try:
@@ -378,12 +413,18 @@ async def send_telegram_error_notification(config: Dict[str, Any]) -> Dict[str, 
         return {"status": "skipped", "reason": "no_chat_id"}
 
     tg = TelegramService()
+    # Escape dynamic content that may contain Markdown special characters
+    safe_topic = escape_markdown(topic)
+    safe_workflow_id = escape_markdown(workflow_id)
+    safe_error_type = escape_markdown(error_type)
+    safe_error_summary = escape_markdown(error_summary)
+
     error_msg = (
         f"⚠️ *Video Generation Failed*\n\n"
-        f"• *Topic*: {topic}\n"
-        f"• *Workflow ID*: `{workflow_id}`\n"
-        f"• *Error*: {error_type}\n\n"
-        f"📝 *Details*: {error_summary}\n\n"
+        f"• *Topic*: {safe_topic}\n"
+        f"• *Workflow ID*: `{safe_workflow_id}`\n"
+        f"• *Error*: {safe_error_type}\n\n"
+        f"📝 *Details*: {safe_error_summary}\n\n"
         "Our team has been notified. Please try again or contact support."
     )
 

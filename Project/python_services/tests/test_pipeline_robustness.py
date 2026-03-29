@@ -5,7 +5,7 @@ Tests critical fixes:
 - CRITICAL-1: Duration/image array mismatch detection
 - CRITICAL-2: Telegram error notification on workflow failure
 - MEDIUM-1: Orphan asset prevention
-- MEDIUM-2: Presigned URL video detection  
+- MEDIUM-2: Presigned URL video detection
 - MEDIUM-3: Invalid source type handling
 
 Covers checkpoints CP1-CP7 for observability.
@@ -34,14 +34,24 @@ class TestDurationMismatchDetection:
 
         # Simulate scenes_result with one failed scene
         scenes_result = [
-            {"id": 1, "image_url": "https://example.com/scene1.jpg", "caption": "Scene 1"},
+            {
+                "id": 1,
+                "image_url": "https://example.com/scene1.jpg",
+                "caption": "Scene 1",
+            },
             {"id": 2, "image_url": None, "caption": "Scene 2"},  # Failed!
-            {"id": 3, "image_url": "https://example.com/scene3.jpg", "caption": "Scene 3"},
+            {
+                "id": 3,
+                "image_url": "https://example.com/scene3.jpg",
+                "caption": "Scene 3",
+            },
         ]
 
         # Extract raw URLs to check for failures
         image_urls_raw = [scene.get("image_url") for scene in scenes_result]
-        failed_scene_indices = [i for i, url in enumerate(image_urls_raw) if url is None]
+        failed_scene_indices = [
+            i for i, url in enumerate(image_urls_raw) if url is None
+        ]
 
         # Assert we detect the failure
         assert failed_scene_indices == [1], "Should detect scene index 1 as failed"
@@ -68,7 +78,9 @@ class TestDurationMismatchDetection:
 
         # Build aligned arrays
         valid_scenes_with_index = [
-            (i, scene) for i, scene in enumerate(scenes_result) if scene.get("image_url")
+            (i, scene)
+            for i, scene in enumerate(scenes_result)
+            if scene.get("image_url")
         ]
         image_urls = [scene.get("image_url") for _, scene in valid_scenes_with_index]
         aligned_durations = [
@@ -120,9 +132,12 @@ class TestBrowserCaptureLogging:
 
         # Check warning was logged
         assert any(
-            "source_ref=None" in record.message or "source_ref" in record.message.lower()
+            "source_ref=None" in record.message
+            or "source_ref" in record.message.lower()
             for record in caplog.records
-        ), f"Expected warning about source_ref=None. Got: {[r.message for r in caplog.records]}"
+        ), (
+            f"Expected warning about source_ref=None. Got: {[r.message for r in caplog.records]}"
+        )
 
         # Check fallback was triggered
         assert results[0]["image_url"] == "https://ai-fallback.com/image.jpg"
@@ -367,7 +382,9 @@ class TestInvalidSourceTypeHandling:
         assert any(
             "invalid" in record.message.lower() and "invalid_type_xyz" in record.message
             for record in caplog.records
-        ), f"Expected warning about invalid type. Got: {[r.message for r in caplog.records]}"
+        ), (
+            f"Expected warning about invalid type. Got: {[r.message for r in caplog.records]}"
+        )
 
         # Check it defaulted to ai_visual_fallback
         assert contract.scenes[0].top_half_source_type == "ai_visual_fallback"
@@ -453,9 +470,7 @@ class TestAudioFailureClassification:
 
     @pytest.mark.asyncio
     @patch("activities.media_activities.GoogleTTSService")
-    async def test_generate_audio_marks_google_tts_403_non_retryable(
-        self, MockTTS
-    ):
+    async def test_generate_audio_marks_google_tts_403_non_retryable(self, MockTTS):
         from temporalio.exceptions import ApplicationError
         from activities.media_activities import generate_audio
 
@@ -485,3 +500,68 @@ class TestAudioFailureClassification:
 
         assert exc_info.value.non_retryable is True
         assert "authentication/configuration failed" in str(exc_info.value)
+
+
+class TestTelegramMarkdownEscaping:
+    """Tests for Telegram Markdown special character escaping."""
+
+    def test_escape_markdown_handles_special_chars(self):
+        """Markdown escaping should escape all special characters."""
+        from activities.approval_activities import escape_markdown
+
+        # Test URL with asterisks (from sanitized API key)
+        url = "https://example.com?key=***"
+        escaped = escape_markdown(url)
+        assert "\\*\\*\\*" in escaped
+        assert "example" in escaped  # Regular text preserved
+
+        # Test error message with various special chars
+        error_msg = (
+            "Client error '403 Forbidden' for url 'https://api.com/endpoint?key=***'"
+        )
+        escaped = escape_markdown(error_msg)
+        assert "\\*\\*\\*" in escaped
+        # Verify the message structure is preserved
+        assert "Client error" in escaped
+        assert "403 Forbidden" in escaped
+
+    def test_escape_markdown_empty_string(self):
+        """Empty string should be handled gracefully."""
+        from activities.approval_activities import escape_markdown
+
+        assert escape_markdown("") == ""
+        assert escape_markdown(None) is None
+
+    @pytest.mark.asyncio
+    @patch("activities.approval_activities.TelegramService")
+    async def test_error_notification_escapes_url_with_asterisks(self, MockTelegram):
+        """Error notification should escape URLs containing asterisks."""
+        mock_tg = MagicMock()
+        mock_tg.bot = AsyncMock()
+        mock_tg.bot.send_message = AsyncMock()
+        MockTelegram.return_value = mock_tg
+
+        from activities.approval_activities import send_telegram_error_notification
+
+        config = {
+            "telegram_chat_id": "123456789",
+            "workflow_id": "wf-test-123",
+            "topic": "Beach vacation guide",
+            "error_type": "HTTPStatusError",
+            "error_summary": "Client error '403 Forbidden' for url 'https://texttospeech.googleapis.com/v1/text:synthesize?key=***'",
+        }
+
+        result = await send_telegram_error_notification(config)
+
+        # Verify message was sent successfully
+        assert result["status"] == "sent"
+        mock_tg.bot.send_message.assert_called_once()
+
+        # Get the sent message text
+        call_kwargs = mock_tg.bot.send_message.call_args[1]
+        sent_text = call_kwargs["text"]
+
+        # Should have escaped asterisks and other special chars
+        assert "\\*\\*\\*" in sent_text or "***" not in sent_text
+        # Should still contain the workflow info
+        assert "wf-test-123" in sent_text or "wf\\-test\\-123" in sent_text

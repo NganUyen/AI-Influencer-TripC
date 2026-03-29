@@ -8,10 +8,20 @@ Output phải vượt qua Pydantic validation trước khi vào pipeline.
 import json
 import logging
 import asyncio
-from typing import Optional
+from typing import Optional, Set
 
 from services.ai_service import AIService
 from services.contracts import ScriptContract, SceneContract
+
+# [MEDIUM-3] Import valid source types for validation
+_VALID_TOP_HALF_SOURCE_TYPES: Set[str] = {
+    "public_page_capture",
+    "authenticated_capture_later",
+    "ai_visual_fallback",
+    "hybrid_candidate",
+    "search",  # Default fallback type
+}
+
 from services.errors import ScriptGenerationError, ScriptContractError
 
 logger = logging.getLogger(__name__)
@@ -192,7 +202,18 @@ class ScriptService:
         scenes = []
         current_timestamp = 0.0
         for index, beat in enumerate(beats, start=1):
-            top_half_source_type = beat.get("top_half_source_type", "search")
+            # [MEDIUM-3 FIX] Validate top_half_source_type against allowed set
+            raw_source_type = beat.get("top_half_source_type", "search")
+            if raw_source_type not in _VALID_TOP_HALF_SOURCE_TYPES:
+                logger.warning(
+                    "Beat %s has invalid top_half_source_type=%s — defaulting to 'ai_visual_fallback'",
+                    index,
+                    raw_source_type,
+                )
+                top_half_source_type = "ai_visual_fallback"
+            else:
+                top_half_source_type = raw_source_type
+
             top_half_target = beat.get("top_half_target", "")
             beat_duration = float(beat.get("duration_sec", 4))
 
@@ -212,6 +233,16 @@ class ScriptService:
                 top_half_capture_hint=beat.get("top_half_capture_hint", "medium"),
                 source_ref=beat.get("source_ref"),
             )
+
+            # [CP1] Log SceneContract after build
+            logger.info(
+                "SceneContract built | scene=%s | top_half_type=%s | has_source_ref=%s | target=%s",
+                scene.id,
+                scene.top_half_source_type,
+                bool(scene.source_ref),
+                scene.top_half_target[:50] if scene.top_half_target else "NONE",
+            )
+
             scenes.append(scene)
             current_timestamp += beat_duration
 
@@ -219,6 +250,12 @@ class ScriptService:
         # ScriptContract currently expects script, duration_estimate, and scenes from AI
         contract = ScriptContract(
             script=script_text, duration_estimate=duration_estimate, scenes=scenes
+        )
+
+        logger.info(
+            "ScriptContract assembled from package | scenes=%s | total_duration=%.1fs",
+            len(scenes),
+            duration_estimate,
         )
 
         return contract

@@ -554,6 +554,8 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
         scene_metadata = dict(scene.get("metadata") or {})
         top_half_type = scene.get("top_half_source_type")
         source_ref = scene.get("source_ref")
+        scene_id = scene.get("id", "unknown")
+        fallback_triggered = False
 
         # Scenario 1: Using browser to capture public page via Video Recording
         if top_half_type == "public_page_capture" and source_ref:
@@ -602,14 +604,29 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                             "MediaStorageService.upload_bytes returned None - missing user context or storage error"
                         )
 
+                    # [MEDIUM-1 FIX] Only set is_video=True AFTER confirmed URL
+                    final_url = storage_result.get("url") or storage_result.get("storage_url")
+                    if not final_url:
+                        raise ValueError(
+                            f"Upload succeeded but no URL returned for scene {scene_id}"
+                        )
+
+                    # [CP3] Log scene asset resolution
+                    logger.info(
+                        "Scene asset resolved | scene=%s | type=%s | url=%s | is_video=%s | fallback_triggered=%s",
+                        scene_id,
+                        top_half_type,
+                        final_url[:80] if final_url else "NONE",
+                        True,
+                        False,
+                    )
+
                     # We pass this video as the 'image_url' for compatibility with older pipelines,
                     # but `video_activities.py` will need to see it as a video file URL.
                     return {
                         **scene,
-                        "image_url": storage_result.get("url")
-                        or storage_result.get("storage_url"),
-                        "source_image_url": storage_result.get("url")
-                        or storage_result.get("storage_url"),
+                        "image_url": final_url,
+                        "source_image_url": final_url,
                         "storage_image_url": storage_result.get("storage_url"),
                         "image_storage_key": storage_result.get("storage_key") or key,
                         "media_asset_id": storage_result.get("media_asset_id"),
@@ -617,7 +634,21 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                         "is_video": True,
                     }
             except Exception as e:
-                logger.error(f"Browser video capture failed, falling back to AI: {e}")
+                logger.warning(
+                    "Browser capture failed for scene %s (source_ref=%s) — falling back to AI | error=%s",
+                    scene_id,
+                    source_ref[:50] if source_ref else "N/A",
+                    str(e)[:200],
+                )
+                fallback_triggered = True
+
+        # [CP2] Log when source_ref is None but type is public_page_capture
+        elif top_half_type == "public_page_capture" and not source_ref:
+            logger.warning(
+                "Scene %s: public_page_capture requested but source_ref=None — falling back to AI image",
+                scene_id,
+            )
+            fallback_triggered = True
 
         # Scenario 2: Fallback or AI image generation
         result = await image_service.generate_images(
@@ -633,14 +664,28 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
             metadata=scene_metadata,
             file_name_hint=f"scene-{scene.get('id', 'image')}",
         )
+
+        ai_url = result.get("url")
+
+        # [CP3] Log scene asset resolution for AI fallback
+        logger.info(
+            "Scene asset resolved | scene=%s | type=%s | url=%s | is_video=%s | fallback_triggered=%s",
+            scene_id,
+            top_half_type or "ai_visual_fallback",
+            ai_url[:80] if ai_url else "NONE",
+            False,
+            fallback_triggered,
+        )
+
         return {
             **scene,
-            "image_url": result.get("url"),
+            "image_url": ai_url,
             "source_image_url": result.get("source_url"),
             "storage_image_url": result.get("storage_url"),
             "image_storage_key": result.get("storage_key"),
             "image_media_asset_id": result.get("images", [{}])[0].get("media_asset_id"),
             "status": "completed",
+            "fallback_triggered": fallback_triggered,
         }
 
     logger.info(f"Generating {len(scenes)} scene images in parallel...")

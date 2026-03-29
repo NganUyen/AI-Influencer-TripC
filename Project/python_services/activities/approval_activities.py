@@ -257,3 +257,42 @@ async def generate_script_from_approved_package_activity(config: dict) -> dict:
         "status": "ready"
     }
 
+
+@activity.defn
+async def send_telegram_error_notification(config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Send error notification to user when workflow fails.
+    Best-effort delivery — should not block workflow completion.
+    """
+    chat_id = config.get("telegram_chat_id")
+    workflow_id = config.get("workflow_id", "unknown")
+    topic = config.get("topic", "N/A")
+    error_type = config.get("error_type", "UnknownError")
+    error_summary = config.get("error_summary", "An unexpected error occurred")
+
+    if not chat_id:
+        logger.warning("No telegram_chat_id provided — skipping error notification")
+        return {"status": "skipped", "reason": "no_chat_id"}
+
+    tg = TelegramService()
+    error_msg = (
+        f"⚠️ *Video Generation Failed*\n\n"
+        f"• *Topic*: {topic}\n"
+        f"• *Workflow ID*: `{workflow_id}`\n"
+        f"• *Error*: {error_type}\n\n"
+        f"📝 *Details*: {error_summary}\n\n"
+        "Our team has been notified. Please try again or contact support."
+    )
+
+    try:
+        await tg.bot.send_message(
+            chat_id=chat_id,
+            text=error_msg,
+            parse_mode="Markdown",
+        )
+        logger.info("Error notification sent to chat_id=%s", chat_id)
+        return {"status": "sent", "chat_id": chat_id}
+    except Exception as e:
+        logger.error("Failed to send error notification: %s", e)
+        return {"status": "failed", "error": str(e)}
+

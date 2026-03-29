@@ -48,6 +48,29 @@ class StartVideoRequest(BaseModel):
     approved_package: Optional[ApprovedProductionPackageContract] = None
 
 
+def _status_from_workflow_result(
+    workflow_id: str, result: Any, *, default_status: str
+) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return {
+            "status": default_status,
+            "current_step": default_status,
+            "workflow_id": workflow_id,
+        }
+
+    metadata = result.get("metadata")
+    reason = metadata.get("reason") if isinstance(metadata, dict) else None
+    status = str(result.get("status") or default_status)
+    response: Dict[str, Any] = {
+        "status": status,
+        "current_step": status,
+        "workflow_id": str(result.get("workflow_id") or workflow_id),
+    }
+    if reason:
+        response["reason"] = reason
+    return response
+
+
 def _build_video_workflow_persona_snapshot(
     persona: Dict[str, Any],
 ) -> VideoWorkflowPersonaSnapshotContract:
@@ -223,7 +246,35 @@ async def get_workflow_status(request: Request, workflow_id: str):
         handle = client.get_workflow_handle(workflow_id)
 
         # Query workflow status
-        status = await handle.query("get_workflow_status")
+        try:
+            status = await handle.query("get_workflow_status")
+        except Exception as query_exc:
+            description = await handle.describe()
+            described_status = (
+                description.status.name.lower()
+                if getattr(description, "status", None)
+                else "unknown"
+            )
+
+            if described_status == "completed":
+                result = await handle.result()
+                status = _status_from_workflow_result(
+                    workflow_id,
+                    result,
+                    default_status=described_status,
+                )
+            else:
+                logger.warning(
+                    "Workflow query unavailable for %s; falling back to describe status %s: %s",
+                    workflow_id,
+                    described_status,
+                    query_exc,
+                )
+                status = {
+                    "status": described_status,
+                    "current_step": described_status,
+                    "workflow_id": workflow_id,
+                }
 
         return {"workflow_id": workflow_id, "status": status}
     except TemporalUnavailableError as exc:
@@ -235,13 +286,13 @@ async def get_workflow_status(request: Request, workflow_id: str):
 
 @router.get("/list")
 async def list_workflows(request: Request, limit: int = 20) -> Dict[str, Any]:
-    """List recent weekly marketing workflows for dashboard polling."""
+    """List recent marketing and short-video workflows for dashboard polling."""
     try:
         client = await get_temporal_client(request)
         workflows: List[Dict[str, Any]] = []
 
         async for item in client.list_workflows(
-            "WorkflowType = 'WeeklyMarketingWorkflow'"
+            "WorkflowType = 'WeeklyMarketingWorkflow' or WorkflowType = 'ShortVideoWorkflow'"
         ):
             workflows.append(
                 {

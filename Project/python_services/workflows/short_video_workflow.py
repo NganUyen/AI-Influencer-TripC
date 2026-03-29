@@ -3,7 +3,6 @@ Short video workflow for persona-driven vertical video generation.
 """
 
 from __future__ import annotations
-
 from datetime import timedelta
 from typing import Any, Dict, List
 
@@ -163,51 +162,53 @@ class ShortVideoWorkflow:
                 for scene in scenes
             ]
 
-            # FIX 1: Stage A — audio and scenes truly in parallel
-            audio_result, scenes_result = await workflow.gather(
-                workflow.execute_activity(
-                    generate_audio,
-                    args=[
-                        {
-                            "script": script_json.get("script", ""),
-                            "metadata": {
-                                "day": 1,
-                                "platform": platform,
-                                "persona_id": persona_id,
-                                "owner_key": owner_key,
-                                "user_id": user_id,
-                            },
+            # Temporal 1.5.1 returns ActivityHandle tasks, but does not expose
+            # workflow.gather/asyncio.gather inside the workflow sandbox.
+            # Start both handles first so they run in parallel, then await them.
+            audio_handle = workflow.execute_activity(
+                generate_audio,
+                args=[
+                    {
+                        "script": script_json.get("script", ""),
+                        "metadata": {
+                            "day": 1,
+                            "platform": platform,
                             "persona_id": persona_id,
                             "owner_key": owner_key,
                             "user_id": user_id,
-                            "config": {"voice": tts_voice},
-                        }
-                    ],
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=MEDIA_RETRY_POLICY,
-                ),
-                workflow.execute_activity(
-                    generate_scene_images,
-                    args=[
-                        [
-                            {
-                                **scene,
-                                "metadata": {
-                                    **(scene.get("metadata") or {}),
-                                    "persona_id": persona_id,
-                                    "owner_key": owner_key,
-                                    "user_id": user_id,
-                                    "day": 1,
-                                    "platform": platform,
-                                },
-                            }
-                            for scene in scene_payloads
-                        ]
-                    ],
-                    start_to_close_timeout=timedelta(minutes=10),
-                    retry_policy=MEDIA_RETRY_POLICY,
-                ),
+                        },
+                        "persona_id": persona_id,
+                        "owner_key": owner_key,
+                        "user_id": user_id,
+                        "config": {"voice": tts_voice},
+                    }
+                ],
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=MEDIA_RETRY_POLICY,
             )
+            scenes_handle = workflow.execute_activity(
+                generate_scene_images,
+                args=[
+                    [
+                        {
+                            **scene,
+                            "metadata": {
+                                **(scene.get("metadata") or {}),
+                                "persona_id": persona_id,
+                                "owner_key": owner_key,
+                                "user_id": user_id,
+                                "day": 1,
+                                "platform": platform,
+                            },
+                        }
+                        for scene in scene_payloads
+                    ]
+                ],
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=MEDIA_RETRY_POLICY,
+            )
+            audio_result = await audio_handle
+            scenes_result = await scenes_handle
 
             # FIX 1: Stage B — talking head starts as soon as audio is ready
             if not heygen_avatar_id:

@@ -135,6 +135,70 @@ async def test_get_workflow_status_returns_query(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_workflow_status_falls_back_to_completed_result(monkeypatch):
+    handle = AsyncMock()
+    handle.query.side_effect = RuntimeError("query unavailable after close")
+    handle.describe.return_value = SimpleNamespace(
+        status=SimpleNamespace(name="COMPLETED")
+    )
+    handle.result.return_value = {
+        "status": "failed",
+        "workflow_id": "wf-closed",
+        "metadata": {"reason": "module 'temporalio.workflow' has no attribute 'gather'"},
+    }
+    mock_client = SimpleNamespace(get_workflow_handle=lambda _workflow_id: handle)
+
+    async def fake_get_temporal_client(_request):
+        return mock_client
+
+    monkeypatch.setattr(workflows, "get_temporal_client", fake_get_temporal_client)
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    response = await workflows.get_workflow_status(request, workflow_id="wf-closed")
+
+    assert response == {
+        "workflow_id": "wf-closed",
+        "status": {
+            "status": "failed",
+            "current_step": "failed",
+            "workflow_id": "wf-closed",
+            "reason": "module 'temporalio.workflow' has no attribute 'gather'",
+        },
+    }
+    handle.result.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_get_workflow_status_falls_back_to_describe_for_running_workflow(
+    monkeypatch,
+):
+    handle = AsyncMock()
+    handle.query.side_effect = RuntimeError("query unavailable")
+    handle.describe.return_value = SimpleNamespace(
+        status=SimpleNamespace(name="RUNNING")
+    )
+    mock_client = SimpleNamespace(get_workflow_handle=lambda _workflow_id: handle)
+
+    async def fake_get_temporal_client(_request):
+        return mock_client
+
+    monkeypatch.setattr(workflows, "get_temporal_client", fake_get_temporal_client)
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    response = await workflows.get_workflow_status(request, workflow_id="wf-running")
+
+    assert response == {
+        "workflow_id": "wf-running",
+        "status": {
+            "status": "running",
+            "current_step": "running",
+            "workflow_id": "wf-running",
+        },
+    }
+    handle.result.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_list_workflows_happy_path(monkeypatch):
     workflow_items = [
         _WorkflowItem("wf-1", "run-1", "RUNNING"),

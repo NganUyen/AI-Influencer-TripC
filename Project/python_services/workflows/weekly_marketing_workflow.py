@@ -155,7 +155,10 @@ class WeeklyMarketingWorkflow:
                 )
             media_tasks.append(task)
 
-        uploaded_assets = await workflow.gather(*media_tasks)
+        # Temporal 1.5.1 activity handles are asyncio tasks already. Creating
+        # them above starts the activities in parallel, so awaiting the handles
+        # here preserves concurrency without relying on missing gather helpers.
+        uploaded_assets = [await task for task in media_tasks]
 
         strategy["workflow_id"] = workflow.info().workflow_id
 

@@ -575,6 +575,25 @@ class TelegramRenderer:
                 "parse_mode": None,
             }
 
+        if session.skill_name == "daily-story" and session.step_key == "choose_media_action":
+            step = get_step_definition(session.skill_name, session.step_key)
+            story_draft = session.artifacts.get("story_draft") or {}
+            title = story_draft.get("title", "Daily Story")
+            body = story_draft.get("body", "")
+            tags = " ".join(f"#{t}" for t in story_draft.get("hashtags", []))
+            
+            prompt_text = step.get("prompt_text") or "Story draft is ready!"
+            full_text = f"*{title}*\n\n{body}\n\n{tags}\n\n{prompt_text}"
+            
+            return {
+                "text": full_text,
+                "reply_markup": _inline_keyboard_from_options(
+                    step.get("options", []),
+                    prefix="action::",
+                ),
+                "parse_mode": "Markdown",
+            }
+
         if (
             session.skill_name == "publish-manager"
             and session.step_key == "publish_or_schedule"

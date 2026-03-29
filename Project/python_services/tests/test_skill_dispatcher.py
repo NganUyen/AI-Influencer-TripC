@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from unittest.mock import patch
 
 import pytest
 
@@ -89,8 +90,54 @@ async def test_cancel_action_preserves_session_when_workflow_cancel_fails(monkey
 
 
 @pytest.mark.asyncio
-async def test_save_persona_registers_heygen_avatar_before_marking_ready(monkeypatch):
+async def test_save_persona_action_clears_session_after_marking_ready():
     chat_id = 778899
+    await TelegramSkillSessionStore.clear_session(chat_id)
+    session = SkillSession(
+        skill_name="persona-creator",
+        step_key="preview",
+        collected={"persona_id": "travis-us"},
+        artifacts={
+            "telegram_chat_id": str(chat_id),
+            "persona_id": "travis-us",
+            "avatar_image_url": "https://cdn.example/avatar.png",
+            "preview_image_url": "https://cdn.example/avatar.png",
+            "avatar_media_asset_id": "asset-123",
+            "persona_data": {"avatar_source_type": "generated"},
+            "heygen_avatar_id": "heygen-789",
+        },
+        control=SkillControl(status=SkillStatus.preview_ready),
+    )
+    await TelegramSkillSessionStore.set_session(chat_id, session)
+
+    with patch(
+        "services.persona_registry_service.PersonaRegistryService.update_persona",
+        AsyncMock(
+            return_value={
+                "persona_id": "travis-us",
+                "status": "ready",
+                "avatar_media_asset_id": "asset-123",
+                "heygen_avatar_id": "heygen-789",
+            }
+        ),
+    ) as update_persona:
+        result = await SkillDispatcher.handle_action(chat_id, "save", app=object())
+
+    assert result.success is True
+    assert result.session is None
+    assert result.output is not None
+    assert result.output["status"] == "saved"
+    assert result.output["persona_id"] == "travis-us"
+    assert result.output["avatar_media_asset_id"] == "asset-123"
+    assert result.output["heygen_avatar_id"] == "heygen-789"
+    assert "marked as ready" in result.output["message"]
+    update_persona.assert_awaited_once()
+    assert await TelegramSkillSessionStore.get_session(chat_id) is None
+
+
+@pytest.mark.asyncio
+async def test_save_persona_registers_heygen_avatar_before_marking_ready(monkeypatch):
+    chat_id = 123321
     await TelegramSkillSessionStore.clear_session(chat_id)
     session = SkillSession(
         skill_name="persona-creator",
@@ -111,7 +158,7 @@ async def test_save_persona_registers_heygen_avatar_before_marking_ready(monkeyp
         async def create_avatar(self, image_url: str, avatar_name: str = "Minh_TripC"):
             assert image_url == "https://cdn.example/hero-host.png"
             assert avatar_name == "hero-host"
-            return "heygen-789"
+            return "heygen-456"
 
     captured_update = {}
 
@@ -141,8 +188,8 @@ async def test_save_persona_registers_heygen_avatar_before_marking_ready(monkeyp
     assert captured_update["owner_key"] == f"telegram:{chat_id}"
     assert captured_update["payload"]["status"] == "ready"
     assert captured_update["payload"]["avatar_media_asset_id"] == "media-123"
-    assert captured_update["payload"]["heygen_avatar_id"] == "heygen-789"
-    assert result.output["heygen_avatar_id"] == "heygen-789"
+    assert captured_update["payload"]["heygen_avatar_id"] == "heygen-456"
+    assert result.output["heygen_avatar_id"] == "heygen-456"
     assert await TelegramSkillSessionStore.get_session(chat_id) is None
 
 

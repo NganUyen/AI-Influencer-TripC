@@ -873,7 +873,7 @@ class TelegramRenderer:
                 blocking = readiness.get("blocking_reason") or "All checks passed"
                 avatar_persisted = bool(persona.get("avatar_media_asset_id"))
                 persistence_label = (
-                    "stored in project media"
+                    "saved to project media"
                     if avatar_persisted
                     else "temporary preview only"
                 )

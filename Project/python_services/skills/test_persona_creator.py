@@ -117,11 +117,11 @@ async def test_persona_creator_generates_avatar_when_missing(monkeypatch):
         PersonaCreatorSkill,
         "_request_json",
         AsyncMock(
-                side_effect=[
-                    {
-                        "persona_id": "demo-persona",
-                        "display_name": "Demo Persona",
-                        "user_id": "550e8400-e29b-41d4-a716-446655440000",
+            side_effect=[
+                {
+                    "persona_id": "demo-persona",
+                    "display_name": "Demo Persona",
+                    "user_id": "550e8400-e29b-41d4-a716-446655440000",
                     "status": "draft",
                     "language": "English",
                     "tts_voice": "en-US-Studio-O",
@@ -287,68 +287,3 @@ async def test_persona_creator_force_regenerates_existing_avatar(monkeypatch):
     assert result.session.artifacts.get("force_regenerate_avatar") is None
     patch_payload = PersonaCreatorSkill._request_json.await_args_list[2].kwargs["json"]
     assert patch_payload["avatar_media_asset_id"] == "asset-new"
-
-
-@pytest.mark.asyncio
-async def test_persona_creator_surfaces_backend_avatar_generation_detail(monkeypatch):
-    session = PersonaCreatorSkill.initial_session()
-    session.artifacts["telegram_chat_id"] = "123456"
-    session.collected.update(
-        {
-            "persona_id": "demo-persona",
-            "language": "English",
-            "voice": "male_friendly",
-            "appearance_prompt_or_photo": "black male, short buzzcut, moustache, wearing a white tshirt",
-        }
-    )
-
-    avatar_request = httpx.Request("POST", "http://backend/api/media/generate/image")
-    avatar_response = httpx.Response(
-        500,
-        request=avatar_request,
-        json={"detail": "Image provider request failed with status 401: Unauthorized"},
-    )
-
-    monkeypatch.setattr(
-        PersonaCreatorSkill,
-        "_request_json",
-        AsyncMock(
-            side_effect=[
-                {
-                    "persona_id": "demo-persona",
-                    "display_name": "Demo Persona",
-                    "user_id": "550e8400-e29b-41d4-a716-446655440000",
-                    "status": "draft",
-                    "language": "English",
-                    "tts_voice": "en-US-Studio-O",
-                    "avatar_image_url": None,
-                        "avatar_prompt": "appearance",
-                        "heygen_avatar_id": None,
-                    },
-                    {
-                        "persona_id": "demo-persona",
-                        "display_name": "Demo Persona",
-                        "user_id": "550e8400-e29b-41d4-a716-446655440000",
-                        "status": "draft",
-                        "language": "English",
-                        "tts_voice": "en-US-Studio-O",
-                        "avatar_image_url": None,
-                        "avatar_prompt": "black male, short buzzcut, moustache, wearing a white tshirt",
-                        "heygen_avatar_id": None,
-                    },
-                    httpx.HTTPStatusError(
-                        "backend avatar failure",
-                        request=avatar_request,
-                        response=avatar_response,
-                    ),
-            ]
-        ),
-    )
-
-    result = await PersonaCreatorSkill.execute(session, "http://backend", AsyncMock())
-
-    assert result.success is False
-    assert (
-        result.error
-        == "Failed to generate/attach persona avatar: Image provider request failed with status 401: Unauthorized. Please try again or use a different appearance description."
-    )

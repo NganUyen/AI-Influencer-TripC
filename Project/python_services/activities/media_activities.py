@@ -208,7 +208,6 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
     )
     logger.info(f"Generating audio for platform: {audio_input.metadata.platform}")
 
-    tts_service = GoogleTTSService()
     voice_language = (prompt_config.get("config") or {}).get(
         "language"
     ) or prompt_config.get("language")
@@ -223,6 +222,7 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
         raise ApplicationError("Missing audio script in prompt", non_retryable=True)
 
     try:
+        tts_service = GoogleTTSService()
         audio_bytes = await tts_service.generate_audio(
             text=text_to_speak,
             voice=voice_mapped,
@@ -275,13 +275,40 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
             "status": "completed",
         }
 
-    except Exception as e:
-        logger.error(f"Failed to generate audio: {str(e)}")
-        # If it's auth failure, don't retry
-        non_retryable = "API" in str(e) or "key" in str(e).lower()
+    except httpx.HTTPStatusError as e:
+        status_code = e.response.status_code if e.response is not None else None
+        error_message = str(e)
+        non_retryable = bool(status_code and 400 <= status_code < 500 and status_code != 429)
+
+        if status_code in {401, 403}:
+            error_message = (
+                "Google TTS authentication/configuration failed. "
+                "Check GOOGLE_TTS_API_KEY and Google Cloud Text-to-Speech access. "
+                f"Provider response: {e}"
+            )
+        elif status_code == 400:
+            error_message = (
+                "Google TTS rejected the request. "
+                f"Check the configured voice '{voice_mapped}' and payload. "
+                f"Provider response: {e}"
+            )
+
+        logger.error("Failed to generate audio HTTP error: %s", error_message)
+        raise ApplicationError(
+            f"Failed to generate audio via Google TTS: {error_message}",
+            non_retryable=non_retryable,
+        )
+    except ValueError as e:
+        logger.error("Failed to initialize Google TTS: %s", str(e))
         raise ApplicationError(
             f"Failed to generate audio via Google TTS: {str(e)}",
-            non_retryable=non_retryable,
+            non_retryable=True,
+        )
+    except Exception as e:
+        logger.error(f"Failed to generate audio: {str(e)}")
+        raise ApplicationError(
+            f"Failed to generate audio via Google TTS: {str(e)}",
+            non_retryable=False,
         )
 
 

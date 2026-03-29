@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 
 # Các giọng Việt khuyến nghị
 VIETNAMESE_VOICES = {
-    "male_professional": "vi-VN-Wavenet-B",    # Giọng nam trầm, chuyên nghiệp
-    "male_friendly": "vi-VN-Wavenet-D",         # Giọng nam trẻ, thân thiện (= "Minh")
-    "female_warm": "vi-VN-Wavenet-A",           # Giọng nữ ấm
-    "female_clear": "vi-VN-Wavenet-C",          # Giọng nữ rõ ràng, phổ thông
+    "male_professional": "vi-VN-Wavenet-B",  # Giọng nam trầm, chuyên nghiệp
+    "male_friendly": "vi-VN-Wavenet-D",  # Giọng nam trẻ, thân thiện (= "Minh")
+    "female_warm": "vi-VN-Wavenet-A",  # Giọng nữ ấm
+    "female_clear": "vi-VN-Wavenet-C",  # Giọng nữ rõ ràng, phổ thông
 }
 
 ENGLISH_VOICES = {
@@ -66,11 +66,16 @@ class GoogleTTSService:
         return ""
 
     @classmethod
-    def resolve_voice_name(cls, voice: str | None, *, language: str | None = None) -> str:
+    def resolve_voice_name(
+        cls, voice: str | None, *, language: str | None = None
+    ) -> str:
         requested = str(voice or "").strip()
         language_key = cls._normalize_language_name(language)
 
-        if requested in VIETNAMESE_VOICES.values() or requested in ENGLISH_VOICES.values():
+        if (
+            requested in VIETNAMESE_VOICES.values()
+            or requested in ENGLISH_VOICES.values()
+        ):
             return requested
 
         alias = requested.lower()
@@ -84,7 +89,9 @@ class GoogleTTSService:
         return requested or VIETNAMESE_VOICES["male_friendly"]
 
     @classmethod
-    def infer_language_code(cls, voice: str | None, *, fallback_language: str | None = None) -> str:
+    def infer_language_code(
+        cls, voice: str | None, *, fallback_language: str | None = None
+    ) -> str:
         resolved_voice = cls.resolve_voice_name(voice, language=fallback_language)
         parts = [part for part in resolved_voice.split("-") if part]
         if len(parts) >= 2:
@@ -140,9 +147,9 @@ class GoogleTTSService:
     async def generate_audio(
         self,
         text: str,
-        voice: str = "vi-VN-Wavenet-D",   # Mặc định giọng "Minh" – nam trẻ
-        speaking_rate: float = 1.05,       # Nhịp nói hơi nhanh, tự nhiên hơn
-        pitch: float = 0.0,               # Giọng chuẩn (0 = không thay đổi)
+        voice: str = "vi-VN-Wavenet-D",  # Mặc định giọng "Minh" – nam trẻ
+        speaking_rate: float = 1.05,  # Nhịp nói hơi nhanh, tự nhiên hơn
+        pitch: float = 0.0,  # Giọng chuẩn (0 = không thay đổi)
         output_format: str = "MP3",
         language: str | None = None,
     ) -> bytes:
@@ -163,7 +170,9 @@ class GoogleTTSService:
         payload = {
             "input": {"text": text},
             "voice": {
-                "languageCode": self.infer_language_code(resolved_voice, fallback_language=language),
+                "languageCode": self.infer_language_code(
+                    resolved_voice, fallback_language=language
+                ),
                 "name": resolved_voice,
             },
             "audioConfig": {
@@ -181,6 +190,22 @@ class GoogleTTSService:
             try:
                 response = await client.post(url, json=payload)
                 response.raise_for_status()
+            except httpx.HTTPStatusError as http_exc:
+                # [SECURITY] Sanitize API key from error message before re-raising
+                sanitized_url = GOOGLE_TTS_ENDPOINT + "?key=***"
+                error_msg = str(http_exc).replace(url, sanitized_url)
+                await self._record_usage(
+                    text=text,
+                    voice=resolved_voice,
+                    output_format=output_format,
+                    error=http_exc,
+                )
+                # Create new exception with sanitized message
+                raise httpx.HTTPStatusError(
+                    error_msg,
+                    request=http_exc.request,
+                    response=http_exc.response,
+                ) from http_exc
             except Exception as exc:
                 await self._record_usage(
                     text=text,
@@ -218,7 +243,9 @@ class GoogleTTSService:
         Returns:
             str: Đường dẫn file MP3 đã lưu
         """
-        audio_bytes = await self.generate_audio(text, voice=voice, speaking_rate=speaking_rate)
+        audio_bytes = await self.generate_audio(
+            text, voice=voice, speaking_rate=speaking_rate
+        )
         with open(output_path, "wb") as f:
             f.write(audio_bytes)
         logger.info(f"Đã lưu audio: {output_path}")

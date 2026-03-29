@@ -12,6 +12,7 @@ Covers checkpoints CP1-CP7 for observability.
 """
 
 import pytest
+import httpx
 from unittest.mock import AsyncMock, MagicMock, patch
 import logging
 
@@ -445,3 +446,42 @@ class TestCheckpointLogging:
         assert len(cp1_logs) >= 1, "CP1 log should be present"
         assert "top_half_type=public_page_capture" in cp1_logs[0].message
         assert "has_source_ref=True" in cp1_logs[0].message
+
+
+class TestAudioFailureClassification:
+    """Tests for Google TTS auth/config failures being marked non-retryable."""
+
+    @pytest.mark.asyncio
+    @patch("activities.media_activities.GoogleTTSService")
+    async def test_generate_audio_marks_google_tts_403_non_retryable(
+        self, MockTTS
+    ):
+        from temporalio.exceptions import ApplicationError
+        from activities.media_activities import generate_audio
+
+        request = httpx.Request(
+            "POST",
+            "https://texttospeech.googleapis.com/v1/text:synthesize?key=test",
+        )
+        response = httpx.Response(403, request=request)
+
+        mock_tts = MagicMock()
+        mock_tts.generate_audio = AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "403 Forbidden", request=request, response=response
+            )
+        )
+        MockTTS.return_value = mock_tts
+        MockTTS.resolve_voice_name.return_value = "en-GB-Wavenet-B"
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await generate_audio(
+                {
+                    "script": "Hello Da Nang",
+                    "config": {"voice": "en-GB-Wavenet-B"},
+                    "metadata": {"platform": "tiktok", "day": 1},
+                }
+            )
+
+        assert exc_info.value.non_retryable is True
+        assert "authentication/configuration failed" in str(exc_info.value)

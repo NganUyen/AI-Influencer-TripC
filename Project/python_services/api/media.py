@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from api.security import require_internal_api_token
 from services import FalAIService, GoogleTTSService, ImageGenerationService, StorageService
 from services.carousel_service import CarouselService
+from services.fal_service import FalAIRequestError
 
 router = APIRouter(dependencies=[Depends(require_internal_api_token)])
 logger = logging.getLogger(__name__)
@@ -76,9 +77,19 @@ async def generate_image(request: ImageGenerateRequest):
             persona_id=request.persona_id,
             metadata=request.metadata,
         )
+    except ValueError as e:
+        logger.warning(f"Image generation rejected: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except FalAIRequestError as e:
+        status_code = e.status_code or 502
+        if 400 <= status_code < 500:
+            logger.warning("Image generation rejected by fal.ai: %s", e.detail)
+            raise HTTPException(status_code=status_code, detail=e.detail) from e
+        logger.error("Image generation provider failure: %s", e.detail)
+        raise HTTPException(status_code=502, detail="Image provider request failed") from e
     except Exception as e:
         logger.error(f"Image generation failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     finally:
         await service.close()
 

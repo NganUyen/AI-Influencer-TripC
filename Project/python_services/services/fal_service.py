@@ -11,6 +11,23 @@ from services.quota_monitor_service import QuotaMonitorService
 
 logger = logging.getLogger(__name__)
 
+
+class FalAIRequestError(Exception):
+    """Structured fal.ai request failure that preserves upstream status/details."""
+
+    def __init__(
+        self,
+        status_code: Optional[int],
+        detail: str,
+        *,
+        body: Optional[str] = None,
+    ) -> None:
+        self.status_code = status_code
+        self.detail = detail.strip() or "fal.ai request failed"
+        self.body = body
+        super().__init__(self.detail)
+
+
 class FalAIService:
     """
     Integration with fal.ai for AI-powered image and video generation
@@ -51,6 +68,46 @@ class FalAIService:
         else:
             payload["image_size"] = {"aspect_ratio": aspect_ratio}
         return payload
+
+    @staticmethod
+    def _extract_http_error_detail(exc: httpx.HTTPStatusError) -> str:
+        response = exc.response
+        if response is None:
+            return str(exc)
+
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+
+        if isinstance(payload, dict):
+            for key in ("detail", "message", "error"):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            detail_items = payload.get("detail")
+            if isinstance(detail_items, list):
+                parts = []
+                for item in detail_items[:3]:
+                    if isinstance(item, str) and item.strip():
+                        parts.append(item.strip())
+                    elif isinstance(item, dict):
+                        message = item.get("msg") or item.get("message") or item.get("detail")
+                        if isinstance(message, str) and message.strip():
+                            location = item.get("loc")
+                            if isinstance(location, list) and location:
+                                parts.append(
+                                    f"{'.'.join(str(piece) for piece in location)}: {message.strip()}"
+                                )
+                            else:
+                                parts.append(message.strip())
+                if parts:
+                    return "; ".join(parts)
+
+        body = response.text.strip()
+        if body:
+            return body
+        return str(exc)
 
     async def _record_usage(
         self,
@@ -141,6 +198,21 @@ class FalAIService:
                 error=e,
                 metadata={"aspect_ratio": aspect_ratio},
             )
+            if isinstance(e, httpx.HTTPStatusError):
+                detail = self._extract_http_error_detail(e)
+                response_body = e.response.text.strip() if e.response is not None else ""
+                logger.error(
+                    "Image generation failed with fal.ai status %s: %s%s",
+                    e.response.status_code if e.response is not None else "unknown",
+                    detail,
+                    f" | response={response_body[:500]}" if response_body else "",
+                )
+                raise FalAIRequestError(
+                    e.response.status_code if e.response is not None else None,
+                    detail,
+                    body=response_body or None,
+                ) from e
+
             logger.error(f"Image generation failed: {str(e)}")
             raise
 

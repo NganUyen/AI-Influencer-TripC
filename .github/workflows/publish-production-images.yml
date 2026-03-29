@@ -16,69 +16,49 @@ permissions:
   contents: read
   packages: write
 
+env:
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_influencer
+  CHATGPT_CONNECTOR_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_influencer
+  ENVIRONMENT: development
+  DEBUG: "true"
+  FRONTEND_PUBLIC_URL: http://localhost:3000
+  BACKEND_PUBLIC_URL: http://localhost:8000
+  CHATGPT_CONNECTOR_PUBLIC_URL: http://localhost:8010
+  CORS_ORIGINS: http://localhost:3000
+  SUPABASE_URL: http://localhost:54321
+  SUPABASE_KEY: test-supabase-key
+  SUPABASE_SERVICE_ROLE_KEY: test-supabase-service-role-key
+  SUPABASE_STORAGE_BUCKET: media
+  OPENAI_API_KEY: test-openai-key
+  ANTHROPIC_API_KEY: test-anthropic-key
+  FAL_AI_API_KEY: test-fal-key
+  OPENCLAW_API_KEY: test-openclaw-key
+  POSTIZ_API_KEY: test-postiz-api-key
+  GROWCHIEF_API_KEY: test-growchief-api-key
+  POSTIZ_WEBHOOK_SECRET: ci-postiz-webhook-secret
+  GROWCHIEF_WEBHOOK_SECRET: ci-growchief-webhook-secret
+  JWT_SECRET_KEY: ci-jwt-secret
+  CHATGPT_CONNECTOR_SESSION_SECRET: ci-connector-session-secret
+  INTERNAL_API_TOKEN: ci-internal-token
+  APP_ADMIN_TOKEN: ci-admin-token
+  CUSTOMER_TOKEN_ENCRYPTION_KEY: ci-customer-encryption-key
+  IPROYAL_USERNAME: test-iproyal-user
+  IPROYAL_PASSWORD: test-iproyal-password
+  TELEGRAM_BOT_TOKEN: test-telegram-bot-token
+
 jobs:
-  publish:
+  smoke-test:
     runs-on: ubuntu-latest
-    env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_influencer
-      CHATGPT_CONNECTOR_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_influencer
-      ENVIRONMENT: development
-      DEBUG: "true"
-      FRONTEND_PUBLIC_URL: http://localhost:3000
-      BACKEND_PUBLIC_URL: http://localhost:8000
-      CHATGPT_CONNECTOR_PUBLIC_URL: http://localhost:8010
-      CORS_ORIGINS: http://localhost:3000
-      SUPABASE_URL: http://localhost:54321
-      SUPABASE_KEY: test-supabase-key
-      SUPABASE_SERVICE_ROLE_KEY: test-supabase-service-role-key
-      SUPABASE_STORAGE_BUCKET: media
-      OPENAI_API_KEY: test-openai-key
-      ANTHROPIC_API_KEY: test-anthropic-key
-      FAL_AI_API_KEY: test-fal-key
-      OPENCLAW_API_KEY: test-openclaw-key
-      POSTIZ_API_KEY: test-postiz-api-key
-      GROWCHIEF_API_KEY: test-growchief-api-key
-      POSTIZ_WEBHOOK_SECRET: ci-postiz-webhook-secret
-      GROWCHIEF_WEBHOOK_SECRET: ci-growchief-webhook-secret
-      JWT_SECRET_KEY: ci-jwt-secret
-      CHATGPT_CONNECTOR_SESSION_SECRET: ci-connector-session-secret
-      INTERNAL_API_TOKEN: ci-internal-token
-      APP_ADMIN_TOKEN: ci-admin-token
-      CUSTOMER_TOKEN_ENCRYPTION_KEY: ci-customer-encryption-key
-      IPROYAL_USERNAME: test-iproyal-user
-      IPROYAL_PASSWORD: test-iproyal-password
-      TELEGRAM_BOT_TOKEN: test-telegram-bot-token
-      FRONTEND_MAX_BYTES: "400000000"
-      PYTHON_API_MAX_BYTES: "700000000"
-      PYTHON_WORKER_MAX_BYTES: "1200000000"
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
-      - name: Derive image namespace
-        id: vars
-        run: |
-          owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          echo "ghcr_namespace=ghcr.io/${owner}" >> "${GITHUB_OUTPUT}"
-          echo "image_tag=${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: Project/package-lock.json
-
-      - name: Frontend smoke build
-        working-directory: Project
-        run: |
-          npm ci
-          npm run build
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: Project/python_services/requirements.txt
 
       - name: Backend smoke suite
         working-directory: Project/python_services
@@ -97,23 +77,68 @@ jobs:
           print("workflow_count", len(worker.workflows))
           PY
 
+  build-images:
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: frontend
+            image: ai-influencer-frontend
+            dockerfile: Project/Dockerfile.frontend
+            context: Project
+            target: runtime
+            max_bytes: "400000000"
+          - name: python-api
+            image: ai-influencer-python-api
+            dockerfile: Project/python_services/Dockerfile
+            context: Project/python_services
+            target: api-runtime
+            max_bytes: "700000000"
+          - name: python-worker
+            image: ai-influencer-python-worker
+            dockerfile: Project/python_services/Dockerfile
+            context: Project/python_services
+            target: worker-runtime
+            max_bytes: "1200000000"
+          - name: postiz
+            image: ai-influencer-postiz
+            dockerfile: docker/postiz/Dockerfile
+            context: .
+            target: ""
+            max_bytes: ""
+          - name: growchief
+            image: ai-influencer-growchief
+            dockerfile: docker/growchief/Dockerfile
+            context: .
+            target: ""
+            max_bytes: ""
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Derive image namespace
+        id: vars
+        run: |
+          owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          echo "ghcr_namespace=ghcr.io/${owner}" >> "${GITHUB_OUTPUT}"
+          echo "image_tag=${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Log in to GHCR
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build, validate, and push production images
-        env:
-          GHCR_NAMESPACE: ${{ steps.vars.outputs.ghcr_namespace }}
-          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+      - name: Prepare build args for frontend
+        id: build-args
+        if: matrix.name == 'frontend'
         run: |
-          set -euo pipefail
-          export DOCKER_BUILDKIT=1
-
-          frontend_image="${GHCR_NAMESPACE}/ai-influencer-frontend"
-          python_api_image="${GHCR_NAMESPACE}/ai-influencer-python-api"
-          python_worker_image="${GHCR_NAMESPACE}/ai-influencer-python-worker"
-          postiz_image="${GHCR_NAMESPACE}/ai-influencer-postiz"
-          growchief_image="${GHCR_NAMESPACE}/ai-influencer-growchief"
           frontend_api_url="${NEXT_PUBLIC_API_URL:-${FRONTEND_PUBLIC_URL:-}}"
           frontend_supabase_url="${NEXT_PUBLIC_SUPABASE_URL:-${SUPABASE_URL:-}}"
           frontend_supabase_anon_key="${NEXT_PUBLIC_SUPABASE_ANON_KEY:-${SUPABASE_KEY:-}}"
@@ -123,71 +148,42 @@ jobs:
           if [[ -z "${frontend_telegram_bot_username}" && -n "${frontend_telegram_bot_url}" ]]; then
             frontend_telegram_bot_username="${frontend_telegram_bot_url##*/}"
           fi
+          {
+            echo "args<<EOF"
+            echo "NEXT_PUBLIC_API_URL=${frontend_api_url}"
+            echo "NEXT_PUBLIC_SUPABASE_URL=${frontend_supabase_url}"
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${frontend_supabase_anon_key}"
+            echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${frontend_supabase_publishable_key}"
+            echo "NEXT_PUBLIC_TELEGRAM_BOT_URL=${frontend_telegram_bot_url}"
+            echo "NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=${frontend_telegram_bot_username}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
 
-          docker build \
-            --file Project/Dockerfile.frontend \
-            --target runtime \
-            --build-arg NEXT_PUBLIC_API_URL="${frontend_api_url}" \
-            --build-arg NEXT_PUBLIC_SUPABASE_URL="${frontend_supabase_url}" \
-            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="${frontend_supabase_anon_key}" \
-            --build-arg NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="${frontend_supabase_publishable_key}" \
-            --build-arg NEXT_PUBLIC_TELEGRAM_BOT_URL="${frontend_telegram_bot_url}" \
-            --build-arg NEXT_PUBLIC_TELEGRAM_BOT_USERNAME="${frontend_telegram_bot_username}" \
-            --tag "${frontend_image}:${IMAGE_TAG}" \
-            --tag "${frontend_image}:latest" \
-            Project
+      - name: Build and push ${{ matrix.name }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target || '' }}
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.ghcr_namespace }}/${{ matrix.image }}:${{ steps.vars.outputs.image_tag }}
+            ${{ steps.vars.outputs.ghcr_namespace }}/${{ matrix.image }}:latest
+          build-args: ${{ steps.build-args.outputs.args || '' }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
-          docker build \
-            --file Project/python_services/Dockerfile \
-            --target api-runtime \
-            --tag "${python_api_image}:${IMAGE_TAG}" \
-            --tag "${python_api_image}:latest" \
-            Project/python_services
-
-          docker build \
-            --file Project/python_services/Dockerfile \
-            --target worker-runtime \
-            --tag "${python_worker_image}:${IMAGE_TAG}" \
-            --tag "${python_worker_image}:latest" \
-            Project/python_services
-
-          docker build \
-            --file docker/postiz/Dockerfile \
-            --tag "${postiz_image}:${IMAGE_TAG}" \
-            --tag "${postiz_image}:latest" \
-            .
-
-          docker build \
-            --file docker/growchief/Dockerfile \
-            --tag "${growchief_image}:${IMAGE_TAG}" \
-            --tag "${growchief_image}:latest" \
-            .
-
-          check_image_size() {
-            local image="$1"
-            local limit_bytes="$2"
-            local label="$3"
-            local size_bytes
-
-            size_bytes="$(docker image inspect "${image}" --format '{{.Size}}')"
-            echo "${label} image size: ${size_bytes} bytes"
-            if (( size_bytes > limit_bytes )); then
-              echo "${label} image exceeded ${limit_bytes} bytes" >&2
-              exit 1
-            fi
-          }
-
-          check_image_size "${frontend_image}:${IMAGE_TAG}" "${FRONTEND_MAX_BYTES}" "frontend"
-          check_image_size "${python_api_image}:${IMAGE_TAG}" "${PYTHON_API_MAX_BYTES}" "python-api"
-          check_image_size "${python_worker_image}:${IMAGE_TAG}" "${PYTHON_WORKER_MAX_BYTES}" "python-worker"
-
-          docker push "${frontend_image}:${IMAGE_TAG}"
-          docker push "${frontend_image}:latest"
-          docker push "${python_api_image}:${IMAGE_TAG}"
-          docker push "${python_api_image}:latest"
-          docker push "${python_worker_image}:${IMAGE_TAG}"
-          docker push "${python_worker_image}:latest"
-          docker push "${postiz_image}:${IMAGE_TAG}"
-          docker push "${postiz_image}:latest"
-          docker push "${growchief_image}:${IMAGE_TAG}"
-          docker push "${growchief_image}:latest"
+      - name: Check image size
+        if: matrix.max_bytes != ''
+        env:
+          IMAGE: ${{ steps.vars.outputs.ghcr_namespace }}/${{ matrix.image }}:${{ steps.vars.outputs.image_tag }}
+          MAX_BYTES: ${{ matrix.max_bytes }}
+          LABEL: ${{ matrix.name }}
+        run: |
+          docker pull "${IMAGE}"
+          size_bytes="$(docker image inspect "${IMAGE}" --format '{{.Size}}')"
+          echo "${LABEL} image size: ${size_bytes} bytes"
+          if (( size_bytes > MAX_BYTES )); then
+            echo "${LABEL} image exceeded ${MAX_BYTES} bytes" >&2
+            exit 1
+          fi

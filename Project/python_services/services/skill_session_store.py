@@ -77,8 +77,11 @@ class TelegramSkillSessionStore:
                     # Keep memory cache in sync for this worker
                     cls._memory_sessions[key] = payload
                     return SkillSession.model_validate(payload)
-                # Redis returned None - check memory before giving up
-                # (session might exist in memory if previous write to Redis failed)
+                # Redis is authoritative when enabled.
+                # If Redis returns no session, any worker-local cached copy is stale
+                # and must be discarded to avoid resurrecting cleared sessions.
+                cls._memory_sessions.pop(key, None)
+                return None
             except Exception as exc:  # pragma: no cover - depends on external Redis
                 logger.error(
                     "Redis read failed for skill session store: %s. Falling back to memory.",
@@ -86,10 +89,9 @@ class TelegramSkillSessionStore:
                 )
                 # Don't disable Redis on transient errors; try again next request
 
-        # Fallback to memory if:
+        # Fallback to memory only if:
         # - Redis is not enabled at all
-        # - Redis read failed
-        # - Redis returned None but we might have it in memory from a failed write
+        # - Redis read failed on this request
         payload = cls._memory_sessions.get(key)
         return SkillSession.model_validate(payload) if payload else None
 

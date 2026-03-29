@@ -6,6 +6,7 @@ Endpoints for media generation and management
 import logging
 from typing import Any, Dict, List, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -15,6 +16,37 @@ from services.carousel_service import CarouselService
 
 router = APIRouter(dependencies=[Depends(require_internal_api_token)])
 logger = logging.getLogger(__name__)
+
+
+def _http_error_detail(exc: httpx.HTTPStatusError) -> str:
+    status_code = exc.response.status_code if exc.response is not None else None
+    detail = (
+        f"Image provider request failed"
+        + (f" with status {status_code}" if status_code is not None else "")
+    )
+
+    try:
+        payload = exc.response.json()
+        if isinstance(payload, dict):
+            upstream_detail = payload.get("detail") or payload.get("error")
+            if isinstance(upstream_detail, str) and upstream_detail.strip():
+                return f"{detail}: {upstream_detail.strip()[:300]}"
+    except Exception:
+        pass
+
+    response_text = ""
+    try:
+        response_text = exc.response.text.strip()
+    except Exception:
+        response_text = ""
+
+    if response_text:
+        return f"{detail}: {response_text[:300]}"
+
+    request_url = str(exc.request.url) if exc.request is not None else ""
+    if request_url:
+        return f"{detail} for url '{request_url}'"
+    return detail
 
 
 class ImageGenerateRequest(BaseModel):
@@ -76,9 +108,13 @@ async def generate_image(request: ImageGenerateRequest):
             persona_id=request.persona_id,
             metadata=request.metadata,
         )
+    except httpx.HTTPStatusError as e:
+        detail = _http_error_detail(e)
+        logger.exception("Image generation upstream request failed: %s", detail)
+        raise HTTPException(status_code=500, detail=detail) from e
     except Exception as e:
-        logger.error(f"Image generation failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Image generation failed: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     finally:
         await service.close()
 

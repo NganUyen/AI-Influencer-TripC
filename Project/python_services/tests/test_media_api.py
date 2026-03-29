@@ -166,6 +166,34 @@ async def test_generate_audio_returns_summary(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_generate_image_route_surfaces_upstream_http_detail(monkeypatch):
+    class _FailingImageGenerationService:
+        async def generate_images(self, **kwargs):
+            request = httpx.Request("POST", "https://fal.run/fal-ai/nano-banana-2")
+            response = httpx.Response(
+                401,
+                request=request,
+                json={"detail": "Unauthorized"},
+            )
+            raise httpx.HTTPStatusError(
+                "upstream failed",
+                request=request,
+                response=response,
+            )
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(media, "ImageGenerationService", lambda: _FailingImageGenerationService())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await media.generate_image(media.ImageGenerateRequest(prompt="TripC hero image"))
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == "Image provider request failed with status 401: Unauthorized"
+
+
+@pytest.mark.asyncio
 async def test_generate_audio_converts_errors(monkeypatch):
     class _FailingGoogleTTSService:
         async def generate_audio(

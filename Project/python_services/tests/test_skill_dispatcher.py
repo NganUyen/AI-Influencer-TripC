@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from unittest.mock import patch
 
 import pytest
 
@@ -84,3 +85,46 @@ async def test_cancel_action_preserves_session_when_workflow_cancel_fails(monkey
     assert result.success is False
     assert "couldn't cancel the running workflow" in result.error
     assert await TelegramSkillSessionStore.get_session(chat_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_save_persona_action_clears_session_after_marking_ready():
+    chat_id = 778899
+    await TelegramSkillSessionStore.clear_session(chat_id)
+    session = SkillSession(
+        skill_name="persona-creator",
+        step_key="preview",
+        collected={"persona_id": "travis-us"},
+        artifacts={
+            "telegram_chat_id": str(chat_id),
+            "persona_id": "travis-us",
+            "avatar_image_url": "https://cdn.example/avatar.png",
+            "preview_image_url": "https://cdn.example/avatar.png",
+            "avatar_media_asset_id": "asset-123",
+            "persona_data": {"avatar_source_type": "generated"},
+        },
+        control=SkillControl(status=SkillStatus.preview_ready),
+    )
+    await TelegramSkillSessionStore.set_session(chat_id, session)
+
+    with patch(
+        "services.persona_registry_service.PersonaRegistryService.update_persona",
+        AsyncMock(
+            return_value={
+                "persona_id": "travis-us",
+                "status": "ready",
+                "avatar_media_asset_id": "asset-123",
+            }
+        ),
+    ) as update_persona:
+        result = await SkillDispatcher.handle_action(chat_id, "save", app=object())
+
+    assert result.success is True
+    assert result.session is None
+    assert result.output is not None
+    assert result.output["status"] == "saved"
+    assert result.output["persona_id"] == "travis-us"
+    assert result.output["avatar_media_asset_id"] == "asset-123"
+    assert "marked as ready" in result.output["message"]
+    update_persona.assert_awaited_once()
+    assert await TelegramSkillSessionStore.get_session(chat_id) is None

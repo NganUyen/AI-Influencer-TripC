@@ -35,6 +35,33 @@ class PersonaCreatorSkill(BaseSkill):
         return " ".join(part.capitalize() for part in parts)
 
     @classmethod
+    def _describe_http_error(
+        cls,
+        exc: httpx.HTTPStatusError,
+        *,
+        fallback: str,
+    ) -> str:
+        try:
+            payload = exc.response.json()
+            if isinstance(payload, dict):
+                detail = payload.get("detail")
+                if isinstance(detail, str) and detail.strip():
+                    return detail.strip()
+        except Exception:
+            pass
+
+        response_text = ""
+        try:
+            response_text = exc.response.text.strip()
+        except Exception:
+            response_text = ""
+
+        if response_text:
+            return response_text[:300]
+
+        return fallback
+
+    @classmethod
     def _owner_params(cls, session: SkillSession) -> Optional[Dict[str, str]]:
         telegram_chat_id = session.artifacts.get("telegram_chat_id")
         if not telegram_chat_id:
@@ -345,6 +372,15 @@ class PersonaCreatorSkill(BaseSkill):
             persona = await cls._sync_persona_profile(
                 current, persona, payload, backend_url, http_client
             )
+        except httpx.HTTPStatusError as exc:
+            return cls._error_result(
+                current,
+                "Failed to sync persona profile: "
+                + cls._describe_http_error(
+                    exc,
+                    fallback=str(exc),
+                ),
+            )
         except Exception as exc:
             return cls._error_result(current, f"Failed to sync persona profile: {exc}")
 
@@ -361,6 +397,16 @@ class PersonaCreatorSkill(BaseSkill):
                     http_client,
                     force=force_regenerate_avatar,
                 )
+        except httpx.HTTPStatusError as exc:
+            return cls._error_result(
+                current,
+                "Failed to generate/attach persona avatar: "
+                + cls._describe_http_error(
+                    exc,
+                    fallback=str(exc),
+                )
+                + ". Please try again or use a different appearance description.",
+            )
         except Exception as exc:
             return cls._error_result(
                 current,

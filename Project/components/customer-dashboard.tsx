@@ -2,6 +2,14 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  Bot,
+  Database,
+  LayoutDashboard,
+  Radio,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 
 import { customerApiRequest } from "@/lib/customer-api";
 import {
@@ -9,13 +17,6 @@ import {
   getClientPublicEnvValue,
 } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
-
-// SkyNet Components
-import SkyNetLayout from "./skynet/SkyNetLayout";
-import CapabilityCloud from "./skynet/CapabilityCloud";
-import SystemHealthWidget from "./skynet/SystemHealthWidget";
-import ModelConfigWidget from "./skynet/ModelConfigWidget";
-import LiveFeed from "./skynet/LiveFeed";
 
 type BrandProfile = {
   product_name: string | null;
@@ -132,6 +133,23 @@ type SystemWorkflowData = {
   progress: number;
 };
 
+type DashboardTabId = "overview" | "ops" | "skills" | "memory" | "live_feed";
+
+type DashboardTab = {
+  id: DashboardTabId;
+  label: string;
+  icon: LucideIcon;
+};
+
+type ActivityItemTone = "default" | "success" | "warning";
+
+type ActivityItem = {
+  id: string;
+  title: string;
+  detail: string;
+  tone?: ActivityItemTone;
+};
+
 const EMPTY_BRAND: BrandProfile = {
   product_name: "",
   website_url: "",
@@ -164,6 +182,14 @@ const AI_BACKBONE_OPTIONS = [
   },
 ] as const;
 
+const DASHBOARD_TABS: DashboardTab[] = [
+  { id: "overview", label: "Tổng quan", icon: LayoutDashboard },
+  { id: "ops", label: "AI vận hành", icon: Bot },
+  { id: "skills", label: "Personas", icon: Users },
+  { id: "memory", label: "Dự án & Memory", icon: Database },
+  { id: "live_feed", label: "Activity Feed", icon: Radio },
+];
+
 function buildAiBackboneForm(
   settings: AIBackboneSettings,
   defaultDisplayName: string,
@@ -183,7 +209,7 @@ export default function CustomerDashboard() {
   const searchParams = useSearchParams();
   const { user, isAuthenticated, initialized, isLoading } = useCustomerAuthStore();
 
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
   const [systemSummary, setSystemSummary] = useState<SystemSummaryData | null>(null);
   const [systemWorkflows, setSystemWorkflows] = useState<SystemWorkflowData[]>([]);
 
@@ -694,6 +720,13 @@ export default function CustomerDashboard() {
     }
   }
 
+  const activityItems = buildActivityItems({
+    campaigns,
+    approvals,
+    content,
+    systemWorkflows,
+  });
+
   if (isLoading || !initialized) {
     return (
       <div className="min-h-screen bg-slate-950 text-stone-100 flex items-center justify-center">
@@ -703,34 +736,193 @@ export default function CustomerDashboard() {
   }
 
   return (
-    <SkyNetLayout activeTab={activeTab} onTabChange={setActiveTab}>
-      {activeTab === "overview" && (
-        <div className="space-y-6">
-          <CapabilityCloud />
-          
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <SystemHealthWidget services={systemSummary?.services} quota={systemSummary?.quota} />
-            <ModelConfigWidget settings={aiBackbone} />
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#1f3a34_0%,#0c1220_45%,#07080c_100%)] px-6 py-8 text-stone-100">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <section className="rounded-[30px] border border-white/10 bg-white/5 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.25)] backdrop-blur">
+          <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-200/70">
+                Customer Workspace
+              </p>
+              <h1 className="mt-3 text-4xl font-semibold text-white">
+                Dashboard
+              </h1>
+              <p className="mt-3 max-w-3xl text-sm leading-relaxed text-stone-300">
+                Manage your customer assistant threads, connected platforms,
+                Telegram linking, and campaign approvals from one workspace.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:items-end">
+              <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-stone-300">
+                Signed in as <span className="font-semibold text-white">{user?.name || user?.email}</span>
+              </div>
+              {telegramBotUrl && (
+                <a
+                  href={telegramBotUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center rounded-full bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200"
+                >
+                  Open Telegram Bot
+                </a>
+              )}
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-             <div className="lg:col-span-2">
-                <LiveFeed />
-             </div>
-             <div className="space-y-6">
-                <Panel title="Quick Stats" subtitle="Current workflow pulse">
-                   <div className="space-y-4">
-                      <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
-                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Active Workflows</p>
-                        <p className="text-2xl font-bold text-emerald-400">{systemWorkflows.length}</p>
-                      </div>
-                      <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
-                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Pending Approvals</p>
-                        <p className="text-2xl font-bold text-amber-400">{approvals.length}</p>
-                      </div>
-                   </div>
-                </Panel>
-             </div>
+          <div className="mt-6 flex flex-wrap gap-2">
+            {DASHBOARD_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition ${
+                  activeTab === tab.id
+                    ? "border-emerald-300/60 bg-emerald-300 text-slate-950"
+                    : "border-white/10 bg-white/5 text-stone-300 hover:border-white/20 hover:bg-white/10"
+                }`}
+              >
+                <tab.icon className="h-4 w-4" />
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {banner && (
+          <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-100">
+            {banner}
+          </div>
+        )}
+
+        {pageError && (
+          <div className="rounded-2xl border border-rose-300/20 bg-rose-300/10 px-4 py-3 text-sm text-rose-100">
+            {pageError}
+          </div>
+        )}
+
+      {activeTab === "overview" && (
+        <div className="space-y-6">
+          <Panel title="Quick Stats" subtitle="Current workflow pulse">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <StatCard
+                label="Active Workflows"
+                value={String(systemWorkflows.length)}
+                tone="emerald"
+              />
+              <StatCard
+                label="Pending Approvals"
+                value={String(approvals.length)}
+                tone="amber"
+              />
+              <StatCard
+                label="Connected Platforms"
+                value={String(accounts.filter((account) => account.connection_status === "connected").length)}
+                tone="sky"
+              />
+              <StatCard
+                label="Active Personas"
+                value={String(personas.length)}
+                tone="stone"
+              />
+            </div>
+          </Panel>
+
+          <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+            <Panel title="System Health" subtitle="Service status and runtime availability.">
+              <div className="space-y-3">
+                {(systemSummary?.services || []).length === 0 && (
+                  <p className="text-sm text-stone-400">No system service data available yet.</p>
+                )}
+                {(systemSummary?.services || []).map((service) => (
+                  <div
+                    key={service.name}
+                    className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3"
+                  >
+                    <div>
+                      <p className="font-medium text-white">{service.name}</p>
+                      <p className="text-xs uppercase tracking-[0.18em] text-stone-500">
+                        Latency {service.latency}
+                      </p>
+                    </div>
+                    <StatusBadge label={service.status} />
+                  </div>
+                ))}
+              </div>
+            </Panel>
+
+            <Panel title="AI Backbone" subtitle="Current model access mode and readiness.">
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-emerald-300/15 bg-emerald-300/5 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-200/80">
+                    Access Mode
+                  </p>
+                  <p className="mt-2 text-lg font-semibold uppercase text-white">
+                    {aiBackbone?.access_mode.replace(/_/g, " ") || "Loading"}
+                  </p>
+                  <p className="mt-2 text-sm text-stone-300">
+                    {aiBackbone?.effective_status.message || "Initializing workspace access."}
+                  </p>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">
+                      Workspace Endpoint
+                    </p>
+                    <p className="mt-2 break-all text-sm text-white">
+                      {aiBackbone?.workspace_default.api_url || "Not configured"}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">
+                      Customer API
+                    </p>
+                    <p className="mt-2 text-sm text-white">
+                      {aiBackbone?.customer_api.has_api_key ? "Configured" : "Using workspace-managed access"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </Panel>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+            <Panel title="Recent Activity" subtitle="Latest events across campaigns, content, and workflow state.">
+              <ActivityFeed items={activityItems} />
+            </Panel>
+
+            <Panel title="Quota Snapshot" subtitle="Current provider usage pulled from system summary.">
+              <div className="space-y-3">
+                {(systemSummary?.quota || []).length === 0 && (
+                  <p className="text-sm text-stone-400">No quota data available yet.</p>
+                )}
+                {(systemSummary?.quota || []).map((quotaItem) => (
+                  <div
+                    key={quotaItem.name}
+                    className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <p className="font-medium text-white">{quotaItem.name}</p>
+                      <p className="text-sm text-stone-300">
+                        {quotaItem.used}/{quotaItem.total} {quotaItem.unit}
+                      </p>
+                    </div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-emerald-300"
+                        style={{
+                          width: `${Math.min(
+                            quotaItem.total > 0 ? (quotaItem.used / quotaItem.total) * 100 : 0,
+                            100,
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Panel>
           </div>
         </div>
       )}
@@ -916,11 +1108,75 @@ export default function CustomerDashboard() {
       )}
 
       {activeTab === "live_feed" && (
-        <div className="h-[calc(100vh-140px)] border border-white/5 rounded-3xl overflow-hidden shadow-2xl">
-           <LiveFeed />
+        <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+          <Panel title="Activity Feed" subtitle="Recent customer-facing events and workflow changes.">
+            <ActivityFeed
+              items={activityItems}
+              emptyMessage="Activity will appear here once workflows, approvals, or content updates arrive."
+            />
+          </Panel>
+
+          <Panel title="Workflow Monitor" subtitle="Current workflow queue and publishing output.">
+            <div className="space-y-4">
+              <div className="space-y-3">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-stone-500">
+                  Runtime Workflows
+                </p>
+                {systemWorkflows.length === 0 && (
+                  <p className="text-sm text-stone-400">No active workflow telemetry right now.</p>
+                )}
+                {systemWorkflows.map((workflow) => (
+                  <div
+                    key={workflow.id}
+                    className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="font-medium text-white">{workflow.name}</p>
+                        <p className="text-xs uppercase tracking-[0.18em] text-stone-500">
+                          {workflow.id}
+                        </p>
+                      </div>
+                      <StatusBadge label={workflow.status} />
+                    </div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-emerald-300"
+                        style={{ width: `${Math.max(0, Math.min(workflow.progress, 100))}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-stone-500">
+                  Recent Output
+                </p>
+                {content.slice(0, 5).map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/20 p-4"
+                  >
+                    <div>
+                      <p className="font-medium text-white">{item.title}</p>
+                      <p className="text-xs uppercase tracking-[0.18em] text-stone-500">
+                        {(item.platform || []).join(", ")}
+                      </p>
+                    </div>
+                    <StatusBadge label={item.status} />
+                  </div>
+                ))}
+                {content.length === 0 && (
+                  <p className="text-sm text-stone-400">No recent output yet.</p>
+                )}
+              </div>
+            </div>
+          </Panel>
         </div>
       )}
-    </SkyNetLayout>
+      </div>
+    </div>
   );
 }
 
@@ -943,6 +1199,61 @@ function Panel({
       </div>
       {children}
     </section>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "emerald" | "amber" | "sky" | "stone";
+}) {
+  const toneClasses = {
+    emerald: "text-emerald-300",
+    amber: "text-amber-300",
+    sky: "text-sky-300",
+    stone: "text-stone-200",
+  }[tone];
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">
+        {label}
+      </p>
+      <p className={`mt-3 text-3xl font-semibold ${toneClasses}`}>{value}</p>
+    </div>
+  );
+}
+
+function ActivityFeed({
+  items,
+  emptyMessage = "No activity yet.",
+}: {
+  items: ActivityItem[];
+  emptyMessage?: string;
+}) {
+  if (items.length === 0) {
+    return <p className="text-sm text-stone-400">{emptyMessage}</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {items.map((item) => (
+        <div
+          key={item.id}
+          className="flex items-start justify-between gap-4 rounded-2xl border border-white/10 bg-black/20 p-4"
+        >
+          <div>
+            <p className="font-medium text-white">{item.title}</p>
+            <p className="mt-1 text-sm text-stone-400">{item.detail}</p>
+          </div>
+          <div className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${activityToneClass(item.tone)}`} />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -1029,4 +1340,89 @@ function buildTelegramBotUrl(): string | null {
   }
 
   return `https://t.me/${username.replace(/^@/, "")}`;
+}
+
+function buildActivityItems({
+  campaigns,
+  approvals,
+  content,
+  systemWorkflows,
+}: {
+  campaigns: Campaign[];
+  approvals: Campaign[];
+  content: ContentItem[];
+  systemWorkflows: SystemWorkflowData[];
+}): ActivityItem[] {
+  const items: ActivityItem[] = [];
+
+  systemWorkflows.slice(0, 3).forEach((workflow) => {
+    items.push({
+      id: `workflow-${workflow.id}`,
+      title: workflow.name,
+      detail: `${workflow.status} • ${workflow.progress}% complete`,
+      tone:
+        workflow.status === "completed"
+          ? "success"
+          : workflow.status === "error"
+            ? "warning"
+            : "default",
+    });
+  });
+
+  approvals.slice(0, 2).forEach((approval) => {
+    items.push({
+      id: `approval-${approval.id}`,
+      title: `Approval pending: ${approval.name}`,
+      detail: `${approval.target_platforms.join(", ") || "No platform"} • ${approval.approval_status}`,
+      tone: "warning",
+    });
+  });
+
+  content.slice(0, 3).forEach((item) => {
+    items.push({
+      id: `content-${item.id}`,
+      title: `Content: ${item.title}`,
+      detail: `${item.platform.join(", ") || "No platform"} • ${describeContentTiming(item)}`,
+      tone: item.status === "published" ? "success" : "default",
+    });
+  });
+
+  campaigns.slice(0, 2).forEach((campaign) => {
+    items.push({
+      id: `campaign-${campaign.id}`,
+      title: `Campaign: ${campaign.name}`,
+      detail: `${campaign.status} • approval ${campaign.approval_status}`,
+      tone: campaign.approval_status === "approved" ? "success" : "default",
+    });
+  });
+
+  return items.slice(0, 8);
+}
+
+function describeContentTiming(item: ContentItem): string {
+  if (item.published_at) {
+    return `Published ${formatDateLabel(item.published_at)}`;
+  }
+  if (item.scheduled_at) {
+    return `Scheduled ${formatDateLabel(item.scheduled_at)}`;
+  }
+  return item.status;
+}
+
+function formatDateLabel(value: string): string {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    return value;
+  }
+  return new Date(parsed).toLocaleString();
+}
+
+function activityToneClass(tone: ActivityItemTone = "default"): string {
+  if (tone === "success") {
+    return "bg-emerald-300";
+  }
+  if (tone === "warning") {
+    return "bg-amber-300";
+  }
+  return "bg-sky-300";
 }

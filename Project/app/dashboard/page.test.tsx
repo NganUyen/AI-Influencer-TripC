@@ -1,22 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ButtonHTMLAttributes } from "react";
 
 import DashboardPage from "@/app/dashboard/page";
 import { customerApiRequest } from "@/lib/customer-api";
 
 jest.mock("@/lib/customer-api", () => ({
   customerApiRequest: jest.fn(),
-}));
-
-jest.mock("framer-motion", () => ({
-  motion: {
-    button: ({
-      children,
-      ...props
-    }: ButtonHTMLAttributes<HTMLButtonElement>) => (
-      <button {...props}>{children}</button>
-    ),
-  },
 }));
 
 jest.mock("next/navigation", () => ({
@@ -206,7 +194,8 @@ describe("Customer dashboard", () => {
     render(<DashboardPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("SkyNet")).toBeInTheDocument();
+      expect(screen.getByText("Customer Workspace")).toBeInTheDocument();
+      expect(screen.getByText("Dashboard")).toBeInTheDocument();
       expect(screen.getByText("Quick Stats")).toBeInTheDocument();
       expect(screen.getByText("Tổng quan")).toBeInTheDocument();
     });

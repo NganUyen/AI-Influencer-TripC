@@ -6,6 +6,7 @@ Docs: https://docs.heygen.com/reference/video-generate
 
 import asyncio
 import logging
+from urllib.parse import urlparse
 import httpx
 from config.settings import settings
 from services.quota_monitor_service import QuotaMonitorService
@@ -13,6 +14,7 @@ from services.quota_monitor_service import QuotaMonitorService
 logger = logging.getLogger(__name__)
 
 HEYGEN_BASE_URL = "https://api.heygen.com"
+HEYGEN_UPLOAD_BASE_URL = "https://upload.heygen.com"
 
 
 class HeyGenService:
@@ -57,24 +59,46 @@ class HeyGenService:
 
     async def create_avatar(self, image_url: str, avatar_name: str = "Minh_TripC") -> str:
         """
-        Upload ảnh persona và tạo HeyGen avatar (thực hiện 1 lần, lưu avatar_id).
+        Upload ảnh persona và tạo HeyGen photo avatar (thực hiện 1 lần, lưu avatar_id).
 
         Returns:
             str: avatar_id để dùng lại cho tất cả video sau
         """
         logger.info(f"Tạo HeyGen avatar từ: {image_url}")
 
-        payload = {
-            "avatar_name": avatar_name,
-            "image_url": image_url,
-        }
-
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
+                image_response = await client.get(image_url, follow_redirects=True)
+                image_response.raise_for_status()
+
+                upload_headers = {
+                    "X-Api-Key": self.api_key,
+                    "Accept": "application/json",
+                    "Content-Type": self._detect_image_content_type(
+                        image_url=image_url,
+                        response=image_response,
+                    ),
+                }
+                upload_resp = await client.post(
+                    f"{HEYGEN_UPLOAD_BASE_URL}/v1/asset",
+                    headers=upload_headers,
+                    content=image_response.content,
+                )
+                upload_resp.raise_for_status()
+                upload_data = upload_resp.json()
+                image_key = upload_data.get("data", {}).get("image_key")
+                if not image_key:
+                    raise ValueError(
+                        f"HeyGen upload không trả về image_key: {upload_data}"
+                    )
+
                 resp = await client.post(
-                    f"{HEYGEN_BASE_URL}/v2/photo_avatar/create",
+                    f"{HEYGEN_BASE_URL}/v2/photo_avatar/avatar_group/create",
                     headers=self.headers,
-                    json=payload,
+                    json={
+                        "name": avatar_name,
+                        "image_key": image_key,
+                    },
                 )
                 resp.raise_for_status()
                 data = resp.json()
@@ -87,7 +111,13 @@ class HeyGenService:
                 )
                 raise
 
-        avatar_id = data.get("data", {}).get("avatar_id") or data.get("avatar_id")
+        avatar_payload = data.get("data", {}) if isinstance(data, dict) else {}
+        avatar_id = (
+            avatar_payload.get("id")
+            or avatar_payload.get("avatar_id")
+            or avatar_payload.get("group_id")
+            or data.get("avatar_id")
+        )
         if not avatar_id:
             raise ValueError(f"HeyGen không trả về avatar_id: {data}")
 
@@ -124,30 +154,20 @@ class HeyGenService:
         """
         logger.info(f"Tạo HeyGen video | avatar: {avatar_id} | ratio: {aspect_ratio}")
 
-        # HeyGen v2 API - Video Generate
         payload = {
-            "video_inputs": [
-                {
-                    "character": {
-                        "type": "avatar",
-                        "avatar_id": avatar_id,
-                        "avatar_style": "normal",
-                    },
-                    "voice": {
-                        "type": "audio",
-                        "audio_url": audio_url,
-                    },
-                    "background": self._build_background(background),
-                }
-            ],
-            "dimension": {"width": width, "height": height},
-            "aspect_ratio": None,  # Dùng dimension thay
+            "avatar_id": avatar_id,
+            "audio_url": audio_url,
+            "title": f"{avatar_id}-{aspect_ratio}",
+            "resolution": "1080p" if max(width, height) >= 1080 else "720p",
+            "aspect_ratio": aspect_ratio,
+            "expressiveness": "low",
+            "background": self._build_background(background),
         }
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 resp = await client.post(
-                    f"{HEYGEN_BASE_URL}/v2/video/generate",
+                    f"{HEYGEN_BASE_URL}/v2/videos",
                     headers=self.headers,
                     json=payload,
                 )
@@ -162,7 +182,7 @@ class HeyGenService:
                 )
                 raise
 
-        video_id = data.get("data", {}).get("video_id") or data.get("video_id")
+        video_id = data.get("video_id") or data.get("data", {}).get("video_id")
         if not video_id:
             raise ValueError(f"HeyGen không trả về video_id: {data}")
 
@@ -263,13 +283,23 @@ class HeyGenService:
         """Kiểm tra trạng thái video."""
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                resp = await client.get(
-                    f"{HEYGEN_BASE_URL}/v1/video_status.get",
-                    headers=self.headers,
-                    params={"video_id": video_id},
-                )
-                resp.raise_for_status()
-                data = resp.json()
+                try:
+                    resp = await client.get(
+                        f"{HEYGEN_BASE_URL}/v2/videos/{video_id}",
+                        headers=self.headers,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code not in {404, 405}:
+                        raise
+                    resp = await client.get(
+                        f"{HEYGEN_BASE_URL}/v1/video_status.get",
+                        headers=self.headers,
+                        params={"video_id": video_id},
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
             except Exception as exc:
                 await self._record_usage(
                     operation="get_video_status",
@@ -301,6 +331,31 @@ class HeyGenService:
         else:
             # Màu hex
             return {"type": "color", "value": background}
+
+    def _detect_image_content_type(
+        self,
+        *,
+        image_url: str,
+        response: httpx.Response,
+    ) -> str:
+        content_type = (response.headers.get("content-type") or "").split(";", 1)[0]
+        if content_type in {"image/jpeg", "image/png"}:
+            return content_type
+
+        path = urlparse(image_url).path.lower()
+        if path.endswith(".png"):
+            return "image/png"
+        if path.endswith(".jpg") or path.endswith(".jpeg"):
+            return "image/jpeg"
+
+        image_bytes = response.content[:16]
+        if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png"
+        if image_bytes.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg"
+
+        # HeyGen Upload Asset only accepts PNG/JPEG for images.
+        return "image/jpeg"
 
     async def list_avatars(self) -> list:
         """Liệt kê tất cả avatars đã tạo."""

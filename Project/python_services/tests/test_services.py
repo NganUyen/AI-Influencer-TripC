@@ -433,6 +433,101 @@ async def test_google_tts_service_records_usage(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_heygen_service_create_avatar_uses_upload_asset_and_photo_avatar_group(
+    monkeypatch,
+):
+    captured = {"get": [], "post": []}
+
+    class StubResponse:
+        def __init__(self, payload=None, *, content=b"", headers=None):
+            self._payload = payload or {}
+            self.content = content
+            self.headers = headers or {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    class StubClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, follow_redirects=False):
+            captured["get"].append(
+                {"url": url, "follow_redirects": follow_redirects}
+            )
+            return StubResponse(
+                content=b"\xff\xd8\xffavatar",
+                headers={"content-type": "image/jpeg"},
+            )
+
+        async def post(self, url, headers=None, json=None, content=None):
+            captured["post"].append(
+                {
+                    "url": url,
+                    "headers": headers,
+                    "json": json,
+                    "content": content,
+                }
+            )
+            if url.endswith("/v1/asset"):
+                return StubResponse(
+                    {"data": {"id": "asset-123", "image_key": "image/demo/original"}}
+                )
+            return StubResponse(
+                {"data": {"id": "photo-avatar-123", "group_id": "group-123"}}
+            )
+
+    usage = {}
+
+    async def fake_record_runtime_usage(**kwargs):
+        usage.update(kwargs)
+
+    monkeypatch.setattr(
+        "services.heygen_service.httpx.AsyncClient",
+        lambda **_: StubClient(),
+    )
+    monkeypatch.setattr(
+        "services.heygen_service.QuotaMonitorService.record_runtime_usage",
+        fake_record_runtime_usage,
+    )
+    monkeypatch.setattr(
+        "services.heygen_service.settings.HEYGEN_API_KEY",
+        "test_heygen_key",
+    )
+
+    service = HeyGenService()
+    avatar_id = await service.create_avatar(
+        image_url="https://cdn.example/avatar.jpg",
+        avatar_name="hero-host",
+    )
+
+    assert avatar_id == "photo-avatar-123"
+    assert captured["get"] == [
+        {"url": "https://cdn.example/avatar.jpg", "follow_redirects": True}
+    ]
+    assert captured["post"][0]["url"] == "https://upload.heygen.com/v1/asset"
+    assert captured["post"][0]["headers"]["Content-Type"] == "image/jpeg"
+    assert captured["post"][0]["content"] == b"\xff\xd8\xffavatar"
+    assert (
+        captured["post"][1]["url"]
+        == "https://api.heygen.com/v2/photo_avatar/avatar_group/create"
+    )
+    assert captured["post"][1]["json"] == {
+        "name": "hero-host",
+        "image_key": "image/demo/original",
+    }
+    assert usage["provider"] == "heygen"
+    assert usage["metadata"]["operation"] == "create_avatar"
+    assert usage["metadata"]["avatar_name"] == "hero-host"
+
+
+@pytest.mark.asyncio
 async def test_heygen_service_records_video_job_usage(monkeypatch):
     captured = {}
 
@@ -451,6 +546,9 @@ async def test_heygen_service_records_video_job_usage(monkeypatch):
             return None
 
         async def post(self, url, headers, json):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["json"] = json
             return StubResponse()
 
     async def fake_record_runtime_usage(**kwargs):
@@ -476,10 +574,71 @@ async def test_heygen_service_records_video_job_usage(monkeypatch):
     )
 
     assert result["video_id"] == "video-123"
+    assert captured["url"] == "https://api.heygen.com/v2/videos"
+    assert captured["json"]["avatar_id"] == "avatar-1"
+    assert captured["json"]["audio_url"] == "https://cdn.example/audio.mp3"
+    assert captured["json"]["aspect_ratio"] == "9:16"
+    assert captured["json"]["resolution"] == "1080p"
+    assert captured["json"]["background"] == {"type": "color", "value": "#ffffff"}
     assert captured["provider"] == "heygen"
     assert captured["usage"]["requests"] == 1
     assert captured["usage"]["jobs"] == 1
     assert captured["metadata"]["operation"] == "create_video"
+
+
+@pytest.mark.asyncio
+async def test_heygen_service_prefers_v2_video_status(monkeypatch):
+    captured = {}
+
+    class StubResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "video_id": "video-123",
+                "status": "completed",
+                "video_url": "https://cdn.example/video.mp4",
+            }
+
+    class StubClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers=None, params=None):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["params"] = params
+            return StubResponse()
+
+    usage = {}
+
+    async def fake_record_runtime_usage(**kwargs):
+        usage.update(kwargs)
+
+    monkeypatch.setattr(
+        "services.heygen_service.httpx.AsyncClient",
+        lambda **_: StubClient(),
+    )
+    monkeypatch.setattr(
+        "services.heygen_service.QuotaMonitorService.record_runtime_usage",
+        fake_record_runtime_usage,
+    )
+    monkeypatch.setattr(
+        "services.heygen_service.settings.HEYGEN_API_KEY",
+        "test_heygen_key",
+    )
+
+    service = HeyGenService()
+    result = await service.get_video_status("video-123")
+
+    assert captured["url"] == "https://api.heygen.com/v2/videos/video-123"
+    assert captured["params"] is None
+    assert result["status"] == "completed"
+    assert usage["metadata"]["provider_status"] == "completed"
 
 
 @pytest.mark.asyncio

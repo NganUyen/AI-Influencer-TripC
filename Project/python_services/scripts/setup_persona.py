@@ -119,8 +119,7 @@ async def setup_persona(persona_id: str, force: bool = False):
         # 5. Gửi tới HeyGen
         print("\n[4/4] Tạo HeyGen avatar...")
         heygen = HeyGenService()
-        heygen_result = await heygen.create_avatar(image_url=storage_url)
-        heygen_avatar_id = heygen_result.get("avatar_id")
+        heygen_avatar_id = await heygen.create_avatar(image_url=storage_url)
         if not heygen_avatar_id:
             raise HeyGenAvatarSetupError("HeyGen không trả về avatar_id")
         print(f"      ✅ HeyGen Avatar ID: {heygen_avatar_id}")
@@ -165,4 +164,3 @@ if __name__ == "__main__":
     parser.add_argument("--force", action="store_true", help="Force re-setup even if already ready")
     args = parser.parse_args()
     asyncio.run(setup_persona(args.persona_id, force=args.force))
-

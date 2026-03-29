@@ -57,12 +57,33 @@ class VideoAISkill(BaseSkill):
         session.collected["platform"] = session.collected.get("platform") or "tiktok"
         session.artifacts.setdefault("persona_snapshot", None)
         session.artifacts.setdefault("persona_readiness", None)
+        session.artifacts.setdefault("talking_head_optional", False)
+        session.artifacts.setdefault("production_note", None)
         session.artifacts.setdefault("concept_brief", None)
         session.artifacts.setdefault("beat_sheet", None)
         session.artifacts.setdefault("approved_production_package", None)
         session.artifacts.setdefault("concept_approved", False)
         session.artifacts.setdefault("beat_sheet_approved", False)
         return session
+
+    @classmethod
+    def _can_continue_without_talking_head(cls, readiness: Dict[str, Any]) -> bool:
+        checks = readiness.get("checks") or {}
+        return (
+            bool(checks.get("status_ready"))
+            and bool(checks.get("has_tts_voice"))
+            and bool(checks.get("has_avatar_asset"))
+            and not bool(checks.get("has_heygen_avatar_id"))
+        )
+
+    @classmethod
+    def _production_note(cls, *, talking_head_optional: bool) -> Optional[str]:
+        if not talking_head_optional:
+            return None
+        return (
+            "This persona does not have a HeyGen talking-head avatar yet, "
+            "so the video will use scene visuals with voiceover instead."
+        )
 
     @classmethod
     def _missing_step(cls, session: SkillSession) -> Optional[str]:
@@ -81,6 +102,12 @@ class VideoAISkill(BaseSkill):
         persona_id = session.collected.get("persona_id")
         snapshot = session.artifacts.get("persona_snapshot") or {}
         if snapshot.get("persona_id") == persona_id and snapshot.get("tone_resolved"):
+            session.artifacts["talking_head_optional"] = not bool(
+                snapshot.get("heygen_avatar_id")
+            )
+            session.artifacts["production_note"] = cls._production_note(
+                talking_head_optional=session.artifacts["talking_head_optional"]
+            )
             return snapshot
 
         # Build owner_key from telegram_chat_id for proper scoping
@@ -95,7 +122,12 @@ class VideoAISkill(BaseSkill):
             f"/api/personas/{persona_id}/readiness{owner_param}",
         )
         session.artifacts["persona_readiness"] = readiness
-        if not readiness.get("ready"):
+        talking_head_optional = cls._can_continue_without_talking_head(readiness)
+        session.artifacts["talking_head_optional"] = talking_head_optional
+        session.artifacts["production_note"] = cls._production_note(
+            talking_head_optional=talking_head_optional
+        )
+        if not readiness.get("ready") and not talking_head_optional:
             raise ValueError(
                 readiness.get("blocking_reason") or "Selected persona is not ready."
             )
@@ -109,6 +141,13 @@ class VideoAISkill(BaseSkill):
         if not persona.get("persona_id"):
             raise ValueError("Selected persona could not be loaded.")
 
+        talking_head_optional = talking_head_optional and not bool(
+            persona.get("heygen_avatar_id")
+        )
+        session.artifacts["talking_head_optional"] = talking_head_optional
+        session.artifacts["production_note"] = cls._production_note(
+            talking_head_optional=talking_head_optional
+        )
         tone_resolved = (
             str(persona.get("tone_default") or "natural").strip() or "natural"
         )
@@ -120,6 +159,7 @@ class VideoAISkill(BaseSkill):
             "tone_default": persona.get("tone_default"),
             "tone_resolved": tone_resolved,
             "heygen_avatar_id": persona.get("heygen_avatar_id"),
+            "talking_head_optional": talking_head_optional,
             "status": persona.get("status"),
         }
         session.artifacts["persona_snapshot"] = resolved_snapshot
@@ -159,6 +199,11 @@ class VideoAISkill(BaseSkill):
         telegram_chat_id = session.artifacts.get("telegram_chat_id")
         platform = session.collected.get("platform", "tiktok")
         topic = session.collected.get("idea_brief", "")
+        talking_head_optional = bool(session.artifacts.get("talking_head_optional"))
+        production_note = cls._production_note(
+            talking_head_optional=talking_head_optional
+        )
+        session.artifacts["production_note"] = production_note
 
         production_payload = {
             "persona_id": persona_id,
@@ -168,7 +213,7 @@ class VideoAISkill(BaseSkill):
             "telegram_chat_id": telegram_chat_id,
             "user_id": None,
             "owner_key": f"telegram:{telegram_chat_id}" if telegram_chat_id else None,
-            "talking_head_optional": False,
+            "talking_head_optional": talking_head_optional,
             "approved_package": package.model_dump(mode="json"),
         }
 
@@ -192,6 +237,13 @@ class VideoAISkill(BaseSkill):
                     ),
                     "approved_production_package": package.model_dump(mode="json"),
                     "workflow_id": workflow_id,
+                    "talking_head_optional": talking_head_optional,
+                    "production_mode": (
+                        "voiceover_only"
+                        if talking_head_optional
+                        else "talking_head"
+                    ),
+                    "production_note": production_note,
                 },
                 session=session,
             )
@@ -205,6 +257,13 @@ class VideoAISkill(BaseSkill):
                         f"Error: {exc}"
                     ),
                     "approved_production_package": package.model_dump(mode="json"),
+                    "talking_head_optional": talking_head_optional,
+                    "production_mode": (
+                        "voiceover_only"
+                        if talking_head_optional
+                        else "talking_head"
+                    ),
+                    "production_note": production_note,
                 },
                 error=str(exc),
                 session=session,
@@ -237,6 +296,8 @@ class VideoAISkill(BaseSkill):
     def _restart_collection(cls, session: SkillSession, *, message: str) -> SkillResult:
         for field in _RESETTABLE_FIELDS:
             session.collected[field] = None
+        session.artifacts["talking_head_optional"] = False
+        session.artifacts["production_note"] = None
         session.artifacts["concept_brief"] = None
         session.artifacts["beat_sheet"] = None
         session.artifacts["approved_production_package"] = None

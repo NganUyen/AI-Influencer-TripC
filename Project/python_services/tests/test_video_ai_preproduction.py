@@ -99,6 +99,29 @@ def _patch_persona_lookup(monkeypatch):
     monkeypatch.setattr(VideoAISkill, "_request_json", classmethod(fake_request_json))
 
 
+def _patch_persona_lookup_missing_heygen(monkeypatch):
+    async def fake_request_json(cls, http_client, method, backend_url, path, **kwargs):
+        base_path = path.split("?")[0]
+        if base_path.endswith("/readiness"):
+            return {
+                "ready": False,
+                "blocking_reason": "Missing heygen_avatar_id. Run persona avatar setup first.",
+                "checks": {
+                    "status_ready": True,
+                    "has_tts_voice": True,
+                    "has_avatar_asset": True,
+                    "has_heygen_avatar_id": False,
+                },
+            }
+        if base_path.endswith("/personas/minh_vn"):
+            payload = _persona_payload()
+            payload["heygen_avatar_id"] = None
+            return payload
+        raise AssertionError(f"Unexpected path: {path}")
+
+    monkeypatch.setattr(VideoAISkill, "_request_json", classmethod(fake_request_json))
+
+
 @pytest.mark.asyncio
 async def test_video_ai_collects_required_fields_in_order():
     session = VideoAISkill.initial_session()
@@ -157,6 +180,31 @@ async def test_video_ai_builds_concept_with_persona_tone(monkeypatch):
     assert result.session.step_key == "confirm_concept"
     assert result.session.artifacts["persona_snapshot"]["tone_resolved"] == "confident"
     assert result.session.artifacts["concept_brief"]["tone_resolved"] == "confident"
+
+
+@pytest.mark.asyncio
+async def test_video_ai_allows_voiceover_only_fallback_when_heygen_avatar_missing(
+    monkeypatch,
+):
+    _patch_persona_lookup_missing_heygen(monkeypatch)
+
+    async def fake_build_concept_brief(cls, collected, persona_snapshot):
+        assert persona_snapshot["heygen_avatar_id"] is None
+        return _concept_contract()
+
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_concept_brief",
+        classmethod(fake_build_concept_brief),
+    )
+
+    session = _filled_session()
+    result = await VideoAISkill.execute(session, "http://backend", object())
+
+    assert result.success is True
+    assert result.session.step_key == "confirm_concept"
+    assert result.session.artifacts["talking_head_optional"] is True
+    assert "voiceover instead" in result.session.artifacts["production_note"]
 
 
 @pytest.mark.asyncio
@@ -399,6 +447,63 @@ async def test_video_ai_package_ready_posts_to_start_video(monkeypatch):
     assert package_result.success is True
     assert package_result.session.step_key == "package_ready"
     assert package_result.output["workflow_id"] == "video-minh_vn-test123"
+
+
+@pytest.mark.asyncio
+async def test_video_ai_package_ready_uses_voiceover_mode_when_heygen_avatar_missing(
+    monkeypatch,
+):
+    from unittest.mock import AsyncMock, MagicMock
+
+    _patch_persona_lookup_missing_heygen(monkeypatch)
+
+    async def fake_build_concept_brief(cls, collected, persona_snapshot):
+        return _concept_contract()
+
+    async def fake_build_beat_sheet(cls, concept_brief, persona_snapshot):
+        return _beat_sheet_contract()
+
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_concept_brief",
+        classmethod(fake_build_concept_brief),
+    )
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_beat_sheet",
+        classmethod(fake_build_beat_sheet),
+    )
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"workflow_id": "video-minh_vn-voiceover"}
+    mock_response.raise_for_status = MagicMock()
+
+    mock_http_client = AsyncMock()
+    mock_http_client.post.return_value = mock_response
+
+    session = _filled_session()
+    session.artifacts["telegram_chat_id"] = "123456"
+
+    concept_result = await VideoAISkill.execute(
+        session, "http://backend", mock_http_client
+    )
+    beat_result = await VideoAISkill.handle_preproduction_action(
+        concept_result.session,
+        "approve",
+        "http://backend",
+        mock_http_client,
+    )
+    package_result = await VideoAISkill.handle_preproduction_action(
+        beat_result.session,
+        "approve",
+        "http://backend",
+        mock_http_client,
+    )
+
+    payload = mock_http_client.post.call_args[1]["json"]
+    assert payload["talking_head_optional"] is True
+    assert package_result.output["production_mode"] == "voiceover_only"
+    assert "voiceover instead" in package_result.output["production_note"]
 
 
 @pytest.mark.asyncio

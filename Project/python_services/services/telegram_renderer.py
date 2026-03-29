@@ -1040,6 +1040,10 @@ class TelegramRenderer:
 
                 # Check if production workflow was started
                 workflow_id = output.get("workflow_id")
+                production_note = (
+                    output.get("production_note")
+                    or session.artifacts.get("production_note")
+                )
                 if workflow_id:
                     lines = [
                         "Production workflow started!",
@@ -1049,9 +1053,15 @@ class TelegramRenderer:
                         f"Feature Focus: {concept.get('feature_focus') or '-'}",
                         f"Goal: {_humanize_token(concept.get('video_goal'))}",
                         f"Beats: {beat_count}",
-                        "",
-                        "Your video is being generated. This may take a few minutes...",
                     ]
+                    if production_note:
+                        lines.extend(["", production_note])
+                    lines.extend(
+                        [
+                            "",
+                            "Your video is being generated. This may take a few minutes...",
+                        ]
+                    )
                 else:
                     lines = [
                         "Pre-production package ready.",
@@ -1061,9 +1071,10 @@ class TelegramRenderer:
                         f"Feature Focus: {concept.get('feature_focus') or '-'}",
                         f"Goal: {_humanize_token(concept.get('video_goal'))}",
                         f"Beats: {beat_count}",
-                        "",
-                        "Please try again or contact support.",
                     ]
+                    if production_note:
+                        lines.extend(["", production_note])
+                    lines.extend(["", "Please try again or contact support."])
                 return {
                     "text": "\n".join(lines),
                     "reply_markup": None,

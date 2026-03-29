@@ -323,6 +323,39 @@ def test_render_video_ai_done_state_reports_package_ready():
     assert rendered["reply_markup"] is None
 
 
+def test_render_video_ai_done_state_mentions_voiceover_fallback():
+    package = {
+        "concept_brief": _video_concept(),
+        "beat_sheet": _video_beats(),
+        "persona_snapshot": {"persona_id": "minh_vn"},
+    }
+    session = SkillSession(
+        skill_name="video-ai",
+        step_key="package_ready",
+        collected={"persona_id": "minh_vn"},
+        artifacts={"approved_production_package": package},
+        control=SkillControl(status=SkillStatus.done),
+    )
+    result = SkillResult(
+        success=True,
+        next_step="package_ready",
+        output={
+            "approved_production_package": package,
+            "workflow_id": "video-minh_vn-voiceover",
+            "production_note": (
+                "This persona does not have a HeyGen talking-head avatar yet, "
+                "so the video will use scene visuals with voiceover instead."
+            ),
+        },
+        session=session,
+    )
+
+    rendered = TelegramRenderer.render_skill_result(result)
+
+    assert "voiceover instead" in rendered["text"]
+    assert "video-minh_vn-voiceover" in rendered["text"]
+
+
 def test_render_video_ai_done_state_shows_error_when_workflow_failed():
     """Test that video-ai done state shows error when workflow_id missing."""
     package = {

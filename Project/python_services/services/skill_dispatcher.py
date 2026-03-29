@@ -18,6 +18,14 @@ class SkillDispatcher:
     """Load, update, execute, and persist skill sessions."""
 
     @classmethod
+    def _build_heygen_avatar_name(cls, persona_id: str) -> str:
+        normalized = "".join(
+            character if character.isalnum() or character in {"_", "-"} else "_"
+            for character in str(persona_id or "").strip()
+        )
+        return normalized[:64] or "telegram_persona"
+
+    @classmethod
     def _transport_client(cls, app: Any) -> httpx.AsyncClient:
         transport = httpx.ASGITransport(app=app)
         return httpx.AsyncClient(transport=transport, base_url="http://backend")
@@ -407,6 +415,7 @@ class SkillDispatcher:
                 "avatar_image_url"
             ) or session.artifacts.get("preview_image_url")
             avatar_media_asset_id = session.artifacts.get("avatar_media_asset_id")
+            heygen_avatar_id = session.artifacts.get("heygen_avatar_id")
             avatar_source_type = session.artifacts.get("persona_data", {}).get(
                 "avatar_source_type"
             ) or (
@@ -427,6 +436,34 @@ class SkillDispatcher:
                     session=session,
                 )
 
+            if not avatar_url:
+                return SkillResult(
+                    success=False,
+                    error=(
+                        "Avatar preview is missing its image URL, so I can't finish persona setup yet. "
+                        "Please regenerate the avatar and try saving again."
+                    ),
+                    session=session,
+                )
+
+            if not heygen_avatar_id:
+                try:
+                    from services.heygen_service import HeyGenService
+
+                    heygen_avatar_id = await HeyGenService().create_avatar(
+                        avatar_url,
+                        avatar_name=cls._build_heygen_avatar_name(str(persona_id)),
+                    )
+                except Exception as exc:
+                    return SkillResult(
+                        success=False,
+                        error=(
+                            "I couldn't register this persona with HeyGen yet, so it is not video-ready. "
+                            f"Please try Save Persona again in a moment. ({exc})"
+                        ),
+                        session=session,
+                    )
+
             persona = await PersonaRegistryService.update_persona(
                 persona_id,
                 {
@@ -434,6 +471,7 @@ class SkillDispatcher:
                     "avatar_image_url": avatar_url,
                     "avatar_media_asset_id": avatar_media_asset_id,
                     "avatar_source_type": avatar_source_type,
+                    "heygen_avatar_id": heygen_avatar_id,
                 },
                 owner_key=owner_key,
             )
@@ -455,6 +493,7 @@ class SkillDispatcher:
                     ),
                     "persona_id": persona_id,
                     "avatar_media_asset_id": avatar_media_asset_id,
+                    "heygen_avatar_id": heygen_avatar_id,
                 },
             )
 

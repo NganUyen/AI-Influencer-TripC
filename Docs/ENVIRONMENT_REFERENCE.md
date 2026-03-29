@@ -26,6 +26,7 @@ The source of truth for the env contract is `Project/.env.example`. This documen
 - `SUPABASE_PUBLISHABLE_KEY`: non-browser publishable key variant
 - `SUPABASE_SECRET_KEY`: server-side Supabase secret key
 - `CUSTOMER_TOKEN_ENCRYPTION_KEY`: encryption key for customer token vault state
+- `TELEGRAM_AUTH_BRIDGE_SECRET`: server-only secret used to derive deterministic Supabase Auth bridge passwords for Telegram logins
 
 ## Database
 

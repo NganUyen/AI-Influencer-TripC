@@ -42,6 +42,91 @@ class PersonaCreatorSkill(BaseSkill):
         return {"owner_key": f"telegram:{telegram_chat_id}"}
 
     @classmethod
+    def _trim_text(cls, value: str, *, max_length: int) -> str:
+        normalized = re.sub(r"\s+", " ", str(value or "")).strip()
+        if len(normalized) <= max_length:
+            return normalized
+        trimmed = normalized[:max_length].rsplit(" ", 1)[0].strip()
+        return trimmed or normalized[:max_length].strip()
+
+    @classmethod
+    def _simplify_avatar_appearance(cls, appearance: str) -> str:
+        cleaned = str(appearance or "")
+        cleaned = re.sub(r"https?://\S+", " ", cleaned)
+        cleaned = re.sub(r"\[[^\]]*\]\([^)]+\)", " ", cleaned)
+        cleaned = re.sub(r"[\r\n\t]+", " ", cleaned)
+        cleaned = re.sub(r"[`*_>#|]+", " ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.;:-")
+        return cls._trim_text(cleaned, max_length=220)
+
+    @classmethod
+    def _build_avatar_prompt(cls, appearance: str, *, simplified: bool = False) -> str:
+        if simplified:
+            description = cls._simplify_avatar_appearance(appearance)
+            if not description:
+                description = "friendly adult social media creator"
+            return (
+                "Photorealistic head-and-shoulders portrait avatar of a single social media creator. "
+                f"Appearance: {description}. "
+                "Looking at camera, plain neutral background, natural lighting, centered composition, "
+                "no text, no logos, no props, no extra people, no collage."
+            )
+
+        normalized = cls._trim_text(appearance, max_length=600)
+        return (
+            "Create a clean, realistic head-and-shoulders portrait avatar for a social media creator.\n"
+            f"Appearance brief: {normalized}\n"
+            "Style: premium, natural lighting, plain background, centered composition."
+        )
+
+    @classmethod
+    def _extract_http_error_detail(cls, exc: httpx.HTTPStatusError) -> str:
+        response = exc.response
+        if response is None:
+            return str(exc)
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            for key in ("detail", "message", "error"):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        body = response.text.strip()
+        if body:
+            return body
+        return str(exc)
+
+    @classmethod
+    async def _request_avatar_generation(
+        cls,
+        current: SkillSession,
+        backend_url: str,
+        http_client: Any,
+        *,
+        avatar_prompt: str,
+        resolved_user_id: Optional[str],
+        owner_key: Optional[str],
+        metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return await cls._request_json(
+            http_client,
+            "POST",
+            backend_url,
+            "/api/media/generate/image",
+            json={
+                "prompt": avatar_prompt,
+                "aspect_ratio": "1:1",
+                "num_images": 1,
+                "user_id": resolved_user_id,
+                "owner_key": owner_key,
+                "persona_id": current.collected.get("persona_id"),
+                "metadata": metadata,
+            },
+        )
+
+    @classmethod
     def _build_readiness_report(
         cls, persona_id: str, persona: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -169,34 +254,49 @@ class PersonaCreatorSkill(BaseSkill):
         if not appearance:
             return persona
 
-        avatar_prompt = (
-            "Create a clean, realistic head-and-shoulders portrait avatar for a social media creator.\n"
-            f"Appearance brief: {appearance}\n"
-            "Style: premium, natural lighting, plain background, centered composition."
-        )
         telegram_chat_id = current.artifacts.get("telegram_chat_id")
         owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
         resolved_user_id = str(persona.get("user_id") or "").strip() or None
+        base_metadata = {
+            "source": "telegram_skill",
+            "skill_name": cls.name,
+            "persona_id": current.collected.get("persona_id"),
+        }
+        avatar_prompt = cls._build_avatar_prompt(appearance)
+        fallback_avatar_prompt = cls._build_avatar_prompt(appearance, simplified=True)
 
-        image_response = await cls._request_json(
-            http_client,
-            "POST",
-            backend_url,
-            "/api/media/generate/image",
-            json={
-                "prompt": avatar_prompt,
-                "aspect_ratio": "1:1",
-                "num_images": 1,
-                "user_id": resolved_user_id,
-                "owner_key": owner_key,
-                "persona_id": current.collected.get("persona_id"),
-                "metadata": {
-                    "source": "telegram_skill",
-                    "skill_name": cls.name,
-                    "persona_id": current.collected.get("persona_id"),
-                },
-            },
-        )
+        try:
+            image_response = await cls._request_avatar_generation(
+                current,
+                backend_url,
+                http_client,
+                avatar_prompt=avatar_prompt,
+                resolved_user_id=resolved_user_id,
+                owner_key=owner_key,
+                metadata=base_metadata,
+            )
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code not in {400, 422}:
+                raise RuntimeError(cls._extract_http_error_detail(exc)) from exc
+
+            try:
+                image_response = await cls._request_avatar_generation(
+                    current,
+                    backend_url,
+                    http_client,
+                    avatar_prompt=fallback_avatar_prompt,
+                    resolved_user_id=resolved_user_id,
+                    owner_key=owner_key,
+                    metadata={
+                        **base_metadata,
+                        "retry_strategy": "simplified_prompt",
+                        "retry_after_status": status_code,
+                    },
+                )
+            except httpx.HTTPStatusError as retry_exc:
+                raise RuntimeError(cls._extract_http_error_detail(retry_exc)) from retry_exc
+
         avatar_url = image_response.get("url")
         if not avatar_url:
             raise RuntimeError(

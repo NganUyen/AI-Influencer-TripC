@@ -229,6 +229,137 @@ async def test_persona_creator_uses_uploaded_reference_avatar_when_present(monke
 
 
 @pytest.mark.asyncio
+async def test_persona_creator_retries_avatar_with_simplified_prompt(monkeypatch):
+    session = PersonaCreatorSkill.initial_session()
+    session.artifacts["telegram_chat_id"] = "123456"
+    session.collected.update(
+        {
+            "persona_id": "demo-persona",
+            "language": "English",
+            "voice": "male_friendly",
+            "appearance_prompt_or_photo": "Tall creator\nhttps://example.com/ref\nwith *green* jacket and travel vibe",
+        }
+    )
+
+    request = httpx.Request("POST", "http://backend/api/media/generate/image")
+    response = httpx.Response(
+        422,
+        request=request,
+        json={"detail": "Prompt was rejected by the image provider."},
+    )
+
+    monkeypatch.setattr(
+        PersonaCreatorSkill,
+        "_request_json",
+        AsyncMock(
+            side_effect=[
+                {
+                    "persona_id": "demo-persona",
+                    "display_name": "Demo Persona",
+                    "user_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "status": "draft",
+                    "language": "English",
+                    "tts_voice": "en-US-Studio-O",
+                    "avatar_image_url": None,
+                    "avatar_prompt": "Tall creator\nhttps://example.com/ref\nwith *green* jacket and travel vibe",
+                    "heygen_avatar_id": None,
+                },
+                httpx.HTTPStatusError("invalid prompt", request=request, response=response),
+                {
+                    "url": "https://cdn.example/avatar.png",
+                    "media_asset_id": "asset-generated-1",
+                },
+                {
+                    "persona_id": "demo-persona",
+                    "display_name": "Demo Persona",
+                    "user_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "status": "draft",
+                    "language": "English",
+                    "tts_voice": "en-US-Studio-O",
+                    "avatar_image_url": "https://cdn.example/avatar.png",
+                    "avatar_media_asset_id": "asset-generated-1",
+                    "avatar_source_type": "generated",
+                    "avatar_prompt": "Tall creator",
+                    "heygen_avatar_id": None,
+                },
+            ]
+        ),
+    )
+
+    result = await PersonaCreatorSkill.execute(session, "http://backend", AsyncMock())
+
+    assert result.success is True
+    assert result.session is not None
+    assert PersonaCreatorSkill._request_json.await_count == 4
+    first_avatar_payload = PersonaCreatorSkill._request_json.await_args_list[1].kwargs["json"]
+    retry_avatar_payload = PersonaCreatorSkill._request_json.await_args_list[2].kwargs["json"]
+    assert first_avatar_payload["prompt"] != retry_avatar_payload["prompt"]
+    assert "https://example.com" not in retry_avatar_payload["prompt"]
+    assert "*" not in retry_avatar_payload["prompt"]
+    assert retry_avatar_payload["metadata"]["retry_strategy"] == "simplified_prompt"
+
+
+@pytest.mark.asyncio
+async def test_persona_creator_surfaces_retry_failure_detail(monkeypatch):
+    session = PersonaCreatorSkill.initial_session()
+    session.artifacts["telegram_chat_id"] = "123456"
+    session.collected.update(
+        {
+            "persona_id": "demo-persona",
+            "language": "English",
+            "voice": "male_friendly",
+            "appearance_prompt_or_photo": "creator portrait request",
+        }
+    )
+
+    request = httpx.Request("POST", "http://backend/api/media/generate/image")
+    first_response = httpx.Response(
+        422,
+        request=request,
+        json={"detail": "Prompt was rejected by the image provider."},
+    )
+    retry_response = httpx.Response(
+        422,
+        request=request,
+        json={"detail": "The simplified avatar prompt was also rejected."},
+    )
+
+    monkeypatch.setattr(
+        PersonaCreatorSkill,
+        "_request_json",
+        AsyncMock(
+            side_effect=[
+                {
+                    "persona_id": "demo-persona",
+                    "display_name": "Demo Persona",
+                    "user_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "status": "draft",
+                    "language": "English",
+                    "tts_voice": "en-US-Studio-O",
+                    "avatar_image_url": None,
+                    "avatar_prompt": "creator portrait request",
+                    "heygen_avatar_id": None,
+                },
+                httpx.HTTPStatusError("invalid prompt", request=request, response=first_response),
+                httpx.HTTPStatusError("invalid retry prompt", request=request, response=retry_response),
+            ]
+        ),
+    )
+
+    result = await PersonaCreatorSkill.execute(session, "http://backend", AsyncMock())
+
+    assert result.success is False
+    assert result.error is not None
+    assert "The simplified avatar prompt was also rejected." in result.error
+    assert result.session is not None
+    assert result.session.step_key == "failed"
+    assert PersonaCreatorSkill._request_json.await_count == 3
+    first_avatar_payload = PersonaCreatorSkill._request_json.await_args_list[1].kwargs["json"]
+    retry_avatar_payload = PersonaCreatorSkill._request_json.await_args_list[2].kwargs["json"]
+    assert first_avatar_payload["prompt"] != retry_avatar_payload["prompt"]
+
+
+@pytest.mark.asyncio
 async def test_persona_creator_force_regenerates_existing_avatar(monkeypatch):
     session = PersonaCreatorSkill.initial_session()
     session.artifacts["telegram_chat_id"] = "123456"

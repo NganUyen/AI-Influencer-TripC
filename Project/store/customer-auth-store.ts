@@ -37,6 +37,7 @@ interface CustomerAuthState {
       name?: string | null;
       avatar_url?: string | null;
     } | null,
+    refreshToken?: string | null,
   ) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   loginWithTelegram: (telegramData: any) => Promise<void>;
@@ -72,18 +73,21 @@ function mapUser(
 }
 
 async function establishSupabaseSession(
-  accessToken: string,
+    accessToken: string,
+    refreshToken?: string | null,
 ): Promise<SupabaseSession | null> {
+  const normalizedRefreshToken = refreshToken?.trim();
+  if (!normalizedRefreshToken) {
+    return null;
+  }
+
   const supabase = getSupabaseClient();
   const { data, error } = await supabase.auth.setSession({
     access_token: accessToken,
-    refresh_token: "",
+    refresh_token: normalizedRefreshToken,
   });
 
   if (error) {
-    if (error.message === "Auth session missing!") {
-      return null;
-    }
     throw error;
   }
 
@@ -195,10 +199,10 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
       });
     },
 
-    establishSessionFromAccessToken: async (accessToken: string, user) => {
+    establishSessionFromAccessToken: async (accessToken: string, user, refreshToken) => {
       set({ isLoading: true, error: null });
       try {
-        const session = await establishSupabaseSession(accessToken);
+        const session = await establishSupabaseSession(accessToken, refreshToken);
         if (!session) {
           const persistedSession = buildPersistedCustomerSession(accessToken, {
             id: user?.id,
@@ -305,6 +309,7 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
         await get().establishSessionFromAccessToken(
           payload.access_token,
           payload.user || null,
+          payload.refresh_token || null,
         );
       } catch (err) {
         set({

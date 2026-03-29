@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from PIL import Image
 
 from api import media
+from services.fal_service import FalAIRequestError
 
 
 class _StubImageGenerationService:
@@ -140,6 +141,29 @@ async def test_generate_image_route_returns_source_url_when_storage_falls_back(m
     assert result["url"] == "https://fal.example/images/fallback.png"
     assert result["storage_url"] is None
     assert result["images"][0]["storage_status"] == "source_only"
+    assert stub.closed is True
+
+
+@pytest.mark.asyncio
+async def test_generate_image_route_preserves_fal_client_errors(monkeypatch):
+    class _FailingImageGenerationService:
+        def __init__(self):
+            self.closed = False
+
+        async def generate_images(self, **kwargs):
+            raise FalAIRequestError(422, "Prompt was rejected by the image provider.")
+
+        async def close(self):
+            self.closed = True
+
+    stub = _FailingImageGenerationService()
+    monkeypatch.setattr(media, "ImageGenerationService", lambda: stub)
+
+    with pytest.raises(HTTPException) as exc:
+        await media.generate_image(media.ImageGenerateRequest(prompt="bad prompt"))
+
+    assert exc.value.status_code == 422
+    assert exc.value.detail == "Prompt was rejected by the image provider."
     assert stub.closed is True
 
 

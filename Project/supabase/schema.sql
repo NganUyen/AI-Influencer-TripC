@@ -472,3 +472,7 @@ CREATE TABLE public.workflows (
   CONSTRAINT workflows_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
   CONSTRAINT workflows_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES public.users(id)
 );
+
+-- Supabase-hosted environments also install an auth.users -> public.users sync
+-- trigger via 20260329_supabase_auth_user_sync.sql so customer auth stays
+-- aligned with the relational ownership anchor used by the app tables.

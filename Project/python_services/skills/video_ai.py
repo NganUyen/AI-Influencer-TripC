@@ -229,8 +229,9 @@ class VideoAISkill(BaseSkill):
         # Call the production workflow API
         try:
             response = await http_client.post(
-                f"{backend_url}/api/workflows/start-video",
+                cls._build_url(backend_url, "/api/workflows/start-video"),
                 json=production_payload,
+                headers=cls._auth_headers(),
             )
             response.raise_for_status()
             workflow_data = response.json()

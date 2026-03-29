@@ -407,6 +407,7 @@ async def test_video_ai_package_ready_posts_to_start_video(monkeypatch):
 
     mock_http_client = AsyncMock()
     mock_http_client.post.return_value = mock_response
+    monkeypatch.setenv("INTERNAL_API_TOKEN", "test-internal-token")
 
     # Run through the full approval flow
     session = _filled_session()
@@ -437,6 +438,7 @@ async def test_video_ai_package_ready_posts_to_start_video(monkeypatch):
 
     # Verify payload contains approved_package
     payload = call_args[1]["json"]
+    headers = call_args[1]["headers"]
     assert payload["persona_id"] == "minh_vn"
     assert payload["approved_package"] is not None
     assert payload["approved_package"]["concept_brief"]["persona_id"] == "minh_vn"
@@ -444,6 +446,7 @@ async def test_video_ai_package_ready_posts_to_start_video(monkeypatch):
     assert len(payload["approved_package"]["beat_sheet"]["beats"]) == 5
     assert payload["telegram_chat_id"] == "123456"
     assert payload["owner_key"] == "telegram:123456"
+    assert headers == {"x-internal-api-token": "test-internal-token"}
 
     # Verify result
     assert package_result.success is True

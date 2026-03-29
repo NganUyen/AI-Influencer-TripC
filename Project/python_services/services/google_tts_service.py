@@ -5,6 +5,7 @@ Thay thế PlayHT vì rẻ hơn và giọng Việt tự nhiên hơn.
 """
 
 import base64
+import binascii
 import logging
 import httpx
 from config.settings import settings
@@ -43,6 +44,19 @@ VOICE_LABELS = {
 }
 
 GOOGLE_TTS_ENDPOINT = "https://texttospeech.googleapis.com/v1/text:synthesize"
+
+# Validation constants
+MAX_TEXT_LENGTH = 5000
+MIN_SPEAKING_RATE = 0.25
+MAX_SPEAKING_RATE = 4.0
+MIN_PITCH = -20.0
+MAX_PITCH = 20.0
+VALID_OUTPUT_FORMATS = {"MP3", "OGG_OPUS", "LINEAR16"}
+
+# Timeout configuration: base timeout + extra time based on text length
+BASE_TIMEOUT_SECONDS = 15.0
+TIMEOUT_PER_1000_CHARS = 5.0
+MAX_TIMEOUT_SECONDS = 60.0
 
 
 class GoogleTTSService:
@@ -171,7 +185,39 @@ class GoogleTTSService:
 
         Returns:
             bytes: Dữ liệu audio MP3 thô
+
+        Raises:
+            ValueError: If text is empty, too long, or parameters are invalid
         """
+        # Validate text
+        text = text.strip() if text else ""
+        if not text:
+            raise ValueError("Text cannot be empty")
+        if len(text) > MAX_TEXT_LENGTH:
+            raise ValueError(
+                f"Text exceeds {MAX_TEXT_LENGTH} character limit: {len(text)} characters"
+            )
+
+        # Validate speaking_rate
+        if not (MIN_SPEAKING_RATE <= speaking_rate <= MAX_SPEAKING_RATE):
+            raise ValueError(
+                f"speaking_rate must be between {MIN_SPEAKING_RATE} and {MAX_SPEAKING_RATE}, "
+                f"got {speaking_rate}"
+            )
+
+        # Validate pitch
+        if not (MIN_PITCH <= pitch <= MAX_PITCH):
+            raise ValueError(
+                f"pitch must be between {MIN_PITCH} and {MAX_PITCH}, got {pitch}"
+            )
+
+        # Validate output_format
+        output_format_upper = output_format.upper()
+        if output_format_upper not in VALID_OUTPUT_FORMATS:
+            raise ValueError(
+                f"output_format must be one of {VALID_OUTPUT_FORMATS}, got '{output_format}'"
+            )
+
         resolved_voice = self.resolve_voice_name(voice, language=language)
         payload = {
             "input": {"text": text},
@@ -182,7 +228,7 @@ class GoogleTTSService:
                 "name": resolved_voice,
             },
             "audioConfig": {
-                "audioEncoding": output_format,
+                "audioEncoding": output_format_upper,
                 "speakingRate": speaking_rate,
                 "pitch": pitch,
                 "effectsProfileId": ["headphone-class-device"],
@@ -193,7 +239,13 @@ class GoogleTTSService:
         headers = {"X-Goog-Api-Key": self.api_key}
         logger.info(f"Gọi Google TTS | Voice: {resolved_voice} | {len(text)} ký tự")
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        # Calculate timeout based on text length
+        timeout = min(
+            BASE_TIMEOUT_SECONDS + (len(text) / 1000) * TIMEOUT_PER_1000_CHARS,
+            MAX_TIMEOUT_SECONDS,
+        )
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
             try:
                 response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
@@ -209,7 +261,7 @@ class GoogleTTSService:
                 await self._record_usage(
                     text=text,
                     voice=resolved_voice,
-                    output_format=output_format,
+                    output_format=output_format_upper,
                     error=sanitized_exc,
                 )
                 raise sanitized_exc from None
@@ -217,7 +269,7 @@ class GoogleTTSService:
                 await self._record_usage(
                     text=text,
                     voice=resolved_voice,
-                    output_format=output_format,
+                    output_format=output_format_upper,
                     error=exc,
                 )
                 raise
@@ -225,14 +277,44 @@ class GoogleTTSService:
         result = response.json()
         audio_content_b64 = result.get("audioContent")
         if not audio_content_b64:
-            raise ValueError("Google TTS không trả về audioContent")
+            error = ValueError("Google TTS không trả về audioContent")
+            await self._record_usage(
+                text=text,
+                voice=resolved_voice,
+                output_format=output_format_upper,
+                error=error,
+            )
+            raise error
 
-        audio_bytes = base64.b64decode(audio_content_b64)
+        try:
+            audio_bytes = base64.b64decode(audio_content_b64)
+        except (binascii.Error, ValueError) as decode_error:
+            error = ValueError(
+                f"Invalid base64 audio content from Google TTS: {decode_error}"
+            )
+            await self._record_usage(
+                text=text,
+                voice=resolved_voice,
+                output_format=output_format_upper,
+                error=error,
+            )
+            raise error from decode_error
+
+        if not audio_bytes:
+            error = ValueError("Google TTS returned empty audio data")
+            await self._record_usage(
+                text=text,
+                voice=resolved_voice,
+                output_format=output_format_upper,
+                error=error,
+            )
+            raise error
+
         logger.info(f"Google TTS thành công | {len(audio_bytes):,} bytes MP3")
         await self._record_usage(
             text=text,
             voice=resolved_voice,
-            output_format=output_format,
+            output_format=output_format_upper,
             audio_bytes=audio_bytes,
         )
         return audio_bytes

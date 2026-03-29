@@ -82,7 +82,9 @@ async def wait_for_approval(request_id: str) -> Dict[str, Any]:
 
 
 @activity.defn
-async def generate_and_send_script_for_approval(config: Dict[str, Any]) -> Dict[str, Any]:
+async def generate_and_send_script_for_approval(
+    config: Dict[str, Any],
+) -> Dict[str, Any]:
     """
     Generate script and send it to Telegram for operator approval.
     """
@@ -168,7 +170,9 @@ async def wait_for_script_approval(request_id: str, chat_id: str) -> Dict[str, A
         await asyncio.sleep(POLL_INTERVAL)
         elapsed += POLL_INTERVAL
 
-    raise TimeoutError(f"Script approval timed out after {APPROVAL_TIMEOUT}s [{request_id}]")
+    raise TimeoutError(
+        f"Script approval timed out after {APPROVAL_TIMEOUT}s [{request_id}]"
+    )
 
 
 @activity.defn
@@ -211,8 +215,23 @@ async def send_preview_to_telegram(config: Dict[str, Any]) -> Dict[str, Any]:
 async def wait_for_publish_decision(request_id: str, chat_id: str) -> Dict[str, Any]:
     """
     Poll for final save/discard choice.
+
+    [SAFETY-5] WARNING: This activity polls TelegramService for approval state.
+    If Redis is not configured and the webhook/worker run in different processes,
+    the callback will never reach this polling loop and the workflow will timeout.
+    Ensure REDIS_URL is set in production for distributed deployments.
     """
     tg = TelegramService()
+
+    # [SAFETY-5] Log warning if Redis is disabled
+    if not TelegramService._redis_enabled:
+        logger.warning(
+            "APPROVAL STATE WARNING: Redis disabled for request_id=%s. "
+            "If webhook and worker are separate processes, approval callbacks may not reach this activity. "
+            "Set REDIS_URL to enable distributed approval state.",
+            request_id,
+        )
+
     elapsed = 0
 
     while elapsed < APPROVAL_TIMEOUT:
@@ -233,29 +252,69 @@ async def wait_for_publish_decision(request_id: str, chat_id: str) -> Dict[str, 
 async def generate_script_from_approved_package_activity(config: dict) -> dict:
     """
     Generate script from an approved package. Does NOT require human approval.
+
+    [SAFETY] Validates package structure before processing to provide clear errors.
     """
     from services.script_service import ScriptService
-    
+
+    # [SAFETY] Validate required config keys
+    if "approved_package" not in config:
+        logger.error("Missing 'approved_package' in config: %s", list(config.keys()))
+        raise ValueError("Missing 'approved_package' in activity config")
+
     app_name = config.get("app_name", "TripC")
     package = config["approved_package"]
     persona_config = config.get("persona_config", {})
-    
+
+    # [SAFETY] Validate package structure
+    if not isinstance(package, dict):
+        logger.error("approved_package is not a dict: type=%s", type(package).__name__)
+        raise TypeError(f"approved_package must be dict, got {type(package).__name__}")
+
+    beat_sheet = package.get("beat_sheet")
+    if not beat_sheet:
+        logger.error("Missing 'beat_sheet' in package: %s", list(package.keys()))
+        raise ValueError("Missing 'beat_sheet' in approved_package")
+
+    if not isinstance(beat_sheet, dict):
+        logger.error("beat_sheet is not a dict: type=%s", type(beat_sheet).__name__)
+        raise TypeError(f"beat_sheet must be dict, got {type(beat_sheet).__name__}")
+
+    beats = beat_sheet.get("beats")
+    if not beats:
+        logger.error("Missing or empty 'beats' in beat_sheet")
+        raise ValueError("Missing or empty 'beats' in beat_sheet")
+
+    if not isinstance(beats, list):
+        logger.error("beats is not a list: type=%s", type(beats).__name__)
+        raise TypeError(f"beats must be list, got {type(beats).__name__}")
+
+    concept_brief = package.get("concept_brief") or {}
+
+    logger.info(
+        "Generating script from approved package | app=%s | beats=%s | language=%s | has_reference_url=%s",
+        app_name,
+        len(beats),
+        persona_config.get("language_name"),
+        bool(concept_brief.get("reference_url")),
+    )
+
     svc = ScriptService()
     try:
         contract = await svc.generate_script_from_package(
-            app_name=app_name,
-            package=package,
-            persona_config=persona_config
+            app_name=app_name, package=package, persona_config=persona_config
         )
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
+    except Exception as exc:
+        logger.exception(
+            "Failed to generate script from approved package | app=%s | beats=%s | reference_url=%s | error_type=%s",
+            app_name,
+            len(beats),
+            concept_brief.get("reference_url"),
+            type(exc).__name__,
+        )
         raise
-        
-    return {
-        "script_json": contract.model_dump(),
-        "status": "ready"
-    }
+
+    return {"script_json": contract.model_dump(), "status": "ready"}
 
 
 @activity.defn

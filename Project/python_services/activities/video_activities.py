@@ -131,16 +131,33 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
 
         download_tasks: List[asyncio.Future] = []
         image_paths: List[str] = []
+        # [SAFETY-4] Use is_video_flags from workflow if available, fallback to URL detection
+        is_video_flags = assembly_input.is_video_flags or []
         for index, url in enumerate(assembly_input.image_urls):
-            # [MEDIUM-2 FIX] Use urlparse-based extension detection
-            ext = _get_extension_for_url(url)
-            is_video_asset = _is_video_url(url)
+            # [SAFETY-4] Prefer explicit flag, fallback to URL-based detection
+            is_video_from_flag = (
+                is_video_flags[index] if index < len(is_video_flags) else None
+            )
+            is_video_from_url = _is_video_url(url)
+            is_video_asset = (
+                is_video_from_flag
+                if is_video_from_flag is not None
+                else is_video_from_url
+            )
 
-            # [CP5] Log asset type detection
+            # Use appropriate extension based on asset type
+            if is_video_asset:
+                ext = _get_extension_for_url(url) if is_video_from_url else ".mp4"
+            else:
+                ext = _get_extension_for_url(url)
+
+            # [CP5] Log asset type detection with source
             logger.debug(
-                "Asset type detected | scene=%s | is_video=%s | url_path=%s",
+                "Asset type detected | scene=%s | is_video=%s (flag=%s, url=%s) | url_path=%s",
                 index,
                 is_video_asset,
+                is_video_from_flag,
+                is_video_from_url,
                 urlparse(url).path[-50:] if url else "NONE",
             )
 

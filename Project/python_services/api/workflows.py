@@ -63,9 +63,16 @@ def _extract_describe_execution_status(description: Any) -> Optional[str]:
     raw_description = getattr(description, "raw_description", None)
     workflow_info = getattr(raw_description, "workflow_execution_info", None)
     status_value = getattr(workflow_info, "status", None)
-    if status_value is None:
-        return None
-    return _normalize_execution_status(status_value)
+    if status_value is not None:
+        return _normalize_execution_status(status_value)
+
+    # Test doubles and some client wrappers expose status directly as an enum-like object
+    direct_status = getattr(description, "status", None)
+    direct_status_name = getattr(direct_status, "name", None)
+    if isinstance(direct_status_name, str) and direct_status_name.strip():
+        return direct_status_name.strip().lower()
+
+    return None
 
 
 async def _resolve_workflow_status_payload(handle: Any) -> Dict[str, Any]:
@@ -94,6 +101,18 @@ async def _resolve_workflow_status_payload(handle: Any) -> Dict[str, Any]:
         execution_status = _extract_describe_execution_status(description)
     except Exception as describe_exc:
         logger.warning("Workflow describe failed: %s", describe_exc)
+
+    # If describe says the workflow is still open/running, don't call result()
+    if execution_status in {"running"}:
+        return {
+            "status": {
+                "status": execution_status,
+                "current_step": execution_status,
+                "workflow_id": getattr(handle, "id", None),
+            },
+            "execution_status": execution_status,
+            "source": "describe",
+        }
 
     # Try to get terminal result for completed/failed workflows
     try:

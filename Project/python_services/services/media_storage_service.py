@@ -10,6 +10,7 @@ Storage layout is user/persona scoped:
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import uuid
@@ -368,7 +369,7 @@ class MediaStorageService:
                 provider_job_id,
                 int(file_size or 0),
                 mime_type,
-                metadata,
+                json.dumps(metadata),
             )
         if row is None:
             return None
@@ -476,8 +477,8 @@ class MediaStorageService:
                 "source_url": cleaned_metadata.get("source_url"),
                 "expires_at": None,
             }
-        except Exception as exc:
-            logger.warning("MediaStorageService.upload_bytes failed: %s", exc)
+        except Exception:
+            logger.exception("MediaStorageService.upload_bytes failed")
             return None
 
     async def upload_from_url(
@@ -525,9 +526,9 @@ class MediaStorageService:
                 metadata={**(metadata or {}), "source_url": url},
                 file_name_hint=file_name_hint,
             )
-        except Exception as exc:
-            logger.warning(
-                "MediaStorageService.upload_from_url failed (%s): %s", url, exc
+        except Exception:
+            logger.exception(
+                "MediaStorageService.upload_from_url failed (%s)", url
             )
             return None
 
@@ -620,6 +621,6 @@ class MediaStorageService:
                 "source_url": cleaned_metadata.get("source_url"),
                 "expires_at": None,
             }
-        except Exception as exc:
-            logger.warning("MediaStorageService.record_asset failed: %s", exc)
+        except Exception:
+            logger.exception("MediaStorageService.record_asset failed")
             return None

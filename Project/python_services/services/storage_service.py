@@ -267,7 +267,17 @@ class StorageService:
                 content=data,
                 json=json_body,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                logger.error(
+                    "Supabase Storage error (%s %s): %s\nResponse: %s",
+                    method,
+                    url,
+                    exc,
+                    response.text,
+                )
+                raise
             if not response.content:
                 return None
             return response.json()

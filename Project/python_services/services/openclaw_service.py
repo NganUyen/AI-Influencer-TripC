@@ -11,40 +11,18 @@ from typing import Any, Dict, Optional
 import httpx
 
 from config.settings import settings
+from utils.json_helpers import extract_json_from_llm_response
 
 logger = logging.getLogger(__name__)
 
+_shared_client: Optional[httpx.AsyncClient] = None
 
-def _strip_markdown_fence(value: str) -> str:
-    text = value.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines:
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        return "\n".join(lines).strip()
-    return text
+def _get_shared_client() -> httpx.AsyncClient:
+    global _shared_client
+    if _shared_client is None:
+        _shared_client = httpx.AsyncClient(timeout=300.0)
+    return _shared_client
 
-
-def _maybe_parse_json(value: str) -> Any:
-    cleaned = _strip_markdown_fence(value)
-    if not cleaned:
-        return {}
-
-    candidates = [cleaned]
-    if "{" in cleaned and "}" in cleaned:
-        candidates.append(cleaned[cleaned.find("{") : cleaned.rfind("}") + 1])
-    if "[" in cleaned and "]" in cleaned:
-        candidates.append(cleaned[cleaned.find("[") : cleaned.rfind("]") + 1])
-
-    for candidate in candidates:
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-
-    return {"text": cleaned}
 
 
 def _extract_output_text(payload: Dict[str, Any]) -> str:
@@ -116,17 +94,13 @@ class OpenClawService:
         self.connector_session_token = connector_session_token
         self.transport = "connector" if connector_session_token else "responses"
 
-        headers = {"Content-Type": "application/json"}
+        self.headers = {"Content-Type": "application/json"}
         if self.connector_session_token:
-            headers["Authorization"] = f"Bearer {self.connector_session_token}"
+            self.headers["Authorization"] = f"Bearer {self.connector_session_token}"
         elif self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+            self.headers["Authorization"] = f"Bearer {self.api_key}"
 
-        self.client = httpx.AsyncClient(
-            base_url=self.base_url,
-            headers=headers,
-            timeout=300.0,
-        )
+        self.client = _get_shared_client()
 
     @staticmethod
     def _extract_error_message(exc: httpx.HTTPStatusError) -> str:
@@ -196,7 +170,7 @@ class OpenClawService:
                 },
             }
             try:
-                response = await self.client.post("mcp", json=payload)
+                response = await self.client.post(f"{self.base_url}mcp", json=payload, headers=self.headers)
                 response.raise_for_status()
             except httpx.RequestError as exc:
                 self._raise_network_error(exc, transport="connector")
@@ -230,7 +204,7 @@ class OpenClawService:
         }
 
         try:
-            response = await self.client.post("v1/responses", json=payload)
+            response = await self.client.post(f"{self.base_url}v1/responses", json=payload, headers=self.headers)
             response.raise_for_status()
         except httpx.RequestError as exc:
             self._raise_network_error(exc, transport="responses")
@@ -239,7 +213,7 @@ class OpenClawService:
 
         raw = response.json()
         output_text = _extract_output_text(raw)
-        result = _maybe_parse_json(output_text)
+        result = extract_json_from_llm_response(output_text)
 
         if isinstance(result, dict):
             result.setdefault("response_id", raw.get("id"))
@@ -269,7 +243,7 @@ class OpenClawService:
             payload["sessionKey"] = session_key
 
         try:
-            response = await self.client.post("tools/invoke", json=payload)
+            response = await self.client.post(f"{self.base_url}tools/invoke", json=payload, headers=self.headers)
             response.raise_for_status()
         except httpx.RequestError as exc:
             self._raise_network_error(exc, transport="responses")
@@ -329,10 +303,10 @@ class OpenClawService:
         }
 
     async def close(self) -> None:
-        await self.client.aclose()
+        pass  # Shared client lifecycle is globally managed
 
     async def __aenter__(self) -> 'OpenClawService':
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        await self.close()
+        pass

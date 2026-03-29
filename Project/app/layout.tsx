@@ -3,6 +3,8 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "react-hot-toast";
 
+import { RUNTIME_PUBLIC_ENV_ROUTE } from "@/lib/public-env-server";
+
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
@@ -25,6 +27,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <script src={RUNTIME_PUBLIC_ENV_ROUTE} />
+      </head>
       <body className={inter.className}>
         {children}
         <Toaster position="top-right" />

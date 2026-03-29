@@ -49,6 +49,7 @@ with patch.dict(os.environ, _TEST_ENV, clear=False):
         router,
         send_photo,
     )
+    from services.telegram_link_service import TelegramLinkError
     from services.skill_session_store import TelegramSkillSessionStore
     from skills.base import SkillControl, SkillResult, SkillSession, SkillStatus
 
@@ -117,6 +118,57 @@ async def test_start_command_clears_active_session(tg_calls):
 
     restored = await TelegramSkillSessionStore.get_session(123456789)
     assert restored is None
+
+
+@pytest.mark.asyncio
+async def test_start_command_with_link_token_consumes_token_and_confirms_link(tg_calls):
+    message = {
+        "text": "/start secure-link-token",
+        "chat": {"id": 123456789, "type": "private"},
+        "from": {"first_name": "TripC", "username": "tripc"},
+    }
+
+    with patch.object(
+        telegram_webhook.TelegramLinkService,
+        "consume_link_token",
+        AsyncMock(
+            return_value={
+                "chat_id": 123456789,
+                "user_id": "550e8400-e29b-41d4-a716-446655440000",
+                "telegram_username": "tripc",
+            }
+        ),
+    ) as consume_link_token:
+        await _handle_message(None, message)
+
+    consume_link_token.assert_awaited_once_with(
+        token="secure-link-token",
+        chat_id=123456789,
+        telegram_username="tripc",
+    )
+    send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
+    assert "Telegram is now linked to your customer workspace." in send_call["payload"]["text"]
+    assert "550e8400-e29b-41d4-a716-446655440000" in send_call["payload"]["text"]
+
+
+@pytest.mark.asyncio
+async def test_start_command_with_invalid_link_token_returns_friendly_error(tg_calls):
+    message = {
+        "text": "/start invalid-token",
+        "chat": {"id": 123456789, "type": "private"},
+        "from": {"first_name": "TripC", "username": "tripc"},
+    }
+
+    with patch.object(
+        telegram_webhook.TelegramLinkService,
+        "consume_link_token",
+        AsyncMock(side_effect=TelegramLinkError("Telegram link token is invalid.")),
+    ):
+        await _handle_message(None, message)
+
+    send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
+    assert "Telegram link failed: Telegram link token is invalid." in send_call["payload"]["text"]
+    assert "generate a fresh link token" in send_call["payload"]["text"]
 
 
 @pytest.mark.asyncio

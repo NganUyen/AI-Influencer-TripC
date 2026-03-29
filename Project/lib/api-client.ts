@@ -1,7 +1,8 @@
 import axios from "axios";
 
+import { getClientPublicEnvValue } from "@/lib/public-env";
+
 const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000",
   timeout: 30000,
   headers: {
     "Content-Type": "application/json",
@@ -11,6 +12,9 @@ const apiClient = axios.create({
 // Request interceptor
 apiClient.interceptors.request.use(
   (config) => {
+    config.baseURL =
+      getClientPublicEnvValue("NEXT_PUBLIC_API_URL") || "http://localhost:3000";
+
     // Add auth token if available
     const token = localStorage.getItem("access_token");
     if (token) {

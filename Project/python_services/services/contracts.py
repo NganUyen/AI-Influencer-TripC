@@ -66,6 +66,7 @@ class SplitScreenVideoInput(BaseModel):
     audio_url: str
     talking_head_url: Optional[str] = None
     scene_captions: List[str] = Field(default_factory=list)
+    scene_durations: List[float] = Field(default_factory=list)
     persona_id: str = "unknown"
     topic: str = "topic"
     duration_per_image: float = 4.0
@@ -260,7 +261,9 @@ class BeatSheetContract(BaseModel):
     @model_validator(mode="after")
     def validate_beat_count(self) -> "BeatSheetContract":
         if len(self.beats) not in {5, 6}:
-            raise ValueError("BeatSheet must contain 5 beats by default, or 6 for complex demos")
+            raise ValueError(
+                "BeatSheet must contain 5 beats by default, or 6 for complex demos"
+            )
         return self
 
 

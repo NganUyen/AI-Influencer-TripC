@@ -14,6 +14,20 @@ from services.quota_monitor_service import QuotaMonitorService
 
 logger = logging.getLogger(__name__)
 
+_shared_openai_client: AsyncOpenAI | None = None
+_shared_anthropic_client: AsyncAnthropic | None = None
+
+def _get_shared_openai() -> AsyncOpenAI:
+    global _shared_openai_client
+    if _shared_openai_client is None:
+        _shared_openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    return _shared_openai_client
+
+def _get_shared_anthropic() -> AsyncAnthropic:
+    global _shared_anthropic_client
+    if _shared_anthropic_client is None:
+        _shared_anthropic_client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    return _shared_anthropic_client
 
 def _usage_value(usage: Any, *keys: str) -> Any:
     if usage is None:
@@ -121,8 +135,8 @@ class AIService:
     """
 
     def __init__(self):
-        self.openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        self.anthropic_client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        self.openai_client = _get_shared_openai()
+        self.anthropic_client = _get_shared_anthropic()
         
         if settings.GOOGLE_AI_API_KEY:
             genai.configure(api_key=settings.GOOGLE_AI_API_KEY)
@@ -130,9 +144,8 @@ class AIService:
         self.default_model = settings.DEFAULT_AI_MODEL or "models/gemini-2.0-flash"
 
     async def close(self) -> None:
-        """Close underlying HTTP clients to prevent resource leaks."""
-        await self.openai_client.close()
-        await self.anthropic_client.close()
+        """Shared clients are managed globally, no-op here."""
+        pass
 
     async def __aenter__(self) -> 'AIService':
         return self

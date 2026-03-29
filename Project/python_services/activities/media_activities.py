@@ -21,7 +21,7 @@ from services.contracts import AudioInput, ImageInput, VideoInput
 from .video_activities import build_split_screen_video
 from services.content_scenes_service import (
     generate_content_scenes as get_scenes,
-    generate_app_tutorial_scenes as get_app_scenes
+    generate_app_tutorial_scenes as get_app_scenes,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,9 @@ def _prompt_metadata(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
 def _prompt_voice(prompt_config: Dict[str, Any]) -> str:
     config = prompt_config.get("config") or {}
     language = config.get("language") or prompt_config.get("language")
-    requested = config.get("voice") or prompt_config.get("voice_id") or "vi-VN-Wavenet-D"
+    requested = (
+        config.get("voice") or prompt_config.get("voice_id") or "vi-VN-Wavenet-D"
+    )
     return GoogleTTSService.resolve_voice_name(requested, language=language)
 
 
@@ -80,10 +82,14 @@ async def generate_image(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"Failed to generate image HTTP error: {str(e)}")
         # Do not retry on 4xx clients errors to prevent burning limits/billing
         non_retryable = 400 <= e.response.status_code < 500
-        raise ApplicationError(f"Image generation HTTP error: {str(e)}", non_retryable=non_retryable)
+        raise ApplicationError(
+            f"Image generation HTTP error: {str(e)}", non_retryable=non_retryable
+        )
     except Exception as e:
         logger.error(f"Failed to generate image: {str(e)}")
-        raise ApplicationError(f"Image generation failed: {str(e)}", non_retryable=False)
+        raise ApplicationError(
+            f"Image generation failed: {str(e)}", non_retryable=False
+        )
     finally:
         await image_service.close()
 
@@ -128,10 +134,14 @@ async def generate_video(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
     except httpx.HTTPStatusError as e:
         logger.error(f"Failed to generate video HTTP error: {str(e)}")
         non_retryable = 400 <= e.response.status_code < 500
-        raise ApplicationError(f"Video generation HTTP error: {str(e)}", non_retryable=non_retryable)
+        raise ApplicationError(
+            f"Video generation HTTP error: {str(e)}", non_retryable=non_retryable
+        )
     except Exception as e:
         logger.error(f"Failed to generate video: {str(e)}")
-        raise ApplicationError(f"Video generation failed: {str(e)}", non_retryable=False)
+        raise ApplicationError(
+            f"Video generation failed: {str(e)}", non_retryable=False
+        )
     finally:
         await fal_service.close()
 
@@ -163,7 +173,9 @@ async def generate_video(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
         "url": effective_url,
         "source_url": result.get("url"),
         "storage_url": effective_url,
-        "storage_key": storage_result.get("storage_path") if isinstance(storage_result, dict) else None,
+        "storage_key": storage_result.get("storage_path")
+        if isinstance(storage_result, dict)
+        else None,
         "status": "completed",
         "data": result,
         "metadata": {
@@ -182,12 +194,17 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
     audio_input = AudioInput(
         script=prompt_config.get("script", ""),
         metadata=_prompt_metadata(prompt_config),
-        config={**(prompt_config.get("config") or {}), "voice": _prompt_voice(prompt_config)},
+        config={
+            **(prompt_config.get("config") or {}),
+            "voice": _prompt_voice(prompt_config),
+        },
     )
     logger.info(f"Generating audio for platform: {audio_input.metadata.platform}")
 
     tts_service = GoogleTTSService()
-    voice_language = (prompt_config.get("config") or {}).get("language") or prompt_config.get("language")
+    voice_language = (prompt_config.get("config") or {}).get(
+        "language"
+    ) or prompt_config.get("language")
     voice_mapped = GoogleTTSService.resolve_voice_name(
         audio_input.config.voice or "vi-VN-Wavenet-D",
         language=voice_language,
@@ -204,7 +221,7 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
             voice=voice_mapped,
             language=voice_language,
         )
-        
+
         campaign_id = prompt_config.get("campaign_id") or metadata.get("campaign_id")
         persona_id = prompt_config.get("persona_id") or metadata.get("persona_id")
         owner_key = prompt_config.get("owner_key") or metadata.get("owner_key")
@@ -248,7 +265,7 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
             "storage_url": public_url,
             "voice": voice_mapped,
             "metadata": metadata,
-            "status": "completed"
+            "status": "completed",
         }
 
     except Exception as e:
@@ -256,7 +273,8 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
         # If it's auth failure, don't retry
         non_retryable = "API" in str(e) or "key" in str(e).lower()
         raise ApplicationError(
-            f"Failed to generate audio via Google TTS: {str(e)}", non_retryable=non_retryable
+            f"Failed to generate audio via Google TTS: {str(e)}",
+            non_retryable=non_retryable,
         )
 
 
@@ -281,7 +299,8 @@ async def upload_to_storage(media_asset: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"Failed to download generated media: {str(e)}")
         non_retryable = 400 <= e.response.status_code < 500
         raise ApplicationError(
-            f"Failed to download media for upload: {str(e)}", non_retryable=non_retryable
+            f"Failed to download media for upload: {str(e)}",
+            non_retryable=non_retryable,
         )
     except httpx.HTTPError as e:
         logger.error(f"Failed to download generated media: {str(e)}")
@@ -293,7 +312,9 @@ async def upload_to_storage(media_asset: Dict[str, Any]) -> Dict[str, Any]:
     file_extension = (
         "mp4"
         if media_asset["type"] == "video"
-        else "mp3" if media_asset["type"] == "audio" else "png"
+        else "mp3"
+        if media_asset["type"] == "audio"
+        else "png"
     )
 
     _campaign_id = media_asset.get("campaign_id") or asset_metadata.get("campaign_id")
@@ -312,7 +333,10 @@ async def upload_to_storage(media_asset: Dict[str, Any]) -> Dict[str, Any]:
             user_id=_user_id,
             owner_key=_owner_key,
             persona_id=_persona_id,
-            metadata={"day": asset_metadata.get("day"), "platform": asset_metadata.get("platform")},
+            metadata={
+                "day": asset_metadata.get("day"),
+                "platform": asset_metadata.get("platform"),
+            },
             file_name_hint=f"{media_asset['type']}-{asset_metadata.get('platform', 'default')}",
         )
 
@@ -337,6 +361,7 @@ async def upload_to_storage(media_asset: Dict[str, Any]) -> Dict[str, Any]:
 # Nhánh 2: Slideshow Video (ffmpeg)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @activity.defn
 async def create_slideshow(config: Dict[str, Any]) -> Dict[str, Any]:
     """DEPRECATED compatibility wrapper around build_split_screen_video()."""
@@ -344,9 +369,13 @@ async def create_slideshow(config: Dict[str, Any]) -> Dict[str, Any]:
     audio_url: str = config.get("audio_url", "")
 
     if not image_urls:
-        raise ApplicationError("create_slideshow: missing 'image_urls'", non_retryable=True)
+        raise ApplicationError(
+            "create_slideshow: missing 'image_urls'", non_retryable=True
+        )
     if not audio_url:
-        raise ApplicationError("create_slideshow: missing 'audio_url'", non_retryable=True)
+        raise ApplicationError(
+            "create_slideshow: missing 'audio_url'", non_retryable=True
+        )
 
     result = await build_split_screen_video(
         {
@@ -371,9 +400,12 @@ async def create_slideshow(config: Dict[str, Any]) -> Dict[str, Any]:
         "day": config.get("day", 1),
         "metadata": result.get("metadata", config),
     }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Nhánh 1: Talking Head (HeyGen)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @activity.defn
 async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -453,47 +485,56 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
         "topic": topic,
         "metadata": config,
     }
+
+
 @activity.defn
-async def generate_app_tutorial_activity(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+async def generate_app_tutorial_activity(
+    config: Dict[str, Any],
+) -> List[Dict[str, Any]]:
     """
     Activity sinh 8 scenes hướng dẫn App cho 1 châu lục cụ thể.
     """
     app_name = config.get("app_name", "TripC")
     continent = config.get("continent", "asia")
     use_ai = config.get("use_ai_captions", True)
-    
-    return await get_app_scenes(app_name=app_name, continent=continent, use_ai_captions=use_ai)
+
+    return await get_app_scenes(
+        app_name=app_name, continent=continent, use_ai_captions=use_ai
+    )
+
 
 @activity.defn
-async def generate_web_tutorial_activity(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+async def generate_web_tutorial_activity(
+    config: Dict[str, Any],
+) -> List[Dict[str, Any]]:
     """
     Activity nâng cao: Đọc website và sinh hướng dẫn sử dụng tự động.
     """
     from services.browser_automation import BrowserAutomationService
     from services.content_scenes_service import RegionService
-    
+
     url = config.get("url")
-    country_code = config.get("country_code") # Manual override (VPN mode)
-    
+    country_code = config.get("country_code")  # Manual override (VPN mode)
+
     # 1. Nhận diện vùng miền (có hỗ trợ override)
     region_svc = RegionService()
     region_info = await region_svc.get_region_info(country_code_override=country_code)
     continent = region_info.get("continent", "asia")
-    
+
     # 2. Đọc nội dung web
     browser = BrowserAutomationService()
     try:
         # web_content = await browser.get_page_content(url) # Để AI phân tích sau
         # Giả định app_name từ URL
         app_name = url.split("//")[-1].split(".")[0].capitalize()
-        
+
         # 3. Sinh scenes (Dùng lại logic sinh scene tutorial có sẵn)
         scenes = await get_app_scenes(app_name=app_name, continent=continent)
-        
+
         # Ghi chú thêm vào kịch bản
         for s in scenes:
             s["source"] = f"AI analyzed from {url}"
-            
+
         return scenes
     finally:
         await browser.close()
@@ -502,6 +543,7 @@ async def generate_web_tutorial_activity(config: Dict[str, Any]) -> List[Dict[st
 # ─────────────────────────────────────────────────────────────────────────────
 # Scene Images Generation (fal.ai, song song)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @activity.defn
 async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -512,52 +554,76 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
         scene_metadata = dict(scene.get("metadata") or {})
         top_half_type = scene.get("top_half_source_type")
         source_ref = scene.get("source_ref")
-        
+
         # Scenario 1: Using browser to capture public page via Video Recording
         if top_half_type == "public_page_capture" and source_ref:
             try:
                 from services.browser_automation import BrowserAutomationService
+                from services.media_storage_service import MediaStorageService
                 import os
                 import tempfile
-                
+
                 browser = BrowserAutomationService()
                 os.makedirs("/tmp/tutorials_videos", exist_ok=True)
                 # Ensure we start with video recording enabled
-                await browser.initialize_browser(record_video_dir="/tmp/tutorials_videos")
-                
+                await browser.initialize_browser(
+                    record_video_dir="/tmp/tutorials_videos"
+                )
+
                 video_path = await browser.record_video_for_tutorial(source_ref)
-                
+
                 if video_path and os.path.exists(video_path):
-                    from services.storage_service import StorageService
-                    storage = StorageService()
                     import uuid
+
                     key = f"browser_captures/{uuid.uuid4()}/capture.webm"
-                    
+
                     with open(video_path, "rb") as f:
                         data = f.read()
-                        
-                    uploaded = await storage.upload_file(data, key, content_type="video/webm")
+
+                    # Use MediaStorageService for proper asset tracking
+                    media_storage = MediaStorageService()
+                    storage_result = await media_storage.upload_bytes(
+                        data=data,
+                        destination_path=key,
+                        content_type="video/webm",
+                        persona_id=scene.get("persona_id")
+                        or scene_metadata.get("persona_id"),
+                        owner_key=scene.get("owner_key")
+                        or scene_metadata.get("owner_key"),
+                        campaign_id=scene.get("campaign_id")
+                        or scene_metadata.get("campaign_id"),
+                        user_id=scene.get("user_id") or scene_metadata.get("user_id"),
+                    )
                     await browser.close()
-                    
-                    # We pass this video as the 'image_url' for compatibility with older pipelines, 
+
+                    # Handle case where MediaStorageService returns None (e.g., missing user context)
+                    if storage_result is None:
+                        raise ValueError(
+                            "MediaStorageService.upload_bytes returned None - missing user context or storage error"
+                        )
+
+                    # We pass this video as the 'image_url' for compatibility with older pipelines,
                     # but `video_activities.py` will need to see it as a video file URL.
                     return {
                         **scene,
-                        "image_url": uploaded,
-                        "source_image_url": uploaded,
-                        "storage_image_url": uploaded,
-                        "image_storage_key": key,
+                        "image_url": storage_result.get("url")
+                        or storage_result.get("storage_url"),
+                        "source_image_url": storage_result.get("url")
+                        or storage_result.get("storage_url"),
+                        "storage_image_url": storage_result.get("storage_url"),
+                        "image_storage_key": storage_result.get("storage_key") or key,
+                        "media_asset_id": storage_result.get("media_asset_id"),
                         "status": "completed",
-                        "is_video": True
+                        "is_video": True,
                     }
             except Exception as e:
                 logger.error(f"Browser video capture failed, falling back to AI: {e}")
-                
+
         # Scenario 2: Fallback or AI image generation
         result = await image_service.generate_images(
             prompt=scene["image_prompt"],
             model=scene.get("config", {}).get("model", "fal-ai/flux/schnell"),
-            aspect_ratio="9:16", # Keep 9:16 or maybe 1:1 if for top half? Usually vstack crops to 1:1 later anyway.
+            aspect_ratio="9:16",  # Keep 9:16 or maybe 1:1 if for top half? Usually vstack crops to 1:1 later anyway.
             safety_tolerance=2,
             num_images=1,
             campaign_id=scene.get("campaign_id") or scene_metadata.get("campaign_id"),
@@ -596,17 +662,22 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
 # └─────────────────┘
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @activity.defn
 async def create_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
     """DEPRECATED compatibility wrapper around build_split_screen_video()."""
     scenes: List[dict] = config.get("scenes", [])
     if not scenes:
-        raise ApplicationError("create_split_screen_video: missing 'scenes'", non_retryable=True)
+        raise ApplicationError(
+            "create_split_screen_video: missing 'scenes'", non_retryable=True
+        )
 
     logger.info("create_split_screen_video is delegating to build_split_screen_video")
     result = await build_split_screen_video(
         {
-            "image_urls": [scene.get("image_url") for scene in scenes if scene.get("image_url")],
+            "image_urls": [
+                scene.get("image_url") for scene in scenes if scene.get("image_url")
+            ],
             "audio_url": config.get("audio_url", ""),
             "talking_head_url": config.get("heygen_video_url", ""),
             "scene_captions": [scene.get("caption", "") for scene in scenes],

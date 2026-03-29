@@ -21,6 +21,7 @@ from services.telegram_link_service import TelegramLinkService
 router = APIRouter()
 
 
+
 class TelegramLoginRequest(BaseModel):
     id: int
     first_name: str
@@ -79,9 +80,11 @@ async def start_anonymous_telegram_link(payload: AnonymousLinkStartRequest):
     """
     Public endpoint to create a DB-backed Telegram link token for passwordless auth.
     """
+
     return await TelegramLinkService.create_public_auth_link_token(
         expires_in_minutes=payload.expires_in_minutes,
     )
+
 
 
 @router.post("/link/complete")

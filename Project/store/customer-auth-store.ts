@@ -1,7 +1,11 @@
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 
-import { hasSupabaseConfig, supabase } from "@/lib/supabase";
+import {
+  getSupabaseClient,
+  hasSupabaseConfig,
+  type SupabaseSession,
+} from "@/lib/supabase";
 
 interface CustomerUser {
   id: string;
@@ -30,9 +34,9 @@ interface CustomerAuthState {
 
 let authSubscriptionBound = false;
 
-function mapUser(session: Awaited<
-  ReturnType<typeof supabase.auth.getSession>
->["data"]["session"]): Pick<CustomerAuthState, "user" | "accessToken" | "isAuthenticated"> {
+function mapUser(
+  session: SupabaseSession | null,
+): Pick<CustomerAuthState, "user" | "accessToken" | "isAuthenticated"> {
   const user = session?.user;
   return {
     user: user
@@ -61,7 +65,7 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
     error: null,
 
     initialize: async () => {
-      if (!hasSupabaseConfig) {
+      if (!hasSupabaseConfig()) {
         set({
           user: null,
           accessToken: null,
@@ -72,6 +76,8 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
         });
         return;
       }
+
+      const supabase = getSupabaseClient();
 
       if (!authSubscriptionBound) {
         supabase.auth.onAuthStateChange((_event, session) => {
@@ -108,6 +114,7 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
 
     login: async (email: string, password: string) => {
       set({ isLoading: true, error: null });
+      const supabase = getSupabaseClient();
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -126,6 +133,7 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
 
     signup: async ({ email, password, name }) => {
       set({ isLoading: true, error: null });
+      const supabase = getSupabaseClient();
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -150,17 +158,13 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
     loginWithTelegram: async (telegramData: any) => {
       set({ isLoading: true, error: null });
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
-        const response = await fetch(
-          `${apiUrl.replace(/\/$/, "")}/api/auth/telegram/login`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(telegramData),
+        const response = await fetch("/api/auth/telegram/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
-        );
+          body: JSON.stringify(telegramData),
+        });
 
         if (!response.ok) {
           const errorData = await response.json();
@@ -171,6 +175,7 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
 
         // 1. Establish the Supabase session using the token from our backend
         // Since we signed it with the shared JWT secret, Supabase will accept it.
+        const supabase = getSupabaseClient();
         const { data, error } = await supabase.auth.setSession({
           access_token,
           refresh_token: "", // Our custom JWT flow doesn't use refresh tokens for now
@@ -196,8 +201,8 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
     },
 
     logout: async () => {
-      if (hasSupabaseConfig) {
-        await supabase.auth.signOut();
+      if (hasSupabaseConfig()) {
+        await getSupabaseClient().auth.signOut();
       }
       set({
         user: null,

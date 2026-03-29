@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last verified: 2026-03-27 (UTC)
+Last verified: 2026-03-28 (UTC)
 
 This is the canonical deployment and operations guide for the current repo. It replaces the older split across separate VPS, single-domain, database-plan, provider-bootstrap, and deployment-log docs.
 
@@ -94,6 +94,9 @@ Production image delivery values:
 - `IMAGE_TAG` defaults to `latest`, but should be set to a published commit SHA when you want a deterministic rollout or rollback
 - `OPENCLAW_IMAGE` can override the pinned upstream OpenClaw digest if you intentionally promote a different upstream release
 - `DOCKER_CLEANUP_AFTER_DEPLOY=true` keeps post-deploy dangling-image and build-cache cleanup enabled
+- `SYNC_REPO_BEFORE_DEPLOY=false` by default, so production deploy uses the current checked-out repo state unless you explicitly ask it to fast-forward a branch first
+- `AUTO_IMAGE_TAG_FROM_GIT=false` by default, so production deploy does not guess an image tag from the local checkout unless you opt in
+- `BUILD_APP_IMAGES_FROM_REPO=false` by default, so production deploy stays pull-only; set it only for an intentional emergency local-build path
 
 ## Database Reality
 
@@ -174,7 +177,7 @@ PROJECT_ENV_FILE=./Project/.env.production ./deploy/vps/healthcheck.sh
 
 This is the standard rollout order for both fresh and existing environments.
 
-The deploy script now pulls registry-backed images from GHCR before starting containers. It no longer rebuilds images locally on the VPS.
+The deploy script now pulls registry-backed images from GHCR before starting containers by default. It only rebuilds images locally on the VPS if you explicitly set `BUILD_APP_IMAGES_FROM_REPO=true`.
 
 ## Provider Bootstrap And Admin Access
 
@@ -232,6 +235,8 @@ Rollback:
 cd /opt/ai-influencer/repo
 PROJECT_ENV_FILE=./Project/.env.production ./deploy/vps/rollback-release.sh <git-ref>
 ```
+
+The rollback helper resolves the requested git ref to its commit SHA and redeploys that published image tag without rebuilding on the VPS.
 
 Install the weekly Docker cleanup timer:
 

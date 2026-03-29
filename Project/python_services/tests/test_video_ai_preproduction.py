@@ -88,9 +88,11 @@ def _filled_session():
 
 def _patch_persona_lookup(monkeypatch):
     async def fake_request_json(cls, http_client, method, backend_url, path, **kwargs):
-        if path.endswith("/readiness"):
+        # Strip query parameters for matching
+        base_path = path.split("?")[0]
+        if base_path.endswith("/readiness"):
             return {"ready": True}
-        if path.endswith("/personas/minh_vn"):
+        if base_path.endswith("/personas/minh_vn"):
             return _persona_payload()
         raise AssertionError(f"Unexpected path: {path}")
 
@@ -196,7 +198,12 @@ async def test_video_ai_approval_flow_reaches_package_ready(monkeypatch):
     assert beat_result.session.step_key == "confirm_beats"
     assert package_result.session.step_key == "package_ready"
     assert package_result.session.control.status.value == "done"
-    assert package_result.session.artifacts["approved_production_package"]["concept_brief"]["persona_id"] == "minh_vn"
+    assert (
+        package_result.session.artifacts["approved_production_package"][
+            "concept_brief"
+        ]["persona_id"]
+        == "minh_vn"
+    )
 
 
 @pytest.mark.asyncio
@@ -309,5 +316,145 @@ async def test_video_ai_stale_artifacts_are_rebuilt_safely(monkeypatch):
 
     assert result.success is True
     assert result.session.step_key == "confirm_concept"
-    assert result.session.artifacts["concept_brief"]["feature_focus"] == "AI itinerary planner"
+    assert (
+        result.session.artifacts["concept_brief"]["feature_focus"]
+        == "AI itinerary planner"
+    )
     assert result.session.artifacts["beat_sheet"] is None
+
+
+@pytest.mark.asyncio
+async def test_video_ai_package_ready_posts_to_start_video(monkeypatch):
+    """
+    Verify that when beat sheet is approved and package is ready,
+    video_ai actually POSTs to /api/workflows/start-video with the approved_package.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    _patch_persona_lookup(monkeypatch)
+
+    async def fake_build_concept_brief(cls, collected, persona_snapshot):
+        return _concept_contract()
+
+    async def fake_build_beat_sheet(cls, concept_brief, persona_snapshot):
+        return _beat_sheet_contract()
+
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_concept_brief",
+        classmethod(fake_build_concept_brief),
+    )
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_beat_sheet",
+        classmethod(fake_build_beat_sheet),
+    )
+
+    # Create a mock http_client that tracks calls
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"workflow_id": "video-minh_vn-test123"}
+    mock_response.raise_for_status = MagicMock()
+
+    mock_http_client = AsyncMock()
+    mock_http_client.post.return_value = mock_response
+
+    # Run through the full approval flow
+    session = _filled_session()
+    session.artifacts["telegram_chat_id"] = "123456"
+
+    concept_result = await VideoAISkill.execute(
+        session, "http://backend", mock_http_client
+    )
+    beat_result = await VideoAISkill.handle_preproduction_action(
+        concept_result.session,
+        "approve",
+        "http://backend",
+        mock_http_client,
+    )
+    package_result = await VideoAISkill.handle_preproduction_action(
+        beat_result.session,
+        "approve",
+        "http://backend",
+        mock_http_client,
+    )
+
+    # Verify the POST was called
+    mock_http_client.post.assert_called_once()
+    call_args = mock_http_client.post.call_args
+
+    # Verify URL
+    assert call_args[0][0] == "http://backend/api/workflows/start-video"
+
+    # Verify payload contains approved_package
+    payload = call_args[1]["json"]
+    assert payload["persona_id"] == "minh_vn"
+    assert payload["approved_package"] is not None
+    assert payload["approved_package"]["concept_brief"]["persona_id"] == "minh_vn"
+    assert payload["approved_package"]["beat_sheet"]["beats"] is not None
+    assert len(payload["approved_package"]["beat_sheet"]["beats"]) == 5
+    assert payload["telegram_chat_id"] == "123456"
+    assert payload["owner_key"] == "telegram:123456"
+
+    # Verify result
+    assert package_result.success is True
+    assert package_result.session.step_key == "package_ready"
+    assert package_result.output["workflow_id"] == "video-minh_vn-test123"
+
+
+@pytest.mark.asyncio
+async def test_video_ai_package_ready_handles_api_failure(monkeypatch):
+    """
+    Verify that when the production API call fails, video_ai returns
+    a failed result with appropriate error message.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+    import httpx
+
+    _patch_persona_lookup(monkeypatch)
+
+    async def fake_build_concept_brief(cls, collected, persona_snapshot):
+        return _concept_contract()
+
+    async def fake_build_beat_sheet(cls, concept_brief, persona_snapshot):
+        return _beat_sheet_contract()
+
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_concept_brief",
+        classmethod(fake_build_concept_brief),
+    )
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_beat_sheet",
+        classmethod(fake_build_beat_sheet),
+    )
+
+    # Create a mock http_client that raises an error
+    mock_http_client = AsyncMock()
+    mock_http_client.post.side_effect = httpx.HTTPError("Connection refused")
+
+    # Run through the full approval flow
+    session = _filled_session()
+    session.artifacts["telegram_chat_id"] = "123456"
+
+    concept_result = await VideoAISkill.execute(
+        session, "http://backend", mock_http_client
+    )
+    beat_result = await VideoAISkill.handle_preproduction_action(
+        concept_result.session,
+        "approve",
+        "http://backend",
+        mock_http_client,
+    )
+    package_result = await VideoAISkill.handle_preproduction_action(
+        beat_result.session,
+        "approve",
+        "http://backend",
+        mock_http_client,
+    )
+
+    # Verify the result indicates failure
+    assert package_result.success is False
+    assert package_result.session.step_key == "package_ready"
+    assert "Connection refused" in package_result.error
+    assert package_result.output["approved_production_package"] is not None

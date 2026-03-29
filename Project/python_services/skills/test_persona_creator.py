@@ -121,6 +121,7 @@ async def test_persona_creator_generates_avatar_when_missing(monkeypatch):
                 {
                     "persona_id": "demo-persona",
                     "display_name": "Demo Persona",
+                    "user_id": "550e8400-e29b-41d4-a716-446655440000",
                     "status": "draft",
                     "language": "English",
                     "tts_voice": "en-US-Studio-O",
@@ -135,6 +136,7 @@ async def test_persona_creator_generates_avatar_when_missing(monkeypatch):
                 {
                     "persona_id": "demo-persona",
                     "display_name": "Demo Persona",
+                    "user_id": "550e8400-e29b-41d4-a716-446655440000",
                     "status": "draft",
                     "language": "English",
                     "tts_voice": "en-US-Studio-O",
@@ -158,6 +160,7 @@ async def test_persona_creator_generates_avatar_when_missing(monkeypatch):
     create_payload = PersonaCreatorSkill._request_json.await_args_list[0].kwargs["json"]
     assert create_payload["tts_voice"] == "en-US-Studio-O"
     avatar_generation_payload = PersonaCreatorSkill._request_json.await_args_list[1].kwargs["json"]
+    assert avatar_generation_payload["user_id"] == "550e8400-e29b-41d4-a716-446655440000"
     assert avatar_generation_payload["owner_key"] == "telegram:123456"
     assert avatar_generation_payload["persona_id"] == "demo-persona"
     patch_payload = PersonaCreatorSkill._request_json.await_args_list[2].kwargs["json"]

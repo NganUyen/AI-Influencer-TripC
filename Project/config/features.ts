@@ -1,4 +1,5 @@
 // Feature flags for gradual rollout and testing
+import { getClientPublicEnvValue } from "@/lib/public-env";
 
 export interface FeatureFlags {
   enableWorkflows: boolean;
@@ -11,13 +12,16 @@ export interface FeatureFlags {
 
 export const features: FeatureFlags = {
   // Core features
-  enableWorkflows: process.env.NEXT_PUBLIC_ENABLE_WORKFLOWS === "true",
-  enableMediaGeneration: process.env.NEXT_PUBLIC_ENABLE_MEDIA_GEN === "true",
+  enableWorkflows: getClientPublicEnvValue("NEXT_PUBLIC_ENABLE_WORKFLOWS") === "true",
+  enableMediaGeneration: getClientPublicEnvValue("NEXT_PUBLIC_ENABLE_MEDIA_GEN") === "true",
 
   // Advanced features
-  enableEngagementNetwork: process.env.NEXT_PUBLIC_ENABLE_ENGAGEMENT === "true",
-  enableTelegramApprovals: process.env.NEXT_PUBLIC_ENABLE_TELEGRAM === "true",
-  enableAnalytics: process.env.NEXT_PUBLIC_ENABLE_ANALYTICS === "true",
+  enableEngagementNetwork:
+    getClientPublicEnvValue("NEXT_PUBLIC_ENABLE_ENGAGEMENT") === "true",
+  enableTelegramApprovals:
+    getClientPublicEnvValue("NEXT_PUBLIC_ENABLE_TELEGRAM") === "true",
+  enableAnalytics:
+    getClientPublicEnvValue("NEXT_PUBLIC_ENABLE_ANALYTICS") === "true",
 
   // UI features
   enableDarkMode: true, // Always enabled

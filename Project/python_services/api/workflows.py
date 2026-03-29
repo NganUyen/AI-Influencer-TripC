@@ -40,6 +40,7 @@ class StartVideoRequest(BaseModel):
     user_id: Optional[str] = None
     owner_key: Optional[str] = None
     talking_head_optional: bool = False
+    approved_package: Optional[dict] = None
 
 
 async def get_temporal_client(request: Request) -> Client:
@@ -120,6 +121,12 @@ async def start_video_workflow(request: Request, payload: StartVideoRequest):
             status_code=400,
             detail="Persona is missing tts_voice.",
         )
+    # When talking_head is required, verify heygen_avatar_id exists
+    if not payload.talking_head_optional and not persona.get("heygen_avatar_id"):
+        raise HTTPException(
+            status_code=400,
+            detail="Persona is missing heygen_avatar_id. Run persona avatar setup first, or set talking_head_optional=True.",
+        )
     if ShortVideoWorkflow is None:
         raise HTTPException(
             status_code=503,
@@ -142,6 +149,7 @@ async def start_video_workflow(request: Request, payload: StartVideoRequest):
                     "user_id": payload.user_id,
                     "owner_key": owner_key,
                     "talking_head_optional": payload.talking_head_optional,
+                    "approved_package": payload.approved_package,
                 }
             ],
             id=workflow_id,
@@ -209,9 +217,7 @@ async def get_workflow_status(request: Request, workflow_id: str):
 
 
 @router.get("/list")
-async def list_workflows(
-    request: Request, limit: int = 20
-) -> Dict[str, Any]:
+async def list_workflows(request: Request, limit: int = 20) -> Dict[str, Any]:
     """List recent weekly marketing workflows for dashboard polling."""
     try:
         client = await get_temporal_client(request)

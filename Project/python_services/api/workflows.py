@@ -24,7 +24,6 @@ from services.contracts import (
 from services.persona_registry_service import PersonaRegistryService
 
 try:
-    # TODO: ShortVideoWorkflow needs full registration after Step 3.
     from workflows.short_video_workflow import ShortVideoWorkflow
 except ImportError:  # pragma: no cover - stepwise rollout compatibility
     ShortVideoWorkflow = None
@@ -50,6 +49,7 @@ class StartVideoRequest(BaseModel):
 
 
 def _normalize_execution_status(status_value: Any) -> Optional[str]:
+    """Convert Temporal WorkflowExecutionStatus enum to lowercase string."""
     try:
         enum_name = WorkflowExecutionStatus.Name(int(status_value))
     except Exception:
@@ -59,6 +59,7 @@ def _normalize_execution_status(status_value: Any) -> Optional[str]:
 
 
 def _extract_describe_execution_status(description: Any) -> Optional[str]:
+    """Extract execution status from workflow description."""
     raw_description = getattr(description, "raw_description", None)
     workflow_info = getattr(raw_description, "workflow_execution_info", None)
     status_value = getattr(workflow_info, "status", None)
@@ -68,6 +69,12 @@ def _extract_describe_execution_status(description: Any) -> Optional[str]:
 
 
 async def _resolve_workflow_status_payload(handle: Any) -> Dict[str, Any]:
+    """
+    Resolve workflow status through multiple fallback strategies:
+    1. Query the workflow directly (if still running)
+    2. Describe + result (if workflow completed/failed)
+    """
+    # Try query first (works for running workflows)
     try:
         status = await handle.query("get_workflow_status")
         return {
@@ -76,8 +83,11 @@ async def _resolve_workflow_status_payload(handle: Any) -> Dict[str, Any]:
             "source": "query",
         }
     except Exception as query_exc:
-        logger.info("Workflow query unavailable, falling back to describe/result: %s", query_exc)
+        logger.info(
+            "Workflow query unavailable, falling back to describe/result: %s", query_exc
+        )
 
+    # Fallback to describe for execution status
     execution_status = None
     try:
         description = await handle.describe()
@@ -85,6 +95,7 @@ async def _resolve_workflow_status_payload(handle: Any) -> Dict[str, Any]:
     except Exception as describe_exc:
         logger.warning("Workflow describe failed: %s", describe_exc)
 
+    # Try to get terminal result for completed/failed workflows
     try:
         terminal_result = await handle.result()
         if isinstance(terminal_result, dict):

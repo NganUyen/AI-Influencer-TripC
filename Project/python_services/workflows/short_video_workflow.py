@@ -3,7 +3,6 @@ Short video workflow for persona-driven vertical video generation.
 """
 
 from __future__ import annotations
-
 from datetime import timedelta
 from typing import Any, Dict, List
 
@@ -155,7 +154,6 @@ class ShortVideoWorkflow:
                 if not approval.get("approved"):
                     self.workflow_status = "discarded"
                     self.current_step = "script_rejected"
-                    # FIX 2: strict FinalVideoContract on script-rejected exit
                     return {
                         "type": "video",
                         "status": "discarded",
@@ -177,8 +175,6 @@ class ShortVideoWorkflow:
             script_json = script_result["script_json"]
             scenes: List[Dict[str, Any]] = script_json.get("scenes", [])
 
-            # NOTE: top_half_source_type flows through script_json scenes via SceneContract
-
             scene_payloads = [
                 {
                     "id": scene.get("id"),
@@ -193,8 +189,9 @@ class ShortVideoWorkflow:
                 for scene in scenes
             ]
 
-            # FIX 1: Stage A — audio and scenes truly in parallel
-            audio_task = workflow.execute_activity(
+            # Stage A: Start audio and scenes in parallel
+            # Temporal 1.5.1 returns ActivityHandle; start both first, then await
+            audio_handle = workflow.execute_activity(
                 generate_audio,
                 args=[
                     {
@@ -215,7 +212,7 @@ class ShortVideoWorkflow:
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=MEDIA_RETRY_POLICY,
             )
-            scenes_task = workflow.execute_activity(
+            scenes_handle = workflow.execute_activity(
                 generate_scene_images,
                 args=[
                     [
@@ -237,10 +234,11 @@ class ShortVideoWorkflow:
                 retry_policy=MEDIA_RETRY_POLICY,
             )
 
-            audio_result = await audio_task
-            talking_head_task = None
+            # Await audio first so talking head can start immediately
+            audio_result = await audio_handle
+            talking_head_handle = None
 
-            # FIX 1: Stage B — talking head starts as soon as audio is ready
+            # Stage B: Start talking head as soon as audio is ready
             if not heygen_avatar_id:
                 workflow.logger.info(
                     "Skipping talking-head generation for persona %s because heygen_avatar_id is missing.",
@@ -265,7 +263,7 @@ class ShortVideoWorkflow:
                     "Bottom-half audio ready",
                     "Starting talking-head generation while top-half assets continue processing.",
                 )
-                talking_head_task = workflow.execute_activity(
+                talking_head_handle = workflow.execute_activity(
                     create_talking_head_video,
                     args=[
                         {
@@ -282,13 +280,15 @@ class ShortVideoWorkflow:
                     retry_policy=MEDIA_RETRY_POLICY,
                 )
 
+            # Now await scenes (may already be done while talking head was starting)
             self.current_step = "generating_top_half"
-            scenes_result = await scenes_task
+            scenes_result = await scenes_handle
 
-            if talking_head_task is not None:
+            # Await talking head if it was started
+            if talking_head_handle is not None:
                 try:
-                    talking_head_result = await talking_head_task
-                except Exception as exc:  # Fallback to slideshow+audio lane
+                    talking_head_result = await talking_head_handle
+                except Exception as exc:
                     workflow.logger.warning("Talking head generation failed: %s", exc)
                     talking_head_result = {"url": "", "status": "failed"}
 
@@ -307,7 +307,7 @@ class ShortVideoWorkflow:
                 duration = end - start if end > start else 4.0
                 scene_durations.append(duration)
 
-            # [CRITICAL-1 FIX] Detect failed scenes before assembly
+            # Detect failed scenes before assembly
             image_urls_raw = [scene.get("image_url") for scene in scenes_result]
             failed_scene_indices = [
                 i for i, url in enumerate(image_urls_raw) if url is None
@@ -328,7 +328,9 @@ class ShortVideoWorkflow:
                 for i, scene in enumerate(scenes_result)
                 if scene.get("image_url")
             ]
-            image_urls = [scene.get("image_url") for _, scene in valid_scenes_with_index]
+            image_urls = [
+                scene.get("image_url") for _, scene in valid_scenes_with_index
+            ]
             aligned_durations = [
                 scene_durations[i] if i < len(scene_durations) else 4.0
                 for i, _ in valid_scenes_with_index
@@ -404,7 +406,6 @@ class ShortVideoWorkflow:
             if self.decision == "discard":
                 self.workflow_status = "discarded"
                 self.current_step = "discarded"
-                # FIX 2: strict FinalVideoContract on operator-discard exit
                 return {
                     "type": "video",
                     "status": "discarded",
@@ -437,7 +438,6 @@ class ShortVideoWorkflow:
             self.workflow_status = "failed"
             self.current_step = "failed"
 
-            # [CRITICAL-2 FIX] Notify user on Telegram about workflow failure
             workflow.logger.error(
                 "Workflow failed | workflow_id=%s | topic=%s | error=%s",
                 workflow_id,

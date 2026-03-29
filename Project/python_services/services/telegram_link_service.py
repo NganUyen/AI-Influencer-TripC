@@ -32,6 +32,7 @@ class TelegramLinkError(RuntimeError):
 
 class TelegramLinkService:
     DEFAULT_TOKEN_TTL_MINUTES = 15
+    PENDING_TELEGRAM_USER_NAME = "Pending Telegram Login"
 
     @classmethod
     def _allows_legacy_fallback(cls, allow_fallback: bool) -> bool:
@@ -136,26 +137,16 @@ class TelegramLinkService:
         user_id: str,
         expires_in_minutes: int | None = None,
     ) -> Dict[str, Any]:
-        ttl_minutes = max(1, int(expires_in_minutes or cls.DEFAULT_TOKEN_TTL_MINUTES))
-        token = secrets.token_urlsafe(24)
-        token_hash = _hash_token(token)
-        expires_at = _utcnow() + timedelta(minutes=ttl_minutes)
+        token, token_hash, expires_at = cls._generate_start_token(expires_in_minutes)
 
         pool = await DatabaseService.get_pool()
         try:
             async with pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO public.telegram_link_tokens (
-                        user_id,
-                        token_hash,
-                        expires_at
-                    )
-                    VALUES ($1::uuid, $2, $3)
-                    """,
-                    user_id,
-                    token_hash,
-                    expires_at,
+                await cls._insert_link_token(
+                    conn,
+                    user_id=user_id,
+                    token_hash=token_hash,
+                    expires_at=expires_at,
                 )
         except Exception as exc:
             if cls._is_missing_relation_error(exc, "telegram_link_tokens"):
@@ -169,6 +160,91 @@ class TelegramLinkService:
             "start_token": token,
             "expires_at": expires_at.isoformat(),
         }
+
+    @classmethod
+    async def create_public_auth_link_token(
+        cls,
+        *,
+        expires_in_minutes: int | None = None,
+    ) -> Dict[str, Any]:
+        token, token_hash, expires_at = cls._generate_start_token(expires_in_minutes)
+        user_id = str(uuid.uuid4())
+        placeholder_email = cls._pending_telegram_email(user_id)
+
+        pool = await DatabaseService.get_pool()
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        INSERT INTO public.users (id, email, name)
+                        VALUES ($1::uuid, $2, $3)
+                        """,
+                        user_id,
+                        placeholder_email,
+                        cls.PENDING_TELEGRAM_USER_NAME,
+                    )
+                    await cls._insert_link_token(
+                        conn,
+                        user_id=user_id,
+                        token_hash=token_hash,
+                        expires_at=expires_at,
+                    )
+        except Exception as exc:
+            if cls._is_missing_relation_error(exc, "telegram_link_tokens", "users"):
+                raise TelegramLinkError(
+                    "Telegram link tables are not installed. Apply migration 20260326_telegram_owner_links_and_avatar_assets.sql first."
+                ) from exc
+            raise
+
+        logger.info(
+            "create_public_auth_link_token: created token=%s... hash=%s... user_id=%s expires=%s",
+            token[:8],
+            token_hash[:16],
+            user_id,
+            expires_at.isoformat(),
+        )
+        return {
+            "start_token": token,
+            "expires_at": expires_at.isoformat(),
+        }
+
+    @classmethod
+    def _generate_start_token(
+        cls,
+        expires_in_minutes: int | None = None,
+    ) -> tuple[str, str, datetime]:
+        ttl_minutes = max(1, int(expires_in_minutes or cls.DEFAULT_TOKEN_TTL_MINUTES))
+        token = secrets.token_urlsafe(24)
+        token_hash = _hash_token(token)
+        expires_at = _utcnow() + timedelta(minutes=ttl_minutes)
+        return token, token_hash, expires_at
+
+    @staticmethod
+    async def _insert_link_token(
+        conn: Any,
+        *,
+        user_id: str,
+        token_hash: str,
+        expires_at: datetime,
+    ) -> None:
+        await conn.execute(
+            """
+            INSERT INTO public.telegram_link_tokens (
+                user_id,
+                token_hash,
+                expires_at
+            )
+            VALUES ($1::uuid, $2, $3)
+            """,
+            user_id,
+            token_hash,
+            expires_at,
+        )
+
+    @staticmethod
+    def _pending_telegram_email(user_id: str) -> str:
+        return f"tg_pending_{str(user_id).strip().lower()}@ai-influencer.invalid"
 
     @classmethod
     async def consume_link_token(

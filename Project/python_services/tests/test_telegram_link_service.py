@@ -25,6 +25,14 @@ class _StubPool:
         return _Acquire(self.conn)
 
 
+class _Transaction:
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+
 class _MissingRelationConn:
     async def fetchrow(self, query, *args):
         raise RuntimeError('relation "public.telegram_user_links" does not exist')
@@ -36,6 +44,17 @@ class _MissingRelationConn:
 class _MissingTokensConn:
     async def execute(self, query, *args):
         raise RuntimeError('relation "public.telegram_link_tokens" does not exist')
+
+
+class _RecordingConn:
+    def __init__(self):
+        self.executed = []
+
+    async def execute(self, query, *args):
+        self.executed.append((" ".join(query.split()), args))
+
+    def transaction(self):
+        return _Transaction()
 
 
 class _MissingRelationWithLegacyUserConn:
@@ -131,3 +150,56 @@ async def test_create_link_token_raises_friendly_error_when_tables_missing(monke
         )
 
     assert "Telegram link tables are not installed" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_create_public_auth_link_token_persists_placeholder_user_and_hashed_token(
+    monkeypatch,
+):
+    conn = _RecordingConn()
+    monkeypatch.setattr(
+        "services.telegram_link_service.DatabaseService.get_pool",
+        AsyncMock(return_value=_StubPool(conn)),
+    )
+    monkeypatch.setattr(
+        telegram_link_service_module.secrets,
+        "token_urlsafe",
+        lambda _size: "public-auth-token",
+    )
+    monkeypatch.setattr(
+        telegram_link_service_module.uuid,
+        "uuid4",
+        lambda: telegram_link_service_module.uuid.UUID(
+            "11111111-1111-1111-1111-111111111111"
+        ),
+    )
+
+    result = await TelegramLinkService.create_public_auth_link_token(
+        expires_in_minutes=15
+    )
+
+    assert result["start_token"] == "public-auth-token"
+    user_insert = next(
+        args
+        for query, args in conn.executed
+        if "INSERT INTO public.users" in query
+    )
+    token_insert = next(
+        args
+        for query, args in conn.executed
+        if "INSERT INTO public.telegram_link_tokens" in query
+    )
+
+    assert user_insert[0] == "11111111-1111-1111-1111-111111111111"
+    assert (
+        user_insert[1]
+        == "tg_pending_11111111-1111-1111-1111-111111111111@ai-influencer.invalid"
+    )
+    assert user_insert[2] == TelegramLinkService.PENDING_TELEGRAM_USER_NAME
+    assert token_insert[0] == "11111111-1111-1111-1111-111111111111"
+    assert (
+        token_insert[1]
+        == telegram_link_service_module.hashlib.sha256(
+            b"public-auth-token"
+        ).hexdigest()
+    )

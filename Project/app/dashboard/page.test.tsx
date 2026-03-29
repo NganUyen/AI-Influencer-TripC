@@ -1,10 +1,22 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ButtonHTMLAttributes } from "react";
 
 import DashboardPage from "@/app/dashboard/page";
 import { customerApiRequest } from "@/lib/customer-api";
 
 jest.mock("@/lib/customer-api", () => ({
   customerApiRequest: jest.fn(),
+}));
+
+jest.mock("framer-motion", () => ({
+  motion: {
+    button: ({
+      children,
+      ...props
+    }: ButtonHTMLAttributes<HTMLButtonElement>) => (
+      <button {...props}>{children}</button>
+    ),
+  },
 }));
 
 jest.mock("next/navigation", () => ({
@@ -37,8 +49,17 @@ jest.mock("@/store/customer-auth-store", () => ({
 describe("Customer dashboard", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.useFakeTimers();
+
+    let telegramLinkStatusCalls = 0;
 
     (customerApiRequest as jest.Mock).mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/api/customer/system/summary") {
+        return Promise.resolve({ services: [], quota: [] });
+      }
+      if (path === "/api/customer/system/workflows") {
+        return Promise.resolve({ workflows: [] });
+      }
       if (path === "/api/customer/brand") {
         return Promise.resolve({
           brand_profile: {
@@ -67,65 +88,7 @@ describe("Customer dashboard", () => {
           ],
         });
       }
-      if (path === "/api/customer/ai-backbone") {
-        if (init?.method === "PUT") {
-          return Promise.resolve({
-            settings: {
-              access_mode: "customer_api_key",
-              workspace_default: {
-                api_url: "https://openclaw.example",
-                has_api_key: true,
-              },
-              customer_api: {
-                api_url: "https://customer-openclaw.example",
-                has_api_key: true,
-              },
-              chatgpt_oauth: {
-                linked: false,
-                session_ready: false,
-              },
-              effective_status: {
-                ready: true,
-                message: "Using the customer-provided OpenClaw API key.",
-              },
-            },
-          });
-        }
-        return Promise.resolve({
-          settings: {
-            access_mode: "platform_managed",
-            workspace_default: {
-              api_url: "https://openclaw.example",
-              has_api_key: true,
-            },
-            customer_api: {
-              api_url: "https://customer-openclaw.example",
-              has_api_key: true,
-            },
-            chatgpt_oauth: {
-              linked: false,
-              session_ready: false,
-              chatgpt_subject: "",
-              display_name: "",
-              subscription_tier: "plus",
-            },
-            effective_status: {
-              ready: true,
-              message: "Using workspace-managed OpenClaw access.",
-            },
-          },
-        });
-      }
       if (path === "/api/customer/assistant/threads") {
-        if (init?.method === "POST") {
-          return Promise.resolve({
-            thread: {
-              id: "thread-2",
-              title: "Campaign Planning",
-              last_message_preview: "",
-            },
-          });
-        }
         return Promise.resolve({
           threads: [
             {
@@ -142,27 +105,10 @@ describe("Customer dashboard", () => {
             { id: "m1", role: "user", content: "Plan a launch week." },
             { id: "m2", role: "assistant", content: "Use a review-first weekly plan." },
           ],
-          artifacts: [
-            {
-              id: "a1",
-              title: "OpenClaw strategy result",
-              payload: { target_platforms: ["linkedin", "facebook"] },
-            },
-          ],
+          artifacts: [],
         });
       }
       if (path === "/api/customer/campaigns") {
-        if (init?.method === "POST") {
-          return Promise.resolve({
-            campaign: {
-              id: "campaign-2",
-              name: "Launch Week",
-              status: "draft",
-              approval_status: "pending",
-              target_platforms: ["linkedin", "facebook"],
-            },
-          });
-        }
         return Promise.resolve({
           campaigns: [
             {
@@ -202,71 +148,104 @@ describe("Customer dashboard", () => {
           ],
         });
       }
+      if (path === "/api/customer/ai-backbone") {
+        return Promise.resolve({
+          settings: {
+            access_mode: "workspace_default",
+            workspace_default: {
+              api_url: "https://openclaw.example",
+            },
+            customer_api: {
+              api_url: "https://customer-openclaw.example",
+              has_api_key: true,
+            },
+            chatgpt_oauth: {
+              linked: false,
+              session_ready: false,
+              chatgpt_subject: "",
+              session_expires_at: null,
+            },
+            effective_status: {
+              ready: true,
+              message: "Using workspace-managed OpenClaw access.",
+            },
+          },
+        });
+      }
+      if (path === "/api/customer/personas") {
+        return Promise.resolve({ personas: [] });
+      }
+      if (path === "/api/customer/telegram/link") {
+        telegramLinkStatusCalls += 1;
+        if (telegramLinkStatusCalls >= 3) {
+          return Promise.resolve({
+            linked: true,
+            link: {
+              telegram_username: "tripc",
+              chat_id: "123456789",
+            },
+          });
+        }
+        return Promise.resolve({ linked: false });
+      }
+      if (path === "/api/customer/telegram/link/start") {
+        return Promise.resolve({
+          start_token: "secure-link-token",
+          expires_at: "2099-03-29T12:00:00Z",
+        });
+      }
       throw new Error(`Unexpected path: ${path}`);
     });
   });
 
-  it("renders the customer workspace", async () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it("renders the current dashboard shell", async () => {
     render(<DashboardPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Customer Workspace")).toBeInTheDocument();
-      expect(screen.getByText("Brand Onboarding")).toBeInTheDocument();
-      expect(screen.getByDisplayValue("TripC")).toBeInTheDocument();
-      expect(screen.getByText("Telegram Approvals")).toBeInTheDocument();
-      expect(screen.getByText("@tripc")).toBeInTheDocument();
-      expect(screen.getByText("Connected Accounts")).toBeInTheDocument();
-      expect(screen.getByText("In-App OpenClaw Assistant")).toBeInTheDocument();
-      expect(screen.getByText("AI Backbone Access")).toBeInTheDocument();
-      expect(screen.getByText("Campaign Control")).toBeInTheDocument();
-      expect(screen.getByText("Q2 Launch")).toBeInTheDocument();
-      expect(screen.getByText("Launch teaser")).toBeInTheDocument();
+      expect(screen.getByText("SkyNet")).toBeInTheDocument();
+      expect(screen.getByText("Quick Stats")).toBeInTheDocument();
+      expect(screen.getByText("Tổng quan")).toBeInTheDocument();
     });
   });
 
-  it("saves customer-provided AI backbone settings", async () => {
+  it("refreshes telegram link status in place after connect", async () => {
     render(<DashboardPage />);
 
-    fireEvent.click(
-      await screen.findByRole("radio", { name: /Bring Your API/i }),
-    );
-    fireEvent.change(screen.getByLabelText("Customer OpenClaw URL"), {
-      target: { value: "https://customer-openclaw.example" },
-    });
-    fireEvent.change(screen.getByLabelText("Customer OpenClaw API Key"), {
-      target: { value: "oc_customer_key" },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Save AI Backbone" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Dự án & Memory" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Telegram" }));
 
     await waitFor(() => {
       expect(customerApiRequest).toHaveBeenCalledWith(
-        "/api/customer/ai-backbone",
-        expect.objectContaining({
-          method: "PUT",
-        }),
-      );
-    });
-  });
-
-  it("creates a campaign draft from the dashboard", async () => {
-    render(<DashboardPage />);
-
-    const nameInput = await screen.findByLabelText("Campaign Name");
-    fireEvent.change(nameInput, { target: { value: "Launch Week" } });
-
-    const description = screen.getByLabelText("Description");
-    fireEvent.change(description, { target: { value: "A launch sprint." } });
-
-    fireEvent.click(screen.getByRole("button", { name: "Create Draft" }));
-
-    await waitFor(() => {
-      expect(customerApiRequest).toHaveBeenCalledWith(
-        "/api/customer/campaigns",
+        "/api/customer/telegram/link/start",
         expect.objectContaining({
           method: "POST",
         }),
       );
     });
+
+    expect(
+      await screen.findByText(
+        "Waiting for Telegram confirmation. This card updates automatically.",
+      ),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      jest.advanceTimersByTime(2500);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("@tripc")).toBeInTheDocument();
+      expect(screen.getByText("Linked")).toBeInTheDocument();
+    });
+
+    expect(
+      (customerApiRequest as jest.Mock).mock.calls.filter(
+        ([path]) => path === "/api/customer/brand",
+      ),
+    ).toHaveLength(1);
   });
 });

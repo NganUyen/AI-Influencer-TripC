@@ -14,6 +14,20 @@ interface TelegramLinkToken {
   expires_at: string;
 }
 
+interface TelegramLinkCompleteResponse {
+  status: "pending" | "authenticated" | "expired";
+  expires_at?: string | null;
+  authenticated_at?: string | null;
+  access_token?: string | null;
+  token_type?: string | null;
+  user?: {
+    id: string;
+    email: string;
+    name?: string | null;
+    avatar_url?: string | null;
+  } | null;
+}
+
 async function customerApiRequest<T>(
   endpoint: string,
   options?: RequestInit,
@@ -38,12 +52,14 @@ export default function AuthPage() {
   const router = useRouter();
   const telegramBotUrl = buildTelegramBotUrl();
   const {
+    establishSessionFromAccessToken,
     loginWithTelegram,
     error,
     initialized,
     initialize,
     isAuthenticated,
   } = useCustomerAuthStore((state) => ({
+    establishSessionFromAccessToken: state.establishSessionFromAccessToken,
     loginWithTelegram: state.loginWithTelegram,
     error: state.error,
     initialized: state.initialized,
@@ -54,6 +70,8 @@ export default function AuthPage() {
   const [localError, setLocalError] = useState<string | null>(null);
   const [linkToken, setLinkToken] = useState<TelegramLinkToken | null>(null);
   const [isGeneratingToken, setIsGeneratingToken] = useState(false);
+  const [isAwaitingTelegram, setIsAwaitingTelegram] = useState(false);
+  const [isCompletingSession, setIsCompletingSession] = useState(false);
 
   useEffect(() => {
     void initialize();
@@ -65,9 +83,103 @@ export default function AuthPage() {
     }
   }, [initialized, isAuthenticated, router]);
 
+  useEffect(() => {
+    if (!linkToken) {
+      setIsAwaitingTelegram(false);
+      setIsCompletingSession(false);
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof window.setTimeout> | null = null;
+    const expiresAt = Date.parse(linkToken.expires_at);
+
+    const pollForCompletion = async () => {
+      if (cancelled) {
+        return;
+      }
+
+      if (Number.isFinite(expiresAt) && Date.now() >= expiresAt) {
+        setLinkToken(null);
+        setIsAwaitingTelegram(false);
+        setIsCompletingSession(false);
+        setLocalError("Telegram link expired. Generate a new secure link to continue.");
+        return;
+      }
+
+      setIsAwaitingTelegram(true);
+
+      try {
+        const payload = await customerApiRequest<TelegramLinkCompleteResponse>(
+          "/api/auth/telegram/link/complete",
+          {
+            method: "POST",
+            body: JSON.stringify({ start_token: linkToken.start_token }),
+          },
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        if (payload.status === "authenticated" && payload.access_token) {
+          setIsCompletingSession(true);
+          await establishSessionFromAccessToken(payload.access_token);
+          if (cancelled) {
+            return;
+          }
+          setLinkToken(null);
+          setIsAwaitingTelegram(false);
+          setIsCompletingSession(false);
+          router.replace("/dashboard");
+          return;
+        }
+
+        if (payload.status === "expired") {
+          setLinkToken(null);
+          setIsAwaitingTelegram(false);
+          setIsCompletingSession(false);
+          setLocalError("Telegram link expired. Generate a new secure link to continue.");
+          return;
+        }
+
+        timeoutId = window.setTimeout(() => {
+          void pollForCompletion();
+        }, 2500);
+      } catch (requestError) {
+        if (cancelled) {
+          return;
+        }
+        setIsAwaitingTelegram(false);
+        setIsCompletingSession(false);
+        setLocalError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Failed to complete Telegram sign-in",
+        );
+      }
+    };
+
+    void pollForCompletion();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [
+    establishSessionFromAccessToken,
+    linkToken?.expires_at,
+    linkToken?.start_token,
+    router,
+  ]);
+
   async function handleGenerateTelegramLink() {
     setIsGeneratingToken(true);
     setLocalError(null);
+    setIsAwaitingTelegram(false);
+    setIsCompletingSession(false);
 
     try {
       const payload = await customerApiRequest<TelegramLinkToken>(
@@ -135,9 +247,7 @@ export default function AuthPage() {
               type="button"
               onClick={() => setMode("signin")}
               className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition ${
-                mode === "signin"
-                  ? "bg-emerald-300 text-slate-950"
-                  : "text-stone-300"
+                mode === "signin" ? "bg-emerald-300 text-slate-950" : "text-stone-300"
               }`}
             >
               Sign In
@@ -146,9 +256,7 @@ export default function AuthPage() {
               type="button"
               onClick={() => setMode("signup")}
               className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition ${
-                mode === "signup"
-                  ? "bg-emerald-300 text-slate-950"
-                  : "text-stone-300"
+                mode === "signup" ? "bg-emerald-300 text-slate-950" : "text-stone-300"
               }`}
             >
               Create Account
@@ -173,7 +281,8 @@ export default function AuthPage() {
                       Secure Link Ready
                     </p>
                     <p className="mt-2 text-sm text-stone-200">
-                      Click the button below to open Telegram and complete authentication.
+                      Open Telegram, tap Start in the bot, and we&apos;ll sign you in
+                      automatically here.
                     </p>
                   </div>
                   <a
@@ -190,9 +299,26 @@ export default function AuthPage() {
                   <p className="text-center text-[10px] text-stone-500">
                     Link expires at: {new Date(linkToken.expires_at).toLocaleTimeString()}
                   </p>
+                  {(isAwaitingTelegram || isCompletingSession) && (
+                    <div className="rounded-2xl border border-amber-300/15 bg-amber-300/5 p-4 text-center">
+                      <p className="text-xs uppercase tracking-[0.18em] text-amber-200/80">
+                        {isCompletingSession ? "Finishing Sign-In" : "Waiting For Telegram"}
+                      </p>
+                      <p className="mt-2 text-sm text-stone-200">
+                        {isCompletingSession
+                          ? "Telegram verified. Finalizing your customer session now."
+                          : "This page is checking for confirmation and will move you into the dashboard automatically."}
+                      </p>
+                    </div>
+                  )}
                   <button
                     type="button"
-                    onClick={() => setLinkToken(null)}
+                    onClick={() => {
+                      setLinkToken(null);
+                      setIsAwaitingTelegram(false);
+                      setIsCompletingSession(false);
+                      setLocalError(null);
+                    }}
                     className="w-full text-center text-xs text-stone-400 transition hover:text-stone-300"
                   >
                     Generate new link

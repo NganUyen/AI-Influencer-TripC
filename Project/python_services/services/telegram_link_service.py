@@ -7,15 +7,13 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
-import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-from config.settings import settings
 from services.database_service import DatabaseService
+from services.telegram_identity_service import TelegramIdentityService
 
 logger = logging.getLogger(__name__)
-USER_NAMESPACE = uuid.UUID("2d9d5f55-2d26-4e34-b0bb-2d2d2f67eaa1")
 
 
 def _utcnow() -> datetime:
@@ -66,13 +64,7 @@ class TelegramLinkService:
 
     @classmethod
     def synthetic_user_id_for_owner_key(cls, owner_key: Optional[str]) -> Optional[str]:
-        normalized = str(owner_key or "").strip()
-        if not normalized:
-            return None
-        try:
-            return str(uuid.UUID(normalized))
-        except (TypeError, ValueError):
-            return str(uuid.uuid5(USER_NAMESPACE, normalized))
+        return TelegramIdentityService.synthetic_user_id_for_owner_key(owner_key)
 
     @classmethod
     def _fallback_user_id(cls, owner_key: Optional[str]) -> Optional[str]:
@@ -208,74 +200,32 @@ class TelegramLinkService:
 
                     user_id = row.get("user_id")
                     if user_id is None:
-                        # New signup flow without a pre-bound user_id
-                        # We use a deterministic user_id based on chat_id
-                        user_id = str(uuid.uuid5(USER_NAMESPACE, f"tg:{chat_id}"))
-
-                        # Ensure user exists in public.users
-                        email = f"tg_{chat_id}@ai-influencer.invalid"
-                        display_name = f"Telegram User {chat_id}"
-                        if telegram_username:
-                            display_name = f"@{telegram_username}"
-
-                        await conn.execute(
-                            """
-                            INSERT INTO public.users (id, email, name)
-                            VALUES ($1::uuid, $2, $3)
-                            ON CONFLICT (id) DO UPDATE
-                            SET name = COALESCE(EXCLUDED.name, public.users.name),
-                                updated_at = NOW()
-                            """,
-                            user_id,
-                            email,
-                            display_name,
+                        identity = await TelegramIdentityService.resolve_or_create_identity(
+                            conn,
+                            chat_id=chat_id,
+                            telegram_username=telegram_username,
                         )
+                        user_id = identity.user_id
 
                     user_id = str(user_id)
 
                     await conn.execute(
                         """
                         UPDATE public.telegram_link_tokens
-                        SET used_at = NOW(),
+                        SET user_id = $2::uuid,
+                            used_at = NOW(),
                             updated_at = NOW()
                         WHERE token_hash = $1
                         """,
                         token_hash,
+                        user_id,
                     )
 
-                    await conn.execute(
-                        """
-                        UPDATE public.telegram_user_links
-                        SET revoked_at = NOW()
-                        WHERE user_id = $1::uuid
-                          AND chat_id <> $2
-                          AND revoked_at IS NULL
-                        """,
-                        user_id,
-                        chat_id,
-                    )
-
-                    await conn.execute(
-                        """
-                        INSERT INTO public.telegram_user_links (
-                            chat_id,
-                            user_id,
-                            telegram_username,
-                            linked_at,
-                            last_verified_at,
-                            revoked_at
-                        )
-                        VALUES ($1, $2::uuid, $3, NOW(), NOW(), NULL)
-                        ON CONFLICT (chat_id) DO UPDATE
-                        SET user_id = EXCLUDED.user_id,
-                            telegram_username = COALESCE(EXCLUDED.telegram_username, public.telegram_user_links.telegram_username),
-                            linked_at = NOW(),
-                            last_verified_at = NOW(),
-                            revoked_at = NULL
-                        """,
-                        chat_id,
-                        user_id,
-                        telegram_username,
+                    await TelegramIdentityService.upsert_telegram_link(
+                        conn,
+                        chat_id=chat_id,
+                        user_id=user_id,
+                        telegram_username=telegram_username,
                     )
         except Exception as exc:
             if cls._is_missing_relation_error(
@@ -290,6 +240,67 @@ class TelegramLinkService:
             "chat_id": chat_id,
             "user_id": user_id,
             "telegram_username": telegram_username,
+        }
+
+    @classmethod
+    async def get_link_token_completion(
+        cls,
+        token: str,
+    ) -> Dict[str, Any]:
+        normalized_token = str(token or "").strip()
+        if not normalized_token:
+            raise TelegramLinkError("Missing Telegram link token.")
+
+        token_hash = _hash_token(normalized_token)
+        pool = await DatabaseService.get_pool()
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT user_id, expires_at, used_at
+                    FROM public.telegram_link_tokens
+                    WHERE token_hash = $1
+                    LIMIT 1
+                    """,
+                    token_hash,
+                )
+        except Exception as exc:
+            if cls._is_missing_relation_error(exc, "telegram_link_tokens"):
+                raise TelegramLinkError(
+                    "Telegram link tables are not installed. Apply migration 20260326_telegram_owner_links_and_avatar_assets.sql first."
+                ) from exc
+            raise
+
+        if row is None:
+            raise TelegramLinkError("Telegram link token is invalid.")
+
+        expires_at = row["expires_at"]
+        used_at = row["used_at"]
+        user_id = row.get("user_id")
+
+        if used_at is not None:
+            if not user_id:
+                raise TelegramLinkError(
+                    "Telegram link token was consumed without an associated user."
+                )
+            return {
+                "status": "authenticated",
+                "user_id": str(user_id),
+                "expires_at": expires_at.isoformat() if expires_at else None,
+                "authenticated_at": used_at.isoformat(),
+            }
+
+        if expires_at <= _utcnow():
+            return {
+                "status": "expired",
+                "expires_at": expires_at.isoformat(),
+                "authenticated_at": None,
+            }
+
+        return {
+            "status": "pending",
+            "expires_at": expires_at.isoformat(),
+            "authenticated_at": None,
         }
 
     @classmethod

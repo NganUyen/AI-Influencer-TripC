@@ -701,20 +701,20 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         await TelegramSkillSessionStore.clear_session(chat_id)
         start_parts = text.split(maxsplit=1)
         start_token = start_parts[1].strip() if len(start_parts) > 1 else None
-        is_new = False
-        try:
-            existing = await TelegramSubscriberService.get_by_chat_id(chat_id)
-            await TelegramSubscriberService.upsert(
-                chat_id=chat_id,
-                chat_type=chat_type,
-                username=username,
-                first_name=first_name,
-            )
-            is_new = existing is None
-        except Exception as exc:
-            logger.warning("Failed to upsert subscriber chat_id=%s: %s", chat_id, exc)
-
         if start_token:
+            try:
+                await TelegramSubscriberService.upsert(
+                    chat_id=chat_id,
+                    chat_type=chat_type,
+                    username=username,
+                    first_name=first_name,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to upsert subscriber chat_id=%s during token start: %s",
+                    chat_id,
+                    exc,
+                )
             try:
                 link_result = await TelegramLinkService.consume_link_token(
                     token=start_token,
@@ -747,70 +747,12 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                     ),
                 )
                 return
-        else:
-            # Auto-link Telegram account when user starts the bot without a token
-            # This creates a user record and links it to the chat_id
-            try:
-                from services.database_service import DatabaseService
-                import uuid
-
-                pool = await DatabaseService.get_pool()
-                async with pool.acquire() as conn:
-                    # Check if already linked
-                    existing_link = await conn.fetchrow(
-                        "SELECT user_id FROM public.telegram_user_links WHERE chat_id = $1 AND revoked_at IS NULL",
-                        chat_id,
-                    )
-                    if not existing_link:
-                        # Create a deterministic user_id based on chat_id
-                        user_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"telegram:{chat_id}"))
-                        email = f"tg_{chat_id}@ai-influencer.invalid"
-                        display_name = first_name or f"Telegram User {chat_id}"
-
-                        async with conn.transaction():
-                            # Ensure user exists
-                            await conn.execute(
-                                """
-                                INSERT INTO public.users (id, email, name)
-                                VALUES ($1::uuid, $2, $3)
-                                ON CONFLICT (id) DO UPDATE
-                                SET name = COALESCE(EXCLUDED.name, public.users.name)
-                                """,
-                                user_id,
-                                email,
-                                display_name,
-                            )
-
-                            # Create telegram link
-                            await conn.execute(
-                                """
-                                INSERT INTO public.telegram_user_links (
-                                    chat_id,
-                                    user_id,
-                                    telegram_username,
-                                    linked_at,
-                                    last_verified_at
-                                )
-                                VALUES ($1, $2::uuid, $3, NOW(), NOW())
-                                ON CONFLICT (chat_id) DO UPDATE
-                                SET telegram_username = COALESCE(EXCLUDED.telegram_username, public.telegram_user_links.telegram_username),
-                                    last_verified_at = NOW(),
-                                    revoked_at = NULL
-                                """,
-                                chat_id,
-                                user_id,
-                                username,
-                            )
-                        logger.info("Auto-linked Telegram chat_id=%s to user_id=%s", chat_id, user_id)
-            except Exception as exc:
-                logger.warning("Failed to auto-link Telegram chat_id=%s: %s", chat_id, exc)
-
-        greeting = "Welcome!" if is_new else "Welcome back!"
         await send_message(
             chat_id,
             (
-                f"{greeting} AI Influencer Bot is online.\n\n"
-                "Use /media to open the studio menu, or wait for daily story approvals."
+                "Welcome! AI Influencer Bot is online.\n\n"
+                "Use /media to open the studio menu, or wait for daily story approvals.\n\n"
+                "To link this Telegram account to a customer workspace, start from the web dashboard or auth page and open the secure bot link there."
             ),
             parse_mode=None,
             reply_markup=inline_keyboard(

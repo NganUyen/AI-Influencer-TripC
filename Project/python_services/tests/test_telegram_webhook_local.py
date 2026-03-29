@@ -4,8 +4,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -46,7 +45,6 @@ with patch.dict(os.environ, _TEST_ENV, clear=False):
         _escape_md,
         _handle_callback_query,
         _handle_message,
-        router,
         send_photo,
     )
     from services.telegram_link_service import TelegramLinkError
@@ -76,11 +74,18 @@ def reset_telegram_skill_session_store():
     TelegramSkillSessionStore._memory_sessions.clear()
 
 
-def _build_client() -> TestClient:
-    app = FastAPI()
-    app.include_router(router, prefix="/api/webhooks")
-    return TestClient(app)
-
+@pytest.fixture(autouse=True)
+def stub_telegram_presence_updates():
+    with patch.object(
+        telegram_webhook.TelegramSubscriberService,
+        "touch",
+        AsyncMock(),
+    ), patch.object(
+        telegram_webhook.TelegramLinkService,
+        "touch_link",
+        AsyncMock(),
+    ):
+        yield
 
 @pytest.mark.asyncio
 async def test_start_command_sends_welcome_message(tg_calls):
@@ -94,6 +99,7 @@ async def test_start_command_sends_welcome_message(tg_calls):
 
     send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
     assert "AI Influencer Bot is online" in send_call["payload"]["text"]
+    assert "start from the web dashboard or auth page" in send_call["payload"]["text"]
     assert send_call["payload"]["reply_markup"]["inline_keyboard"][0][1]["callback_data"] == "status_check"
 
 
@@ -121,6 +127,29 @@ async def test_start_command_clears_active_session(tg_calls):
 
 
 @pytest.mark.asyncio
+async def test_start_command_without_token_does_not_register_or_link(tg_calls):
+    message = {
+        "text": "/start",
+        "chat": {"id": 123456789, "type": "private"},
+        "from": {"first_name": "TripC", "username": "tripc"},
+    }
+
+    with patch.object(
+        telegram_webhook.TelegramSubscriberService,
+        "upsert",
+        AsyncMock(),
+    ) as upsert_subscriber, patch.object(
+        telegram_webhook.TelegramLinkService,
+        "consume_link_token",
+        AsyncMock(),
+    ) as consume_link_token:
+        await _handle_message(None, message)
+
+    upsert_subscriber.assert_not_awaited()
+    consume_link_token.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_start_command_with_link_token_consumes_token_and_confirms_link(tg_calls):
     message = {
         "text": "/start secure-link-token",
@@ -129,6 +158,10 @@ async def test_start_command_with_link_token_consumes_token_and_confirms_link(tg
     }
 
     with patch.object(
+        telegram_webhook.TelegramSubscriberService,
+        "upsert",
+        AsyncMock(),
+    ) as upsert_subscriber, patch.object(
         telegram_webhook.TelegramLinkService,
         "consume_link_token",
         AsyncMock(
@@ -141,6 +174,7 @@ async def test_start_command_with_link_token_consumes_token_and_confirms_link(tg
     ) as consume_link_token:
         await _handle_message(None, message)
 
+    upsert_subscriber.assert_awaited_once()
     consume_link_token.assert_awaited_once_with(
         token="secure-link-token",
         chat_id=123456789,
@@ -160,6 +194,10 @@ async def test_start_command_with_invalid_link_token_returns_friendly_error(tg_c
     }
 
     with patch.object(
+        telegram_webhook.TelegramSubscriberService,
+        "upsert",
+        AsyncMock(),
+    ), patch.object(
         telegram_webhook.TelegramLinkService,
         "consume_link_token",
         AsyncMock(side_effect=TelegramLinkError("Telegram link token is invalid.")),
@@ -474,14 +512,27 @@ async def test_option_callback_sends_photo_preview_and_keeps_controls(tg_calls):
     assert tg_calls[2]["payload"]["caption"] == expected_caption
 
 
-def test_receive_telegram_update_requires_matching_secret():
-    client = _build_client()
+@pytest.mark.asyncio
+async def test_receive_telegram_update_requires_matching_secret():
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/webhooks/telegram",
+            "headers": [],
+        }
+    )
 
     with patch.object(telegram_webhook.settings, "TELEGRAM_WEBHOOK_SECRET", "test-secret"):
-        response = client.post("/api/webhooks/telegram", json={"update_id": 1})
+        with pytest.raises(HTTPException) as exc_info:
+            await telegram_webhook.receive_telegram_update(
+                request,
+                BackgroundTasks(),
+                None,
+            )
 
-    assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid Telegram webhook secret"
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Invalid Telegram webhook secret"
 
 
 def test_markdown_escape_handles_special_characters():

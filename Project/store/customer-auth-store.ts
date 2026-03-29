@@ -22,6 +22,7 @@ interface CustomerAuthState {
   initialized: boolean;
   error: string | null;
   initialize: () => Promise<void>;
+  establishSessionFromAccessToken: (accessToken: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   loginWithTelegram: (telegramData: any) => Promise<void>;
   signup: (payload: {
@@ -53,6 +54,22 @@ function mapUser(
     accessToken: session?.access_token || null,
     isAuthenticated: Boolean(session?.access_token && user),
   };
+}
+
+async function establishSupabaseSession(
+  accessToken: string,
+): Promise<SupabaseSession | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.auth.setSession({
+    access_token: accessToken,
+    refresh_token: "",
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data.session;
 }
 
 export const useCustomerAuthStore = create<CustomerAuthState>()(
@@ -110,6 +127,28 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
         initialized: true,
         error: null,
       });
+    },
+
+    establishSessionFromAccessToken: async (accessToken: string) => {
+      set({ isLoading: true, error: null });
+      try {
+        const session = await establishSupabaseSession(accessToken);
+        set({
+          ...mapUser(session),
+          isLoading: false,
+          initialized: true,
+          error: null,
+        });
+      } catch (err) {
+        set({
+          isLoading: false,
+          error:
+            err instanceof Error
+              ? err.message
+              : "Unable to establish customer session",
+        });
+        throw err;
+      }
     },
 
     login: async (email: string, password: string) => {
@@ -172,21 +211,10 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
         }
 
         const { access_token } = await response.json();
-
-        // 1. Establish the Supabase session using the token from our backend
-        // Since we signed it with the shared JWT secret, Supabase will accept it.
-        const supabase = getSupabaseClient();
-        const { data, error } = await supabase.auth.setSession({
-          access_token,
-          refresh_token: "", // Our custom JWT flow doesn't use refresh tokens for now
-        });
-
-        if (error) {
-          throw error;
-        }
+        const session = await establishSupabaseSession(access_token);
 
         set({
-          ...mapUser(data.session),
+          ...mapUser(session),
           isLoading: false,
           initialized: true,
           error: null,

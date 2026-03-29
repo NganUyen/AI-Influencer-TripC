@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import httpx
+import jwt
 
 from config.settings import settings
 from services.database_service import DatabaseService
@@ -41,6 +42,44 @@ class CustomerAuthService:
         return value
 
     @classmethod
+    def _build_session(cls, token: str, payload: Dict[str, Any]) -> CustomerSession:
+        user_id = str(payload.get("id") or payload.get("sub") or "").strip()
+        email = str(payload.get("email") or "").strip()
+        if not user_id or not email:
+            raise CustomerAuthError("Supabase session did not include a valid user")
+
+        user_metadata = payload.get("user_metadata") or {}
+        display_name = (
+            user_metadata.get("full_name")
+            or user_metadata.get("name")
+            or payload.get("phone")
+            or email.split("@", 1)[0]
+        )
+        avatar_url = user_metadata.get("avatar_url")
+
+        return CustomerSession(
+            user_id=user_id,
+            email=email,
+            display_name=str(display_name).strip() if display_name else None,
+            avatar_url=str(avatar_url).strip() if avatar_url else None,
+            access_token=token,
+            raw_user=payload,
+        )
+
+    @classmethod
+    def _resolve_local_jwt_session(cls, token: str) -> CustomerSession:
+        try:
+            payload = jwt.decode(
+                token,
+                settings.JWT_SECRET_KEY,
+                algorithms=["HS256"],
+                audience="authenticated",
+            )
+        except jwt.PyJWTError as exc:
+            raise CustomerAuthError("Customer session is invalid or expired") from exc
+        return cls._build_session(token, payload)
+
+    @classmethod
     async def resolve_session(
         cls,
         authorization: Optional[str],
@@ -59,35 +98,17 @@ class CustomerAuthService:
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.get(user_url, headers=headers)
-        except httpx.HTTPError as exc:
-            raise CustomerAuthError("Unable to validate customer session") from exc
+        except httpx.HTTPError:
+            session = cls._resolve_local_jwt_session(token)
+            await cls.ensure_user_record(session)
+            return session
 
-        if response.status_code != 200:
-            raise CustomerAuthError("Customer session is invalid or expired")
+        if response.status_code == 200:
+            session = cls._build_session(token, response.json())
+            await cls.ensure_user_record(session)
+            return session
 
-        payload = response.json()
-        user_id = str(payload.get("id") or "").strip()
-        email = str(payload.get("email") or "").strip()
-        if not user_id or not email:
-            raise CustomerAuthError("Supabase session did not include a valid user")
-
-        user_metadata = payload.get("user_metadata") or {}
-        display_name = (
-            user_metadata.get("full_name")
-            or user_metadata.get("name")
-            or payload.get("phone")
-            or email.split("@", 1)[0]
-        )
-        avatar_url = user_metadata.get("avatar_url")
-
-        session = CustomerSession(
-            user_id=user_id,
-            email=email,
-            display_name=str(display_name).strip() if display_name else None,
-            avatar_url=str(avatar_url).strip() if avatar_url else None,
-            access_token=token,
-            raw_user=payload,
-        )
+        session = cls._resolve_local_jwt_session(token)
         await cls.ensure_user_record(session)
         return session
 

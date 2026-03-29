@@ -218,6 +218,7 @@ export default function CustomerDashboard() {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [telegramLink, setTelegramLink] = useState<TelegramLinkStatus | null>(null);
   const [linkToken, setLinkToken] = useState<TelegramLinkToken | null>(null);
+  const [isPollingTelegramLink, setIsPollingTelegramLink] = useState(false);
   const [telegramBotUrl, setTelegramBotUrl] = useState<string | null>(null);
 
   const [campaignDraft, setCampaignDraft] = useState({
@@ -281,6 +282,72 @@ export default function CustomerDashboard() {
       void loadThread(selectedThreadId);
     }
   }, [selectedThreadId, isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !linkToken || telegramLink?.linked) {
+      setIsPollingTelegramLink(false);
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof window.setTimeout> | null = null;
+    const expiresAt = Date.parse(linkToken.expires_at);
+
+    const pollTelegramLink = async () => {
+      if (cancelled) {
+        return;
+      }
+
+      if (Number.isFinite(expiresAt) && Date.now() >= expiresAt) {
+        setLinkToken(null);
+        setIsPollingTelegramLink(false);
+        setBanner("Telegram link expired. Start a fresh secure link to continue.");
+        return;
+      }
+
+      setIsPollingTelegramLink(true);
+
+      try {
+        const latestLink = await customerApiRequest<TelegramLinkStatus>(
+          "/api/customer/telegram/link",
+        );
+        if (cancelled) {
+          return;
+        }
+
+        setTelegramLink(latestLink);
+        if (latestLink.linked) {
+          setLinkToken(null);
+          setIsPollingTelegramLink(false);
+          setBanner("Telegram connected successfully.");
+          return;
+        }
+
+        timeoutId = window.setTimeout(() => {
+          void pollTelegramLink();
+        }, 2500);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setIsPollingTelegramLink(false);
+        setPageError(
+          error instanceof Error
+            ? error.message
+            : "Failed to refresh Telegram link status",
+        );
+      }
+    };
+
+    void pollTelegramLink();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [isAuthenticated, linkToken, telegramLink?.linked]);
 
   async function loadWorkspace() {
     try {
@@ -610,6 +677,7 @@ export default function CustomerDashboard() {
 
   async function handleStartTelegramLink() {
     setBusyKey("telegram-link");
+    setPageError(null);
     try {
       const payload = await customerApiRequest<TelegramLinkToken>(
         "/api/customer/telegram/link/start",
@@ -812,11 +880,17 @@ export default function CustomerDashboard() {
                       <StatusBadge label="Linked" />
                    </div>
                  ) : (
-                   <button onClick={handleStartTelegramLink} className="w-full bg-white text-slate-900 font-bold py-3 rounded-xl hover:bg-emerald-200 transition-colors">Connect Telegram</button>
+                   <button onClick={handleStartTelegramLink} className="w-full bg-white text-slate-900 font-bold py-3 rounded-xl hover:bg-emerald-200 transition-colors">
+                      {busyKey === "telegram-link" ? "Generating Link..." : "Connect Telegram"}
+                   </button>
                  )}
                  {linkToken && (
                     <div className="mt-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-center">
-                       <p className="text-xs text-amber-200 mb-3 font-medium">Link established. Verify in app.</p>
+                       <p className="text-xs text-amber-200 mb-3 font-medium">
+                          {isPollingTelegramLink
+                            ? "Waiting for Telegram confirmation. This card updates automatically."
+                            : "Secure link ready. Finish the confirmation in Telegram."}
+                       </p>
                        <a href={`${telegramBotUrl}?start=${linkToken.start_token}`} target="_blank" rel="noreferrer" className="bg-amber-400 text-slate-900 px-6 py-2 rounded-full font-bold text-[10px] uppercase tracking-widest hover:bg-amber-300 transition-colors inline-block">Verify Now</a>
                     </div>
                  )}

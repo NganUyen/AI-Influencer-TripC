@@ -618,7 +618,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_media_assets_storage_identity
 -- Telegram/customer ownership linking for persona and media routing.
 CREATE TABLE IF NOT EXISTS public.telegram_link_tokens (
     token_hash TEXT PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

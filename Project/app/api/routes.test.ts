@@ -347,6 +347,49 @@ describe("API proxy routes", () => {
     expect(await response.json()).toEqual({ start_token: "abc123" });
   });
 
+  it("proxies telegram auth completion polling routes", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      text: async () =>
+        JSON.stringify({
+          status: "pending",
+          expires_at: "2026-03-29T12:00:00Z",
+          authenticated_at: null,
+        }),
+    } as Response);
+
+    const request = new NextRequest(
+      "http://localhost/api/auth/telegram/link/complete",
+      {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ start_token: "abc123" }),
+      },
+    );
+    const response = await postTelegramAuthProxy(request, {
+      params: Promise.resolve({ path: ["link", "complete"] }),
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "http://backend.test/api/auth/telegram/link/complete",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ start_token: "abc123" }),
+        headers: expect.any(Headers),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      status: "pending",
+      expires_at: "2026-03-29T12:00:00Z",
+      authenticated_at: null,
+    });
+  });
+
   it("proxies workflow approval payload", async () => {
     global.fetch = jest.fn().mockResolvedValue({
       status: 200,

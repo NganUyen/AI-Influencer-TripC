@@ -953,7 +953,12 @@ class PersonaRegistryService:
         if not persona:
             blocking_reason = f"Persona '{persona_id}' was not found."
         elif not checks["status_ready"]:
-            blocking_reason = "Persona status is not ready."
+            if checks["has_avatar_asset"] and checks["has_heygen_avatar_id"]:
+                blocking_reason = (
+                    "HeyGen is still processing this avatar. Try saving the persona again in a moment."
+                )
+            else:
+                blocking_reason = "Persona status is not ready."
         elif not checks["has_tts_voice"]:
             blocking_reason = "Missing tts_voice. Configure persona voice first."
         elif not checks["has_avatar_asset"]:

@@ -142,7 +142,16 @@ class PersonaCreatorSkill(BaseSkill):
         status = persona.get("status", "missing")
         save_required = not checks["status_ready"]
         if not checks["status_ready"]:
-            if checks["has_avatar_image"] and checks["has_avatar_asset"]:
+            if (
+                checks["has_avatar_image"]
+                and checks["has_avatar_asset"]
+                and checks["has_heygen_avatar_id"]
+            ):
+                blocking_reason = (
+                    "HeyGen is still processing this avatar. Tap Save Persona again in a moment "
+                    "to verify readiness and finish setup."
+                )
+            elif checks["has_avatar_image"] and checks["has_avatar_asset"]:
                 blocking_reason = (
                     "The avatar is already saved, but this persona is still in draft mode. "
                     "Tap Save Persona to mark it ready to use."

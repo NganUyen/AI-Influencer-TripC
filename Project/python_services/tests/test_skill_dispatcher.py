@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+from services.errors import HeyGenTimeoutError
 from services import heygen_service as heygen_service_module
 from services import persona_registry_service as persona_registry_service_module
 from services.skill_dispatcher import SkillDispatcher
@@ -90,7 +91,7 @@ async def test_cancel_action_preserves_session_when_workflow_cancel_fails(monkey
 
 
 @pytest.mark.asyncio
-async def test_save_persona_action_clears_session_after_marking_ready():
+async def test_save_persona_action_clears_session_after_marking_ready(monkeypatch):
     chat_id = 778899
     await TelegramSkillSessionStore.clear_session(chat_id)
     session = SkillSession(
@@ -109,6 +110,17 @@ async def test_save_persona_action_clears_session_after_marking_ready():
         control=SkillControl(status=SkillStatus.preview_ready),
     )
     await TelegramSkillSessionStore.set_session(chat_id, session)
+
+    class FakeHeyGenService:
+        async def wait_for_avatar_ready(self, avatar_id: str, **_kwargs):
+            assert avatar_id == "heygen-789"
+            return {"data": {"id": avatar_id, "status": "ready"}}
+
+    monkeypatch.setattr(
+        heygen_service_module,
+        "HeyGenService",
+        FakeHeyGenService,
+    )
 
     with patch(
         "services.persona_registry_service.PersonaRegistryService.update_persona",
@@ -160,6 +172,10 @@ async def test_save_persona_registers_heygen_avatar_before_marking_ready(monkeyp
             assert avatar_name == "hero-host"
             return "heygen-456"
 
+        async def wait_for_avatar_ready(self, avatar_id: str, **_kwargs):
+            assert avatar_id == "heygen-456"
+            return {"data": {"id": avatar_id, "status": "ready"}}
+
     captured_update = {}
 
     async def fake_update_persona(
@@ -191,6 +207,76 @@ async def test_save_persona_registers_heygen_avatar_before_marking_ready(monkeyp
     assert captured_update["payload"]["heygen_avatar_id"] == "heygen-456"
     assert result.output["heygen_avatar_id"] == "heygen-456"
     assert await TelegramSkillSessionStore.get_session(chat_id) is None
+
+
+@pytest.mark.asyncio
+async def test_save_persona_keeps_draft_while_heygen_is_still_processing(monkeypatch):
+    chat_id = 123987
+    await TelegramSkillSessionStore.clear_session(chat_id)
+    session = SkillSession(
+        skill_name="persona-creator",
+        step_key="preview",
+        collected={"persona_id": "hero-host"},
+        artifacts={
+            "telegram_chat_id": str(chat_id),
+            "persona_id": "hero-host",
+            "avatar_image_url": "https://cdn.example/hero-host.png",
+            "avatar_media_asset_id": "media-123",
+            "persona_data": {"avatar_source_type": "generated"},
+        },
+        control=SkillControl(status=SkillStatus.preview_ready),
+    )
+    await TelegramSkillSessionStore.set_session(chat_id, session)
+
+    class FakeHeyGenService:
+        async def create_avatar(self, image_url: str, avatar_name: str = "Minh_TripC"):
+            return "heygen-456"
+
+        async def wait_for_avatar_ready(self, avatar_id: str, **_kwargs):
+            raise HeyGenTimeoutError("HeyGen is still processing this avatar")
+
+    captured_update = {}
+
+    async def fake_update_persona(
+        persona_id, payload, *, user_id=None, owner_key=None
+    ):
+        captured_update["persona_id"] = persona_id
+        captured_update["payload"] = payload
+        return {
+            "persona_id": persona_id,
+            "status": "draft",
+            "language": "English",
+            "tts_voice": "en-US-Studio-O",
+            "avatar_image_url": "https://cdn.example/hero-host.png",
+            "avatar_media_asset_id": "media-123",
+            "heygen_avatar_id": "heygen-456",
+            "avatar_source_type": "generated",
+        }
+
+    monkeypatch.setattr(
+        heygen_service_module,
+        "HeyGenService",
+        FakeHeyGenService,
+    )
+    monkeypatch.setattr(
+        persona_registry_service_module.PersonaRegistryService,
+        "update_persona",
+        fake_update_persona,
+    )
+
+    result = await SkillDispatcher.handle_action(chat_id, "save", app=object())
+
+    assert result.success is True
+    assert result.next_step == "preview"
+    assert result.output["status"] == "pending_heygen_avatar"
+    assert "still processing" in result.output["message"]
+    assert captured_update["payload"]["heygen_avatar_id"] == "heygen-456"
+    assert "status" not in captured_update["payload"]
+
+    stored_session = await TelegramSkillSessionStore.get_session(chat_id)
+    assert stored_session is not None
+    assert stored_session.artifacts["heygen_avatar_id"] == "heygen-456"
+    assert "HeyGen is still processing this avatar" in result.output["readiness"]["blocking_reason"]
 
 
 @pytest.mark.asyncio

@@ -398,13 +398,18 @@ class SkillDispatcher:
                 "persona_id"
             )
             if not persona_id:
-                return SkillResult(
-                    success=False,
-                    error="Persona ID is missing. Restart persona creation from the studio menu.",
-                    session=session,
+                return await cls._save_or_clear(
+                    chat_id,
+                    SkillResult(
+                        success=False,
+                        error="Persona ID is missing. Restart persona creation from the studio menu.",
+                        session=session,
+                    ),
                 )
 
             from services.persona_registry_service import PersonaRegistryService
+            from services.errors import HeyGenTimeoutError
+            from skills.persona_creator import PersonaCreatorSkill
 
             owner_key = (
                 f"telegram:{session.artifacts.get('telegram_chat_id')}"
@@ -427,42 +432,133 @@ class SkillDispatcher:
             # CRITICAL FIX: Save should only finalize an already-persisted asset
             # Never re-upload from URL; if avatar_media_asset_id is missing, the preview flow failed
             if not avatar_media_asset_id:
-                return SkillResult(
-                    success=False,
-                    error=(
-                        "Avatar preview exists but was not persisted to workspace media. "
-                        "Please regenerate the avatar or try creating the persona again."
+                return await cls._save_or_clear(
+                    chat_id,
+                    SkillResult(
+                        success=False,
+                        error=(
+                            "Avatar preview exists but was not persisted to workspace media. "
+                            "Please regenerate the avatar or try creating the persona again."
+                        ),
+                        session=session,
                     ),
-                    session=session,
                 )
 
             if not avatar_url:
-                return SkillResult(
-                    success=False,
-                    error=(
-                        "Avatar preview is missing its image URL, so I can't finish persona setup yet. "
-                        "Please regenerate the avatar and try saving again."
+                return await cls._save_or_clear(
+                    chat_id,
+                    SkillResult(
+                        success=False,
+                        error=(
+                            "Avatar preview is missing its image URL, so I can't finish persona setup yet. "
+                            "Please regenerate the avatar and try saving again."
+                        ),
+                        session=session,
                     ),
-                    session=session,
                 )
 
+            heygen_service = None
+            created_new_heygen_avatar = False
             if not heygen_avatar_id:
                 try:
                     from services.heygen_service import HeyGenService
 
-                    heygen_avatar_id = await HeyGenService().create_avatar(
+                    heygen_service = HeyGenService()
+                    heygen_avatar_id = await heygen_service.create_avatar(
                         avatar_url,
                         avatar_name=cls._build_heygen_avatar_name(str(persona_id)),
                     )
+                    created_new_heygen_avatar = True
                 except Exception as exc:
-                    return SkillResult(
+                    return await cls._save_or_clear(
+                        chat_id,
+                        SkillResult(
+                            success=False,
+                            error=(
+                                "I couldn't register this persona with HeyGen yet, so it is not video-ready. "
+                                f"Please try Save Persona again in a moment. ({exc})"
+                            ),
+                            session=session,
+                        ),
+                    )
+
+            if heygen_service is None:
+                from services.heygen_service import HeyGenService
+
+                heygen_service = HeyGenService()
+
+            try:
+                await heygen_service.wait_for_avatar_ready(heygen_avatar_id)
+            except Exception as exc:
+                if isinstance(exc, HeyGenTimeoutError):
+                    persona = await PersonaRegistryService.update_persona(
+                        persona_id,
+                        {
+                            "avatar_image_url": avatar_url,
+                            "avatar_media_asset_id": avatar_media_asset_id,
+                            "avatar_source_type": avatar_source_type,
+                            "heygen_avatar_id": heygen_avatar_id,
+                        },
+                        owner_key=owner_key,
+                    )
+                    if not persona:
+                        return await cls._save_or_clear(
+                            chat_id,
+                            SkillResult(
+                                success=False,
+                                error="Persona was not found for this Telegram workspace.",
+                                session=session,
+                            ),
+                        )
+
+                    readiness = PersonaCreatorSkill._build_readiness_report(
+                        str(persona_id),
+                        persona,
+                    )
+                    session.artifacts["avatar_image_url"] = avatar_url
+                    session.artifacts["preview_image_url"] = avatar_url
+                    session.artifacts["avatar_media_asset_id"] = avatar_media_asset_id
+                    session.artifacts["heygen_avatar_id"] = heygen_avatar_id
+                    session.artifacts["persona_data"] = persona
+                    session.artifacts["readiness"] = readiness
+                    session.control.status = SkillStatus.preview_ready
+                    session.step_key = "preview"
+
+                    return await cls._save_or_clear(
+                        chat_id,
+                        SkillResult(
+                            success=True,
+                            next_step="preview",
+                            output={
+                                "status": "pending_heygen_avatar",
+                                "message": (
+                                    "HeyGen accepted the avatar, but it is still processing. "
+                                    "Tap Save Persona again in a moment to finish setup."
+                                ),
+                                "persona_id": persona_id,
+                                "preview_image_url": avatar_url,
+                                "avatar_media_asset_id": avatar_media_asset_id,
+                                "heygen_avatar_id": heygen_avatar_id,
+                                "persona": persona,
+                                "readiness": readiness,
+                            },
+                            session=session,
+                        ),
+                    )
+
+                if created_new_heygen_avatar:
+                    session.artifacts.pop("heygen_avatar_id", None)
+                return await cls._save_or_clear(
+                    chat_id,
+                    SkillResult(
                         success=False,
                         error=(
-                            "I couldn't register this persona with HeyGen yet, so it is not video-ready. "
-                            f"Please try Save Persona again in a moment. ({exc})"
+                            "I couldn't verify that HeyGen finished preparing this avatar yet. "
+                            f"Please regenerate the avatar or try saving again. ({exc})"
                         ),
                         session=session,
-                    )
+                    ),
+                )
 
             persona = await PersonaRegistryService.update_persona(
                 persona_id,
@@ -476,25 +572,31 @@ class SkillDispatcher:
                 owner_key=owner_key,
             )
             if not persona:
-                return SkillResult(
-                    success=False,
-                    error="Persona was not found for this Telegram workspace.",
-                    session=session,
+                return await cls._save_or_clear(
+                    chat_id,
+                    SkillResult(
+                        success=False,
+                        error="Persona was not found for this Telegram workspace.",
+                        session=session,
+                    ),
                 )
 
             await TelegramSkillSessionStore.clear_session(chat_id)
-            return SkillResult(
-                success=True,
-                next_step="done",
-                output={
-                    "status": "saved",
-                    "message": (
-                        f"✅ Persona *{persona_id}* saved, linked to storage, and marked as ready\\!"
-                    ),
-                    "persona_id": persona_id,
-                    "avatar_media_asset_id": avatar_media_asset_id,
-                    "heygen_avatar_id": heygen_avatar_id,
-                },
+            return await cls._save_or_clear(
+                chat_id,
+                SkillResult(
+                    success=True,
+                    next_step="done",
+                    output={
+                        "status": "saved",
+                        "message": (
+                            f"✅ Persona *{persona_id}* saved, linked to storage, and marked as ready\\!"
+                        ),
+                        "persona_id": persona_id,
+                        "avatar_media_asset_id": avatar_media_asset_id,
+                        "heygen_avatar_id": heygen_avatar_id,
+                    },
+                ),
             )
 
         if action == "regenerate":

@@ -33,7 +33,7 @@ from services.fal_service import FalAIService
 from services.heygen_service import HeyGenService
 from services.storage_service import StorageService
 from services.persona_registry_service import PersonaRegistryService
-from services.errors import PersonaConfigurationError, FalAIServiceError, HeyGenAvatarSetupError
+from services.errors import PersonaConfigurationError, FalAIServiceError, HeyGenAvatarSetupError, HeyGenTimeoutError
 import httpx
 import logging
 
@@ -123,6 +123,13 @@ async def setup_persona(persona_id: str, force: bool = False):
         if not heygen_avatar_id:
             raise HeyGenAvatarSetupError("HeyGen không trả về avatar_id")
         print(f"      ✅ HeyGen Avatar ID: {heygen_avatar_id}")
+        print("      ⏳ Đợi HeyGen xác nhận avatar đã sẵn sàng...")
+        await heygen.wait_for_avatar_ready(
+            heygen_avatar_id,
+            timeout_seconds=120,
+            poll_interval=10,
+        )
+        print("      ✅ HeyGen avatar is ready")
 
         # 6. Lưu vào DB 
         await PersonaRegistryService.update_persona(
@@ -144,7 +151,7 @@ async def setup_persona(persona_id: str, force: bool = False):
         print(f"   heygen_avatar_id: {heygen_avatar_id}")
         print(f"   status:           ready")
 
-    except (PersonaConfigurationError, FalAIServiceError, HeyGenAvatarSetupError) as e:
+    except (PersonaConfigurationError, FalAIServiceError, HeyGenAvatarSetupError, HeyGenTimeoutError) as e:
         await PersonaRegistryService.update_persona(
             persona_id, {"status": "failed"}, user_id=persona.get("user_id")
         )

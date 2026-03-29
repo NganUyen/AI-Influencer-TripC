@@ -528,6 +528,127 @@ async def test_heygen_service_create_avatar_uses_upload_asset_and_photo_avatar_g
 
 
 @pytest.mark.asyncio
+async def test_heygen_service_waits_until_avatar_is_ready(monkeypatch):
+    captured = {"urls": []}
+
+    class StubResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    responses = iter(
+        [
+            {"data": {"id": "photo-avatar-123", "status": "pending"}},
+            {"data": {"id": "photo-avatar-123", "status": "ready"}},
+        ]
+    )
+
+    class StubClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers=None):
+            captured["urls"].append(url)
+            return StubResponse(next(responses))
+
+    sleep_calls = []
+
+    async def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+
+    async def fake_record_runtime_usage(**_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "services.heygen_service.httpx.AsyncClient",
+        lambda **_: StubClient(),
+    )
+    monkeypatch.setattr(
+        "services.heygen_service.settings.HEYGEN_API_KEY",
+        "test_heygen_key",
+    )
+    monkeypatch.setattr("services.heygen_service.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr(
+        "services.heygen_service.QuotaMonitorService.record_runtime_usage",
+        fake_record_runtime_usage,
+    )
+
+    service = HeyGenService()
+    payload = await service.wait_for_avatar_ready(
+        "photo-avatar-123",
+        timeout_seconds=10,
+        poll_interval=3,
+    )
+
+    assert payload["data"]["status"] == "ready"
+    assert captured["urls"] == [
+        "https://api.heygen.com/v2/photo_avatar/photo-avatar-123",
+        "https://api.heygen.com/v2/photo_avatar/photo-avatar-123",
+    ]
+    assert sleep_calls == [3]
+
+
+@pytest.mark.asyncio
+async def test_heygen_service_times_out_when_avatar_stays_pending(monkeypatch):
+    class StubResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": {"id": "photo-avatar-123", "status": "pending"}}
+
+    class StubClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers=None):
+            return StubResponse()
+
+    sleep_calls = []
+
+    async def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+
+    async def fake_record_runtime_usage(**_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "services.heygen_service.httpx.AsyncClient",
+        lambda **_: StubClient(),
+    )
+    monkeypatch.setattr(
+        "services.heygen_service.settings.HEYGEN_API_KEY",
+        "test_heygen_key",
+    )
+    monkeypatch.setattr("services.heygen_service.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr(
+        "services.heygen_service.QuotaMonitorService.record_runtime_usage",
+        fake_record_runtime_usage,
+    )
+
+    service = HeyGenService()
+    with pytest.raises(Exception, match="still processing this avatar"):
+        await service.wait_for_avatar_ready(
+            "photo-avatar-123",
+            timeout_seconds=5,
+            poll_interval=2,
+        )
+
+    assert sleep_calls == [2, 2, 2]
+
+
+@pytest.mark.asyncio
 async def test_heygen_service_records_video_job_usage(monkeypatch):
     captured = {}
 

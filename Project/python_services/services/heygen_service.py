@@ -9,12 +9,22 @@ import logging
 from urllib.parse import urlparse
 import httpx
 from config.settings import settings
+from services.errors import HeyGenAvatarSetupError, HeyGenTimeoutError
 from services.quota_monitor_service import QuotaMonitorService
 
 logger = logging.getLogger(__name__)
 
 HEYGEN_BASE_URL = "https://api.heygen.com"
 HEYGEN_UPLOAD_BASE_URL = "https://upload.heygen.com"
+HEYGEN_READY_AVATAR_STATUSES = {
+    "ready",
+    "completed",
+    "complete",
+    "success",
+    "succeeded",
+    "active",
+}
+HEYGEN_FAILED_AVATAR_STATUSES = {"failed", "error", "rejected", "cancelled", "canceled"}
 
 
 class HeyGenService:
@@ -128,6 +138,78 @@ class HeyGenService:
             metadata={"avatar_name": avatar_name},
         )
         return avatar_id
+
+    async def get_avatar_details(self, avatar_id: str) -> dict:
+        """Fetch current HeyGen photo-avatar status/details."""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                resp = await client.get(
+                    f"{HEYGEN_BASE_URL}/v2/photo_avatar/{avatar_id}",
+                    headers=self.headers,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as exc:
+                await self._record_usage(
+                    operation="get_avatar_details",
+                    usage={"requests": 1, "status_checks": 1},
+                    metadata={"avatar_id": avatar_id},
+                    error=exc,
+                )
+                raise
+
+        await self._record_usage(
+            operation="get_avatar_details",
+            usage={"requests": 1, "status_checks": 1},
+            metadata={
+                "avatar_id": avatar_id,
+                "provider_status": self._extract_avatar_status(data),
+            },
+        )
+        return data
+
+    async def wait_for_avatar_ready(
+        self,
+        avatar_id: str,
+        *,
+        timeout_seconds: int = 45,
+        poll_interval: int = 5,
+    ) -> dict:
+        """Poll HeyGen until the photo avatar is actually ready for use."""
+        elapsed = 0
+        last_payload: dict | None = None
+
+        while elapsed <= timeout_seconds:
+            last_payload = await self.get_avatar_details(avatar_id)
+            status = self._normalize_status(self._extract_avatar_status(last_payload))
+
+            logger.info(
+                "HeyGen avatar %s status: %s (%ss)",
+                avatar_id,
+                status or "unknown",
+                elapsed,
+            )
+
+            if status in HEYGEN_READY_AVATAR_STATUSES:
+                return last_payload
+
+            if status in HEYGEN_FAILED_AVATAR_STATUSES:
+                raise HeyGenAvatarSetupError(
+                    "HeyGen reported this avatar as failed"
+                    + (f" (status={status})" if status else "")
+                )
+
+            if elapsed >= timeout_seconds:
+                break
+
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        status = self._normalize_status(self._extract_avatar_status(last_payload))
+        raise HeyGenTimeoutError(
+            "HeyGen is still processing this avatar"
+            + (f" (status={status})" if status else "")
+        )
 
     # ─── Task 5.3: Tạo video từ avatar + audio ────────────────────────────────
 
@@ -356,6 +438,29 @@ class HeyGenService:
 
         # HeyGen Upload Asset only accepts PNG/JPEG for images.
         return "image/jpeg"
+
+    def _extract_avatar_status(self, payload: dict | None) -> str | None:
+        if not isinstance(payload, dict):
+            return None
+
+        data = payload.get("data")
+        if isinstance(data, dict):
+            for key in ("status", "generation_status", "training_status"):
+                value = data.get(key)
+                if value is not None:
+                    return str(value)
+
+        for key in ("status", "generation_status", "training_status"):
+            value = payload.get(key)
+            if value is not None:
+                return str(value)
+        return None
+
+    def _normalize_status(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip().lower()
+        return normalized or None
 
     async def list_avatars(self) -> list:
         """Liệt kê tất cả avatars đã tạo."""

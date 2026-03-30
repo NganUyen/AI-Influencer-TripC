@@ -211,44 +211,41 @@ class ScriptService:
         scenes = []
         current_timestamp = 0.0
         for index, beat in enumerate(beats, start=1):
-            # [MEDIUM-3 FIX] Validate top_half_source_type against allowed set
-            raw_source_type = beat.get("top_half_source_type", "search")
-            if raw_source_type not in _VALID_TOP_HALF_SOURCE_TYPES:
-                logger.warning(
-                    "Beat %s has invalid top_half_source_type=%s — defaulting to 'ai_visual_fallback'",
+            raw_source_type = beat.get("top_half_source_type", "public_page_capture")
+            if raw_source_type != "public_page_capture":
+                logger.info(
+                    "Beat %s top_half_source_type=%s overridden to public_page_capture for Playwright recording",
                     index,
                     raw_source_type,
                 )
-                top_half_source_type = "ai_visual_fallback"
-            else:
-                top_half_source_type = raw_source_type
+            top_half_source_type = "public_page_capture"
 
             top_half_target = beat.get("top_half_target", "")
             beat_duration = float(beat.get("duration_sec", 4))
             
-            # Use beat's source_ref if present, otherwise fall back to concept_brief's reference_url
+            # Use beat source URL when present, otherwise concept_brief reference URL.
             beat_source_ref = beat.get("source_ref")
             if beat_source_ref:
                 source_ref = beat_source_ref
-            elif top_half_source_type == "public_page_capture":
-                source_ref = default_source_ref
-                if not source_ref:
-                    logger.warning(
-                        "Beat %s requests public_page_capture but no source_ref or reference_url is available — scene will fall back to AI image",
-                        index,
-                    )
             else:
-                source_ref = None
+                source_ref = default_source_ref
 
-            # Use bottom_half_message for narration and overlay_text for captions
+            if not source_ref:
+                raise ScriptContractError(
+                    (
+                        "Beat sheet is missing source_ref/reference_url for "
+                        f"Playwright top-half capture at beat {index}"
+                    )
+                )
+
+            # Keep captions aligned to narration to avoid top-half overlay text paths.
             narration = beat.get("bottom_half_message", "")
-            overlay_text = beat.get("overlay_text", "")
 
             scene = SceneContract(
                 id=index,
                 timestamp_start=current_timestamp,
                 timestamp_end=current_timestamp + beat_duration,
-                caption=overlay_text or narration[:30],
+                caption=narration[:30],
                 narration_text=narration,
                 prompt=top_half_target,
                 # New fields from top-half update

@@ -101,7 +101,7 @@ class TestDurationMismatchDetection:
 
 
 class TestBrowserCaptureLogging:
-    """Tests for CP2: Warning log when source_ref=None with public_page_capture."""
+    """Tests for strict Playwright capture validation."""
 
     @pytest.mark.asyncio
     @patch("activities.media_activities.ImageGenerationService")
@@ -110,7 +110,7 @@ class TestBrowserCaptureLogging:
     ):
         """
         When top_half_source_type="public_page_capture" but source_ref=None,
-        should log warning and fallback to AI.
+        should fail fast and not fallback to AI.
         """
         # Setup mock
         mock_image_service = AsyncMock()
@@ -136,21 +136,11 @@ class TestBrowserCaptureLogging:
             }
         ]
 
+        from temporalio.exceptions import ApplicationError
+
         with caplog.at_level(logging.WARNING):
-            results = await generate_scene_images(scenes)
-
-        # Check warning was logged
-        assert any(
-            "source_ref=None" in record.message
-            or "source_ref" in record.message.lower()
-            for record in caplog.records
-        ), (
-            f"Expected warning about source_ref=None. Got: {[r.message for r in caplog.records]}"
-        )
-
-        # Check fallback was triggered
-        assert results[0]["image_url"] == "https://ai-fallback.com/image.jpg"
-        assert results[0].get("fallback_triggered", False) is True
+            with pytest.raises(ApplicationError, match="missing source_ref"):
+                await generate_scene_images(scenes)
 
     @pytest.mark.asyncio
     @patch("activities.media_activities.ImageGenerationService")
@@ -158,7 +148,7 @@ class TestBrowserCaptureLogging:
     async def test_browser_capture_failure_fallbacks_to_ai(
         self, MockBrowser, MockImageGen, caplog
     ):
-        """When browser automation fails, should fallback to AI image generation."""
+        """When browser automation fails, should fail pipeline (no AI fallback)."""
         # Setup browser mock to fail
         mock_browser = AsyncMock()
         mock_browser.initialize_browser = AsyncMock()
@@ -190,15 +180,13 @@ class TestBrowserCaptureLogging:
             }
         ]
 
+        from temporalio.exceptions import ApplicationError
+
         with caplog.at_level(logging.WARNING):
-            results = await generate_scene_images(scenes)
+            with pytest.raises(ApplicationError, match="Playwright top-half recording failed"):
+                await generate_scene_images(scenes)
 
-        # Check AI fallback was called
-        mock_image_service.generate_images.assert_called_once()
-
-        # Check result indicates fallback
-        assert results[0]["image_url"] == "https://ai-fallback.com/image.jpg"
-        assert results[0].get("fallback_triggered") is True
+        mock_image_service.generate_images.assert_not_called()
 
 
 class TestVideoUrlDetection:
@@ -255,17 +243,16 @@ class TestSplitScreenFilters:
     def test_bot_half_crop_filter_center_crops_to_fill_bottom_half(self):
         filter_text = _bot_half_crop_filter()
 
-        assert "scale=1080:1080:force_original_aspect_ratio=increase" in filter_text
-        assert "crop=1080:960:(iw-1080)/2:(ih-960)/2" in filter_text
+        assert "scale=1080:960:force_original_aspect_ratio=decrease" in filter_text
+        assert "pad=1080:960:(ow-iw)/2:(oh-ih)/2:black" in filter_text
         assert filter_text.endswith(",setsar=1")
 
     def test_split_screen_filter_keeps_top_and_only_crops_bottom(self):
         filter_text = _split_screen_filter()
 
-        assert "[0:v]setsar=1[top]" in filter_text
-        assert "[1:v]scale=1080:960,setsar=1[bot]" not in filter_text
-        assert "pad=1080:960:(ow-iw)/2:(oh-ih)/2:black" not in filter_text
-        assert "crop=1080:960:(iw-1080)/2:(ih-960)/2" in filter_text
+        assert "[0:v]scale=1080:960:force_original_aspect_ratio=decrease" in filter_text
+        assert "[1:v]scale=1080:960:force_original_aspect_ratio=decrease" in filter_text
+        assert "pad=1080:960:(ow-iw)/2:(oh-ih)/2:black" in filter_text
         assert "[top][bot]vstack=inputs=2[v]" in filter_text
 
 
@@ -312,7 +299,7 @@ class TestOrphanAssetPrevention:
     async def test_orphan_asset_not_created_on_upload_failure(
         self, MockMediaStorage, MockBrowser, MockImageGen
     ):
-        """When upload returns None, should raise error, not create orphan."""
+        """When upload returns None, should raise error (no fallback)."""
         import os
         import tempfile
 
@@ -355,13 +342,10 @@ class TestOrphanAssetPrevention:
                 }
             ]
 
-            # Should fallback to AI since upload failed
-            results = await generate_scene_images(scenes)
+            from temporalio.exceptions import ApplicationError
 
-            # AI fallback should be used
-            assert results[0]["image_url"] == "https://ai-fallback.com/image.jpg"
-            # is_video should NOT be set for AI fallback
-            assert results[0].get("is_video") is not True
+            with pytest.raises(ApplicationError, match="Playwright top-half recording failed"):
+                await generate_scene_images(scenes)
 
         finally:
             os.unlink(temp_path)
@@ -418,14 +402,15 @@ class TestTelegramErrorNotification:
 
 
 class TestInvalidSourceTypeHandling:
-    """Tests for MEDIUM-3: Invalid source type defaults with warning."""
+    """Tests for strict source type enforcement in script generation."""
 
     @pytest.mark.asyncio
     async def test_invalid_source_type_defaults_to_ai_visual_fallback(self, caplog):
-        """Invalid top_half_source_type should default to ai_visual_fallback."""
+        """Invalid top_half_source_type should be overridden to public_page_capture."""
         service = ScriptService()
 
         package = {
+            "concept_brief": {"reference_url": "https://example.com/root"},
             "beat_sheet": {
                 "beats": [
                     {
@@ -440,31 +425,31 @@ class TestInvalidSourceTypeHandling:
             }
         }
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.INFO):
             contract = await service.generate_script_from_package(
                 app_name="TestApp",
                 package=package,
                 persona_config={"language_name": "English"},
             )
 
-        # Check warning was logged
+        # Check override was logged
         assert any(
-            "invalid" in record.message.lower() and "invalid_type_xyz" in record.message
+            "overridden to public_page_capture" in record.message
             for record in caplog.records
         ), (
-            f"Expected warning about invalid type. Got: {[r.message for r in caplog.records]}"
+            f"Expected override log. Got: {[r.message for r in caplog.records]}"
         )
 
-        # Check it defaulted to ai_visual_fallback
-        assert contract.scenes[0].top_half_source_type == "ai_visual_fallback"
+        assert contract.scenes[0].top_half_source_type == "public_page_capture"
 
     @pytest.mark.asyncio
     async def test_valid_source_types_pass_through(self):
-        """Valid top_half_source_types should pass through unchanged."""
+        """Any source type should normalize to public_page_capture."""
         service = ScriptService()
 
         for valid_type in ["public_page_capture", "ai_visual_fallback", "search"]:
             package = {
+                "concept_brief": {"reference_url": "https://example.com/root"},
                 "beat_sheet": {
                     "beats": [
                         {
@@ -485,7 +470,7 @@ class TestInvalidSourceTypeHandling:
                 persona_config={},
             )
 
-            assert contract.scenes[0].top_half_source_type == valid_type
+            assert contract.scenes[0].top_half_source_type == "public_page_capture"
 
     def test_valid_source_types_set_is_complete(self):
         """Verify the valid source types set includes expected values."""

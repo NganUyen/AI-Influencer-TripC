@@ -121,23 +121,6 @@ def _safe_topic_fragment(topic: str) -> str:
     return cleaned.strip("_") or "topic"
 
 
-def _escape_drawtext_text(text: str) -> str:
-    value = str(text or "")
-    replacements = {
-        "\\": "\\\\",
-        "'": "\\'",
-        ":": "\\:",
-        ",": "\\,",
-        ";": "\\;",
-        "[": "\\[",
-        "]": "\\]",
-        "%": "\\%",
-    }
-    for source, target in replacements.items():
-        value = value.replace(source, target)
-    return value
-
-
 def _probe_media_duration(path: str) -> Optional[float]:
     result = subprocess.run(
         [
@@ -390,18 +373,19 @@ def _half_frame_filter(background: str = "black") -> str:
     return _fit_to_frame_filter(HALF_FRAME_WIDTH, HALF_FRAME_HEIGHT, background)
 
 
+def _bottom_half_filter(background: str = "black") -> str:
+    return _fit_to_frame_filter(HALF_FRAME_WIDTH, HALF_FRAME_HEIGHT, background)
+
+
 def _bot_half_crop_filter() -> str:
-    """Fill the bottom half by center-cropping the talking-head source."""
-    return (
-        "scale=1080:1080:force_original_aspect_ratio=increase,"
-        "crop=1080:960:(iw-1080)/2:(ih-960)/2,setsar=1"
-    )
+    """Backward-compatible alias retained for tests and legacy imports."""
+    return _bottom_half_filter()
 
 
 def _split_screen_filter() -> str:
     return (
-        "[0:v]setsar=1[top];"
-        f"[1:v]{_bot_half_crop_filter()}[bot];"
+        f"[0:v]{_half_frame_filter()}[top];"
+        f"[1:v]{_bottom_half_filter()}[bot];"
         "[top][bot]vstack=inputs=2[v];"
         "[v]drawbox=w=iw:h=4:y=(ih/2)-2:color=orange:t=fill[vbar]"
     )
@@ -413,12 +397,9 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
     Canonical assembly path for final video output.
 
     Required:
-    - image_urls
+    - image_urls (top-half videos only)
     - audio_url
-
-    Optional:
-    - talking_head_url
-    - scene_captions
+    - talking_head_url (bottom-half video)
     """
     assembly_input = SplitScreenVideoInput(**config)
 
@@ -428,6 +409,10 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
         )
     if not assembly_input.audio_url:
         raise AssemblyMissingAssetError("audio_url is missing; narration is required.")
+    if not assembly_input.talking_head_url:
+        raise AssemblyMissingAssetError(
+            "talking_head_url is required for split-screen assembly."
+        )
 
     logger.info(
         "Starting assembly: %s images, talking_head=%s",
@@ -454,11 +439,12 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                 else is_video_from_url
             )
 
-            # Use appropriate extension based on asset type
-            if is_video_asset:
-                ext = _get_extension_for_url(url) if is_video_from_url else ".mp4"
-            else:
-                ext = _get_extension_for_url(url)
+            if not is_video_asset:
+                raise AssemblyMissingAssetError(
+                    f"Top-half asset {index + 1} is not a video URL; Playwright recording is required"
+                )
+
+            ext = _get_extension_for_url(url) if is_video_from_url else ".mp4"
 
             # [CP5] Log asset type detection with source
             logger.debug(
@@ -536,53 +522,32 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                 bool(talking_head_path),
             )
 
-            if is_vid:
-                # Crop and scale video, limit to duration
-                _run_ffmpeg(
-                    [
-                        "ffmpeg",
-                        "-y",
-                        "-i",
-                        p,
-                        "-vf",
-                        _half_frame_filter(),
-                        "-t",
-                        str(scene_duration),
-                        "-c:v",
-                        "libx264",
-                        "-pix_fmt",
-                        "yuv420p",
-                        "-r",
-                        "25",
-                        "-an",
-                        std_p,
-                    ],
-                    f"std_vid_{idx}",
+            if not is_vid:
+                raise AssemblyMissingAssetError(
+                    f"Top-half asset {idx + 1} is not a video file after download"
                 )
-            else:
-                # Convert image to video chunk
-                _run_ffmpeg(
-                    [
-                        "ffmpeg",
-                        "-y",
-                        "-loop",
-                        "1",
-                        "-i",
-                        p,
-                        "-vf",
-                        _half_frame_filter(),
-                        "-c:v",
-                        "libx264",
-                        "-t",
-                        str(scene_duration),
-                        "-pix_fmt",
-                        "yuv420p",
-                        "-r",
-                        "25",
-                        std_p,
-                    ],
-                    f"std_img_{idx}",
-                )
+
+            _run_ffmpeg(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    p,
+                    "-vf",
+                    _half_frame_filter(),
+                    "-t",
+                    str(scene_duration),
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-r",
+                    "25",
+                    "-an",
+                    std_p,
+                ],
+                f"std_vid_{idx}",
+            )
 
         with open(concat_file, "w", encoding="utf-8") as file_obj:
             for sp in standard_paths:
@@ -607,68 +572,45 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
         )
 
         final_path = str(tmp_path / "final_output.mp4")
-        used_fallback = not talking_head_path
 
         if (
-            talking_head_path
-            and os.path.exists(talking_head_path)
-            and os.path.getsize(talking_head_path) >= 100
+            not talking_head_path
+            or not os.path.exists(talking_head_path)
+            or os.path.getsize(talking_head_path) < 100
         ):
-            logger.info(
-                "Using split-screen assembly with talking head | scene_count=%s",
-                len(image_paths),
+            raise AssemblyMissingAssetError(
+                "Talking-head bottom-half video is missing; cannot complete split-screen assembly"
             )
-            _run_ffmpeg(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-i",
-                    slideshow_path,
-                    "-i",
-                    talking_head_path,
-                    "-i",
-                    audio_path,
-                    "-filter_complex",
-                    _split_screen_filter(),
-                    "-map",
-                    "[vbar]",
-                    "-map",
-                    "2:a",
-                    "-c:v",
-                    "libx264",
-                    "-c:a",
-                    "aac",
-                    "-shortest",
-                    final_path,
-                ],
-                "split_screen_assembly",
-            )
-        else:
-            used_fallback = True
-            # [CP7] Log slideshow fallback
-            logger.info(
-                "No talking head available — using slideshow fallback | scene_count=%s",
-                len(image_paths),
-            )
-            _run_ffmpeg(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-i",
-                    slideshow_path,
-                    "-i",
-                    audio_path,
-                    "-vf",
-                    f"pad={FULL_FRAME_WIDTH}:{FULL_FRAME_HEIGHT}:0:({FULL_FRAME_HEIGHT}-ih)/2:black",
-                    "-c:v",
-                    "libx264",
-                    "-c:a",
-                    "aac",
-                    "-shortest",
-                    final_path,
-                ],
-                "slideshow_audio_assembly",
-            )
+
+        logger.info(
+            "Using split-screen assembly with talking head | scene_count=%s",
+            len(image_paths),
+        )
+        _run_ffmpeg(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                slideshow_path,
+                "-i",
+                talking_head_path,
+                "-i",
+                audio_path,
+                "-filter_complex",
+                _split_screen_filter(),
+                "-map",
+                "[vbar]",
+                "-map",
+                "2:a",
+                "-c:v",
+                "libx264",
+                "-c:a",
+                "aac",
+                "-shortest",
+                final_path,
+            ],
+            "split_screen_assembly",
+        )
 
         if not os.path.exists(final_path) or os.path.getsize(final_path) < 10_000:
             raise AssemblyError("Final video file is missing or suspiciously small.")
@@ -740,8 +682,10 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
 
         metadata = {
             **assembly_input.model_dump(),
-            "assembly_mode": "slideshow_audio" if used_fallback else "split_screen",
-            "used_talking_head": not used_fallback,
+            "assembly_mode": "split_screen",
+            "used_talking_head": True,
+            "top_half_resolution": f"{HALF_FRAME_WIDTH}x{HALF_FRAME_HEIGHT}",
+            "bottom_half_resolution": f"{HALF_FRAME_WIDTH}x{HALF_FRAME_HEIGHT}",
         }
 
         return FinalVideoContract(

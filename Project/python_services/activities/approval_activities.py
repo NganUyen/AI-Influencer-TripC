@@ -218,13 +218,14 @@ async def send_preview_to_telegram(config: Dict[str, Any]) -> Dict[str, Any]:
     platform = config.get("platform", "N/A")
 
     tg = TelegramService()
+    # Escape dynamic content to prevent Markdown parsing errors
     preview_msg = (
-        f"✨ *Final Video Ready!*\n\n"
-        f"• *Persona*: {persona_id}\n"
-        f"• *Topic*: {topic}\n"
-        f"• *Tone*: {tone}\n"
-        f"• *Platform*: {platform}\n\n"
-        f"🔗 *Watch Preview*: {video_url}\n\n"
+        f"✨ *Final Video Ready\\!*\n\n"
+        f"• *Persona*: {escape_markdown(persona_id)}\n"
+        f"• *Topic*: {escape_markdown(topic)}\n"
+        f"• *Tone*: {escape_markdown(tone)}\n"
+        f"• *Platform*: {escape_markdown(platform)}\n\n"
+        f"🔗 *Watch Preview*: {escape_markdown(video_url)}\n\n"
         "Choose final action:"
     )
 

@@ -22,6 +22,19 @@ logger = logging.getLogger(__name__)
 
 APPROVAL_TTL_SECONDS = 1800
 
+# Characters that need escaping in Telegram Markdown V1
+_MARKDOWN_ESCAPE_CHARS = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+
+
+def escape_markdown(text: str) -> str:
+    """Escape special characters for Telegram Markdown V1 parsing."""
+    if not text:
+        return text
+    result = str(text)
+    for char in _MARKDOWN_ESCAPE_CHARS:
+        result = result.replace(char, f'\\{char}')
+    return result
+
 
 class TelegramService:
     """

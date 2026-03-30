@@ -19,10 +19,13 @@ import logging
 # Import the functions we're testing
 from activities.video_activities import (
     _bot_half_crop_filter,
+    _build_subtitle_events,
+    _chunk_subtitle_lines,
     _get_extension_for_url,
     _half_frame_filter,
     _is_video_url,
     _split_screen_filter,
+    _style_subtitle_line,
 )
 from services.script_service import ScriptService, _VALID_TOP_HALF_SOURCE_TYPES
 
@@ -264,6 +267,39 @@ class TestSplitScreenFilters:
         assert "pad=1080:960:(ow-iw)/2:(oh-ih)/2:black" not in filter_text
         assert "crop=1080:960:(iw-1080)/2:(ih-960)/2" in filter_text
         assert "[top][bot]vstack=inputs=2[v]" in filter_text
+
+
+class TestSubtitleGeneration:
+    """Tests for narration-driven subtitle generation."""
+
+    def test_chunk_subtitle_lines_keeps_short_fast_phrases(self):
+        chunks = _chunk_subtitle_lines(
+            "TripC giup ban len ke hoach du lich nhanh hon va ro rang hon"
+        )
+
+        assert chunks
+        assert all(3 <= len(chunk.split()) <= 5 for chunk in chunks)
+
+    def test_build_subtitle_events_scales_scene_timing_to_audio_duration(self):
+        events = _build_subtitle_events(
+            subtitle_segments=[
+                {"start": 0.0, "end": 2.0, "text": "Xin chao ban den voi TripC"},
+                {"start": 2.0, "end": 4.0, "text": "Ung dung giup ban di nhanh hon"},
+            ],
+            subtitle_script="",
+            audio_duration=8.0,
+        )
+
+        assert events
+        assert events[0]["start"] == 0.0
+        assert events[-1]["end"] <= 8.0
+        assert any(event["start"] >= 4.0 for event in events[1:])
+
+    def test_style_subtitle_line_highlights_a_keyword(self):
+        styled = _style_subtitle_line("TripC toi uu lich trinh thong minh")
+
+        assert r"{\fscx96\fscy96\t(0,120,\fscx100\fscy100)}" in styled
+        assert r"{\c&H00FFFF&}" in styled
 
 
 class TestOrphanAssetPrevention:

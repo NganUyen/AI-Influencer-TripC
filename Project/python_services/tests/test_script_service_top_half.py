@@ -63,11 +63,13 @@ async def test_generate_script_from_package():
     assert scene1["top_half_source_type"] == "public_page_capture"
     assert scene1["source_ref"] == "https://playwright.dev"
     assert scene1["prompt"] == "Landing Page"
+    assert scene1["narration_text"] == "Look at this tool!"
 
     # Assert scene 2 is the fallback
     scene2 = dumped["scenes"][1]
     assert scene2["top_half_source_type"] == "ai_visual_fallback"
     assert scene2["prompt"] == "Abstract Code"
+    assert scene2["narration_text"] == "It lets you write scripts."
 
     print("generate_script_from_package passed successfully.")
 
@@ -115,3 +117,4 @@ async def test_generate_script_from_package_falls_back_to_concept_reference_url(
     scene = script.model_dump()["scenes"][0]
     assert scene["top_half_source_type"] == "public_page_capture"
     assert scene["source_ref"] == "https://example.com/root"
+    assert scene["narration_text"] == "Look at this tool!"

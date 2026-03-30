@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import asyncio
 import logging
 import os
+import re
 import subprocess
 import tempfile
 
@@ -27,6 +28,40 @@ HALF_FRAME_WIDTH = 1080
 HALF_FRAME_HEIGHT = 960
 FULL_FRAME_WIDTH = 1080
 FULL_FRAME_HEIGHT = 1920
+SUBTITLE_FONT_NAME = "Tahoma"
+SUBTITLE_FONT_SIZE = 64
+SUBTITLE_MARGIN_V = 340
+SUBTITLE_MIN_WORDS = 3
+SUBTITLE_MAX_WORDS = 5
+SUBTITLE_TARGET_WORDS = 4
+SUBTITLE_HIGHLIGHT_COLOR = "&H00FFFF&"
+SUBTITLE_PRIMARY_COLOR = "&HFFFFFF&"
+VIETNAMESE_STOPWORDS = {
+    "va",
+    "la",
+    "cua",
+    "cho",
+    "trong",
+    "nhung",
+    "mot",
+    "cac",
+    "voi",
+    "ban",
+    "nay",
+    "kia",
+    "that",
+    "rat",
+    "tren",
+    "duoi",
+    "ngay",
+    "day",
+    "the",
+    "thi",
+    "se",
+    "toi",
+    "minh",
+    "tripc",
+}
 
 
 def _is_video_url(url: str) -> bool:
@@ -71,8 +106,8 @@ async def _download_optional(url: str, dest: str, label: str) -> Optional[str]:
         return None
 
 
-def _run_ffmpeg(cmd: List[str], label: str) -> None:
-    result = subprocess.run(cmd, capture_output=True)
+def _run_ffmpeg(cmd: List[str], label: str, cwd: Optional[str] = None) -> None:
+    result = subprocess.run(cmd, capture_output=True, cwd=cwd)
     if result.returncode != 0:
         error_text = result.stderr.decode("utf-8", errors="replace")[-1000:]
         raise AssemblyError(f"ffmpeg failed ({label}): {error_text}")
@@ -101,6 +136,246 @@ def _escape_drawtext_text(text: str) -> str:
     for source, target in replacements.items():
         value = value.replace(source, target)
     return value
+
+
+def _probe_media_duration(path: str) -> Optional[float]:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.warning("ffprobe failed for %s: %s", path, result.stderr[-300:])
+        return None
+    try:
+        duration = float((result.stdout or "").strip())
+    except ValueError:
+        return None
+    return duration if duration > 0 else None
+
+
+def _clean_subtitle_text(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def _chunk_subtitle_lines(text: str) -> List[str]:
+    words = _clean_subtitle_text(text).split()
+    if not words:
+        return []
+
+    chunks: List[List[str]] = []
+    index = 0
+    while index < len(words):
+        remaining = len(words) - index
+        if remaining <= SUBTITLE_MAX_WORDS:
+            if remaining < SUBTITLE_MIN_WORDS and chunks:
+                chunks[-1].extend(words[index:])
+            else:
+                chunks.append(words[index:])
+            break
+
+        chunk_size = SUBTITLE_TARGET_WORDS
+        punctuation_break = None
+        for offset in range(SUBTITLE_MIN_WORDS - 1, SUBTITLE_MAX_WORDS):
+            word_index = index + offset
+            if word_index < len(words) and re.search(r"[.!?,;:]$", words[word_index]):
+                punctuation_break = offset + 1
+                break
+        if punctuation_break is not None:
+            chunk_size = punctuation_break
+        elif remaining - chunk_size < SUBTITLE_MIN_WORDS:
+            chunk_size = max(SUBTITLE_MIN_WORDS, remaining - SUBTITLE_MIN_WORDS)
+
+        chunk_size = max(SUBTITLE_MIN_WORDS, min(SUBTITLE_MAX_WORDS, chunk_size))
+        chunks.append(words[index : index + chunk_size])
+        index += chunk_size
+
+    return [" ".join(chunk).strip() for chunk in chunks if chunk]
+
+
+def _normalize_keyword_token(word: str) -> str:
+    return re.sub(r"[^\w]", "", word.lower())
+
+
+def _pick_highlight_token(words: List[str]) -> Optional[str]:
+    candidates = []
+    for word in words:
+        normalized = _normalize_keyword_token(word)
+        if len(normalized) < 4 or normalized in VIETNAMESE_STOPWORDS:
+            continue
+        if normalized.isdigit():
+            continue
+        candidates.append((len(normalized), word))
+    if not candidates:
+        return None
+    return max(candidates)[1]
+
+
+def _escape_ass_text(text: str) -> str:
+    return (
+        str(text or "")
+        .replace("\\", r"\\")
+        .replace("{", r"\{")
+        .replace("}", r"\}")
+        .replace("\n", r"\N")
+    )
+
+
+def _style_subtitle_line(text: str) -> str:
+    words = str(text or "").split()
+    highlight_word = _pick_highlight_token(words)
+    styled_words: List[str] = []
+    highlighted = False
+    for word in words:
+        escaped_word = _escape_ass_text(word)
+        if not highlighted and highlight_word and word == highlight_word:
+            styled_words.append(
+                rf"{{\c{SUBTITLE_HIGHLIGHT_COLOR}}}{escaped_word}{{\c{SUBTITLE_PRIMARY_COLOR}}}"
+            )
+            highlighted = True
+        else:
+            styled_words.append(escaped_word)
+    return (
+        r"{\fscx96\fscy96\t(0,120,\fscx100\fscy100)}"
+        + " ".join(styled_words).strip()
+    )
+
+
+def _format_ass_timestamp(seconds: float) -> str:
+    total_seconds = max(0.0, float(seconds))
+    hours = int(total_seconds // 3600)
+    minutes = int((total_seconds % 3600) // 60)
+    secs = total_seconds - (hours * 3600) - (minutes * 60)
+    return f"{hours}:{minutes:02d}:{secs:05.2f}"
+
+
+def _build_subtitle_events(
+    subtitle_segments: List[Dict[str, Any]],
+    subtitle_script: str,
+    audio_duration: Optional[float],
+) -> List[Dict[str, Any]]:
+    valid_segments = [
+        {
+            "start": float(segment.get("start", 0.0) or 0.0),
+            "end": float(segment.get("end", 0.0) or 0.0),
+            "text": _clean_subtitle_text(segment.get("text", "")),
+        }
+        for segment in subtitle_segments
+        if _clean_subtitle_text(segment.get("text", ""))
+    ]
+
+    if not valid_segments and _clean_subtitle_text(subtitle_script):
+        fallback_end = audio_duration or 1.0
+        valid_segments = [
+            {
+                "start": 0.0,
+                "end": fallback_end,
+                "text": _clean_subtitle_text(subtitle_script),
+            }
+        ]
+
+    if not valid_segments:
+        return []
+
+    source_duration = max(
+        [segment["end"] for segment in valid_segments if segment["end"] > segment["start"]],
+        default=0.0,
+    )
+    timing_scale = (
+        (audio_duration / source_duration)
+        if audio_duration and source_duration > 0
+        else 1.0
+    )
+
+    events: List[Dict[str, Any]] = []
+    for segment in valid_segments:
+        start = max(0.0, segment["start"] * timing_scale)
+        end = max(start + 0.2, segment["end"] * timing_scale)
+        lines = _chunk_subtitle_lines(segment["text"])
+        if not lines:
+            continue
+
+        total_words = sum(max(1, len(line.split())) for line in lines)
+        cursor = start
+        segment_duration = max(end - start, 0.6)
+
+        for line_index, line in enumerate(lines):
+            word_count = max(1, len(line.split()))
+            weighted_duration = segment_duration * (word_count / total_words)
+            next_cursor = (
+                end
+                if line_index == len(lines) - 1
+                else min(end, cursor + max(0.45, weighted_duration))
+            )
+            if next_cursor - cursor < 0.25:
+                next_cursor = min(end, cursor + 0.25)
+            events.append(
+                {
+                    "start": cursor,
+                    "end": next_cursor,
+                    "text": _style_subtitle_line(line),
+                }
+            )
+            cursor = next_cursor
+
+    for index in range(len(events) - 1):
+        next_start = events[index + 1]["start"]
+        if events[index]["end"] >= next_start:
+            events[index]["end"] = max(
+                events[index]["start"] + 0.12,
+                next_start - 0.03,
+            )
+
+    if audio_duration:
+        for event in events:
+            event["start"] = min(event["start"], audio_duration)
+            event["end"] = min(max(event["end"], event["start"] + 0.12), audio_duration)
+
+    return [event for event in events if event["end"] > event["start"]]
+
+
+def _write_ass_subtitles(path: str, events: List[Dict[str, Any]]) -> None:
+    header = "\n".join(
+        [
+            "[Script Info]",
+            "ScriptType: v4.00+",
+            "PlayResX: 1080",
+            "PlayResY: 1920",
+            "ScaledBorderAndShadow: yes",
+            "WrapStyle: 2",
+            "",
+            "[V4+ Styles]",
+            "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
+            f"Style: Default,{SUBTITLE_FONT_NAME},{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H0000FFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,2,90,90,{SUBTITLE_MARGIN_V},1",
+            "",
+            "[Events]",
+            "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
+        ]
+    )
+    lines = [header]
+    for event in events:
+        lines.append(
+            "Dialogue: 0,"
+            f"{_format_ass_timestamp(event['start'])},"
+            f"{_format_ass_timestamp(event['end'])},"
+            f"Default,,0,0,0,,{event['text']}"
+        )
+    with open(path, "w", encoding="utf-8") as file_obj:
+        file_obj.write("\n".join(lines) + "\n")
+
+
+def _ffmpeg_ass_filter_path(path: str) -> str:
+    normalized = str(Path(path).resolve()).replace("\\", "/")
+    return normalized.replace(":", r"\:")
 
 
 def _fit_to_frame_filter(width: int, height: int, background: str = "black") -> str:
@@ -331,47 +606,6 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
             "slideshow_concat",
         )
 
-        if assembly_input.scene_captions:
-            drawtext_filters = []
-            current_ts = 0.0
-            for index, caption in enumerate(
-                assembly_input.scene_captions[: len(image_paths)]
-            ):
-                scene_duration = (
-                    scene_durations[index]
-                    if index < len(scene_durations)
-                    else assembly_input.duration_per_image
-                )
-                start_ts = current_ts
-                end_ts = current_ts + scene_duration
-                safe_caption = _escape_drawtext_text(caption)[:60]
-                drawtext_filters.append(
-                    "drawtext="
-                    f"text='{safe_caption}':fontsize=30:fontcolor=white:"
-                    "x=(w-text_w)/2:y=h-80:box=1:boxcolor=black@0.6:boxborderw=8:"
-                    f"enable='between(t,{start_ts},{end_ts})'"
-                )
-                current_ts = end_ts
-
-            captioned_path = str(tmp_path / "slideshow_captioned.mp4")
-            _run_ffmpeg(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-i",
-                    slideshow_path,
-                    "-vf",
-                    ",".join(drawtext_filters),
-                    "-c:v",
-                    "libx264",
-                    "-pix_fmt",
-                    "yuv420p",
-                    captioned_path,
-                ],
-                "captions",
-            )
-            slideshow_path = captioned_path
-
         final_path = str(tmp_path / "final_output.mp4")
         used_fallback = not talking_head_path
 
@@ -438,6 +672,33 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
 
         if not os.path.exists(final_path) or os.path.getsize(final_path) < 10_000:
             raise AssemblyError("Final video file is missing or suspiciously small.")
+
+        subtitle_events = _build_subtitle_events(
+            subtitle_segments=assembly_input.subtitle_segments,
+            subtitle_script=assembly_input.subtitle_script,
+            audio_duration=_probe_media_duration(audio_path),
+        )
+        if subtitle_events:
+            subtitles_path = str(tmp_path / "captions.ass")
+            subtitled_output_path = str(tmp_path / "final_output_subtitled.mp4")
+            _write_ass_subtitles(subtitles_path, subtitle_events)
+            _run_ffmpeg(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    final_path,
+                    "-vf",
+                    f"ass={_ffmpeg_ass_filter_path(subtitles_path)}",
+                    "-c:v",
+                    "libx264",
+                    "-c:a",
+                    "copy",
+                    subtitled_output_path,
+                ],
+                "burn_subtitles",
+            )
+            final_path = subtitled_output_path
 
         safe_topic = _safe_topic_fragment(assembly_input.topic)
         storage_key = f"videos/{assembly_input.persona_id}/{safe_topic}_final.mp4"

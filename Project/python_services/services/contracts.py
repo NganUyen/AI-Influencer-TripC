@@ -13,6 +13,7 @@ class SceneContract(BaseModel):
     timestamp_start: float
     timestamp_end: float
     caption: str
+    narration_text: Optional[str] = None
     prompt: Optional[str] = None
     top_half_source_type: Optional[str] = None
     top_half_target: Optional[str] = None
@@ -66,6 +67,8 @@ class SplitScreenVideoInput(BaseModel):
     audio_url: str
     talking_head_url: Optional[str] = None
     scene_captions: List[str] = Field(default_factory=list)
+    subtitle_script: str = ""
+    subtitle_segments: List[Dict[str, Any]] = Field(default_factory=list)
     scene_durations: List[float] = Field(default_factory=list)
     # [SAFETY-4] Explicit is_video flags from top-half generation
     is_video_flags: List[bool] = Field(default_factory=list)

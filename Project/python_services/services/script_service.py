@@ -249,6 +249,7 @@ class ScriptService:
                 timestamp_start=current_timestamp,
                 timestamp_end=current_timestamp + beat_duration,
                 caption=overlay_text or narration[:30],
+                narration_text=narration,
                 prompt=top_half_target,
                 # New fields from top-half update
                 top_half_source_type=top_half_source_type,
@@ -259,9 +260,10 @@ class ScriptService:
 
             # [CP1] Log SceneContract after build
             logger.info(
-                "SceneContract built | scene=%s | top_half_type=%s | source_ref=%s | target=%s",
+                "SceneContract built | scene=%s | top_half_type=%s | has_source_ref=%s | source_ref=%s | target=%s",
                 scene.id,
                 scene.top_half_source_type,
+                bool(scene.source_ref),
                 scene.source_ref[:60] if scene.source_ref else "NONE",
                 scene.top_half_target[:50] if scene.top_half_target else "NONE",
             )

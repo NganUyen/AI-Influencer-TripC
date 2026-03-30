@@ -365,8 +365,23 @@ class ShortVideoWorkflow:
                 scene_durations[i] if i < len(scene_durations) else 4.0
                 for i, _ in valid_scenes_with_index
             ]
-            aligned_captions = [
-                scene.get("caption", "") for _, scene in valid_scenes_with_index
+            aligned_subtitle_segments = [
+                {
+                    "start": float(scenes[i].get("timestamp_start", 0.0) or 0.0),
+                    "end": float(
+                        scenes[i].get(
+                            "timestamp_end",
+                            scenes[i].get("timestamp_start", 0.0) or 0.0,
+                        )
+                        or 0.0
+                    ),
+                    "text": str(
+                        scenes[i].get("narration_text")
+                        or scenes[i].get("caption")
+                        or ""
+                    ).strip(),
+                }
+                for i, _ in valid_scenes_with_index
             ]
 
             # Final safety check: arrays must be same length
@@ -393,7 +408,8 @@ class ShortVideoWorkflow:
                         "image_urls": image_urls,
                         "audio_url": audio_result["url"],
                         "talking_head_url": talking_head_result.get("url") or None,
-                        "scene_captions": aligned_captions,
+                        "subtitle_script": script_json.get("script", ""),
+                        "subtitle_segments": aligned_subtitle_segments,
                         "scene_durations": aligned_durations,
                         "is_video_flags": is_video_flags,  # [SAFETY-4]
                         "persona_id": persona_id,

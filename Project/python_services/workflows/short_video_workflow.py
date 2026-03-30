@@ -209,6 +209,10 @@ class ShortVideoWorkflow:
                     "top_half_source_type": scene.get("top_half_source_type"),
                     "top_half_target": scene.get("top_half_target"),
                     "top_half_capture_hint": scene.get("top_half_capture_hint"),
+                    "top_half_follow_links": scene.get("top_half_follow_links"),
+                    "top_half_max_capture_seconds": scene.get(
+                        "top_half_max_capture_seconds"
+                    ),
                     "source_ref": scene.get("source_ref"),
                 }
                 for scene in scenes

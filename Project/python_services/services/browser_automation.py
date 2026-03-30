@@ -5,6 +5,7 @@ Handles stealth browser operations using Camoufox
 
 import logging
 import os
+from urllib.parse import urljoin, urlparse
 from typing import Dict, Any, Optional, List
 
 try:
@@ -322,6 +323,9 @@ class BrowserAutomationService:
         target_selector: Optional[str] = None,
         viewport_width: int = 1080,
         viewport_height: int = 960,
+        max_capture_seconds: int = 60,
+        follow_relevant_links: bool = True,
+        max_links_to_visit: int = 3,
     ) -> str:
         """
         Record a video of a website for the top-half of a split-screen video.
@@ -340,6 +344,10 @@ class BrowserAutomationService:
         try:
             logger.info(f"Recording website | url={url} | hint={capture_hint} | target={target_selector}")
 
+            # Hard cap recording time so a single orchestration run cannot overrun worker budgets.
+            max_capture_seconds = max(8, min(int(max_capture_seconds or 60), 60))
+            max_links_to_visit = max(0, min(int(max_links_to_visit or 0), 5))
+
             # Force a deterministic 9:8 capture frame for tutorial top-half output.
             await page.set_viewport_size(
                 {
@@ -353,6 +361,35 @@ class BrowserAutomationService:
             # Wait for page to stabilize
             import asyncio
             await asyncio.sleep(2.0)
+
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + float(max_capture_seconds)
+
+            capture_mode = str(capture_hint or "").lower()
+            traversal_enabled = follow_relevant_links and capture_mode in {
+                "scroll",
+                "medium",
+                "interactive",
+                "deep",
+                "long",
+                "orchestrated",
+            }
+
+            visit_urls: List[str] = [url]
+            if traversal_enabled and max_links_to_visit > 0:
+                discovered_links = await self._discover_relevant_links(
+                    page=page,
+                    base_url=url,
+                    limit=max_links_to_visit,
+                )
+                visit_urls.extend(discovered_links)
+
+            logger.info(
+                "Capture orchestration | mode=%s | max_seconds=%s | links=%s",
+                capture_mode,
+                max_capture_seconds,
+                visit_urls,
+            )
 
             # 1. Handle target-specific scrolling if provided
             if target_selector:
@@ -372,24 +409,40 @@ class BrowserAutomationService:
                 except Exception as e:
                     logger.warning(f"Could not scroll to target {target_selector}: {e}")
 
-            # 2. Build scroll plan from page structure so capture is content-aware.
-            scroll_plan = await self._build_scroll_plan(
-                page=page,
-                target_selector=target_selector,
-                capture_hint=capture_hint,
-            )
-            logger.info(
-                "Computed scroll plan | steps=%s | page_height=%s | viewport=%sx%s",
-                len(scroll_plan),
-                await page.evaluate("() => document.documentElement.scrollHeight"),
-                viewport_width,
-                viewport_height,
-            )
+            # 2. Walk through relevant pages and scroll each one until budget is consumed.
+            for idx, visit_url in enumerate(visit_urls):
+                if loop.time() >= deadline - 1.0:
+                    break
 
-            if capture_hint == "static":
-                await asyncio.sleep(2.8)
-            else:
+                if idx > 0:
+                    try:
+                        await self._ensure_page_has_rendered_content(page=page, url=visit_url)
+                        await asyncio.sleep(0.8)
+                    except Exception as nav_exc:
+                        logger.warning("Skipping link due to navigation failure | url=%s | err=%s", visit_url, nav_exc)
+                        continue
+
+                remaining = max(0.0, deadline - loop.time())
+                logger.info(
+                    "Capturing page segment | index=%s/%s | url=%s | remaining=%.2fs",
+                    idx + 1,
+                    len(visit_urls),
+                    visit_url,
+                    remaining,
+                )
+
+                if capture_mode == "static":
+                    await asyncio.sleep(min(2.8, remaining))
+                    continue
+
+                scroll_plan = await self._build_scroll_plan(
+                    page=page,
+                    target_selector=target_selector if idx == 0 else None,
+                    capture_hint=capture_hint,
+                )
                 for y_target in scroll_plan:
+                    if loop.time() >= deadline:
+                        break
                     await page.evaluate(
                         """
                         (targetY) => {
@@ -398,11 +451,13 @@ class BrowserAutomationService:
                         """,
                         y_target,
                     )
-                    await asyncio.sleep(0.9)
+                    await asyncio.sleep(min(0.9, max(0.15, deadline - loop.time())))
 
+                    if loop.time() >= deadline:
+                        break
                     # Small extra movement to look natural and trigger lazy-loaded sections.
                     await page.evaluate("window.scrollBy(0, 120)")
-                    await asyncio.sleep(0.45)
+                    await asyncio.sleep(min(0.45, max(0.1, deadline - loop.time())))
 
             # Page must be closed before resolving the recording path.
             await page.close()
@@ -510,6 +565,79 @@ class BrowserAutomationService:
             limit = 5
 
         return anchors[:limit]
+
+    async def _discover_relevant_links(
+        self,
+        page: Any,
+        base_url: str,
+        limit: int = 3,
+    ) -> List[str]:
+        """Discover meaningful same-site links to capture a guided walkthrough."""
+        raw_links = await page.evaluate(
+            """
+            () => {
+                const selectors = ["main a[href]", "nav a[href]", "section a[href]", "article a[href]"];
+                const nodes = [];
+                for (const sel of selectors) {
+                    const found = document.querySelectorAll(sel);
+                    for (const node of found) {
+                        nodes.push(node);
+                    }
+                }
+
+                const scored = [];
+                for (const anchor of nodes) {
+                    const href = (anchor.getAttribute("href") || "").trim();
+                    if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) {
+                        continue;
+                    }
+
+                    const text = (anchor.textContent || "").trim().toLowerCase();
+                    const parentText = (anchor.closest("section,article,main,nav")?.textContent || "").toLowerCase();
+
+                    let score = 0;
+                    const importantTokens = [
+                        "feature", "pricing", "product", "demo", "about", "how", "workflow", "solution", "case", "story", "benefit"
+                    ];
+                    for (const token of importantTokens) {
+                        if (text.includes(token) || parentText.includes(token)) {
+                            score += 2;
+                        }
+                    }
+                    score += Math.min(2, Math.floor((text.length || 0) / 14));
+
+                    scored.push({ href, score });
+                }
+
+                scored.sort((a, b) => b.score - a.score);
+                return scored.map((entry) => entry.href);
+            }
+            """
+        )
+
+        if not isinstance(raw_links, list):
+            return []
+
+        base = urlparse(base_url)
+        selected: List[str] = []
+        for href in raw_links:
+            if len(selected) >= limit:
+                break
+            if not isinstance(href, str):
+                continue
+
+            resolved = urljoin(base_url, href.strip())
+            parsed = urlparse(resolved)
+            if parsed.scheme not in {"http", "https"}:
+                continue
+            if parsed.netloc and parsed.netloc != base.netloc:
+                continue
+            normalized = resolved.split("#", 1)[0]
+            if normalized == base_url or normalized in selected:
+                continue
+            selected.append(normalized)
+
+        return selected
 
     async def _ensure_page_has_rendered_content(self, page: Any, url: str) -> None:
         """Helper to navigate and ensure that we don't just have a blank shell."""

@@ -18,6 +18,8 @@ class SceneContract(BaseModel):
     top_half_source_type: Optional[str] = None
     top_half_target: Optional[str] = None
     top_half_capture_hint: Optional[str] = None
+    top_half_follow_links: Optional[bool] = None
+    top_half_max_capture_seconds: Optional[int] = None
     source_ref: Optional[str] = None
 
 
@@ -230,6 +232,8 @@ class BeatContract(BaseModel):
     top_half_source_type: str
     top_half_target: str
     top_half_capture_hint: str
+    top_half_follow_links: Optional[bool] = True
+    top_half_max_capture_seconds: Optional[int] = 60
     source_ref: Optional[str] = None
     overlay_text: str
     duration_sec: int
@@ -255,6 +259,15 @@ class BeatContract(BaseModel):
     def validate_duration_sec(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("duration_sec must be positive")
+        return value
+
+    @field_validator("top_half_max_capture_seconds")
+    @classmethod
+    def validate_top_half_max_capture_seconds(cls, value: Optional[int]) -> Optional[int]:
+        if value is None:
+            return None
+        if value < 8 or value > 60:
+            raise ValueError("top_half_max_capture_seconds must be between 8 and 60")
         return value
 
 

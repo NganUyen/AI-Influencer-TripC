@@ -252,6 +252,10 @@ class ScriptService:
                 top_half_source_type=top_half_source_type,
                 top_half_target=top_half_target,
                 top_half_capture_hint=beat.get("top_half_capture_hint", "medium"),
+                top_half_follow_links=bool(beat.get("top_half_follow_links", True)),
+                top_half_max_capture_seconds=int(
+                    beat.get("top_half_max_capture_seconds", 60)
+                ),
                 source_ref=source_ref,
             )
 

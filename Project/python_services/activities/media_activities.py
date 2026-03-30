@@ -674,14 +674,26 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
 
                 capture_hint = scene.get("top_half_capture_hint", "scroll")
                 target_selector = scene.get("top_half_target")
+                max_capture_seconds = (
+                    scene.get("top_half_max_capture_seconds")
+                    or scene_metadata.get("top_half_max_capture_seconds")
+                    or 60
+                )
+                follow_relevant_links = scene.get("top_half_follow_links")
+                if follow_relevant_links is None:
+                    follow_relevant_links = scene_metadata.get("top_half_follow_links")
+                if follow_relevant_links is None:
+                    follow_relevant_links = True
                 
                 logger.info(
-                    "Starting browser capture | scene=%s | url=%s | hint=%s | target=%s | platform=%s",
+                    "Starting browser capture | scene=%s | url=%s | hint=%s | target=%s | platform=%s | max_seconds=%s | follow_links=%s",
                     scene_id,
                     source_ref[:60],
                     capture_hint,
                     target_selector,
-                    platform_hint
+                    platform_hint,
+                    max_capture_seconds,
+                    follow_relevant_links,
                 )
                 
                 video_path = await browser.record_video_for_tutorial(
@@ -690,6 +702,8 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                     target_selector=target_selector,
                     viewport_width=1080,
                     viewport_height=960,
+                    max_capture_seconds=int(max_capture_seconds),
+                    follow_relevant_links=bool(follow_relevant_links),
                 )
 
                 # CRITICAL: Close browser BEFORE reading the file to ensure Playwright finalizes the .webm

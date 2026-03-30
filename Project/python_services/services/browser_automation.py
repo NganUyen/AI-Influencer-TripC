@@ -5,7 +5,7 @@ Handles stealth browser operations using Camoufox
 
 import logging
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 try:
     from playwright.async_api import async_playwright, Browser, BrowserContext, Page
@@ -113,6 +113,7 @@ class BrowserAutomationService:
         platform: str = "generic",
         profile_name: Optional[str] = None,
         record_video_dir: Optional[str] = None,
+        record_video_size: Optional[Dict[str, int]] = None,
     ):
         """
         Initialize stealth browser with optional proxy
@@ -147,7 +148,7 @@ class BrowserAutomationService:
             import os
             os.makedirs(record_video_dir, exist_ok=True)
             context_options["record_video_dir"] = record_video_dir
-            context_options["record_video_size"] = {"width": 1080, "height": 960}
+            context_options["record_video_size"] = record_video_size or {"width": 1080, "height": 960}
             
         self.context = await self.browser.new_context(
             **context_options
@@ -318,7 +319,9 @@ class BrowserAutomationService:
         self, 
         url: str, 
         capture_hint: str = "scroll",
-        target_selector: Optional[str] = None
+        target_selector: Optional[str] = None,
+        viewport_width: int = 1080,
+        viewport_height: int = 960,
     ) -> str:
         """
         Record a video of a website for the top-half of a split-screen video.
@@ -337,12 +340,20 @@ class BrowserAutomationService:
         try:
             logger.info(f"Recording website | url={url} | hint={capture_hint} | target={target_selector}")
 
+            # Force a deterministic 9:8 capture frame for tutorial top-half output.
+            await page.set_viewport_size(
+                {
+                    "width": int(viewport_width),
+                    "height": int(viewport_height),
+                }
+            )
+
             await self._ensure_page_has_rendered_content(page=page, url=url)
 
             # Wait for page to stabilize
             import asyncio
             await asyncio.sleep(2.0)
-            
+
             # 1. Handle target-specific scrolling if provided
             if target_selector:
                 logger.info(f"Targeting specific section: {target_selector}")
@@ -361,20 +372,37 @@ class BrowserAutomationService:
                 except Exception as e:
                     logger.warning(f"Could not scroll to target {target_selector}: {e}")
 
-            # 2. Simulate user interaction based on capture_hint
-            if capture_hint in ("scroll", "medium", "Scroll hero section"):
-                # Smooth scroll through the page
-                for _ in range(5):
-                    await page.evaluate("window.scrollBy(0, 300)")
-                    await asyncio.sleep(0.8)
-            elif capture_hint == "static":
-                # Just wait to capture static content
-                await asyncio.sleep(3.0)
+            # 2. Build scroll plan from page structure so capture is content-aware.
+            scroll_plan = await self._build_scroll_plan(
+                page=page,
+                target_selector=target_selector,
+                capture_hint=capture_hint,
+            )
+            logger.info(
+                "Computed scroll plan | steps=%s | page_height=%s | viewport=%sx%s",
+                len(scroll_plan),
+                await page.evaluate("() => document.documentElement.scrollHeight"),
+                viewport_width,
+                viewport_height,
+            )
+
+            if capture_hint == "static":
+                await asyncio.sleep(2.8)
             else:
-                # Default: gentle scroll
-                for _ in range(3):
-                    await page.evaluate("window.scrollBy(0, 200)")
-                    await asyncio.sleep(1.0)
+                for y_target in scroll_plan:
+                    await page.evaluate(
+                        """
+                        (targetY) => {
+                            window.scrollTo({ top: targetY, behavior: "smooth" });
+                        }
+                        """,
+                        y_target,
+                    )
+                    await asyncio.sleep(0.9)
+
+                    # Small extra movement to look natural and trigger lazy-loaded sections.
+                    await page.evaluate("window.scrollBy(0, 120)")
+                    await asyncio.sleep(0.45)
 
             # Page must be closed before resolving the recording path.
             await page.close()
@@ -395,6 +423,93 @@ class BrowserAutomationService:
             except:
                 pass
             raise
+
+    async def _build_scroll_plan(
+        self,
+        page: Any,
+        target_selector: Optional[str],
+        capture_hint: str,
+    ) -> List[int]:
+        """Compute content-aware scroll anchors from key sections and layout depth."""
+        analysis = await page.evaluate(
+            """
+            (selector) => {
+                const doc = document.documentElement;
+                const viewportHeight = window.innerHeight || 960;
+                const pageHeight = Math.max(doc.scrollHeight || 0, document.body?.scrollHeight || 0);
+
+                const preferredSelectors = [
+                    "header", "main", "section", "article", "[role='main']",
+                    "[data-testid]", "[class*='hero']", "[class*='feature']", "[class*='content']"
+                ];
+
+                const candidates = [];
+                const pushRect = (el) => {
+                    if (!el) return;
+                    const rect = el.getBoundingClientRect();
+                    const top = Math.round(window.scrollY + rect.top);
+                    const area = Math.round(Math.max(0, rect.width) * Math.max(0, rect.height));
+                    if (top >= 0 && area > 12000) {
+                        candidates.push(top);
+                    }
+                };
+
+                if (selector) {
+                    try {
+                        const direct = document.querySelector(selector);
+                        pushRect(direct);
+                    } catch (_) {
+                        // Non-CSS target handled by text fallback in Python.
+                    }
+                }
+
+                for (const sel of preferredSelectors) {
+                    const nodes = document.querySelectorAll(sel);
+                    for (let i = 0; i < Math.min(nodes.length, 8); i += 1) {
+                        pushRect(nodes[i]);
+                    }
+                }
+
+                // Fallback anchors by page depth.
+                const maxScroll = Math.max(0, pageHeight - viewportHeight);
+                const depthAnchors = [0, 0.2, 0.4, 0.6, 0.8, 1.0].map((f) => Math.round(maxScroll * f));
+
+                const merged = [...candidates, ...depthAnchors]
+                    .filter((v) => Number.isFinite(v) && v >= 0)
+                    .sort((a, b) => a - b);
+
+                const deduped = [];
+                for (const v of merged) {
+                    if (deduped.length === 0 || Math.abs(v - deduped[deduped.length - 1]) > 140) {
+                        deduped.push(v);
+                    }
+                }
+
+                return {
+                    viewportHeight,
+                    pageHeight,
+                    anchors: deduped,
+                };
+            }
+            """,
+            target_selector or "",
+        )
+
+        anchors = list((analysis or {}).get("anchors") or [])
+        if not anchors:
+            return [0, 260, 520, 780]
+
+        hint = str(capture_hint or "").lower()
+        if hint in {"scroll", "medium", "scroll hero section"}:
+            limit = 6
+        elif hint in {"interactive", "deep", "long"}:
+            limit = 9
+        elif hint == "static":
+            limit = 1
+        else:
+            limit = 5
+
+        return anchors[:limit]
 
     async def _ensure_page_has_rendered_content(self, page: Any, url: str) -> None:
         """Helper to navigate and ensure that we don't just have a blank shell."""

@@ -663,6 +663,7 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
 
                 await browser.initialize_browser(
                     record_video_dir="/tmp/tutorials_videos",
+                    record_video_size={"width": 1080, "height": 960},
                     region_info=region_info,
                     proxy_config=proxy_config,
                     platform=platform_hint
@@ -683,7 +684,9 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                 video_path = await browser.record_video_for_tutorial(
                     source_ref,
                     capture_hint=capture_hint,
-                    target_selector=target_selector
+                    target_selector=target_selector,
+                    viewport_width=1080,
+                    viewport_height=960,
                 )
 
                 # CRITICAL: Close browser BEFORE reading the file to ensure Playwright finalizes the .webm

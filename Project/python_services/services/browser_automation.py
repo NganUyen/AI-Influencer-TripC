@@ -338,6 +338,10 @@ class BrowserAutomationService:
         if not self.context:
             raise Exception("Browser context not fully initialized for video recording!")
 
+        # Warm up navigation first so the returned recording starts on rendered content,
+        # not on initial browser/network loading.
+        await self._warm_up_capture_navigation(url=url)
+
         page = await self.context.new_page()
         video = page.video
 
@@ -358,9 +362,9 @@ class BrowserAutomationService:
 
             await self._ensure_page_has_rendered_content(page=page, url=url)
 
-            # Wait for page to stabilize
+            # Short settle to let CSS/hero transitions finish before motion capture starts.
             import asyncio
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(0.35)
 
             loop = asyncio.get_running_loop()
             deadline = loop.time() + float(max_capture_seconds)
@@ -443,21 +447,13 @@ class BrowserAutomationService:
                 for y_target in scroll_plan:
                     if loop.time() >= deadline:
                         break
-                    await page.evaluate(
-                        """
-                        (targetY) => {
-                            window.scrollTo({ top: targetY, behavior: "smooth" });
-                        }
-                        """,
-                        y_target,
-                    )
-                    await asyncio.sleep(min(0.9, max(0.15, deadline - loop.time())))
+                    remaining_ms = int(max(0.0, deadline - loop.time()) * 1000)
+                    duration_ms = max(380, min(1200, remaining_ms - 120))
+                    await self._smooth_scroll_to(page=page, target_y=int(y_target), duration_ms=duration_ms)
 
                     if loop.time() >= deadline:
                         break
-                    # Small extra movement to look natural and trigger lazy-loaded sections.
-                    await page.evaluate("window.scrollBy(0, 120)")
-                    await asyncio.sleep(min(0.45, max(0.1, deadline - loop.time())))
+                    await asyncio.sleep(min(0.2, max(0.05, deadline - loop.time())))
 
             # Page must be closed before resolving the recording path.
             await page.close()
@@ -478,6 +474,59 @@ class BrowserAutomationService:
             except:
                 pass
             raise
+
+    async def _warm_up_capture_navigation(self, url: str) -> None:
+        """Prime the browser cache/session so the returned video avoids initial loading screens."""
+        warmup_page = await self.context.new_page()
+        try:
+            await self._ensure_page_has_rendered_content(page=warmup_page, url=url)
+            # Tiny delay to allow pending image decode/font settle in warm cache.
+            import asyncio
+            await asyncio.sleep(0.2)
+        except Exception as exc:
+            # Best-effort only: do not fail capture if warm-up cannot complete.
+            logger.warning("Warm-up navigation failed; proceeding with direct capture | url=%s | err=%s", url, exc)
+        finally:
+            await warmup_page.close()
+
+    async def _smooth_scroll_to(self, page: Any, target_y: int, duration_ms: int = 900) -> None:
+        """Frame-synced scroll animation using requestAnimationFrame (~60fps)."""
+        await page.evaluate(
+            """
+            async ({ targetY, durationMs }) => {
+                const startY = window.scrollY || window.pageYOffset || 0;
+                const maxY = Math.max(
+                    0,
+                    (document.documentElement.scrollHeight || 0) - (window.innerHeight || 0)
+                );
+                const endY = Math.max(0, Math.min(Number(targetY) || 0, maxY));
+                const delta = endY - startY;
+                const duration = Math.max(250, Number(durationMs) || 900);
+
+                const easeInOutCubic = (t) => (
+                    t < 0.5
+                        ? 4 * t * t * t
+                        : 1 - Math.pow(-2 * t + 2, 3) / 2
+                );
+
+                await new Promise((resolve) => {
+                    const startedAt = performance.now();
+                    const step = (now) => {
+                        const progress = Math.min(1, (now - startedAt) / duration);
+                        const eased = easeInOutCubic(progress);
+                        window.scrollTo(0, Math.round(startY + delta * eased));
+                        if (progress < 1) {
+                            requestAnimationFrame(step);
+                            return;
+                        }
+                        resolve();
+                    };
+                    requestAnimationFrame(step);
+                });
+            }
+            """,
+            {"targetY": int(target_y), "durationMs": int(duration_ms)},
+        )
 
     async def _build_scroll_plan(
         self,

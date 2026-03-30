@@ -507,9 +507,10 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
             talking_head_path = download_results[-1]
 
         for path in [*image_paths, audio_path]:
-            if not os.path.exists(path) or os.path.getsize(path) < 100:
+            # Increased size guard to 2KB to catch partial or empty browser captures
+            if not os.path.exists(path) or os.path.getsize(path) < 2000:
                 raise AssemblyMissingAssetError(
-                    f"Required asset missing or too small: {path}"
+                    f"Required asset missing or too small (min 2000 bytes, got {os.path.getsize(path) if os.path.exists(path) else '0'}): {path}"
                 )
 
         # New Robust Concat Logic for Mixed Media Types

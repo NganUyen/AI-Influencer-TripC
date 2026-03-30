@@ -27,7 +27,7 @@ from services.region_service import RegionService
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_ONBOARDING_PLATFORMS = {"tiktok", "youtube", "facebook"}
+SUPPORTED_ONBOARDING_PLATFORMS = {"tiktok", "youtube", "facebook", "generic"}
 DEFAULT_LEASE_MINUTES = 480
 USER_NAMESPACE = uuid.UUID("2d9d5f55-2d26-4e34-b0bb-2d2d2f67eaa1")
 SENSITIVE_RESPONSE_KEYS = {

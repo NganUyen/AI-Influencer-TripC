@@ -1,6 +1,6 @@
 # Workflows And Automation
 
-Last verified: 2026-03-24 (UTC)
+Last verified: 2026-03-30 (UTC)
 
 Temporal is the orchestration backbone for long-running approval, publishing, and content-generation flows.
 
@@ -67,18 +67,23 @@ Defined in `workflows/short_video_workflow.py`.
 
 Primary flow:
 
-1. resolve and validate persona configuration
-2. generate and send a script for Telegram approval
-3. wait for script approval
-4. generate audio and scene images in parallel
-5. attempt talking-head video generation
-6. assemble the final split-screen video
-7. send preview to Telegram
-8. wait for final save or discard decision
+1. accept a validated start payload from `/api/workflows/start-video`
+2. either:
+   - generate and send a script for Telegram approval, then wait for approval
+   - or consume an `approved_package` and bypass script approval
+3. generate audio and scene assets in parallel
+4. optionally generate a HeyGen talking-head clip
+5. assemble the final split-screen video
+6. send preview to Telegram
+7. wait for final save or discard decision
 
 Important notes:
 
+- `/api/workflows/start-video` now passes `persona_snapshot`, `talking_head_optional`, and optional `approved_package`
+- the approved-package production path is the current handoff used by the `video-ai` pre-production skill
 - persona readiness/configuration errors are treated as non-retryable
+- the workflow raises `SceneAssetMismatchError` before assembly when scene assets and scene timings diverge
+- workflow failures trigger Telegram error notification through `send_telegram_error_notification`
 - talking-head generation can fail over to a slideshow-plus-audio lane
 - the workflow returns structured terminal payloads for completed, discarded, and failed exits
 
@@ -116,7 +121,9 @@ Important notes:
 
 - Telegram strategy approval requests
 - wait-for-approval loops
+- approved-package to script conversion
 - script approval requests and waits
+- progress/error delivery to Telegram
 - preview delivery
 - publish decision waits
 
@@ -130,6 +137,7 @@ Important notes:
 - storage uploads
 - scene image generation
 - talking-head video generation
+- top-half browser capture plus AI fallback routing
 - slideshow and split-screen helper flows
 
 ### Distribution activities
@@ -161,6 +169,7 @@ Useful scripts in `Project/python_services/scripts/`:
 - `check_telegram_webhook.py`: inspect webhook status
 - `setup_persona.py`: validate and prepare persona data
 - `check_persona.py`: inspect persona readiness
+- `e2e_video_ai_pipeline.py`: smoke test the approved-package video path against a deployed API
 - `smoke_strategies.py`, `smoke_script.py`, `smoke_storage.py`, `smoke_tts.py`, `smoke_heygen.py`, `smoke_assembly.py`: integration smoke helpers
 
 ## Failure And Retry Model
@@ -168,4 +177,5 @@ Useful scripts in `Project/python_services/scripts/`:
 - the backend can be up while Temporal is down, but workflow actions will degrade
 - activities use explicit retry policies in workflow definitions
 - some persona-related failures are deliberately non-retryable
+- the short-video lane fails closed before assembly when scene assets are incomplete or misaligned
 - long-running flows depend on external providers, so real acceptance testing is still required after infra or credential changes

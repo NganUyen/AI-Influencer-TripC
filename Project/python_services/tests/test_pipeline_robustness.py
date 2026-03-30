@@ -17,7 +17,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import logging
 
 # Import the functions we're testing
-from activities.video_activities import _is_video_url, _get_extension_for_url
+from activities.video_activities import (
+    _bot_half_crop_filter,
+    _get_extension_for_url,
+    _half_frame_filter,
+    _is_video_url,
+    _split_screen_filter,
+)
 from services.script_service import ScriptService, _VALID_TOP_HALF_SOURCE_TYPES
 
 
@@ -231,6 +237,33 @@ class TestVideoUrlDetection:
         assert _get_extension_for_url(mp4_url) == ".mp4"
         assert _get_extension_for_url(jpg_url) == ".jpg"
         assert _get_extension_for_url(no_ext) == ".jpg"  # Default
+
+
+class TestSplitScreenFilters:
+    """Tests for aspect-ratio-safe split-screen assembly filters."""
+
+    def test_half_frame_filter_preserves_aspect_ratio_with_padding(self):
+        filter_text = _half_frame_filter()
+
+        assert "scale=1080:960:force_original_aspect_ratio=decrease" in filter_text
+        assert "pad=1080:960:(ow-iw)/2:(oh-ih)/2:black" in filter_text
+        assert filter_text.endswith(",setsar=1")
+
+    def test_bot_half_crop_filter_center_crops_to_fill_bottom_half(self):
+        filter_text = _bot_half_crop_filter()
+
+        assert "scale=1080:1080:force_original_aspect_ratio=increase" in filter_text
+        assert "crop=1080:960:(iw-1080)/2:(ih-960)/2" in filter_text
+        assert filter_text.endswith(",setsar=1")
+
+    def test_split_screen_filter_keeps_top_and_only_crops_bottom(self):
+        filter_text = _split_screen_filter()
+
+        assert "[0:v]setsar=1[top]" in filter_text
+        assert "[1:v]scale=1080:960,setsar=1[bot]" not in filter_text
+        assert "pad=1080:960:(ow-iw)/2:(oh-ih)/2:black" not in filter_text
+        assert "crop=1080:960:(iw-1080)/2:(ih-960)/2" in filter_text
+        assert "[top][bot]vstack=inputs=2[v]" in filter_text
 
 
 class TestOrphanAssetPrevention:

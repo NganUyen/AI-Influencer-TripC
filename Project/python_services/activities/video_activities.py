@@ -23,6 +23,11 @@ from services.media_storage_service import MediaStorageService
 
 logger = logging.getLogger(__name__)
 
+HALF_FRAME_WIDTH = 1080
+HALF_FRAME_HEIGHT = 960
+FULL_FRAME_WIDTH = 1080
+FULL_FRAME_HEIGHT = 1920
+
 
 def _is_video_url(url: str) -> bool:
     """
@@ -96,6 +101,35 @@ def _escape_drawtext_text(text: str) -> str:
     for source, target in replacements.items():
         value = value.replace(source, target)
     return value
+
+
+def _fit_to_frame_filter(width: int, height: int, background: str = "black") -> str:
+    """Scale into a fixed frame without distorting the source aspect ratio."""
+    return (
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:{background},setsar=1"
+    )
+
+
+def _half_frame_filter(background: str = "black") -> str:
+    return _fit_to_frame_filter(HALF_FRAME_WIDTH, HALF_FRAME_HEIGHT, background)
+
+
+def _bot_half_crop_filter() -> str:
+    """Fill the bottom half by center-cropping the talking-head source."""
+    return (
+        "scale=1080:1080:force_original_aspect_ratio=increase,"
+        "crop=1080:960:(iw-1080)/2:(ih-960)/2,setsar=1"
+    )
+
+
+def _split_screen_filter() -> str:
+    return (
+        "[0:v]setsar=1[top];"
+        f"[1:v]{_bot_half_crop_filter()}[bot];"
+        "[top][bot]vstack=inputs=2[v];"
+        "[v]drawbox=w=iw:h=4:y=(ih/2)-2:color=orange:t=fill[vbar]"
+    )
 
 
 @activity.defn
@@ -236,7 +270,7 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                         "-i",
                         p,
                         "-vf",
-                        "scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2,setsar=1",
+                        _half_frame_filter(),
                         "-t",
                         str(scene_duration),
                         "-c:v",
@@ -261,7 +295,7 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                         "-i",
                         p,
                         "-vf",
-                        "scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2,setsar=1",
+                        _half_frame_filter(),
                         "-c:v",
                         "libx264",
                         "-t",
@@ -361,12 +395,7 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                     "-i",
                     audio_path,
                     "-filter_complex",
-                    (
-                        "[0:v]scale=1080:960,setsar=1[top];"
-                        "[1:v]scale=1080:960,setsar=1[bot];"
-                        "[top][bot]vstack=inputs=2[v];"
-                        "[v]drawbox=w=iw:h=4:y=(ih/2)-2:color=orange:t=fill[vbar]"
-                    ),
+                    _split_screen_filter(),
                     "-map",
                     "[vbar]",
                     "-map",
@@ -396,7 +425,7 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                     "-i",
                     audio_path,
                     "-vf",
-                    "pad=1080:1920:0:(1920-ih)/2:black",
+                    f"pad={FULL_FRAME_WIDTH}:{FULL_FRAME_HEIGHT}:0:({FULL_FRAME_HEIGHT}-ih)/2:black",
                     "-c:v",
                     "libx264",
                     "-c:a",

@@ -468,7 +468,7 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
         avatar_id=avatar_id,
         audio_url=audio_url,
         background=background,
-        aspect_ratio="9:16",
+        aspect_ratio="1:1",
     )
 
     video_id = video_job.get("video_id")

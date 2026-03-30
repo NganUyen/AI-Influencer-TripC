@@ -24,6 +24,7 @@ except ModuleNotFoundError:  # pragma: no cover - depends on local env
     asyncpg = None
 
 from services.region_service import RegionService
+from services.database_service import DatabaseService
 
 logger = logging.getLogger(__name__)
 
@@ -603,27 +604,11 @@ class ProxyManagerService:
 
     @classmethod
     async def _get_db_pool(cls) -> Any:
-        if asyncpg is None:
-            raise RuntimeError("asyncpg is not installed")
-
-        if cls._db_pool is None:
-            async with cls._db_lock:
-                if cls._db_pool is None:
-                    from config.settings import settings
-
-                    cls._db_pool = await asyncpg.create_pool(
-                        dsn=settings.DATABASE_URL,
-                        min_size=1,
-                        max_size=3,
-                        command_timeout=15,
-                    )
-        return cls._db_pool
+        return await DatabaseService.get_pool()
 
     @classmethod
     async def close_db_pool(cls) -> None:
-        if cls._db_pool is not None:
-            await cls._db_pool.close()
-            cls._db_pool = None
+        return None
 
     @classmethod
     def _resolve_owner_uuid(cls, owner_key: str) -> uuid.UUID:

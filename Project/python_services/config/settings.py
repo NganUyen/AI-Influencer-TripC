@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     CHATGPT_CONNECTOR_DATABASE_URL: Optional[str] = None
     REDIS_URL: Optional[str] = None
+    DATABASE_POOL_MIN_SIZE: int = 1
+    DATABASE_POOL_MAX_SIZE: int = 3
+    DATABASE_POOL_COMMAND_TIMEOUT_SECONDS: int = 20
 
     # Supabase
     SUPABASE_URL: str

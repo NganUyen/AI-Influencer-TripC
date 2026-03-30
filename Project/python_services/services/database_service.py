@@ -29,9 +29,15 @@ class DatabaseService:
                 if cls._pool is None:
                     cls._pool = await asyncpg.create_pool(
                         dsn=settings.DATABASE_URL,
-                        min_size=1,
-                        max_size=8,
-                        command_timeout=20,
+                        min_size=max(1, int(settings.DATABASE_POOL_MIN_SIZE)),
+                        max_size=max(
+                            int(settings.DATABASE_POOL_MIN_SIZE),
+                            int(settings.DATABASE_POOL_MAX_SIZE),
+                        ),
+                        command_timeout=max(
+                            1,
+                            int(settings.DATABASE_POOL_COMMAND_TIMEOUT_SECONDS),
+                        ),
                     )
         return cls._pool
 

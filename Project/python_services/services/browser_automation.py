@@ -399,17 +399,50 @@ class BrowserAutomationService:
     async def _ensure_page_has_rendered_content(self, page: Any, url: str) -> None:
         """Helper to navigate and ensure that we don't just have a blank shell."""
         import asyncio
-                metrics.get("hasMedia"),
-                metrics.get("readyState"),
-                metrics.get("looksBlank"),
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+        last_metrics: Dict[str, Any] = {}
+        for attempt in range(1, 5):
+            await asyncio.sleep(1.0)
+            metrics = await page.evaluate(
+                """
+                () => {
+                    const body = document.body;
+                    const text = body ? (body.innerText || '').trim() : '';
+                    const mediaCount = document.querySelectorAll('img, video, canvas, svg').length;
+                    const childCount = body ? body.querySelectorAll('*').length : 0;
+                    const readyState = document.readyState;
+                    const hasMedia = mediaCount > 0;
+                    const hasText = text.length > 24;
+                    const looksBlank = !hasMedia && !hasText && childCount < 10;
+                    return {
+                        readyState,
+                        hasMedia,
+                        hasText,
+                        mediaCount,
+                        childCount,
+                        textLength: text.length,
+                        looksBlank,
+                    };
+                }
+                """
+            )
+            last_metrics = metrics or {}
+
+            logger.info(
+                "Render probe attempt %s | url=%s | has_media=%s | ready_state=%s | looks_blank=%s",
+                attempt,
+                url,
+                last_metrics.get("hasMedia"),
+                last_metrics.get("readyState"),
+                last_metrics.get("looksBlank"),
             )
 
-            if not metrics.get("looksBlank"):
+            if not last_metrics.get("looksBlank"):
                 return
 
-            if attempt < 3:
+            if attempt < 4:
                 await page.reload(wait_until="domcontentloaded", timeout=30000)
-                await asyncio.sleep(1.0)
 
         raise RuntimeError(
             "Website rendered as blank/empty page before recording "

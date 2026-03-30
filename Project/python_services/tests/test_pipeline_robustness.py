@@ -30,6 +30,64 @@ from activities.video_activities import (
 from services.script_service import ScriptService, _VALID_TOP_HALF_SOURCE_TYPES
 
 
+class TestTalkingHeadGeneration:
+    """Tests for square talking-head generation before split-screen assembly."""
+
+    @pytest.mark.asyncio
+    @patch("activities.media_activities.StorageService")
+    @patch("activities.media_activities.HeyGenService")
+    async def test_create_talking_head_video_requests_square_output(
+        self, MockHeyGen, MockStorage
+    ):
+        from activities.media_activities import create_talking_head_video
+
+        mock_heygen = AsyncMock()
+        mock_heygen.create_video.return_value = {"video_id": "video-123"}
+        mock_heygen.poll_video_status.return_value = "https://cdn.example/video.mp4"
+        MockHeyGen.return_value = mock_heygen
+
+        mock_storage = AsyncMock()
+        mock_storage.upload_bytes.return_value = "https://storage.example/talking-head.mp4"
+        MockStorage.return_value = mock_storage
+
+        response = httpx.Response(
+            200,
+            request=httpx.Request("GET", "https://cdn.example/video.mp4"),
+            content=b"fake-mp4-bytes",
+        )
+
+        class StubClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            async def get(self, url):
+                return response
+
+        with patch("activities.media_activities.httpx.AsyncClient", lambda **_: StubClient()):
+            result = await create_talking_head_video(
+                {
+                    "avatar_id": "avatar-123",
+                    "audio_url": "https://cdn.example/audio.mp3",
+                    "persona_id": "persona-1",
+                    "topic": "tripc-demo",
+                }
+            )
+
+        mock_heygen.create_video.assert_awaited_once_with(
+            avatar_id="avatar-123",
+            audio_url="https://cdn.example/audio.mp3",
+            background="blur",
+            aspect_ratio="1:1",
+            width=1080,
+            height=1080,
+            allow_aspect_ratio_fallback=False,
+        )
+        assert result["url"] == "https://storage.example/talking-head.mp4"
+
+
 class TestDurationMismatchDetection:
     """Tests for CRITICAL-1: Duration/image array mismatch raises error."""
 
@@ -243,17 +301,18 @@ class TestSplitScreenFilters:
     def test_bot_half_crop_filter_center_crops_to_fill_bottom_half(self):
         filter_text = _bot_half_crop_filter()
 
-        assert "scale=1080:960:force_original_aspect_ratio=decrease" in filter_text
-        assert "pad=1080:960:(ow-iw)/2:(oh-ih)/2:black" in filter_text
-        assert filter_text.endswith(",setsar=1")
+        assert "scale=1080:1080:force_original_aspect_ratio=increase" in filter_text
+        assert "crop=1080:1080" in filter_text
+        assert "crop=1080:960:(iw-1080)/2:(ih-960)/2" in filter_text
 
     def test_split_screen_filter_keeps_top_and_only_crops_bottom(self):
         filter_text = _split_screen_filter()
 
         assert "[0:v]scale=1080:960:force_original_aspect_ratio=decrease" in filter_text
-        assert "[1:v]scale=1080:960:force_original_aspect_ratio=decrease" in filter_text
-        assert "pad=1080:960:(ow-iw)/2:(oh-ih)/2:black" in filter_text
+        assert "[1:v]scale=1080:1080:force_original_aspect_ratio=increase" in filter_text
+        assert "crop=1080:960:(iw-1080)/2:(ih-960)/2" in filter_text
         assert "[top][bot]vstack=inputs=2[v]" in filter_text
+        assert "drawbox" not in filter_text
 
 
 class TestSubtitleGeneration:
@@ -285,7 +344,7 @@ class TestSubtitleGeneration:
     def test_style_subtitle_line_highlights_a_keyword(self):
         styled = _style_subtitle_line("TripC toi uu lich trinh thong minh")
 
-        assert r"{\fscx96\fscy96\t(0,120,\fscx100\fscy100)}" in styled
+        assert r"{\an5\pos(540,960)\fscx96\fscy96\t(0,120,\fscx100\fscy100)}" in styled
         assert r"{\c&H00FFFF&}" in styled
 
 

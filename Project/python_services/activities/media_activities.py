@@ -627,33 +627,85 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
 
                 browser = browser_service_class()
                 os.makedirs("/tmp/tutorials_videos", exist_ok=True)
-                await browser.initialize_browser(record_video_dir="/tmp/tutorials_videos")
+
+                # Inject region and proxy to avoid being blocked (white screen)
+                region_info = None
+                proxy_config = None
+                user_id = scene_metadata.get("user_id") or scene_metadata.get("uid")
+                
+                # Determine platform for viewport (mobile vs desktop)
+                # If metadata mentions tiktok or portrait format, use mobile settings
+                platform_hint = "generic"
+                video_format = scene_metadata.get("video_format", "").lower()
+                if "tiktok" in str(scene_metadata.get("platform", "")).lower() or "portrait" in video_format or "9:16" in video_format:
+                    platform_hint = "tiktok"
+
+                try:
+                    from services.region_service import RegionService
+                    from services.proxy_manager_service import ProxyManagerService
+
+                    # 1. Get region profile
+                    region_info = await RegionService().build_region_profile()
+
+                    # 2. Lease a generic proxy to avoid datacenter IP blocks
+                    if user_id:
+                        try:
+                            lease = await ProxyManagerService.lease_proxy(
+                                account_key=str(user_id),
+                                platform="generic"
+                            )
+                            proxy_config = lease.get("proxy")
+                            logger.info(f"Leased proxy for capture | user_id={user_id} | server={proxy_config.get('server')}")
+                        except Exception as pe:
+                            logger.warning(f"Failed to lease proxy for capture: {pe}. Proceeding without proxy.")
+                except ImportError:
+                    logger.warning("Region/Proxy services not available. Proceeding with defaults.")
+
+                await browser.initialize_browser(
+                    record_video_dir="/tmp/tutorials_videos",
+                    region_info=region_info,
+                    proxy_config=proxy_config,
+                    platform=platform_hint
+                )
 
                 capture_hint = scene.get("top_half_capture_hint", "scroll")
+                target_selector = scene.get("top_half_target")
+                
                 logger.info(
-                    "Starting browser capture | scene=%s | url=%s | hint=%s",
+                    "Starting browser capture | scene=%s | url=%s | hint=%s | target=%s | platform=%s",
                     scene_id,
                     source_ref[:60],
                     capture_hint,
+                    target_selector,
+                    platform_hint
                 )
+                
                 video_path = await browser.record_video_for_tutorial(
                     source_ref,
                     capture_hint=capture_hint,
+                    target_selector=target_selector
                 )
+
+                # CRITICAL: Close browser BEFORE reading the file to ensure Playwright finalizes the .webm
+                await browser.close()
+                browser = None
 
                 if not video_path or not os.path.exists(video_path):
                     raise RuntimeError(
                         f"Playwright recording did not produce a video file for scene {scene_id}"
                     )
 
-                # Playwright recording is reliably flushed when the context/browser is closed.
-                await browser.close()
-                browser = None
-
                 for _ in range(120):
                     if os.path.exists(video_path) and os.path.getsize(video_path) >= 1024:
                         break
                     await asyncio.sleep(0.25)
+
+                # Guard against 0-byte or corrupted (tiny header only) captures
+                file_size = os.path.getsize(video_path)
+                if file_size < 2000:
+                    raise RuntimeError(
+                        f"Browser capture produced an invalid/tiny file ({file_size} bytes) for scene {scene_id}"
+                    )
 
                 with open(video_path, "rb") as f:
                     data = f.read()

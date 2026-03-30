@@ -1,6 +1,6 @@
 # Video Pre-Production V1
 
-Last verified: 2026-03-27 (UTC)
+Last verified: 2026-03-30 (UTC)
 
 This document locks the recommended v1 pre-production design for the Telegram-driven AI influencer video lane.
 
@@ -64,9 +64,9 @@ Current test coverage:
 
 Current readiness:
 
-- stable enough for PR and staging for the pre-production lane itself
-- not a claim that full video production or top-half runtime is complete
-- safe to merge as a pre-production-only increment
+- implemented and actively used as the production handoff shape for the Telegram `video-ai` lane
+- approved packages now start production through `/api/workflows/start-video`
+- not a claim that every provider-backed deployed path has already been smoke-tested in every environment
 
 ## Goal
 
@@ -326,9 +326,15 @@ This is the key handoff rule:
 
 That means:
 
-- the future script generation step must consume `ConceptBrief + BeatSheet`
+- production script generation must consume `ConceptBrief + BeatSheet`
 - it must not invent a new structure from raw topic text
 - it must keep narration aligned with approved `bottom_half_message` values
+
+This rule is now implemented in the current codebase:
+
+- `VideoAISkill` submits `approved_package` to `/api/workflows/start-video`
+- `ShortVideoWorkflow` detects that package and bypasses script approval
+- `generate_script_from_approved_package_activity` and `ScriptService.generate_script_from_package()` turn the approved beats into production `SceneContract` data
 
 ## Relation To Current Codebase
 
@@ -337,12 +343,11 @@ This v1 design stays compatible with the current project shape:
 - Telegram skill/session flow already exists
 - persona readiness and voice fields already exist
 - OpenClaw is already available for structured planning
-- the current short-video production lane can be adapted later to consume a pre-production package
+- the short-video production lane already consumes an approved pre-production package
+- top-half metadata now carries source type, capture target, capture hint, and optional source reference into production
 
 This v1 design intentionally does not require:
 
-- top-half runtime implementation
-- authenticated browser capture yet
 - PDF parsing
 - image reference ingestion
 - script editing workflows
@@ -352,13 +357,9 @@ This v1 design intentionally does not require:
 V1 does not attempt to implement:
 
 - full storyboard generation
-- top-half asset capture
-- top-half capture planner runtime
 - user-provided script editing
 - beat-by-beat visual editing
 - multi-modal uploads
-- production handoff into `/api/workflows/start-video`
-- `ScriptService` consumption of `ConceptBrief + BeatSheet`
 - durable DB-backed storage for pre-production packages
 
 Those can be added only after the `idea_brief -> ConceptBrief -> BeatSheet -> ApprovedProductionPackage` path is stable.
@@ -378,20 +379,17 @@ This is the smallest design that still matches the intended split-screen product
 
 ## What Is Still Not Done
 
-This v1 implementation intentionally stops before production.
-
 Still pending:
 
-- wire `ApprovedProductionPackage` into the existing production start path
-- make `ScriptService` consume approved `ConceptBrief + BeatSheet`
-- implement top-half source planning/runtime beyond metadata hints
-- support `script_input`
-- support image reference / PDF brief
-- add durable package persistence beyond Telegram session / Redis
-- expose operator tooling for package resume or package inspection outside the Telegram session
+- richer durable package persistence beyond Telegram session / Redis
+- operator tooling for package resume or package inspection outside the Telegram session
+- more input modes such as `script_input`, image reference, and PDF brief
+- deeper authenticated top-half capture planning beyond the current metadata + fallback model
+- stronger deployed E2E coverage across Telegram, Temporal, storage, and providers
 
-The current merge should therefore be understood as:
+The current state should therefore be understood as:
 
 - pre-production lock layer: done
-- production integration: not done yet
-- top-half runtime: not done yet
+- production handoff into the video workflow: done
+- basic top-half runtime path: done for current `public_page_capture` / fallback model
+- broader authoring and operator tooling: still pending

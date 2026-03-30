@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Last verified: 2026-03-29 (UTC)
+Last verified: 2026-03-30 (UTC)
 
 This is the canonical deployment and operations guide for the current repo. It replaces the older split across separate VPS, single-domain, database-plan, provider-bootstrap, and deployment-log docs.
 
@@ -224,6 +224,18 @@ Webhook targets:
 - single-domain: `https://ai-influencer.tripc.ai/backend/api/webhooks/postiz`
 - single-domain: `https://ai-influencer.tripc.ai/backend/api/webhooks/growchief`
 
+### OpenClaw Auth Bootstrap
+
+If OpenClaw is up but model execution fails because auth is missing, use the lightweight bootstrap path:
+
+1. authenticate locally with `openclaw models auth login --provider openai-codex`
+2. copy `auth-profiles.json` into the production `openclaw` container or bound config volume
+3. fix ownership/permissions for `/home/node/.openclaw`
+4. restart the `openclaw` service
+5. verify with `node openclaw.mjs models list` inside the container
+
+Keep this as a recovery/bootstrap procedure, not as a daily workflow.
+
 ## Routine Operations
 
 Backup:
@@ -280,6 +292,14 @@ cd /opt/ai-influencer/repo
 PROJECT_ENV_FILE=./Project/.env.production ./deploy/vps/check-telegram-openclaw.sh
 ```
 
+Video pipeline quick triage:
+
+1. confirm the backend, worker, and Temporal UI are healthy with `healthcheck.sh`
+2. inspect `/api/workflows/status/<workflow_id>` or Temporal history for the failing workflow
+3. if the short-video lane failed, check worker logs for `SceneAssetMismatchError`, `send_telegram_error_notification`, and checkpoint logs `CP1`, `CP2`, `CP3`, `CP5`, `CP6`, `CP7`
+4. if top-half assets degraded to fallback unexpectedly, inspect browser-capture warnings and storage fallback behavior before retrying
+5. if Telegram notifications are missing, rerun `check-telegram-openclaw.sh` and verify bot/webhook credentials before retrying the workflow
+
 ## First Live Acceptance
 
 Run at least one real end-to-end path with production credentials:
@@ -290,6 +310,7 @@ Run at least one real end-to-end path with production credentials:
 4. confirm the webhook updates backend/dashboard state
 5. confirm quota and content status surfaces update
 6. restart backend or worker once during a long-running flow and confirm Temporal recovery still works
+7. for the Telegram video lane, run the approved-package smoke path before sign-off when that lane changed
 
 ## Security And Hardening
 

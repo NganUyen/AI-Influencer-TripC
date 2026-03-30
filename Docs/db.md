@@ -1,6 +1,6 @@
 # Database Model
 
-Last verified: 2026-03-27 (UTC)
+Last verified: 2026-03-30 (UTC)
 
 This repo now uses a Supabase-centered application database model.
 
@@ -120,6 +120,13 @@ Legacy top-level prefixes such as `image/`, `video/`, `persona/`, and `smoke_tes
 - `storage_path`
 - `storage_provider`
 - lifecycle/status metadata
+
+Operational notes:
+
+- new writes should carry a real `user_id` whenever the customer owner is known
+- Telegram-originated persona/media flows should also pass `owner_key=telegram:<chat_id>` and `persona_id` so media lands in the correct owner/persona scope
+- if owner context cannot be resolved safely, the system may skip writing a misleading `media_assets` row rather than inventing ownership
+- provider URL fallback is a valid degraded mode when storage persistence fails, but it is not the steady-state source of truth; the steady-state source of truth remains the stored object plus the `public.media_assets` row
 
 ## RLS Model
 

@@ -129,12 +129,12 @@ npm test
 
 - [../Docs/README.md](../Docs/README.md)
 - [../Docs/START_HERE.md](../Docs/START_HERE.md)
-- [../Docs/CURRENT_REPO_STATUS.md](../Docs/CURRENT_REPO_STATUS.md)
 - [../Docs/ARCHITECTURE.md](../Docs/ARCHITECTURE.md)
 - [../Docs/REPOSITORY_MAP.md](../Docs/REPOSITORY_MAP.md)
 - [../Docs/FRONTEND.md](../Docs/FRONTEND.md)
 - [../Docs/BACKEND_API.md](../Docs/BACKEND_API.md)
 - [../Docs/WORKFLOWS_AND_AUTOMATION.md](../Docs/WORKFLOWS_AND_AUTOMATION.md)
+- [../Docs/PREPRODUCTION_VIDEO_V1.md](../Docs/PREPRODUCTION_VIDEO_V1.md)
 - [../Docs/INTEGRATIONS.md](../Docs/INTEGRATIONS.md)
 - [../Docs/db.md](../Docs/db.md)
 - [../Docs/ENVIRONMENT_REFERENCE.md](../Docs/ENVIRONMENT_REFERENCE.md)

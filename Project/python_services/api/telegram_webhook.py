@@ -315,6 +315,51 @@ async def _send_rendered_message(
     )
 
 
+async def _await_with_callback_progress(
+    chat_id: int,
+    message_id: int,
+    work_coro: Any,
+    *,
+    timeout_seconds: float = 0.6,
+) -> Any:
+    task = asyncio.create_task(work_coro)
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
+    except asyncio.TimeoutError:
+        await edit_message_text(
+            chat_id,
+            message_id,
+            "Processing your request...",
+            parse_mode=None,
+        )
+        return await task
+
+
+async def _await_with_message_progress(
+    chat_id: int,
+    work_coro: Any,
+    *,
+    timeout_seconds: float = 0.8,
+) -> tuple[Any, Optional[int]]:
+    task = asyncio.create_task(work_coro)
+    try:
+        result = await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
+        return result, None
+    except asyncio.TimeoutError:
+        waiting_message_id: Optional[int] = None
+        try:
+            waiting = await send_message(
+                chat_id,
+                "Processing your request...",
+                parse_mode=None,
+            )
+            waiting_message_id = waiting.get("result", {}).get("message_id")
+        except Exception:
+            logger.debug("Failed to send progress message for chat_id=%s", chat_id)
+        result = await task
+        return result, waiting_message_id
+
+
 async def _handle_skill_callback(
     app: Any,
     chat_id: int,
@@ -328,21 +373,33 @@ async def _handle_skill_callback(
 
     if data.startswith("skill_"):
         skill_name = data.split("skill_", 1)[1]
-        result = await SkillDispatcher.start_skill(chat_id, skill_name, app)
+        result = await _await_with_callback_progress(
+            chat_id,
+            message_id,
+            SkillDispatcher.start_skill(chat_id, skill_name, app),
+        )
         rendered = TelegramRenderer.render_skill_result(result)
         await _send_rendered_message(chat_id, rendered, message_id=message_id)
         return True
 
     if data.startswith("option::"):
         value = data.split("::", 1)[1]
-        result = await SkillDispatcher.handle_option(chat_id, value, app)
+        result = await _await_with_callback_progress(
+            chat_id,
+            message_id,
+            SkillDispatcher.handle_option(chat_id, value, app),
+        )
         rendered = TelegramRenderer.render_skill_result(result)
         await _send_rendered_message(chat_id, rendered, message_id=message_id)
         return True
 
     if data.startswith("action::"):
         action = data.split("::", 1)[1]
-        result = await SkillDispatcher.handle_action(chat_id, action, app)
+        result = await _await_with_callback_progress(
+            chat_id,
+            message_id,
+            SkillDispatcher.handle_action(chat_id, action, app),
+        )
         rendered = TelegramRenderer.render_skill_result(result)
         await _send_rendered_message(chat_id, rendered, message_id=message_id)
         return True
@@ -796,10 +853,13 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         await send_message(chat_id, "Cancelled the active skill session.", parse_mode=None)
         return
 
-    skill_result = await SkillDispatcher.handle_text(chat_id, text, app)
+    skill_result, pending_message_id = await _await_with_message_progress(
+        chat_id,
+        SkillDispatcher.handle_text(chat_id, text, app),
+    )
     if skill_result is not None:
         rendered = TelegramRenderer.render_skill_result(skill_result)
-        await _send_rendered_message(chat_id, rendered)
+        await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)
         return
 
     if text.startswith("http"):

@@ -221,12 +221,37 @@ class StorageService:
             encoded_metadata = base64.b64encode(json.dumps(metadata).encode("utf-8"))
             headers["x-metadata"] = encoded_metadata.decode("ascii")
 
-        await self._supabase_request(
-            "POST",
-            f"/object/{self._supabase_object_key(filename)}",
-            headers=headers,
-            data=data,
-        )
+        try:
+            await self._supabase_request(
+                "POST",
+                f"/object/{self._supabase_object_key(filename)}",
+                headers=headers,
+                data=data,
+            )
+        except httpx.HTTPStatusError as exc:
+            # Some Supabase buckets reject specific MIME values (e.g. video/webm).
+            # Retry with a generic content type so binary uploads can still succeed.
+            response_text = (exc.response.text or "").lower()
+            should_retry_with_octet_stream = (
+                content_type != "application/octet-stream"
+                and "invalid_mime_type" in response_text
+            )
+            if not should_retry_with_octet_stream:
+                raise
+
+            fallback_headers = dict(headers)
+            fallback_headers["content-type"] = "application/octet-stream"
+            logger.warning(
+                "Supabase rejected MIME type %s for %s; retrying with application/octet-stream",
+                content_type,
+                filename,
+            )
+            await self._supabase_request(
+                "POST",
+                f"/object/{self._supabase_object_key(filename)}",
+                headers=fallback_headers,
+                data=data,
+            )
         access_url = self.get_public_url(filename)
         logger.info("File uploaded successfully: %s", filename)
         return access_url

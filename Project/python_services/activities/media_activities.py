@@ -9,6 +9,7 @@ from typing import Dict, Any, List
 import logging
 import httpx
 import asyncio
+import os
 from io import BytesIO
 
 from services.fal_service import FalAIService
@@ -582,136 +583,146 @@ async def generate_web_tutorial_activity(
 async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Generate top-half scene assets as Playwright browser recordings only."""
 
+    raw_limit = os.getenv("TOP_HALF_CAPTURE_CONCURRENCY", "2")
+    try:
+        max_parallel = max(1, int(raw_limit))
+    except ValueError:
+        max_parallel = 2
+    semaphore = asyncio.Semaphore(max_parallel)
+
     async def gen_one(scene: dict) -> dict:
-        scene_metadata = dict(scene.get("metadata") or {})
-        top_half_type = scene.get("top_half_source_type")
-        source_ref = scene.get("source_ref")
-        scene_id = scene.get("id", "unknown")
-        browser = None
+        async with semaphore:
+            scene_metadata = dict(scene.get("metadata") or {})
+            top_half_type = scene.get("top_half_source_type")
+            source_ref = scene.get("source_ref")
+            scene_id = scene.get("id", "unknown")
+            browser = None
 
-        if top_half_type != "public_page_capture":
-            raise ApplicationError(
-                (
-                    "Top-half scene must use public_page_capture for Playwright "
-                    f"recording (scene={scene_id}, source_type={top_half_type!r})"
-                ),
-                non_retryable=True,
-            )
-
-        if not source_ref:
-            raise ApplicationError(
-                (
-                    "Top-half scene is missing source_ref URL required for "
-                    f"Playwright recording (scene={scene_id})"
-                ),
-                non_retryable=True,
-            )
-
-        try:
-            import os
-
-            browser_service_class = BrowserAutomationService
-            if browser_service_class is None and browser_automation_module is not None:
-                browser_service_class = browser_automation_module.BrowserAutomationService
-            if browser_service_class is None:
-                raise RuntimeError(
-                    "Browser automation dependencies are not installed in this runtime image."
+            if top_half_type != "public_page_capture":
+                raise ApplicationError(
+                    (
+                        "Top-half scene must use public_page_capture for Playwright "
+                        f"recording (scene={scene_id}, source_type={top_half_type!r})"
+                    ),
+                    non_retryable=True,
                 )
 
-            browser = browser_service_class()
-            os.makedirs("/tmp/tutorials_videos", exist_ok=True)
-            await browser.initialize_browser(record_video_dir="/tmp/tutorials_videos")
-
-            capture_hint = scene.get("top_half_capture_hint", "scroll")
-            logger.info(
-                "Starting browser capture | scene=%s | url=%s | hint=%s",
-                scene_id,
-                source_ref[:60],
-                capture_hint,
-            )
-            video_path = await browser.record_video_for_tutorial(
-                source_ref,
-                capture_hint=capture_hint,
-            )
-
-            if not video_path or not os.path.exists(video_path):
-                raise RuntimeError(
-                    f"Playwright recording did not produce a video file for scene {scene_id}"
+            if not source_ref:
+                raise ApplicationError(
+                    (
+                        "Top-half scene is missing source_ref URL required for "
+                        f"Playwright recording (scene={scene_id})"
+                    ),
+                    non_retryable=True,
                 )
 
-            with open(video_path, "rb") as f:
-                data = f.read()
-
-            media_storage_service_class = MediaStorageService
-            if media_storage_service_class is _DEFAULT_MEDIA_STORAGE_SERVICE_CLASS:
-                media_storage_service_class = media_storage_service_module.MediaStorageService
-            media_storage = media_storage_service_class()
-            storage_result = await media_storage.upload_bytes(
-                data=data,
-                destination_path=None,
-                content_type="video/webm",
-                asset_kind="video",
-                asset_origin="generated",
-                persona_id=scene.get("persona_id") or scene_metadata.get("persona_id"),
-                owner_key=scene.get("owner_key") or scene_metadata.get("owner_key"),
-                campaign_id=scene.get("campaign_id") or scene_metadata.get("campaign_id"),
-                user_id=scene.get("user_id") or scene_metadata.get("user_id"),
-                file_name_hint=f"browser-capture-scene-{scene_id}",
-            )
-
-            if storage_result is None:
-                raise RuntimeError(
-                    "MediaStorageService.upload_bytes returned None for Playwright recording"
-                )
-
-            final_url = storage_result.get("url") or storage_result.get("storage_url")
-            if not final_url:
-                raise RuntimeError(
-                    f"Playwright recording uploaded but URL is missing for scene {scene_id}"
-                )
-
-            logger.info(
-                "Scene asset resolved | scene=%s | type=%s | url=%s | is_video=%s",
-                scene_id,
-                top_half_type,
-                final_url[:80],
-                True,
-            )
-
-            return {
-                **scene,
-                "image_url": final_url,
-                "source_image_url": final_url,
-                "storage_image_url": storage_result.get("storage_url"),
-                "image_storage_key": storage_result.get("storage_key"),
-                "media_asset_id": storage_result.get("media_asset_id"),
-                "status": "completed",
-                "is_video": True,
-            }
-        except Exception as e:
-            logger.error(
-                "Browser capture FAILED for scene %s | url=%s | error_type=%s | error=%s",
-                scene_id,
-                source_ref[:80],
-                type(e).__name__,
-                str(e)[:300],
-            )
-            raise ApplicationError(
-                f"Playwright top-half recording failed for scene {scene_id}: {e}",
-                non_retryable=False,
-            )
-        finally:
-            if browser is not None:
-                try:
-                    await browser.close()
-                except Exception as close_exc:
-                    logger.warning(
-                        "Failed to close browser after scene %s capture attempt: %s",
-                        scene_id,
-                        close_exc,
+            try:
+                browser_service_class = BrowserAutomationService
+                if browser_service_class is None and browser_automation_module is not None:
+                    browser_service_class = browser_automation_module.BrowserAutomationService
+                if browser_service_class is None:
+                    raise RuntimeError(
+                        "Browser automation dependencies are not installed in this runtime image."
                     )
 
-    logger.info(f"Generating {len(scenes)} top-half browser recordings in parallel...")
+                browser = browser_service_class()
+                os.makedirs("/tmp/tutorials_videos", exist_ok=True)
+                await browser.initialize_browser(record_video_dir="/tmp/tutorials_videos")
+
+                capture_hint = scene.get("top_half_capture_hint", "scroll")
+                logger.info(
+                    "Starting browser capture | scene=%s | url=%s | hint=%s",
+                    scene_id,
+                    source_ref[:60],
+                    capture_hint,
+                )
+                video_path = await browser.record_video_for_tutorial(
+                    source_ref,
+                    capture_hint=capture_hint,
+                )
+
+                if not video_path or not os.path.exists(video_path):
+                    raise RuntimeError(
+                        f"Playwright recording did not produce a video file for scene {scene_id}"
+                    )
+
+                with open(video_path, "rb") as f:
+                    data = f.read()
+
+                media_storage_service_class = MediaStorageService
+                if media_storage_service_class is _DEFAULT_MEDIA_STORAGE_SERVICE_CLASS:
+                    media_storage_service_class = media_storage_service_module.MediaStorageService
+                media_storage = media_storage_service_class()
+                storage_result = await media_storage.upload_bytes(
+                    data=data,
+                    destination_path=None,
+                    content_type="video/webm",
+                    asset_kind="video",
+                    asset_origin="generated",
+                    persona_id=scene.get("persona_id") or scene_metadata.get("persona_id"),
+                    owner_key=scene.get("owner_key") or scene_metadata.get("owner_key"),
+                    campaign_id=scene.get("campaign_id") or scene_metadata.get("campaign_id"),
+                    user_id=scene.get("user_id") or scene_metadata.get("user_id"),
+                    file_name_hint=f"browser-capture-scene-{scene_id}",
+                )
+
+                if storage_result is None:
+                    raise RuntimeError(
+                        "MediaStorageService.upload_bytes returned None for Playwright recording"
+                    )
+
+                final_url = storage_result.get("url") or storage_result.get("storage_url")
+                if not final_url:
+                    raise RuntimeError(
+                        f"Playwright recording uploaded but URL is missing for scene {scene_id}"
+                    )
+
+                logger.info(
+                    "Scene asset resolved | scene=%s | type=%s | url=%s | is_video=%s",
+                    scene_id,
+                    top_half_type,
+                    final_url[:80],
+                    True,
+                )
+
+                return {
+                    **scene,
+                    "image_url": final_url,
+                    "source_image_url": final_url,
+                    "storage_image_url": storage_result.get("storage_url"),
+                    "image_storage_key": storage_result.get("storage_key"),
+                    "media_asset_id": storage_result.get("media_asset_id"),
+                    "status": "completed",
+                    "is_video": True,
+                }
+            except Exception as e:
+                logger.error(
+                    "Browser capture FAILED for scene %s | url=%s | error_type=%s | error=%s",
+                    scene_id,
+                    source_ref[:80],
+                    type(e).__name__,
+                    str(e)[:300],
+                )
+                raise ApplicationError(
+                    f"Playwright top-half recording failed for scene {scene_id}: {e}",
+                    non_retryable=False,
+                )
+            finally:
+                if browser is not None:
+                    try:
+                        await browser.close()
+                    except Exception as close_exc:
+                        logger.warning(
+                            "Failed to close browser after scene %s capture attempt: %s",
+                            scene_id,
+                            close_exc,
+                        )
+
+    logger.info(
+        "Generating %s top-half browser recordings with concurrency=%s...",
+        len(scenes),
+        max_parallel,
+    )
     tasks = [gen_one(scene) for scene in scenes]
     enriched = await asyncio.gather(*tasks)
     logger.info("Top-half browser recording completed")

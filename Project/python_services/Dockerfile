@@ -47,6 +47,11 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 FROM base AS worker-runtime
 
+# Install ffmpeg for video generation
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.base.txt requirements.api.txt requirements.worker.txt ./
 COPY --from=builder /wheels/worker /wheels
 RUN pip install --no-index --find-links=/wheels -r requirements.worker.txt && rm -rf /wheels

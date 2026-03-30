@@ -101,7 +101,7 @@ jobs:
             dockerfile: Project/python_services/Dockerfile
             context: Project/python_services
             target: worker-runtime
-            max_bytes: "1200000000"
+            max_bytes: "1500000000"
           - name: postiz
             image: ai-influencer-postiz
             dockerfile: docker/postiz/Dockerfile

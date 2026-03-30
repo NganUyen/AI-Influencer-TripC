@@ -65,9 +65,10 @@ async def test_generate_script_from_package():
     assert scene1["prompt"] == "Landing Page"
     assert scene1["narration_text"] == "Look at this tool!"
 
-    # Assert scene 2 is the fallback
+    # Assert scene 2 is normalized to Playwright public capture
     scene2 = dumped["scenes"][1]
-    assert scene2["top_half_source_type"] == "ai_visual_fallback"
+    assert scene2["top_half_source_type"] == "public_page_capture"
+    assert scene2["source_ref"] == "https://example.com"
     assert scene2["prompt"] == "Abstract Code"
     assert scene2["narration_text"] == "It lets you write scripts."
 

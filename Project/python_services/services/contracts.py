@@ -66,7 +66,6 @@ class SplitScreenVideoInput(BaseModel):
     image_urls: List[str]
     audio_url: str
     talking_head_url: Optional[str] = None
-    scene_captions: List[str] = Field(default_factory=list)
     subtitle_script: str = ""
     subtitle_segments: List[Dict[str, Any]] = Field(default_factory=list)
     scene_durations: List[float] = Field(default_factory=list)

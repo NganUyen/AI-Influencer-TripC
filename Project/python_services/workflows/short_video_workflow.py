@@ -107,7 +107,6 @@ class ShortVideoWorkflow:
             platform = start_payload.platform
             telegram_chat_id = start_payload.telegram_chat_id
             owner_key = start_payload.owner_key
-            talking_head_optional = start_payload.talking_head_optional
             persona_snapshot = start_payload.persona_snapshot
             language = persona_snapshot.language or "English"
             tts_voice = persona_snapshot.tts_voice
@@ -251,6 +250,8 @@ class ShortVideoWorkflow:
                                 "user_id": user_id,
                                 "day": 1,
                                 "platform": platform,
+                                "workflow_id": workflow_id,
+                                "workflow_run_id": workflow.info().run_id,
                             },
                         }
                         for scene in scene_payloads
@@ -266,23 +267,12 @@ class ShortVideoWorkflow:
 
             # Stage B: Start talking head as soon as audio is ready
             if not heygen_avatar_id:
-                workflow.logger.info(
-                    "Skipping talking-head generation for persona %s because heygen_avatar_id is missing.",
-                    persona_id,
+                raise PersonaConfigurationError(
+                    (
+                        "heygen_avatar_id is required for split-screen output. "
+                        f"Cannot generate bottom-half talking head for persona {persona_id}."
+                    )
                 )
-                await notify_progress(
-                    "Bottom-half audio ready",
-                    "This persona is in voiceover-only mode, so the workflow will continue without a talking-head avatar clip.",
-                )
-                talking_head_result = {
-                    "url": "",
-                    "status": "skipped",
-                    "reason": (
-                        "talking_head_optional"
-                        if talking_head_optional
-                        else "missing_heygen_avatar_id"
-                    ),
-                }
             else:
                 self.current_step = "generating_talking_head"
                 await notify_progress(
@@ -361,6 +351,14 @@ class ShortVideoWorkflow:
             is_video_flags = [
                 bool(scene.get("is_video")) for _, scene in valid_scenes_with_index
             ]
+            if not all(is_video_flags):
+                workflow.logger.error(
+                    "Top-half validation failed: non-video asset detected | flags=%s",
+                    is_video_flags,
+                )
+                raise SceneAssetMismatchError(
+                    "Top-half assets must be Playwright browser recordings (video only)."
+                )
             aligned_durations = [
                 scene_durations[i] if i < len(scene_durations) else 4.0
                 for i, _ in valid_scenes_with_index
@@ -377,7 +375,6 @@ class ShortVideoWorkflow:
                     ),
                     "text": str(
                         scenes[i].get("narration_text")
-                        or scenes[i].get("caption")
                         or ""
                     ).strip(),
                 }

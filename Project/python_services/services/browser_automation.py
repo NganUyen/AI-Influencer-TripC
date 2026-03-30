@@ -312,18 +312,17 @@ class BrowserAutomationService:
 
         try:
             logger.info(f"Recording website for tutorial | url={url} | hint={capture_hint}")
-            
-            # Navigate with longer timeout for slow sites
-            await page.goto(url, wait_until="networkidle", timeout=30000)
-            
-            # Wait for page to stabilize
+
+            await self._ensure_page_has_rendered_content(page=page, url=url)
+
+            # Wait for page to stabilize before motion starts.
             import asyncio
             await asyncio.sleep(1.0)
             
             # Simulate user interaction based on capture_hint
             if capture_hint in ("scroll", "medium", "Scroll hero section"):
                 # Smooth scroll through the page
-                for i in range(5):
+                for _ in range(5):
                     await page.evaluate("window.scrollBy(0, 300)")
                     await asyncio.sleep(0.8)
             elif capture_hint == "static":
@@ -348,6 +347,73 @@ class BrowserAutomationService:
             except:
                 pass
             raise
+
+    async def _ensure_page_has_rendered_content(self, page: Any, url: str) -> None:
+        """Navigate and verify we are not recording an empty/blank page."""
+        import asyncio
+
+        last_metrics: Dict[str, Any] | None = None
+        for attempt in range(1, 4):
+            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=12000)
+            except Exception:
+                # Some sites keep network busy with trackers/websockets.
+                pass
+
+            await asyncio.sleep(1.5)
+            metrics: Dict[str, Any] = await page.evaluate(
+                """
+                () => {
+                  const body = document.body;
+                  const text = (body?.innerText || '').trim();
+                  const visibleNodes = Array.from(document.querySelectorAll('body *')).filter((el) => {
+                    const style = window.getComputedStyle(el);
+                    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) {
+                      return false;
+                    }
+                    const rect = el.getBoundingClientRect();
+                    return rect.width > 4 && rect.height > 4;
+                  }).length;
+                  const hasMedia = !!document.querySelector('img, video, svg, canvas, iframe');
+                  const title = (document.title || '').trim();
+                  const looksBlank = text.length < 24 && visibleNodes < 5 && !hasMedia;
+                  return {
+                    textLength: text.length,
+                    visibleNodes,
+                    hasMedia,
+                    title,
+                    readyState: document.readyState,
+                    looksBlank,
+                  };
+                }
+                """
+            )
+            last_metrics = metrics
+
+            logger.info(
+                "Capture page health | url=%s | attempt=%s | title=%s | text=%s | nodes=%s | media=%s | ready=%s | blank=%s",
+                url,
+                attempt,
+                metrics.get("title", "")[:80],
+                metrics.get("textLength"),
+                metrics.get("visibleNodes"),
+                metrics.get("hasMedia"),
+                metrics.get("readyState"),
+                metrics.get("looksBlank"),
+            )
+
+            if not metrics.get("looksBlank"):
+                return
+
+            if attempt < 3:
+                await page.reload(wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(1.0)
+
+        raise RuntimeError(
+            "Website rendered as blank/empty page before recording "
+            f"(metrics={last_metrics})"
+        )
 
     async def get_page_content(self, url: str) -> str:
         """Get text content from a webpage for AI analysis"""

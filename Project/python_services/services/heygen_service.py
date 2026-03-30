@@ -236,25 +236,63 @@ class HeyGenService:
         """
         logger.info(f"Tạo HeyGen video | avatar: {avatar_id} | ratio: {aspect_ratio}")
 
-        payload = {
-            "avatar_id": avatar_id,
-            "audio_url": audio_url,
-            "title": f"{avatar_id}-{aspect_ratio}",
-            "resolution": "1080p" if max(width, height) >= 1080 else "720p",
-            "aspect_ratio": aspect_ratio,
-            "expressiveness": "low",
-            "background": self._build_background(background),
-        }
+        candidate_ratios = [aspect_ratio]
+        if aspect_ratio == "1:1":
+            # HeyGen v2 may reject square aspect ratio for some accounts/avatar types.
+            candidate_ratios.append("9:16")
 
         async with httpx.AsyncClient(timeout=60.0) as client:
+            data = None
             try:
-                resp = await client.post(
-                    f"{HEYGEN_BASE_URL}/v2/videos",
-                    headers=self.headers,
-                    json=payload,
-                )
-                resp.raise_for_status()
-                data = resp.json()
+                last_exc: Exception | None = None
+                for candidate_ratio in candidate_ratios:
+                    payload = {
+                        "avatar_id": avatar_id,
+                        "audio_url": audio_url,
+                        "title": f"{avatar_id}-{candidate_ratio}",
+                        "resolution": "1080p" if max(width, height) >= 1080 else "720p",
+                        "aspect_ratio": candidate_ratio,
+                        "expressiveness": "low",
+                        "background": self._build_background(background),
+                    }
+
+                    resp = await client.post(
+                        f"{HEYGEN_BASE_URL}/v2/videos",
+                        headers=self.headers,
+                        json=payload,
+                    )
+                    if resp.is_success:
+                        data = resp.json()
+                        break
+
+                    response_text = (resp.text or "").strip()
+                    logger.error(
+                        "HeyGen create_video failed | status=%s | ratio=%s | response=%s",
+                        resp.status_code,
+                        candidate_ratio,
+                        response_text[:600],
+                    )
+
+                    last_exc = httpx.HTTPStatusError(
+                        f"HeyGen create_video failed with status {resp.status_code}",
+                        request=resp.request,
+                        response=resp,
+                    )
+
+                    # Only attempt fallback on request-validation errors.
+                    if (
+                        resp.status_code != 400
+                        or candidate_ratio != "1:1"
+                        or "9:16" not in candidate_ratios
+                    ):
+                        raise last_exc
+
+                    logger.warning(
+                        "Retrying HeyGen create_video with fallback aspect_ratio=9:16"
+                    )
+
+                if data is None and last_exc is not None:
+                    raise last_exc
             except Exception as exc:
                 await self._record_usage(
                     operation="create_video",

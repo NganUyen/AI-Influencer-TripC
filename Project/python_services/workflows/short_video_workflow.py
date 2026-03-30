@@ -52,6 +52,14 @@ class ShortVideoWorkflow:
         self.current_step = "queued"
         self.decision = None
 
+        # Version gates for deterministic replay across deployed workflow changes.
+        progress_notify_enabled = workflow.patched(
+            "short-video-progress-notify-v1"
+        )
+        error_notify_enabled = workflow.patched(
+            "short-video-error-notify-v1"
+        )
+
         workflow_id = workflow.info().workflow_id
         payload_dict = payload if isinstance(payload, dict) else {}
         fallback_persona_id = payload_dict.get("persona_id", "")
@@ -59,6 +67,8 @@ class ShortVideoWorkflow:
         telegram_chat_id = payload_dict.get("telegram_chat_id")
 
         async def notify_progress(stage_label: str, details: str = "") -> None:
+            if not progress_notify_enabled:
+                return
             if not telegram_chat_id:
                 return
             try:
@@ -514,7 +524,7 @@ class ShortVideoWorkflow:
                 error_details["error_type"],
                 error_details["error_summary"],
             )
-            if telegram_chat_id:
+            if telegram_chat_id and error_notify_enabled:
                 try:
                     await workflow.execute_activity(
                         send_telegram_error_notification,

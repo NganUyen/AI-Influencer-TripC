@@ -291,10 +291,19 @@ class BrowserAutomationService:
         finally:
             await page.close()
 
-    async def record_video_for_tutorial(self, url: str) -> str:
+    async def record_video_for_tutorial(self, url: str, capture_hint: str = "scroll") -> str:
         """
-        Ngữ cảnh: Đã khởi tạo browser với record_video_dir.
-        Truy cập URL, cuộn trang như người dùng thật và trả về đường dẫn file video .webm.
+        Record a video of a website for the top-half of a split-screen video.
+        
+        Context: Browser must be initialized with record_video_dir.
+        Navigates to the URL, simulates user scrolling, and returns the video file path.
+        
+        Args:
+            url: The website URL to record
+            capture_hint: How to capture the page ("scroll", "static", "interactive")
+        
+        Returns:
+            Path to the recorded .webm video file
         """
         if not self.context:
             raise Exception("Browser context not fully initialized for video recording!")
@@ -302,64 +311,55 @@ class BrowserAutomationService:
         page = await self.context.new_page()
 
         try:
-            logger.info(f"Stealing video recording for tutorial from {url}")
-            await page.goto(url, wait_until="networkidle")
+            logger.info(f"Recording website for tutorial | url={url} | hint={capture_hint}")
             
-            # Giả lập tương tác cuộn trang để video có tính động
+            # Navigate with longer timeout for slow sites
+            await page.goto(url, wait_until="networkidle", timeout=30000)
+            
+            # Wait for page to stabilize
             import asyncio
-            for _ in range(5):
-                await page.evaluate("window.scrollBy(0, 300)")
-                await asyncio.sleep(1.0)
+            await asyncio.sleep(1.0)
+            
+            # Simulate user interaction based on capture_hint
+            if capture_hint in ("scroll", "medium", "Scroll hero section"):
+                # Smooth scroll through the page
+                for i in range(5):
+                    await page.evaluate("window.scrollBy(0, 300)")
+                    await asyncio.sleep(0.8)
+            elif capture_hint == "static":
+                # Just wait to capture static content
+                await asyncio.sleep(3.0)
+            else:
+                # Default: gentle scroll
+                for _ in range(3):
+                    await page.evaluate("window.scrollBy(0, 200)")
+                    await asyncio.sleep(1.0)
 
-            # Phải đóng page thì Playwright mới lưu file video hoàn chỉnh
+            # Page must be closed for Playwright to finalize the video file
             path = await page.video.path()
             await page.close()
+            
+            logger.info(f"Video recorded successfully | path={path}")
             return path
         except Exception as e:
             logger.error(f"Failed to record video from {url}: {e}")
-            await page.close()
+            try:
+                await page.close()
+            except:
+                pass
             raise
 
     async def get_page_content(self, url: str) -> str:
-        """Lấy text content của trang web để AI phân tích"""
+        """Get text content from a webpage for AI analysis"""
         if not self.context:
             await self.initialize_browser()
         page = await self.context.new_page()
         try:
-            await page.goto(url, wait_until="networkidle")
+            await page.goto(url, wait_until="networkidle", timeout=30000)
             content = await page.evaluate("document.body.innerText")
-            return content[:5000] # Giới hạn 5k ký tự cho AI
+            return content[:5000]  # Limit to 5k chars for AI processing
         finally:
             await page.close()
-
-    async def record_video_for_tutorial(self, url: str) -> str:
-        """
-        Ngữ cảnh: Đã khởi tạo browser với record_video_dir.
-        Truy cập URL, cuộn trang như người dùng thật và trả về đường dẫn file video .webm.
-        """
-        if not self.context:
-            raise Exception("Browser context not fully initialized for video recording!")
-
-        page = await self.context.new_page()
-
-        try:
-            logger.info(f"Stealing video recording for tutorial from {url}")
-            await page.goto(url, wait_until="networkidle")
-            
-            # Giả lập tương tác cuộn trang để video có tính động
-            import asyncio
-            for _ in range(5):
-                await page.evaluate("window.scrollBy(0, 300)")
-                await asyncio.sleep(1.0)
-
-            # Phải đóng page thì Playwright mới lưu file video hoàn chỉnh
-            path = await page.video.path()
-            await page.close()
-            return path
-        except Exception as e:
-            logger.error(f"Failed to record video from {url}: {e}")
-            await page.close()
-            raise
 
     async def close(self):
         """Close browser and context"""

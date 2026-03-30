@@ -191,6 +191,13 @@ class ScriptService:
         concept_brief = package.get("concept_brief") or {}
         default_source_ref = str(concept_brief.get("reference_url") or "").strip() or None
 
+        # Log the default source_ref for debugging
+        logger.info(
+            "Generating script from package | beats=%d | default_source_ref=%s",
+            len(beats),
+            default_source_ref[:60] if default_source_ref else "NONE (no reference_url in concept_brief)",
+        )
+
         # We need to construct the script string by concatenating bottom_half_message from beats
         script_text = " ".join(
             [b.get("bottom_half_message", "") for b in beats]
@@ -218,11 +225,20 @@ class ScriptService:
 
             top_half_target = beat.get("top_half_target", "")
             beat_duration = float(beat.get("duration_sec", 4))
-            source_ref = beat.get("source_ref") or (
-                default_source_ref
-                if top_half_source_type == "public_page_capture"
-                else None
-            )
+            
+            # Use beat's source_ref if present, otherwise fall back to concept_brief's reference_url
+            beat_source_ref = beat.get("source_ref")
+            if beat_source_ref:
+                source_ref = beat_source_ref
+            elif top_half_source_type == "public_page_capture":
+                source_ref = default_source_ref
+                if not source_ref:
+                    logger.warning(
+                        "Beat %s requests public_page_capture but no source_ref or reference_url is available — scene will fall back to AI image",
+                        index,
+                    )
+            else:
+                source_ref = None
 
             # Use bottom_half_message for narration and overlay_text for captions
             narration = beat.get("bottom_half_message", "")
@@ -243,10 +259,10 @@ class ScriptService:
 
             # [CP1] Log SceneContract after build
             logger.info(
-                "SceneContract built | scene=%s | top_half_type=%s | has_source_ref=%s | target=%s",
+                "SceneContract built | scene=%s | top_half_type=%s | source_ref=%s | target=%s",
                 scene.id,
                 scene.top_half_source_type,
-                bool(scene.source_ref),
+                scene.source_ref[:60] if scene.source_ref else "NONE",
                 scene.top_half_target[:50] if scene.top_half_target else "NONE",
             )
 

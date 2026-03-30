@@ -612,7 +612,17 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                     record_video_dir="/tmp/tutorials_videos"
                 )
 
-                video_path = await browser.record_video_for_tutorial(source_ref)
+                # Pass capture_hint for smarter recording behavior
+                capture_hint = scene.get("top_half_capture_hint", "scroll")
+                logger.info(
+                    "Starting browser capture | scene=%s | url=%s | hint=%s",
+                    scene_id,
+                    source_ref[:60] if source_ref else "NONE",
+                    capture_hint,
+                )
+                video_path = await browser.record_video_for_tutorial(
+                    source_ref, capture_hint=capture_hint
+                )
 
                 if video_path and os.path.exists(video_path):
                     import uuid
@@ -681,11 +691,16 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                         "is_video": True,
                     }
             except Exception as e:
-                logger.warning(
-                    "Browser capture failed for scene %s (source_ref=%s) — falling back to AI | error=%s",
+                logger.error(
+                    "Browser capture FAILED for scene %s | url=%s | error_type=%s | error=%s",
                     scene_id,
-                    source_ref[:50] if source_ref else "N/A",
-                    str(e)[:200],
+                    source_ref[:80] if source_ref else "NONE",
+                    type(e).__name__,
+                    str(e)[:300],
+                )
+                logger.warning(
+                    "Falling back to AI-generated image for scene %s because browser capture failed",
+                    scene_id,
                 )
                 fallback_triggered = True
             finally:
@@ -701,8 +716,8 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
 
         # [CP2] Log when source_ref is None but type is public_page_capture
         elif top_half_type == "public_page_capture" and not source_ref:
-            logger.warning(
-                "Scene %s: public_page_capture requested but source_ref=None — falling back to AI image",
+            logger.error(
+                "Scene %s: public_page_capture requested but source_ref is MISSING — this means the workflow did not receive a reference_url. Falling back to AI image.",
                 scene_id,
             )
             fallback_triggered = True

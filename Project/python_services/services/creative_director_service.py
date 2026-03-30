@@ -253,10 +253,12 @@ class CreativeDirectorService:
             "- Return a BeatSheet with 5 beats by default. Use 6 beats only if the feature demo clearly needs one extra beat.\n"
             "- Keep beat purpose within: hook, problem, solution_intro, feature_demo, product_positioning, proof, benefit, expectation_setting, cta.\n"
             "- Keep top_half_source_type within: public_page_capture, authenticated_capture_later, ai_visual_fallback, hybrid_candidate.\n"
+            "- IMPORTANT: When top_half_source_type is 'public_page_capture', leave source_ref as null (the system will auto-fill it from the concept_brief reference_url).\n"
+            "- Only use 'ai_visual_fallback' for abstract visuals that cannot be captured from the website (e.g., emotions, metaphors, conceptual imagery).\n"
+            "- For demos, walkthroughs, and feature showcases, prefer 'public_page_capture' to show the REAL website.\n"
             "- bottom_half_message should be concise and production-friendly.\n"
-            "- top_half_target should name the source area or section to capture later, not a full storyboard.\n"
-            "- top_half_capture_hint should be practical and conservative.\n"
-            "- Do not repeat the full URL on every beat.\n"
+            "- top_half_target should name the source area or section to capture (e.g., 'Hero Section', 'Features Grid', 'Pricing Table').\n"
+            "- top_half_capture_hint should describe how to capture it (e.g., 'scroll', 'static', 'Scroll hero section').\n"
             "- Do not invent product details beyond the concept brief and source_summary.\n"
             "Return this exact shape:\n"
             "{\n"
@@ -267,8 +269,8 @@ class CreativeDirectorService:
             '      "purpose": "hook",\n'
             '      "bottom_half_message": "...",\n'
             '      "top_half_source_type": "public_page_capture",\n'
-            '      "top_half_target": "...",\n'
-            '      "top_half_capture_hint": "...",\n'
+            '      "top_half_target": "Hero Section",\n'
+            '      "top_half_capture_hint": "scroll",\n'
             '      "source_ref": null,\n'
             '      "overlay_text": "...",\n'
             '      "duration_sec": 4\n'

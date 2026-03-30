@@ -156,10 +156,33 @@ class BrowserAutomationService:
         # Add anti-detection scripts
         await self.context.add_init_script(
             """
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
-        """
+            // 1. Hide Webdriver
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+
+            // 2. Mock Languages
+            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+
+            // 3. Mock Plugins
+            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+
+            // 4. Mock WebGL
+            const getParameter = WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                if (parameter === 37445) return 'Intel Inc.';
+                if (parameter === 37446) return 'Intel(R) Iris(R) Xe Graphics';
+                return getParameter.apply(this, [parameter]);
+            };
+
+            // 5. Fix Permissions
+            const query = window.navigator.permissions.query;
+            if (query) {
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    query(parameters)
+                );
+            }
+            """
         )
 
         logger.info("Browser initialized successfully")
@@ -291,19 +314,19 @@ class BrowserAutomationService:
         finally:
             await page.close()
 
-    async def record_video_for_tutorial(self, url: str, capture_hint: str = "scroll") -> str:
+    async def record_video_for_tutorial(
+        self, 
+        url: str, 
+        capture_hint: str = "scroll",
+        target_selector: Optional[str] = None
+    ) -> str:
         """
         Record a video of a website for the top-half of a split-screen video.
-        
-        Context: Browser must be initialized with record_video_dir.
-        Navigates to the URL, simulates user scrolling, and returns the video file path.
         
         Args:
             url: The website URL to record
             capture_hint: How to capture the page ("scroll", "static", "interactive")
-        
-        Returns:
-            Path to the recorded .webm video file
+            target_selector: Specific CSS selector or section name to record.
         """
         if not self.context:
             raise Exception("Browser context not fully initialized for video recording!")
@@ -311,15 +334,33 @@ class BrowserAutomationService:
         page = await self.context.new_page()
 
         try:
-            logger.info(f"Recording website for tutorial | url={url} | hint={capture_hint}")
+            logger.info(f"Recording website | url={url} | hint={capture_hint} | target={target_selector}")
 
             await self._ensure_page_has_rendered_content(page=page, url=url)
 
-            # Wait for page to stabilize before motion starts.
+            # Wait for page to stabilize
             import asyncio
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(2.0)
             
-            # Simulate user interaction based on capture_hint
+            # 1. Handle target-specific scrolling if provided
+            if target_selector:
+                logger.info(f"Targeting specific section: {target_selector}")
+                # Try to use as CSS selector first
+                try:
+                    locator = page.locator(target_selector).first
+                    if await locator.count() > 0:
+                        await locator.scroll_into_view_if_needed()
+                        await asyncio.sleep(1.0)
+                    else:
+                        # Try searching by text if CSS failed
+                        text_locator = page.get_by_text(target_selector).first
+                        if await text_locator.count() > 0:
+                            await text_locator.scroll_into_view_if_needed()
+                            await asyncio.sleep(1.0)
+                except Exception as e:
+                    logger.warning(f"Could not scroll to target {target_selector}: {e}")
+
+            # 2. Simulate user interaction based on capture_hint
             if capture_hint in ("scroll", "medium", "Scroll hero section"):
                 # Smooth scroll through the page
                 for _ in range(5):
@@ -349,55 +390,8 @@ class BrowserAutomationService:
             raise
 
     async def _ensure_page_has_rendered_content(self, page: Any, url: str) -> None:
-        """Navigate and verify we are not recording an empty/blank page."""
+        """Helper to navigate and ensure that we don't just have a blank shell."""
         import asyncio
-
-        last_metrics: Dict[str, Any] | None = None
-        for attempt in range(1, 4):
-            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            try:
-                await page.wait_for_load_state("networkidle", timeout=12000)
-            except Exception:
-                # Some sites keep network busy with trackers/websockets.
-                pass
-
-            await asyncio.sleep(1.5)
-            metrics: Dict[str, Any] = await page.evaluate(
-                """
-                () => {
-                  const body = document.body;
-                  const text = (body?.innerText || '').trim();
-                  const visibleNodes = Array.from(document.querySelectorAll('body *')).filter((el) => {
-                    const style = window.getComputedStyle(el);
-                    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) {
-                      return false;
-                    }
-                    const rect = el.getBoundingClientRect();
-                    return rect.width > 4 && rect.height > 4;
-                  }).length;
-                  const hasMedia = !!document.querySelector('img, video, svg, canvas, iframe');
-                  const title = (document.title || '').trim();
-                  const looksBlank = text.length < 24 && visibleNodes < 5 && !hasMedia;
-                  return {
-                    textLength: text.length,
-                    visibleNodes,
-                    hasMedia,
-                    title,
-                    readyState: document.readyState,
-                    looksBlank,
-                  };
-                }
-                """
-            )
-            last_metrics = metrics
-
-            logger.info(
-                "Capture page health | url=%s | attempt=%s | title=%s | text=%s | nodes=%s | media=%s | ready=%s | blank=%s",
-                url,
-                attempt,
-                metrics.get("title", "")[:80],
-                metrics.get("textLength"),
-                metrics.get("visibleNodes"),
                 metrics.get("hasMedia"),
                 metrics.get("readyState"),
                 metrics.get("looksBlank"),

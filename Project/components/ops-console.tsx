@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { FileText, Rocket, BarChart3, Users } from "lucide-react";
 import apiClient from "@/lib/api-client";
 import { WORKFLOW_POLL_INTERVAL } from "@/config/constants";
 import { useContentStore, type ContentItem } from "@/store/content-store";
@@ -219,9 +220,9 @@ export default function DashboardPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="container mx-auto p-8">
-        <h1 className="text-4xl font-bold mb-8 text-gray-900 dark:text-white">
+    <div className="min-h-screen bg-zinc-950">
+      <div className="mx-auto max-w-7xl px-6 py-8">
+        <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white mb-8">
           Dashboard
         </h1>
 
@@ -229,34 +230,42 @@ export default function DashboardPage() {
           <StatCard
             title="Total Content"
             value={String(stats.total_content)}
-            icon="📝"
+            icon={<FileText className="h-5 w-5 text-emerald-400" strokeWidth={2} />}
           />
           <StatCard
             title="Active Campaigns"
             value={String(Math.max(runningCount, stats.active_campaigns))}
-            icon="🚀"
+            icon={<Rocket className="h-5 w-5 text-emerald-400" strokeWidth={2} />}
           />
-          <StatCard title="Engagement Rate" value={engagementRateValue} icon="📊" />
-          <StatCard title="AI Personas" value="0" icon="👤" />
+          <StatCard 
+            title="Engagement Rate" 
+            value={engagementRateValue} 
+            icon={<BarChart3 className="h-5 w-5 text-emerald-400" strokeWidth={2} />} 
+          />
+          <StatCard 
+            title="AI Personas" 
+            value="0" 
+            icon={<Users className="h-5 w-5 text-emerald-400" strokeWidth={2} />} 
+          />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-            <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">
+          <div className="rounded-[32px] border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl p-6">
+            <h2 className="text-xl font-semibold tracking-tight mb-4 text-white">
               Recent Content
             </h2>
             {isLoading && (
-              <p className="text-gray-600 dark:text-gray-400">
+              <p className="text-zinc-400">
                 Loading workflows...
               </p>
             )}
 
             {!isLoading && error && (
-              <p className="text-red-600 dark:text-red-400">{error}</p>
+              <p className="text-rose-400">{error}</p>
             )}
 
             {!isLoading && !error && contentItems.length === 0 && (
-              <p className="text-gray-600 dark:text-gray-400">
+              <p className="text-zinc-400">
                 No content generated yet. Start your first campaign!
               </p>
             )}
@@ -287,46 +296,46 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={item.id}
-                      className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
+                      className="border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl rounded-[16px] p-3"
                     >
-                      <p className="text-sm font-medium text-gray-900 dark:text-white break-all">
+                      <p className="text-sm font-medium text-white break-all">
                         {item.title}
                       </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      <p className="text-xs text-zinc-400 mt-1">
                         Content Status: {humanizeValue(item.status)}
                       </p>
                       {workflowStatus && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-xs text-zinc-400">
                           Workflow Status: {humanizeValue(workflowStatus)}
                         </p>
                       )}
                       {item.workflowId && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 break-all">
+                        <p className="text-xs text-zinc-400 break-all">
                           Workflow: {item.workflowId}
                         </p>
                       )}
                       {currentStep && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-xs text-zinc-400">
                           Step: {humanizeValue(currentStep)}
                         </p>
                       )}
                       {item.platform.length > 0 && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-xs text-zinc-400">
                           Platform: {item.platform.join(", ")}
                         </p>
                       )}
                       {item.scheduledAt && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-xs text-zinc-400">
                           Scheduled: {formatDateTime(item.scheduledAt)}
                         </p>
                       )}
                       {item.publishedAt && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-xs text-zinc-400">
                           Published: {formatDateTime(item.publishedAt)}
                         </p>
                       )}
                       {item.publishMethod && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-xs text-zinc-400">
                           Method: {humanizeValue(item.publishMethod)}
                         </p>
                       )}
@@ -341,37 +350,37 @@ export default function DashboardPage() {
                         </a>
                       )}
                       {engagementSummary && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                        <p className="text-xs text-zinc-400 mt-2">
                           Engagement: {engagementSummary}
                         </p>
                       )}
                       {item.lastEngagementCheckedAt && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-xs text-zinc-400">
                           Last check: {formatDateTime(item.lastEngagementCheckedAt)}
                         </p>
                       )}
                       {item.syndicateTriggered && item.syndicateJobId && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-xs text-zinc-400">
                           Syndicate job: {item.syndicateJobId}
                         </p>
                       )}
                       {item.syndicateTriggered && !item.syndicateJobId && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-xs text-zinc-400">
                           Syndicate triggered
                         </p>
                       )}
                       {!item.syndicateTriggered && item.lastEngagementCheckedAt && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-xs text-zinc-400">
                           Syndicate not triggered
                         </p>
                       )}
                       {item.publishError && (
-                        <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                        <p className="text-xs text-rose-400 mt-2">
                           Publish error: {item.publishError}
                         </p>
                       )}
                       {retryStarted && (
-                        <p className="text-xs text-green-700 dark:text-green-300 mt-2">
+                        <p className="text-xs text-emerald-400 mt-2">
                           Retry workflow started.
                         </p>
                       )}
@@ -380,14 +389,14 @@ export default function DashboardPage() {
                           <button
                             type="button"
                             onClick={() => handleApproval(approvalWorkflowId, true)}
-                            className="px-3 py-1.5 text-xs font-medium bg-green-600 text-white rounded-md hover:bg-green-700"
+                            className="px-4 py-2 text-xs font-semibold bg-emerald-500 text-white rounded-[14px] shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98]"
                           >
                             Approve
                           </button>
                           <button
                             type="button"
                             onClick={() => handleApproval(approvalWorkflowId, false)}
-                            className="px-3 py-1.5 text-xs font-medium bg-red-600 text-white rounded-md hover:bg-red-700"
+                            className="px-4 py-2 text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-[14px] transition-all duration-200 ease-out hover:bg-rose-500/20 active:scale-[0.98]"
                           >
                             Reject
                           </button>
@@ -399,7 +408,7 @@ export default function DashboardPage() {
                             type="button"
                             onClick={() => handleRetryPublish(item.id)}
                             disabled={isRetrying}
-                            className="px-3 py-1.5 text-xs font-medium bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                            className="px-4 py-2 text-xs font-semibold bg-amber-500 text-zinc-950 rounded-[14px] shadow-lg shadow-amber-500/20 transition-all duration-200 ease-out hover:bg-amber-400 hover:shadow-amber-500/30 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {isRetrying ? "Retrying..." : "Retry Publish"}
                           </button>
@@ -412,8 +421,8 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-            <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">
+          <div className="rounded-[32px] border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl p-6">
+            <h2 className="text-xl font-semibold tracking-tight mb-4 text-white">
               Upcoming Posts
             </h2>
             {upcomingPosts.length > 0 ? (
@@ -421,16 +430,16 @@ export default function DashboardPage() {
                 {upcomingPosts.map((item) => (
                   <div
                     key={item.id}
-                    className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
+                    className="border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl rounded-[16px] p-3"
                   >
-                    <p className="text-sm font-medium text-gray-900 dark:text-white break-all">
+                    <p className="text-sm font-medium text-white break-all">
                       {item.title}
                     </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    <p className="text-xs text-zinc-400 mt-1">
                       Scheduled: {formatDateTime(item.scheduledAt!)}
                     </p>
                     {item.platform.length > 0 && (
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      <p className="text-xs text-zinc-400 mt-1">
                         Platform: {item.platform.join(", ")}
                       </p>
                     )}
@@ -438,30 +447,30 @@ export default function DashboardPage() {
                 ))}
               </div>
             ) : completedCount > 0 ? (
-              <p className="text-gray-600 dark:text-gray-400">
+              <p className="text-zinc-400">
                 No upcoming scheduled posts. Recent workflows may already be
                 published.
               </p>
             ) : (
-              <p className="text-gray-600 dark:text-gray-400">
+              <p className="text-zinc-400">
                 No scheduled posts. Create a content calendar!
               </p>
             )}
 
             {waitingApproval.length > 0 && (
-              <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-3">
+              <p className="text-sm text-amber-400 mt-3">
                 {waitingApproval.length} workflow(s) waiting for approval.
               </p>
             )}
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mt-6">
+        <div className="rounded-[32px] border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl p-6 mt-6">
           <div className="flex items-center justify-between gap-4 mb-4">
-            <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
+            <h2 className="text-xl font-semibold tracking-tight text-white">
               API Usage
             </h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-zinc-400">
               Total cost tracked: {formatCurrency(quota.total_cost_usd)}
             </p>
           </div>
@@ -470,26 +479,26 @@ export default function DashboardPage() {
               {quotaProviders.map((provider) => (
                 <div
                   key={provider.provider}
-                  className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
+                  className="border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl rounded-[16px] p-3"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">
+                      <p className="text-sm font-medium text-white">
                         {provider.label}
                       </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                      <p className="text-xs text-zinc-400">
                         {formatQuotaRemaining(provider)}
                       </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      <p className="text-xs text-zinc-400 mt-1">
                         {provider.remaining_message || formatQuotaUsage(provider)}
                       </p>
                       {formatRequestRemaining(provider) && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        <p className="text-xs text-zinc-400 mt-1">
                           {formatRequestRemaining(provider)}
                         </p>
                       )}
                       {formatQuotaReset(provider) && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        <p className="text-xs text-zinc-400 mt-1">
                           {formatQuotaReset(provider)}
                         </p>
                       )}
@@ -500,7 +509,7 @@ export default function DashboardPage() {
                       {humanizeValue(provider.status)}
                     </span>
                   </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-zinc-400">
                     <span>Snapshots: {provider.snapshot_count}</span>
                     <span>Cost: {formatCurrency(provider.cost_usd)}</span>
                     {formatTrackedUsage(provider) && (
@@ -517,7 +526,7 @@ export default function DashboardPage() {
               ))}
             </div>
           ) : (
-            <p className="text-gray-600 dark:text-gray-400">
+            <p className="text-zinc-400">
               No API usage snapshots yet. Runtime calls and manual snapshots will
               appear here.
             </p>
@@ -683,15 +692,15 @@ function formatCurrency(value: number): string {
 function quotaStatusClasses(status: string): string {
   switch (status) {
     case "ok":
-      return "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200";
+      return "bg-emerald-500/15 text-emerald-400";
     case "warning":
-      return "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200";
+      return "bg-amber-500/15 text-amber-400";
     case "critical":
-      return "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200";
+      return "bg-rose-500/15 text-rose-400";
     case "not_configured":
-      return "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200";
+      return "bg-zinc-500/15 text-zinc-400";
     default:
-      return "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200";
+      return "bg-sky-500/15 text-sky-400";
   }
 }
 
@@ -702,20 +711,20 @@ function StatCard({
 }: {
   title: string;
   value: string;
-  icon: string;
+  icon: React.ReactNode;
 }) {
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+    <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl p-6">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">
+          <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-1">
             {title}
           </p>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">
+          <p className="text-3xl font-semibold text-white">
             {value}
           </p>
         </div>
-        <div className="text-4xl">{icon}</div>
+        <div>{icon}</div>
       </div>
     </div>
   );

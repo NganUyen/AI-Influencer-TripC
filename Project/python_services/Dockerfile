@@ -47,36 +47,23 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 FROM base AS worker-runtime
 
-# Install ffmpeg for video generation and dependencies for Playwright/Chromium
+# Install ffmpeg and minimal Chromium dependencies in single layer
+# Using --no-install-recommends and cleaning in same RUN to minimize layer size
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    # Playwright Chromium dependencies
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    libpango-1.0-0 \
-    libcairo2 \
-    libatspi2.0-0 \
-    libgtk-3-0 \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
+    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+    libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+    libgbm1 libasound2 libpango-1.0-0 libcairo2 libatspi2.0-0 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 COPY requirements.base.txt requirements.api.txt requirements.worker.txt ./
 COPY --from=builder /wheels/worker /wheels
 RUN pip install --no-index --find-links=/wheels -r requirements.worker.txt && rm -rf /wheels
 
-# Install Playwright Chromium browser for website recording
-RUN playwright install chromium
+# Install Playwright Chromium and clean up cache in same layer
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
+RUN playwright install chromium \
+    && rm -rf /root/.cache/pip /root/.cache/ms-playwright-build
 
 COPY . .
 

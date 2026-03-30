@@ -641,9 +641,20 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                     capture_hint=capture_hint,
                 )
 
+                # CRITICAL: Close browser BEFORE reading the file to ensure Playwright finalizes the .webm
+                await browser.close()
+                browser = None
+
                 if not video_path or not os.path.exists(video_path):
                     raise RuntimeError(
                         f"Playwright recording did not produce a video file for scene {scene_id}"
+                    )
+
+                # Guard against 0-byte or corrupted (tiny header only) captures
+                file_size = os.path.getsize(video_path)
+                if file_size < 2000:
+                    raise RuntimeError(
+                        f"Browser capture produced an invalid/tiny file ({file_size} bytes) for scene {scene_id}"
                     )
 
                 with open(video_path, "rb") as f:

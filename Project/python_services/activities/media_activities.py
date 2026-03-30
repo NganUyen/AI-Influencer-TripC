@@ -646,8 +646,22 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                         f"Playwright recording did not produce a video file for scene {scene_id}"
                     )
 
+                # Playwright recording is reliably flushed when the context/browser is closed.
+                await browser.close()
+                browser = None
+
+                for _ in range(120):
+                    if os.path.exists(video_path) and os.path.getsize(video_path) >= 1024:
+                        break
+                    await asyncio.sleep(0.25)
+
                 with open(video_path, "rb") as f:
                     data = f.read()
+
+                if len(data) < 1024:
+                    raise RuntimeError(
+                        f"Playwright recording is too small for scene {scene_id}: {len(data)} bytes"
+                    )
 
                 media_storage_service_class = MediaStorageService
                 if media_storage_service_class is _DEFAULT_MEDIA_STORAGE_SERVICE_CLASS:

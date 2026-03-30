@@ -309,6 +309,7 @@ class BrowserAutomationService:
             raise Exception("Browser context not fully initialized for video recording!")
 
         page = await self.context.new_page()
+        video = page.video
 
         try:
             logger.info(f"Recording website for tutorial | url={url} | hint={capture_hint}")
@@ -334,9 +335,15 @@ class BrowserAutomationService:
                     await page.evaluate("window.scrollBy(0, 200)")
                     await asyncio.sleep(1.0)
 
-            # Page must be closed for Playwright to finalize the video file
-            path = await page.video.path()
+            # Page must be closed before resolving the recording path.
             await page.close()
+            if video is None:
+                raise RuntimeError("Playwright did not attach a video recorder to the page")
+            path = await video.path()
+
+            # Caller may finalize context/browser before strict size validation.
+            if not os.path.exists(path):
+                raise RuntimeError(f"Playwright video file path not found: {path}")
             
             logger.info(f"Video recorded successfully | path={path}")
             return path

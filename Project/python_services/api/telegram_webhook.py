@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import secrets
 import json
+import asyncio
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
@@ -34,12 +35,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 TELEGRAM_API_BASE = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}"
+_TELEGRAM_HTTP_CLIENT: Optional[httpx.AsyncClient] = None
+
+
+def _get_telegram_http_client() -> httpx.AsyncClient:
+    global _TELEGRAM_HTTP_CLIENT
+    if _TELEGRAM_HTTP_CLIENT is None:
+        _TELEGRAM_HTTP_CLIENT = httpx.AsyncClient(
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
+            follow_redirects=False,
+        )
+    return _TELEGRAM_HTTP_CLIENT
 
 
 async def _tg_call(method: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     url = f"{TELEGRAM_API_BASE}/{method}"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.post(url, json=payload)
+    client = _get_telegram_http_client()
+    response = await client.post(url, json=payload, timeout=10.0)
     data = response.json()
     if not data.get("ok"):
         logger.warning("Telegram API %s failed: %s", method, data.get("description"))
@@ -52,12 +64,22 @@ async def _tg_call_multipart(
     files: Dict[str, tuple[str, bytes, str]],
 ) -> Dict[str, Any]:
     url = f"{TELEGRAM_API_BASE}/{method}"
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        response = await client.post(url, data=payload, files=files)
+    client = _get_telegram_http_client()
+    response = await client.post(url, data=payload, files=files, timeout=20.0)
     data = response.json()
     if not data.get("ok"):
         logger.warning("Telegram API %s (multipart) failed: %s", method, data.get("description"))
     return data
+
+
+async def send_chat_action(chat_id: int | str, action: str = "typing") -> None:
+    await _tg_call(
+        "sendChatAction",
+        {
+            "chat_id": chat_id,
+            "action": action,
+        },
+    )
 
 
 async def answer_callback(callback_query_id: str, text: str = "") -> None:
@@ -132,8 +154,8 @@ async def send_photo(
         return response
 
     try:
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-            image_response = await client.get(photo)
+        client = _get_telegram_http_client()
+        image_response = await client.get(photo, timeout=20.0, follow_redirects=True)
         image_response.raise_for_status()
 
         content_type = image_response.headers.get("content-type", "image/jpeg")
@@ -202,8 +224,8 @@ async def _download_telegram_image(
         return None
 
     download_url = _telegram_file_download_url(file_path)
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-        response = await client.get(download_url)
+    client = _get_telegram_http_client()
+    response = await client.get(download_url, timeout=30.0, follow_redirects=True)
     response.raise_for_status()
     return response.content, content_type, filename
 
@@ -643,20 +665,21 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
     username: Optional[str] = sender.get("username")
     first_name: Optional[str] = sender.get("first_name") or message["chat"].get("title")
 
-    try:
-        await TelegramSubscriberService.touch(chat_id)
-    except Exception:
-        pass
-    try:
-        await TelegramLinkService.touch_link(
+    touch_results = await asyncio.gather(
+        TelegramSubscriberService.touch(chat_id),
+        TelegramLinkService.touch_link(
             chat_id=chat_id,
             telegram_username=username,
-        )
-    except Exception:
-        pass
+        ),
+        return_exceptions=True,
+    )
+    for touch_result in touch_results:
+        if isinstance(touch_result, Exception):
+            logger.debug("Telegram touch failed: %s", touch_result)
 
     has_file = any(key in message for key in ("document", "photo", "video", "audio"))
     if has_file:
+        await send_chat_action(chat_id, action="upload_photo")
         try:
             telegram_image = await _download_telegram_image(message)
         except Exception as exc:
@@ -788,6 +811,7 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         return
 
     if text.strip():
+        await send_chat_action(chat_id, action="typing")
         await _handle_openclaw_message(chat_id, text.strip(), app)
         return
 

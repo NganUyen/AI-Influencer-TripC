@@ -24,9 +24,12 @@ const config: Config = {
           900: "#0c4a6e",
         },
       },
+      fontFamily: {
+        sans: ['system-ui', '-apple-system', 'Inter', 'Segoe UI', 'sans-serif'],
+      },
       animation: {
-        "fade-in": "fadeIn 0.5s ease-in-out",
-        "slide-up": "slideUp 0.5s ease-out",
+        "fade-in": "fadeIn 300ms ease-out",
+        "slide-up": "slideUp 300ms cubic-bezier(0.4, 0.0, 0.2, 1)",
       },
       keyframes: {
         fadeIn: {
@@ -37,6 +40,12 @@ const config: Config = {
           "0%": { transform: "translateY(20px)", opacity: "0" },
           "100%": { transform: "translateY(0)", opacity: "1" },
         },
+      },
+      transitionTimingFunction: {
+        'apple': 'cubic-bezier(0.4, 0.0, 0.2, 1)',
+      },
+      backdropBlur: {
+        'xs': '2px',
       },
     },
   },

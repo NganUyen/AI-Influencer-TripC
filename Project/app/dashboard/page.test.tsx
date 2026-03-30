@@ -3,14 +3,18 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import DashboardPage from "@/app/dashboard/page";
 import { customerApiRequest } from "@/lib/customer-api";
 
+const mockPush = jest.fn();
+const mockReplace = jest.fn();
+const mockLogout = jest.fn(() => Promise.resolve());
+
 jest.mock("@/lib/customer-api", () => ({
   customerApiRequest: jest.fn(),
 }));
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({
-    push: jest.fn(),
-    replace: jest.fn(),
+    push: mockPush,
+    replace: mockReplace,
   }),
   useSearchParams: () => ({
     get: jest.fn(() => null),
@@ -30,7 +34,7 @@ jest.mock("@/store/customer-auth-store", () => ({
       initialized: true,
       error: null,
       initialize: jest.fn(),
-      logout: jest.fn(() => Promise.resolve()),
+      logout: mockLogout,
     }),
 }));
 
@@ -236,5 +240,16 @@ describe("Customer dashboard", () => {
         ([path]) => path === "/api/customer/brand",
       ),
     ).toHaveLength(1);
+  });
+
+  it("signs out the current customer from the dashboard shell", async () => {
+    render(<DashboardPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+
+    await waitFor(() => {
+      expect(mockLogout).toHaveBeenCalledTimes(1);
+      expect(mockReplace).toHaveBeenCalledWith("/auth");
+    });
   });
 });

@@ -204,7 +204,7 @@ function buildAiBackboneForm(
 export default function CustomerDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, isAuthenticated, initialized, isLoading } = useCustomerAuthStore();
+  const { user, isAuthenticated, initialized, isLoading, logout } = useCustomerAuthStore();
 
   const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
   const [systemSummary, setSystemSummary] = useState<SystemSummaryData | null>(null);
@@ -714,6 +714,19 @@ export default function CustomerDashboard() {
     }
   }
 
+  async function handleLogout() {
+    setBusyKey("signout");
+    setPageError(null);
+    try {
+      await logout();
+      router.replace("/auth");
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Failed to sign out");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   const activityItems = buildActivityItems({
     campaigns,
     approvals,
@@ -730,51 +743,60 @@ export default function CustomerDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#1f3a34_0%,#0c1220_45%,#07080c_100%)] px-6 py-8 text-stone-100">
+    <div className="min-h-screen bg-zinc-950 px-6 py-8 text-stone-100">
       <div className="mx-auto max-w-7xl space-y-6">
-        <section className="rounded-[30px] border border-white/10 bg-white/5 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.25)] backdrop-blur">
+        <section className="rounded-[32px] border border-white/[0.08] bg-white/[0.03] p-6 backdrop-blur-xl">
           <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-200/70">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-emerald-300">
                 Customer Workspace
               </p>
-              <h1 className="mt-3 text-4xl font-semibold text-white">
+              <h1 className="mt-3 text-3xl sm:text-4xl font-semibold tracking-tight text-white text-balance">
                 Dashboard
               </h1>
-              <p className="mt-3 max-w-3xl text-sm leading-relaxed text-stone-300">
+              <p className="mt-3 max-w-3xl text-sm leading-relaxed text-zinc-400">
                 Manage your customer assistant threads, connected platforms,
                 Telegram linking, and campaign approvals from one workspace.
               </p>
             </div>
 
             <div className="flex flex-col gap-3 sm:items-end">
-              <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-stone-300">
+              <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl px-4 py-3 text-sm text-zinc-400">
                 Signed in as <span className="font-semibold text-white">{user?.name || user?.email}</span>
               </div>
-              {telegramBotUrl && (
-                <a
-                  href={telegramBotUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center justify-center rounded-full bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200"
+              <div className="flex flex-wrap gap-3 sm:justify-end">
+                {telegramBotUrl && (
+                  <a
+                    href={telegramBotUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98]"
+                  >
+                    Open Telegram Bot
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleLogout()}
+                  disabled={busyKey === "signout"}
+                  className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 px-5 py-3 text-sm font-semibold text-stone-100 transition-all duration-200 ease-out hover:border-white/25 hover:bg-white/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Open Telegram Bot
-                </a>
-              )}
+                  {busyKey === "signout" ? "Signing out..." : "Sign out"}
+                </button>
+              </div>
             </div>
           </div>
 
-          <div className="mt-6 flex flex-wrap gap-2">
+          <div className="mt-6 inline-flex rounded-full bg-white/5 p-1.5 backdrop-blur-xl">
             {DASHBOARD_TABS.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition ${
-                  activeTab === tab.id
-                    ? "border-emerald-300/60 bg-emerald-300 text-slate-950"
-                    : "border-white/10 bg-white/5 text-stone-300 hover:border-white/20 hover:bg-white/10"
-                }`}
+                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-200 ease-apple ${activeTab === tab.id
+                    ? "bg-white/10 border-transparent text-white shadow-sm"
+                    : "border-transparent bg-transparent text-zinc-400 hover:bg-white/5 hover:text-white"
+                  }`}
               >
                 <tab.icon className="h-4 w-4" />
                 <span>{tab.label}</span>
@@ -784,393 +806,393 @@ export default function CustomerDashboard() {
         </section>
 
         {banner && (
-          <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-100">
+          <div className="rounded-[16px] border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
             {banner}
           </div>
         )}
 
         {pageError && (
-          <div className="rounded-2xl border border-rose-300/20 bg-rose-300/10 px-4 py-3 text-sm text-rose-100">
+          <div className="rounded-[16px] border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
             {pageError}
           </div>
         )}
 
-      {activeTab === "overview" && (
-        <div className="space-y-6">
-          <Panel title="Quick Stats" subtitle="Current workflow pulse">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <StatCard
-                label="Active Workflows"
-                value={String(systemWorkflows.length)}
-                tone="emerald"
-              />
-              <StatCard
-                label="Pending Approvals"
-                value={String(approvals.length)}
-                tone="amber"
-              />
-              <StatCard
-                label="Connected Platforms"
-                value={String(accounts.filter((account) => account.connection_status === "connected").length)}
-                tone="sky"
-              />
-              <StatCard
-                label="Active Personas"
-                value={String(personas.length)}
-                tone="stone"
-              />
+        {activeTab === "overview" && (
+          <div className="space-y-6">
+            <Panel title="Quick Stats" subtitle="Current workflow pulse">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <StatCard
+                  label="Active Workflows"
+                  value={String(systemWorkflows.length)}
+                  tone="emerald"
+                />
+                <StatCard
+                  label="Pending Approvals"
+                  value={String(approvals.length)}
+                  tone="amber"
+                />
+                <StatCard
+                  label="Connected Platforms"
+                  value={String(accounts.filter((account) => account.connection_status === "connected").length)}
+                  tone="sky"
+                />
+                <StatCard
+                  label="Active Personas"
+                  value={String(personas.length)}
+                  tone="stone"
+                />
+              </div>
+            </Panel>
+
+            <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+              <Panel title="System Health" subtitle="Service status and runtime availability.">
+                <div className="space-y-3">
+                  {(systemSummary?.services || []).length === 0 && (
+                    <p className="text-sm text-stone-400">No system service data available yet.</p>
+                  )}
+                  {(systemSummary?.services || []).map((service) => (
+                    <div
+                      key={service.name}
+                      className="flex items-center justify-between rounded-[16px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl px-4 py-3"
+                    >
+                      <div>
+                        <p className="font-medium text-white">{service.name}</p>
+                        <p className="text-xs uppercase tracking-widest text-zinc-500">
+                          Latency {service.latency}
+                        </p>
+                      </div>
+                      <StatusBadge label={service.status} />
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+
+              <Panel title="AI Backbone" subtitle="Current model access mode and readiness.">
+                <div className="space-y-4">
+                  <div className="rounded-[16px] border border-emerald-500/15 bg-emerald-500/5 backdrop-blur-xl p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-emerald-300">
+                      Access Mode
+                    </p>
+                    <p className="mt-2 text-lg font-semibold uppercase text-white">
+                      {aiBackbone?.access_mode.replace(/_/g, " ") || "Loading"}
+                    </p>
+                    <p className="mt-2 text-sm text-zinc-400">
+                      {aiBackbone?.effective_status.message || "Initializing workspace access."}
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+                        Workspace Endpoint
+                      </p>
+                      <p className="mt-2 break-all text-sm text-white">
+                        {aiBackbone?.workspace_default.api_url || "Not configured"}
+                      </p>
+                    </div>
+                    <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+                        Customer API
+                      </p>
+                      <p className="mt-2 text-sm text-white">
+                        {aiBackbone?.customer_api.has_api_key ? "Configured" : "Using workspace-managed access"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </Panel>
             </div>
-          </Panel>
 
-          <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-            <Panel title="System Health" subtitle="Service status and runtime availability.">
-              <div className="space-y-3">
-                {(systemSummary?.services || []).length === 0 && (
-                  <p className="text-sm text-stone-400">No system service data available yet.</p>
-                )}
-                {(systemSummary?.services || []).map((service) => (
-                  <div
-                    key={service.name}
-                    className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3"
-                  >
-                    <div>
-                      <p className="font-medium text-white">{service.name}</p>
-                      <p className="text-xs uppercase tracking-[0.18em] text-stone-500">
-                        Latency {service.latency}
-                      </p>
+            <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+              <Panel title="Recent Activity" subtitle="Latest events across campaigns, content, and workflow state.">
+                <ActivityFeed items={activityItems} />
+              </Panel>
+
+              <Panel title="Quota Snapshot" subtitle="Current provider usage pulled from system summary.">
+                <div className="space-y-3">
+                  {(systemSummary?.quota || []).length === 0 && (
+                    <p className="text-sm text-stone-400">No quota data available yet.</p>
+                  )}
+                  {(systemSummary?.quota || []).map((quotaItem) => (
+                    <div
+                      key={quotaItem.name}
+                      className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <p className="font-medium text-white">{quotaItem.name}</p>
+                        <p className="text-sm text-zinc-400">
+                          {quotaItem.used}/{quotaItem.total} {quotaItem.unit}
+                        </p>
+                      </div>
+                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className="h-full rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]"
+                          style={{
+                            width: `${Math.min(
+                              quotaItem.total > 0 ? (quotaItem.used / quotaItem.total) * 100 : 0,
+                              100,
+                            )}%`,
+                          }}
+                        />
+                      </div>
                     </div>
-                    <StatusBadge label={service.status} />
-                  </div>
-                ))}
-              </div>
-            </Panel>
-
-            <Panel title="AI Backbone" subtitle="Current model access mode and readiness.">
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-emerald-300/15 bg-emerald-300/5 p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-200/80">
-                    Access Mode
-                  </p>
-                  <p className="mt-2 text-lg font-semibold uppercase text-white">
-                    {aiBackbone?.access_mode.replace(/_/g, " ") || "Loading"}
-                  </p>
-                  <p className="mt-2 text-sm text-stone-300">
-                    {aiBackbone?.effective_status.message || "Initializing workspace access."}
-                  </p>
+                  ))}
                 </div>
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">
-                      Workspace Endpoint
-                    </p>
-                    <p className="mt-2 break-all text-sm text-white">
-                      {aiBackbone?.workspace_default.api_url || "Not configured"}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">
-                      Customer API
-                    </p>
-                    <p className="mt-2 text-sm text-white">
-                      {aiBackbone?.customer_api.has_api_key ? "Configured" : "Using workspace-managed access"}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </Panel>
+              </Panel>
+            </div>
           </div>
+        )}
 
-          <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-            <Panel title="Recent Activity" subtitle="Latest events across campaigns, content, and workflow state.">
-              <ActivityFeed items={activityItems} />
-            </Panel>
-
-            <Panel title="Quota Snapshot" subtitle="Current provider usage pulled from system summary.">
-              <div className="space-y-3">
-                {(systemSummary?.quota || []).length === 0 && (
-                  <p className="text-sm text-stone-400">No quota data available yet.</p>
-                )}
-                {(systemSummary?.quota || []).map((quotaItem) => (
-                  <div
-                    key={quotaItem.name}
-                    className="rounded-2xl border border-white/10 bg-black/20 p-4"
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <p className="font-medium text-white">{quotaItem.name}</p>
-                      <p className="text-sm text-stone-300">
-                        {quotaItem.used}/{quotaItem.total} {quotaItem.unit}
-                      </p>
-                    </div>
-                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
-                      <div
-                        className="h-full rounded-full bg-emerald-300"
-                        style={{
-                          width: `${Math.min(
-                            quotaItem.total > 0 ? (quotaItem.used / quotaItem.total) * 100 : 0,
-                            100,
-                          )}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-          </div>
-        </div>
-      )}
-
-      {activeTab === "ops" && (
-        <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-           <section className="space-y-6">
+        {activeTab === "ops" && (
+          <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+            <section className="space-y-6">
               <Panel title="In-App OpenClaw Assistant" subtitle="Refine positioning and content plans.">
                 <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-                  <div className="space-y-3 rounded-3xl border border-white/10 bg-black/20 p-4">
+                  <div className="space-y-3 rounded-[24px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-stone-300">Threads</h3>
-                      <button type="button" onClick={() => void handleCreateThread()} disabled={busyKey === "thread"} className="rounded-full border border-emerald-300/40 px-3 py-1 text-xs uppercase tracking-[0.18em] text-emerald-200 transition hover:border-emerald-200">New</button>
+                      <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Threads</h3>
+                      <button type="button" onClick={() => void handleCreateThread()} disabled={busyKey === "thread"} className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300 transition-all duration-200 ease-out hover:border-emerald-500/60 hover:bg-emerald-500/20 active:scale-[0.98] disabled:opacity-50">New</button>
                     </div>
                     <div className="space-y-2">
-                       {threads.length === 0 && <p className="text-xs text-slate-500">No threads yet.</p>}
+                      {threads.length === 0 && <p className="text-xs text-zinc-500">No threads yet.</p>}
                       {threads.map((thread) => (
-                        <button key={thread.id} type="button" onClick={() => setSelectedThreadId(thread.id)} className={`w-full rounded-2xl border px-4 py-3 text-left transition ${selectedThreadId === thread.id ? "border-emerald-300 bg-emerald-200/10" : "border-white/8 bg-white/5 hover:border-white/20"}`}>
+                        <button key={thread.id} type="button" onClick={() => setSelectedThreadId(thread.id)} className={`w-full rounded-[14px] border px-4 py-3 text-left transition-all duration-200 ease-out ${selectedThreadId === thread.id ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]"}`}>
                           <p className="font-medium text-white truncate">{thread.title}</p>
                         </button>
                       ))}
                     </div>
                   </div>
-                  <div className="space-y-4 rounded-3xl border border-white/10 bg-black/20 p-4">
-                     <div className="max-h-[420px] overflow-y-auto pr-2 space-y-3">
-                        {messages.map((message) => (
-                          <div key={message.id} className={`rounded-3xl px-4 py-3 text-sm ${message.role === "assistant" ? "bg-emerald-200/10 text-stone-100" : "bg-white/8 text-stone-200"}`}>
-                            <p className="mb-1 text-[10px] uppercase text-stone-500">{message.role}</p>
-                            <p className="whitespace-pre-wrap">{message.content}</p>
-                          </div>
-                        ))}
-                     </div>
-                     <form className="space-y-2" onSubmit={handleSendMessage}>
-                        <textarea value={composer} onChange={(e) => setComposer(e.target.value)} placeholder="Type a message..." className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500" />
-                        <button type="submit" disabled={busyKey === "assistant"} className="w-full bg-emerald-500 text-slate-950 font-bold py-2 rounded-xl hover:bg-emerald-400 transition-colors disabled:opacity-50">
-                           {busyKey === "assistant" ? "OpenClaw Thinking..." : "Send to AI"}
-                        </button>
-                     </form>
+                  <div className="space-y-4 rounded-[24px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
+                    <div className="max-h-[420px] overflow-y-auto pr-2 space-y-3">
+                      {messages.map((message) => (
+                        <div key={message.id} className={`rounded-[16px] px-4 py-3 text-sm ${message.role === "assistant" ? "bg-emerald-500/10 text-stone-100" : "bg-white/[0.05] text-stone-200"}`}>
+                          <p className="mb-1 text-[10px] uppercase text-zinc-500">{message.role}</p>
+                          <p className="whitespace-pre-wrap">{message.content}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <form className="space-y-2" onSubmit={handleSendMessage}>
+                      <textarea value={composer} onChange={(e) => setComposer(e.target.value)} placeholder="Type a message..." className="w-full bg-white/[0.03] border border-white/[0.08] rounded-[14px] backdrop-blur-xl p-3 text-white text-sm placeholder:text-zinc-500 outline-none transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500" />
+                      <button type="submit" disabled={busyKey === "assistant"} className="w-full bg-emerald-500 text-white font-semibold py-3 rounded-[14px] shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98] disabled:opacity-50">
+                        {busyKey === "assistant" ? "OpenClaw Thinking..." : "Send to AI"}
+                      </button>
+                    </form>
                   </div>
                 </div>
               </Panel>
-              
+
               <Panel title="Campaign Control" subtitle="Manage workflow drafts.">
-                 <div className="space-y-4">
-                    {campaigns.map(c => (
-                      <div key={c.id} className="p-4 bg-white/5 border border-white/10 rounded-2xl hover:border-emerald-500/30 transition-all">
-                        <div className="flex justify-between items-center">
-                          <h4 className="font-bold text-white">{c.name}</h4>
-                          <StatusBadge label={c.status} />
-                        </div>
-                        <div className="mt-4 flex gap-2">
-                           <button onClick={() => handleLaunch(c.id)} disabled={c.approval_status !== "approved" || busyKey === `launch-${c.id}`} className="px-4 py-1.5 bg-white text-slate-900 rounded-full text-xs font-bold hover:bg-emerald-200 transition-colors disabled:opacity-50">
-                              {busyKey === `launch-${c.id}` ? "Launching..." : "Launch"}
-                           </button>
-                        </div>
+                <div className="space-y-4">
+                  {campaigns.map(c => (
+                    <div key={c.id} className="p-4 bg-white/[0.02] border border-white/[0.08] rounded-[16px] backdrop-blur-xl transition-colors duration-200 ease-out hover:bg-white/[0.04]">
+                      <div className="flex justify-between items-center">
+                        <h4 className="font-semibold text-white">{c.name}</h4>
+                        <StatusBadge label={c.status} />
                       </div>
-                    ))}
-                    {campaigns.length === 0 && <p className="text-sm text-slate-500 italic">Queue clear.</p>}
-                 </div>
+                      <div className="mt-4 flex gap-2">
+                        <button onClick={() => handleLaunch(c.id)} disabled={c.approval_status !== "approved" || busyKey === `launch-${c.id}`} className="px-4 py-2 bg-emerald-500 text-white rounded-[14px] text-xs font-semibold shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98] disabled:opacity-50">
+                          {busyKey === `launch-${c.id}` ? "Launching..." : "Launch"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {campaigns.length === 0 && <p className="text-sm text-zinc-500 italic">Queue clear.</p>}
+                </div>
               </Panel>
-           </section>
-           
-           <section className="space-y-6">
+            </section>
+
+            <section className="space-y-6">
               <Panel title="Pending Approvals" subtitle="Action items.">
-                 <div className="space-y-3">
-                    {approvals.map(a => (
-                      <div key={a.id} className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-2xl">
-                        <p className="font-medium text-amber-100">{a.name}</p>
-                        <div className="mt-4 flex gap-2">
-                           <button onClick={() => handleApprove(a.id, true)} className="px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold hover:bg-emerald-500/30">Approve</button>
-                           <button onClick={() => handleApprove(a.id, false)} className="px-3 py-1 bg-rose-500/20 text-rose-400 rounded-lg text-xs font-bold hover:bg-rose-500/30">Reject</button>
-                        </div>
+                <div className="space-y-3">
+                  {approvals.map(a => (
+                    <div key={a.id} className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-[16px] backdrop-blur-xl">
+                      <p className="font-medium text-amber-300">{a.name}</p>
+                      <div className="mt-4 flex gap-2">
+                        <button onClick={() => handleApprove(a.id, true)} className="px-4 py-2 bg-emerald-500 text-white rounded-[14px] text-xs font-semibold shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98]">Approve</button>
+                        <button onClick={() => handleApprove(a.id, false)} className="px-4 py-2 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-[14px] text-xs font-semibold transition-all duration-200 ease-out hover:bg-rose-500/20 active:scale-[0.98]">Reject</button>
                       </div>
-                    ))}
-                    {approvals.length === 0 && <p className="text-sm text-slate-500 italic">System clear.</p>}
-                 </div>
+                    </div>
+                  ))}
+                  {approvals.length === 0 && <p className="text-sm text-zinc-500 italic">System clear.</p>}
+                </div>
               </Panel>
 
               <Panel title="Output Stream" subtitle="Recently published.">
-                 <div className="space-y-2">
-                    {content.slice(0, 5).map(item => (
-                      <div key={item.id} className="p-3 bg-white/5 border border-white/10 rounded-xl text-xs flex justify-between items-center">
-                         <span className="text-slate-300 truncate mr-2">{item.title}</span>
-                         <StatusBadge label={item.status} />
-                      </div>
-                    ))}
-                 </div>
+                <div className="space-y-2">
+                  {content.slice(0, 5).map(item => (
+                    <div key={item.id} className="p-3 bg-white/[0.02] border border-white/[0.08] rounded-[14px] backdrop-blur-xl text-xs flex justify-between items-center transition-colors duration-200 ease-out hover:bg-white/[0.04]">
+                      <span className="text-zinc-400 truncate mr-2">{item.title}</span>
+                      <StatusBadge label={item.status} />
+                    </div>
+                  ))}
+                </div>
               </Panel>
-           </section>
-        </div>
-      )}
+            </section>
+          </div>
+        )}
 
-      {activeTab === "skills" && (
-        <div className="space-y-6">
-           <Panel title="AI Influencer Personas" subtitle="Your account-linked characters.">
+        {activeTab === "skills" && (
+          <div className="space-y-6">
+            <Panel title="AI Influencer Personas" subtitle="Your account-linked characters.">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                 {personas.map(p => (
-                   <div key={p.persona_id} className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 flex items-center gap-4 hover:border-emerald-500/30 transition-all group">
-                      <div className="w-16 h-16 bg-slate-800 rounded-xl overflow-hidden">
-                        {p.avatar_image_url && <img src={p.avatar_image_url} alt={p.display_name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-bold text-white truncate">{p.display_name}</h4>
-                        <StatusBadge label={p.status} />
-                      </div>
-                   </div>
-                 ))}
-                 
-                 <div className="border border-dashed border-slate-700 rounded-2xl p-8 flex flex-col items-center justify-center text-center space-y-4 hover:bg-white/5 transition-colors group cursor-pointer">
-                    <p className="text-xs text-slate-500">Create more characters on Telegram</p>
-                    {telegramBotUrl && (
-                      <a href={telegramBotUrl} target="_blank" rel="noreferrer" className="px-6 py-2 bg-emerald-500 text-slate-950 font-bold rounded-full text-[10px] uppercase tracking-widest hover:bg-emerald-400 transition-all">Open Bot</a>
-                    )}
-                 </div>
+                {personas.map(p => (
+                  <div key={p.persona_id} className="bg-white/[0.02] border border-white/[0.08] rounded-[16px] backdrop-blur-xl p-4 flex items-center gap-4 transition-colors duration-200 ease-out hover:bg-white/[0.04] group">
+                    <div className="w-16 h-16 bg-zinc-800 rounded-xl overflow-hidden">
+                      {p.avatar_image_url && <img src={p.avatar_image_url} alt={p.display_name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-semibold text-white truncate">{p.display_name}</h4>
+                      <StatusBadge label={p.status} />
+                    </div>
+                  </div>
+                ))}
+
+                <div className="border border-dashed border-zinc-700 rounded-[16px] p-8 flex flex-col items-center justify-center text-center space-y-4 transition-colors duration-200 ease-out hover:bg-white/[0.02] group cursor-pointer">
+                  <p className="text-xs text-zinc-500">Create more characters on Telegram</p>
+                  {telegramBotUrl && (
+                    <a href={telegramBotUrl} target="_blank" rel="noreferrer" className="px-6 py-2 bg-emerald-500 text-white font-semibold rounded-full text-[10px] uppercase tracking-widest shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98]">Open Bot</a>
+                  )}
+                </div>
               </div>
-           </Panel>
-        </div>
-      )}
+            </Panel>
+          </div>
+        )}
 
-      {activeTab === "memory" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-           <Panel title="Brand Context" subtitle="Knowledge assets.">
+        {activeTab === "memory" && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Panel title="Brand Context" subtitle="Knowledge assets.">
               <form className="space-y-4" onSubmit={handleBrandSave}>
-                 <Field label="Brand Name" value={brandForm.product_name || ""} onChange={v => setBrandForm(c => ({...c, product_name: v}))} />
-                 <TextAreaField label="Audience" value={brandForm.audience || ""} onChange={v => setBrandForm(c => ({...c, audience: v}))} />
-                 <TextAreaField label="Offer Summary" value={brandForm.offer_summary || ""} onChange={v => setBrandForm(c => ({...c, offer_summary: v}))} />
-                 <button type="submit" className="w-full bg-emerald-500 text-slate-950 font-bold py-3 rounded-xl hover:bg-emerald-400 transition-colors">Update Memory</button>
+                <Field label="Brand Name" value={brandForm.product_name || ""} onChange={v => setBrandForm(c => ({ ...c, product_name: v }))} />
+                <TextAreaField label="Audience" value={brandForm.audience || ""} onChange={v => setBrandForm(c => ({ ...c, audience: v }))} />
+                <TextAreaField label="Offer Summary" value={brandForm.offer_summary || ""} onChange={v => setBrandForm(c => ({ ...c, offer_summary: v }))} />
+                <button type="submit" className="w-full bg-emerald-500 text-white font-semibold py-3 rounded-[14px] shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98]">Update Memory</button>
               </form>
-           </Panel>
+            </Panel>
 
-           <div className="space-y-6">
+            <div className="space-y-6">
               <Panel title="Intelligence Settings" subtitle="AI configurations.">
-                 <div className="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl">
-                    <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Access Mode</p>
-                    <p className="text-lg font-bold text-white mt-1 uppercase">{aiBackbone?.access_mode.replace(/_/g, " ")}</p>
-                    <p className="text-xs text-slate-400 mt-2">{aiBackbone?.effective_status.message}</p>
-                 </div>
+                <div className="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-[16px] backdrop-blur-xl">
+                  <p className="text-[10px] font-semibold text-emerald-400 uppercase tracking-widest">Access Mode</p>
+                  <p className="text-lg font-semibold text-white mt-1 uppercase">{aiBackbone?.access_mode.replace(/_/g, " ")}</p>
+                  <p className="text-xs text-zinc-400 mt-2">{aiBackbone?.effective_status.message}</p>
+                </div>
               </Panel>
 
               <Panel title="System Bridge" subtitle="Telegram sync.">
-                 {telegramLink?.linked ? (
-                   <div className="flex justify-between items-center p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl">
-                      <div>
-                        <p className="text-sm font-bold text-white">@{telegramLink.link?.telegram_username || "Linked Account"}</p>
-                        <p className="text-[10px] text-slate-500 uppercase">Chat ID: {telegramLink.link?.chat_id}</p>
-                      </div>
-                      <StatusBadge label="Linked" />
-                   </div>
-                 ) : (
-                   <button onClick={handleStartTelegramLink} className="w-full bg-white text-slate-900 font-bold py-3 rounded-xl hover:bg-emerald-200 transition-colors">
-                      {busyKey === "telegram-link" ? "Generating Link..." : "Connect Telegram"}
-                   </button>
-                 )}
-                 {linkToken && (
-                    <div className="mt-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-center">
-                       <p className="text-xs text-amber-200 mb-3 font-medium">
-                          {isPollingTelegramLink
-                            ? "Waiting for Telegram confirmation. This card updates automatically."
-                            : "Secure link ready. Finish the confirmation in Telegram."}
-                       </p>
-                       {telegramVerificationUrl && (
-                         <a href={telegramVerificationUrl} target="_blank" rel="noreferrer" className="bg-amber-400 text-slate-900 px-6 py-2 rounded-full font-bold text-[10px] uppercase tracking-widest hover:bg-amber-300 transition-colors inline-block">Verify Now</a>
-                       )}
+                {telegramLink?.linked ? (
+                  <div className="flex justify-between items-center p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-[16px] backdrop-blur-xl">
+                    <div>
+                      <p className="text-sm font-semibold text-white">@{telegramLink.link?.telegram_username || "Linked Account"}</p>
+                      <p className="text-[10px] text-zinc-500 uppercase">Chat ID: {telegramLink.link?.chat_id}</p>
                     </div>
-                 )}
+                    <StatusBadge label="Linked" />
+                  </div>
+                ) : (
+                  <button onClick={handleStartTelegramLink} className="w-full bg-emerald-500 text-white font-semibold py-3 rounded-[14px] shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98]">
+                    {busyKey === "telegram-link" ? "Generating Link..." : "Connect Telegram"}
+                  </button>
+                )}
+                {linkToken && (
+                  <div className="mt-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-[16px] backdrop-blur-xl text-center">
+                    <p className="text-xs text-amber-300 mb-3 font-medium">
+                      {isPollingTelegramLink
+                        ? "Waiting for Telegram confirmation. This card updates automatically."
+                        : "Secure link ready. Finish the confirmation in Telegram."}
+                    </p>
+                    {telegramVerificationUrl && (
+                      <a href={telegramVerificationUrl} target="_blank" rel="noreferrer" className="bg-amber-500 text-zinc-950 px-6 py-2 rounded-full font-semibold text-[10px] uppercase tracking-widest shadow-lg shadow-amber-500/20 transition-all duration-200 ease-out hover:bg-amber-400 hover:shadow-amber-500/30 active:scale-[0.98] inline-block">Verify Now</a>
+                    )}
+                  </div>
+                )}
               </Panel>
 
               <Panel title="Social Grid" subtitle="Publishing targets.">
-                 <div className="grid grid-cols-2 gap-3">
-                    {SUPPORTED_PLATFORMS.map(p => {
-                      const acc = accounts.find(a => a.platform === p);
-                      return (
-                        <div key={p} className="p-3 bg-white/5 border border-white/10 rounded-xl flex justify-between items-center">
-                           <p className="text-[10px] font-bold uppercase">{p}</p>
-                           {acc ? <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" /> : (
-                             <button onClick={() => handleConnect(p)} className="text-[10px] text-slate-500 hover:text-white uppercase font-bold tracking-tighter">Link</button>
-                           )}
-                        </div>
-                      );
-                    })}
-                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {SUPPORTED_PLATFORMS.map(p => {
+                    const acc = accounts.find(a => a.platform === p);
+                    return (
+                      <div key={p} className="p-3 bg-white/[0.02] border border-white/[0.08] rounded-[14px] backdrop-blur-xl flex justify-between items-center transition-colors duration-200 ease-out hover:bg-white/[0.04]">
+                        <p className="text-[10px] font-semibold uppercase">{p}</p>
+                        {acc ? <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" /> : (
+                          <button onClick={() => handleConnect(p)} className="text-[10px] text-zinc-500 hover:text-white uppercase font-semibold tracking-tighter transition-colors">Link</button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </Panel>
-           </div>
-        </div>
-      )}
+            </div>
+          </div>
+        )}
 
-      {activeTab === "live_feed" && (
-        <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-          <Panel title="Activity Feed" subtitle="Recent customer-facing events and workflow changes.">
-            <ActivityFeed
-              items={activityItems}
-              emptyMessage="Activity will appear here once workflows, approvals, or content updates arrive."
-            />
-          </Panel>
+        {activeTab === "live_feed" && (
+          <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+            <Panel title="Activity Feed" subtitle="Recent customer-facing events and workflow changes.">
+              <ActivityFeed
+                items={activityItems}
+                emptyMessage="Activity will appear here once workflows, approvals, or content updates arrive."
+              />
+            </Panel>
 
-          <Panel title="Workflow Monitor" subtitle="Current workflow queue and publishing output.">
-            <div className="space-y-4">
-              <div className="space-y-3">
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-stone-500">
-                  Runtime Workflows
-                </p>
-                {systemWorkflows.length === 0 && (
-                  <p className="text-sm text-stone-400">No active workflow telemetry right now.</p>
-                )}
-                {systemWorkflows.map((workflow) => (
-                  <div
-                    key={workflow.id}
-                    className="rounded-2xl border border-white/10 bg-black/20 p-4"
-                  >
-                    <div className="flex items-center justify-between gap-4">
+            <Panel title="Workflow Monitor" subtitle="Current workflow queue and publishing output.">
+              <div className="space-y-4">
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
+                    Runtime Workflows
+                  </p>
+                  {systemWorkflows.length === 0 && (
+                    <p className="text-sm text-zinc-400">No active workflow telemetry right now.</p>
+                  )}
+                  {systemWorkflows.map((workflow) => (
+                    <div
+                      key={workflow.id}
+                      className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="font-medium text-white">{workflow.name}</p>
+                          <p className="text-xs uppercase tracking-widest text-zinc-500">
+                            {workflow.id}
+                          </p>
+                        </div>
+                        <StatusBadge label={workflow.status} />
+                      </div>
+                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className="h-full rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]"
+                          style={{ width: `${Math.max(0, Math.min(workflow.progress, 100))}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
+                    Recent Output
+                  </p>
+                  {content.slice(0, 5).map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between gap-4 rounded-[16px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4"
+                    >
                       <div>
-                        <p className="font-medium text-white">{workflow.name}</p>
-                        <p className="text-xs uppercase tracking-[0.18em] text-stone-500">
-                          {workflow.id}
+                        <p className="font-medium text-white">{item.title}</p>
+                        <p className="text-xs uppercase tracking-widest text-zinc-500">
+                          {(item.platform || []).join(", ")}
                         </p>
                       </div>
-                      <StatusBadge label={workflow.status} />
+                      <StatusBadge label={item.status} />
                     </div>
-                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
-                      <div
-                        className="h-full rounded-full bg-emerald-300"
-                        style={{ width: `${Math.max(0, Math.min(workflow.progress, 100))}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                  {content.length === 0 && (
+                    <p className="text-sm text-zinc-400">No recent output yet.</p>
+                  )}
+                </div>
               </div>
-
-              <div className="space-y-3">
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-stone-500">
-                  Recent Output
-                </p>
-                {content.slice(0, 5).map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/20 p-4"
-                  >
-                    <div>
-                      <p className="font-medium text-white">{item.title}</p>
-                      <p className="text-xs uppercase tracking-[0.18em] text-stone-500">
-                        {(item.platform || []).join(", ")}
-                      </p>
-                    </div>
-                    <StatusBadge label={item.status} />
-                  </div>
-                ))}
-                {content.length === 0 && (
-                  <p className="text-sm text-stone-400">No recent output yet.</p>
-                )}
-              </div>
-            </div>
-          </Panel>
-        </div>
-      )}
+            </Panel>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1186,12 +1208,12 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-[30px] border border-white/10 bg-white/5 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.25)] backdrop-blur">
+    <section className="rounded-[32px] border border-white/[0.08] bg-white/[0.03] p-6 backdrop-blur-xl">
       <div className="mb-5">
-        <p className="text-xs uppercase tracking-[0.24em] text-emerald-200/70 font-bold">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-emerald-300">
           {title}
         </p>
-        <p className="mt-2 max-w-2xl text-sm text-stone-400 leading-relaxed font-medium">{subtitle}</p>
+        <p className="mt-2 max-w-2xl text-sm text-zinc-400 leading-relaxed">{subtitle}</p>
       </div>
       {children}
     </section>
@@ -1208,15 +1230,15 @@ function StatCard({
   tone: "emerald" | "amber" | "sky" | "stone";
 }) {
   const toneClasses = {
-    emerald: "text-emerald-300",
-    amber: "text-amber-300",
-    sky: "text-sky-300",
-    stone: "text-stone-200",
+    emerald: "text-emerald-400",
+    amber: "text-amber-400",
+    sky: "text-sky-400",
+    stone: "text-stone-300",
   }[tone];
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">
+    <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl p-4">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
         {label}
       </p>
       <p className={`mt-3 text-3xl font-semibold ${toneClasses}`}>{value}</p>
@@ -1232,23 +1254,30 @@ function ActivityFeed({
   emptyMessage?: string;
 }) {
   if (items.length === 0) {
-    return <p className="text-sm text-stone-400">{emptyMessage}</p>;
+    return <p className="text-sm text-zinc-400">{emptyMessage}</p>;
   }
 
   return (
     <div className="space-y-3">
-      {items.map((item) => (
-        <div
-          key={item.id}
-          className="flex items-start justify-between gap-4 rounded-2xl border border-white/10 bg-black/20 p-4"
-        >
-          <div>
-            <p className="font-medium text-white">{item.title}</p>
-            <p className="mt-1 text-sm text-stone-400">{item.detail}</p>
+      {items.map((item) => {
+        const borderColor = item.tone === "success" 
+          ? "border-l-emerald-400" 
+          : item.tone === "warning" 
+            ? "border-l-amber-400" 
+            : "border-l-sky-400";
+        
+        return (
+          <div
+            key={item.id}
+            className={`flex items-start justify-between gap-4 rounded-[16px] border border-white/[0.08] ${borderColor} border-l-2 bg-white/[0.02] backdrop-blur-xl p-4`}
+          >
+            <div>
+              <p className="font-medium text-white">{item.title}</p>
+              <p className="mt-1 text-sm text-zinc-400">{item.detail}</p>
+            </div>
           </div>
-          <div className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${activityToneClass(item.tone)}`} />
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -1268,7 +1297,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-xs uppercase tracking-[0.18em] text-slate-500 font-bold">
+      <span className="mb-2 block text-xs font-semibold uppercase tracking-widest text-zinc-500">
         {label}
       </span>
       <input
@@ -1276,7 +1305,7 @@ function Field({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-2xl border border-white/5 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-500"
+        className="w-full rounded-[14px] border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl px-4 py-3 text-sm text-white placeholder:text-zinc-500 outline-none transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
       />
     </label>
   );
@@ -1295,21 +1324,43 @@ function TextAreaField({
 }) {
   return (
     <label className={className}>
-      <span className="mb-2 block text-xs uppercase tracking-[0.18em] text-slate-500 font-bold">
+      <span className="mb-2 block text-xs font-semibold uppercase tracking-widest text-zinc-500">
         {label}
       </span>
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="min-h-[92px] w-full rounded-2xl border border-white/5 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-500"
+        className="min-h-[92px] w-full rounded-[14px] border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl px-4 py-3 text-sm text-white placeholder:text-zinc-500 outline-none transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
       />
     </label>
   );
 }
 
 function StatusBadge({ label }: { label: string }) {
+  const normalizedLabel = label.toLowerCase().replaceAll("_", " ");
+  
+  // Determine badge style based on status
+  const isSuccess = ["connected", "online", "completed", "approved", "published", "linked"].some(
+    keyword => normalizedLabel.includes(keyword)
+  );
+  const isWarning = ["pending", "waiting", "scheduled"].some(
+    keyword => normalizedLabel.includes(keyword)
+  );
+  const isError = ["error", "failed", "rejected", "disconnected"].some(
+    keyword => normalizedLabel.includes(keyword)
+  );
+  
+  let badgeClasses = "bg-white/5 text-zinc-400 border-white/10";
+  if (isSuccess) {
+    badgeClasses = "bg-emerald-500/15 text-emerald-400 border-emerald-500/20";
+  } else if (isWarning) {
+    badgeClasses = "bg-amber-500/15 text-amber-400 border-amber-500/20";
+  } else if (isError) {
+    badgeClasses = "bg-rose-500/15 text-rose-400 border-rose-500/20";
+  }
+  
   return (
-    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-emerald-200">
+    <span className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-widest ${badgeClasses}`}>
       {label.replaceAll("_", " ")}
     </span>
   );

@@ -93,7 +93,7 @@ async def main():
         slideshow_path = os.path.join(tmp, "slideshow.mp4")
         subprocess.run([
             "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_file,
-            "-vf", "scale=1080:960,setsar=1",
+            "-vf", "scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2:black,setsar=1",
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
             slideshow_path
         ], check=True, capture_output=True)
@@ -109,7 +109,10 @@ async def main():
                 "ffmpeg", "-y",
                 "-i", slideshow_path, "-i", th_path, "-i", audio_path,
                 "-filter_complex",
-                "[0:v]scale=1080:960,setsar=1[top];[1:v]scale=1080:960,setsar=1[bot];[top][bot]vstack=inputs=2[v]",
+                "[0:v]setsar=1[top];"
+                "[1:v]scale=1080:1080:force_original_aspect_ratio=increase,"
+                "crop=1080:960:(iw-1080)/2:(ih-960)/2,setsar=1[bot];"
+                "[top][bot]vstack=inputs=2[v]",
                 "-map", "[v]", "-map", "2:a",
                 "-c:v", "libx264", "-c:a", "aac", "-shortest",
                 final_path

@@ -40,7 +40,7 @@ async def main():
         result = await heygen.create_video(
             avatar_id=TEST_AVATAR_ID,
             audio_url=TEST_AUDIO_URL,
-            aspect_ratio="9:16",
+            aspect_ratio="1:1",
         )
         video_id = result.get("video_id")
         print(f"      ✅ Video ID: {video_id}")

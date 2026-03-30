@@ -221,6 +221,7 @@ class HeyGenService:
         aspect_ratio: str = "9:16",
         width: int = 1080,
         height: int = 1920,
+        allow_aspect_ratio_fallback: bool = True,
     ) -> dict:
         """
         Tạo request video mới trên HeyGen.
@@ -237,7 +238,7 @@ class HeyGenService:
         logger.info(f"Tạo HeyGen video | avatar: {avatar_id} | ratio: {aspect_ratio}")
 
         candidate_ratios = [aspect_ratio]
-        if aspect_ratio == "1:1":
+        if aspect_ratio == "1:1" and allow_aspect_ratio_fallback:
             # HeyGen v2 may reject square aspect ratio for some accounts/avatar types.
             candidate_ratios.append("9:16")
 

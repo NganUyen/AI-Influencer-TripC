@@ -28,9 +28,12 @@ HALF_FRAME_WIDTH = 1080
 HALF_FRAME_HEIGHT = 960
 FULL_FRAME_WIDTH = 1080
 FULL_FRAME_HEIGHT = 1920
+BOTTOM_SOURCE_WIDTH = 1080
+BOTTOM_SOURCE_HEIGHT = 1080
 SUBTITLE_FONT_NAME = "Tahoma"
 SUBTITLE_FONT_SIZE = 64
-SUBTITLE_MARGIN_V = 340
+SUBTITLE_CENTER_X = FULL_FRAME_WIDTH // 2
+SUBTITLE_CENTER_Y = FULL_FRAME_HEIGHT // 2
 SUBTITLE_MIN_WORDS = 3
 SUBTITLE_MAX_WORDS = 5
 SUBTITLE_TARGET_WORDS = 4
@@ -254,7 +257,7 @@ def _style_subtitle_line(text: str) -> str:
         else:
             styled_words.append(escaped_word)
     return (
-        r"{\fscx96\fscy96\t(0,120,\fscx100\fscy100)}"
+        rf"{{\an5\pos({SUBTITLE_CENTER_X},{SUBTITLE_CENTER_Y})\fscx96\fscy96\t(0,120,\fscx100\fscy100)}}"
         + " ".join(styled_words).strip()
     )
 
@@ -364,7 +367,7 @@ def _write_ass_subtitles(path: str, events: List[Dict[str, Any]]) -> None:
             "",
             "[V4+ Styles]",
             "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-            f"Style: Default,{SUBTITLE_FONT_NAME},{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H0000FFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,2,90,90,{SUBTITLE_MARGIN_V},1",
+            f"Style: Default,{SUBTITLE_FONT_NAME},{SUBTITLE_FONT_SIZE},&H00FFFFFF,&H0000FFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,5,90,90,0,1",
             "",
             "[Events]",
             "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -400,7 +403,14 @@ def _half_frame_filter(background: str = "black") -> str:
 
 
 def _bottom_half_filter(background: str = "black") -> str:
-    return _fit_to_frame_filter(HALF_FRAME_WIDTH, HALF_FRAME_HEIGHT, background)
+    return (
+        f"scale={BOTTOM_SOURCE_WIDTH}:{BOTTOM_SOURCE_HEIGHT}:"
+        "force_original_aspect_ratio=increase,"
+        f"crop={BOTTOM_SOURCE_WIDTH}:{BOTTOM_SOURCE_HEIGHT},"
+        "setsar=1,"
+        f"crop={HALF_FRAME_WIDTH}:{HALF_FRAME_HEIGHT}:"
+        f"(iw-{HALF_FRAME_WIDTH})/2:(ih-{HALF_FRAME_HEIGHT})/2"
+    )
 
 
 def _bot_half_crop_filter() -> str:
@@ -412,8 +422,7 @@ def _split_screen_filter() -> str:
     return (
         f"[0:v]{_half_frame_filter()}[top];"
         f"[1:v]{_bottom_half_filter()}[bot];"
-        "[top][bot]vstack=inputs=2[v];"
-        "[v]drawbox=w=iw:h=4:y=(ih/2)-2:color=orange:t=fill[vbar]"
+        "[top][bot]vstack=inputs=2[v]"
     )
 
 
@@ -626,7 +635,7 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                 "-filter_complex",
                 _split_screen_filter(),
                 "-map",
-                "[vbar]",
+                "[v]",
                 "-map",
                 "2:a",
                 "-c:v",
@@ -713,6 +722,7 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
             "used_talking_head": True,
             "top_half_resolution": f"{HALF_FRAME_WIDTH}x{HALF_FRAME_HEIGHT}",
             "bottom_half_resolution": f"{HALF_FRAME_WIDTH}x{HALF_FRAME_HEIGHT}",
+            "bottom_half_source_resolution": f"{BOTTOM_SOURCE_WIDTH}x{BOTTOM_SOURCE_HEIGHT}",
         }
 
         return FinalVideoContract(

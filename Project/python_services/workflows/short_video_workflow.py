@@ -250,6 +250,8 @@ class ShortVideoWorkflow:
                                 "user_id": user_id,
                                 "day": 1,
                                 "platform": platform,
+                                "workflow_id": workflow_id,
+                                "workflow_run_id": workflow.info().run_id,
                             },
                         }
                         for scene in scene_payloads

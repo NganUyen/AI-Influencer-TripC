@@ -468,7 +468,7 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
         avatar_id=avatar_id,
         audio_url=audio_url,
         background=background,
-        aspect_ratio="1:1",
+        aspect_ratio="9:16",
     )
 
     video_id = video_job.get("video_id")
@@ -653,6 +653,11 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                 if media_storage_service_class is _DEFAULT_MEDIA_STORAGE_SERVICE_CLASS:
                     media_storage_service_class = media_storage_service_module.MediaStorageService
                 media_storage = media_storage_service_class()
+                run_suffix = str(
+                    scene_metadata.get("workflow_run_id")
+                    or scene_metadata.get("workflow_id")
+                    or "run"
+                ).replace("/", "-")
                 storage_result = await media_storage.upload_bytes(
                     data=data,
                     destination_path=None,
@@ -663,7 +668,7 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                     owner_key=scene.get("owner_key") or scene_metadata.get("owner_key"),
                     campaign_id=scene.get("campaign_id") or scene_metadata.get("campaign_id"),
                     user_id=scene.get("user_id") or scene_metadata.get("user_id"),
-                    file_name_hint=f"browser-capture-scene-{scene_id}",
+                    file_name_hint=f"browser-capture-scene-{scene_id}-{run_suffix[:24]}",
                 )
 
                 if storage_result is None:

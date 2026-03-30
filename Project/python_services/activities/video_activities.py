@@ -88,12 +88,38 @@ def _get_extension_for_url(url: str) -> str:
 
 async def _download_required(url: str, dest: str, label: str) -> None:
     """Download a required asset and fail fast on any download issue."""
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.get(url, follow_redirects=True)
-        response.raise_for_status()
-        with open(dest, "wb") as file_obj:
-            file_obj.write(response.content)
-    logger.info("Downloaded %s", label)
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.get(url, follow_redirects=True)
+                response.raise_for_status()
+                payload = response.content or b""
+
+            # Guard against transient tiny responses during object overwrite/propagation.
+            if len(payload) < 256:
+                raise ValueError(
+                    f"downloaded payload too small ({len(payload)} bytes) for {label}"
+                )
+
+            with open(dest, "wb") as file_obj:
+                file_obj.write(payload)
+            logger.info("Downloaded %s", label)
+            return
+        except Exception as exc:
+            last_error = exc
+            if attempt >= 3:
+                break
+            logger.warning(
+                "Retrying download for %s (attempt %s/3): %s",
+                label,
+                attempt,
+                exc,
+            )
+            await asyncio.sleep(0.6 * attempt)
+
+    if last_error is not None:
+        raise last_error
 
 
 async def _download_optional(url: str, dest: str, label: str) -> Optional[str]:

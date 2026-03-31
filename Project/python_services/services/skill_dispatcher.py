@@ -704,13 +704,21 @@ class SkillDispatcher:
                 output={"message": f"Editing *{persona_id}*. Send a new appearance description, upload a photo, or send /cancel."}
             )
         elif command == "inspect_persona":
-            # Special case for 'Refresh'
             from skills.persona_creator import PersonaCreatorSkill
             readiness = PersonaCreatorSkill._build_readiness_report(persona_id, persona)
             session.artifacts["readiness"] = readiness
             session.step_key = "preview"
-            async with cls._transport_client(app) as client:
-                result = await PersonaCreatorSkill.execute(session, "http://backend", client)
+            # Return result IMMEDIATELY without calling execute (which might trigger redundant POSTs)
+            result = SkillResult(
+                success=True,
+                next_step="preview",
+                output={
+                    "persona": persona,
+                    "readiness": readiness,
+                    "preview_image_url": persona.get("avatar_image_url"),
+                },
+                session=session,
+            )
         else:
             return SkillResult(success=False, error=f"Unsupported edit command: {command}")
 

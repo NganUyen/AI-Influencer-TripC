@@ -156,6 +156,7 @@ class PersonaCreatorSkill(BaseSkill):
                 prompt=f"Dream up a persona for this brief: {brief}",
                 system_prompt=system_prompt,
                 temperature=0.8,
+                max_tokens=600,
             )
             # Find the first { and last } to handle any extra text from AI
             start = raw_json.find("{")
@@ -170,11 +171,15 @@ class PersonaCreatorSkill(BaseSkill):
                 "appearance": str(data.get("appearance") or ""),
             }
         except Exception as e:
-            logger.error(f"Failed to dream persona: {e}")
+            import traceback
+            error_details = traceback.format_exc()
+            logger.error(f"Failed to dream persona: {e}\n{error_details}")
             return {
                 "display_name": "New Persona",
                 "persona_id": "new-p",
                 "appearance": brief,
+                "error": str(e),
+                "debug_info": error_details[:500] if settings.DEBUG else None
             }
 
     @classmethod
@@ -434,189 +439,213 @@ class PersonaCreatorSkill(BaseSkill):
         http_client: Any,
     ) -> SkillResult:
         current = cls._normalize_session(session)
-        force_regenerate_avatar = bool(
-            current.artifacts.pop("force_regenerate_avatar", False)
-        )
-        missing = cls._missing_required_params(current)
-        
-        # ── Step 0: Dream Logic (Discovery Layer) ──────────────────────────
-        # We skip this if we are editing an existing persona
-        if current.artifacts.get("is_editing"):
-            creation_mode = "manual"
-        else:
-            creation_mode = current.artifacts.get("creation_mode") or current.collected.get("creation_mode")
-
-        if not creation_mode:
-            current.step_key = "choose_creation_mode"
-            return cls._collecting_result(current, next_step="choose_creation_mode")
-
-        if creation_mode == "dream":
-            # 1. Collect Brief
-            dream_brief = current.collected.get("dream_brief")
-            if not dream_brief:
-                current.step_key = "collect_dream_brief"
-                return cls._collecting_result(current, next_step="collect_dream_brief")
+        try:
+            force_regenerate_avatar = bool(
+                current.artifacts.pop("force_regenerate_avatar", False)
+            )
+            missing = cls._missing_required_params(current)
             
-            # 2. Trigger AI Magic
-            if not current.artifacts.get("dream_ready"):
-                from services.ai_service import AIService
-                async with AIService() as ai:
-                    dream = await cls._dream_persona_details(dream_brief, ai)
+            # ── Step 0: Dream Logic (Discovery Layer) ──────────────────────────
+            # We skip this if we are editing an existing persona
+            if current.artifacts.get("is_editing"):
+                creation_mode = "manual"
+            else:
+                creation_mode = current.artifacts.get("creation_mode") or current.collected.get("creation_mode")
+
+            if not creation_mode:
+                current.step_key = "choose_creation_mode"
+                return cls._collecting_result(current, next_step="choose_creation_mode")
+
+            if creation_mode == "dream":
+                # 1. Collect Brief
+                dream_brief = current.collected.get("dream_brief")
+                if not dream_brief:
+                    current.step_key = "collect_dream_brief"
+                    return cls._collecting_result(current, next_step="collect_dream_brief")
                 
-                # Pre-populate fields
-                current.artifact_updates["dream_ready"] = True
-                current.collected["persona_id"] = dream["persona_id"]
-                current.collected["appearance_prompt_or_photo"] = dream["appearance"]
-                current.artifacts["dream_summary"] = (
-                    f"✨ *AI Suggested Identity:*\n"
-                    f"Name: *{dream['display_name']}*\n"
-                    f"ID: `{dream['persona_id']}`\n\n"
-                    f"*Appearance:* {dream['appearance'][:200]}..."
-                )
-                current.step_key = "confirm_dream"
+                # 2. Trigger AI Magic
+                if not current.artifacts.get("dream_ready"):
+                    from services.ai_service import AIService
+                    async with AIService() as ai:
+                        dream = await cls._dream_persona_details(dream_brief, ai)
+                    
+                    # Pre-populate fields
+                    current.artifact_updates["dream_ready"] = True
+                    current.collected["persona_id"] = dream["persona_id"]
+                    current.collected["appearance_prompt_or_photo"] = dream["appearance"]
+                    
+                    # Build summary with optional debug info
+                    summary = (
+                        f"✨ *AI Suggested Identity:*\n"
+                        f"Name: *{dream['display_name']}*\n"
+                        f"ID: `{dream['persona_id']}`\n\n"
+                        f"*Appearance:* {dream['appearance'][:200]}..."
+                    )
+                    if dream.get("error"):
+                        summary += f"\n\n⚠️ *AI Dream Warning:* {dream['error']}"
+                        if dream.get("debug_info"):
+                            summary += f"\n`{dream['debug_info']}`"
+
+                    current.artifacts["dream_summary"] = summary
+                    current.step_key = "confirm_dream"
+                    return cls._collecting_result(
+                        current, 
+                        next_step="confirm_dream",
+                        output={"message": summary}
+                    )
+
+                # 3. Handle Confirmation Actions (handled by handle_action usually, but if execute is called)
+                if current.step_key == "confirm_dream":
+                    return cls._collecting_result(
+                        current, 
+                        next_step="confirm_dream",
+                        output={"message": current.artifacts.get("dream_summary", "Review your suggested persona below:")}
+                    )
+
+            # ── Step 1: Standard Collection ────────────────────────────────────
+            if missing:
+                next_step = current.step_key or "collect_persona_id"
+                if "persona_id" in missing:
+                    next_step = "collect_persona_id"
+                elif "language" in missing:
+                    next_step = "choose_language"
+                elif "voice" in missing:
+                    next_step = "choose_voice"
+                elif "appearance_prompt_or_photo" in missing:
+                    next_step = "collect_appearance"
                 return cls._collecting_result(
-                    current, 
-                    next_step="confirm_dream",
-                    output={"message": current.artifacts["dream_summary"]}
-                )
-
-            # 3. Handle Confirmation Actions (handled by handle_action usually, but if execute is called)
-            if current.step_key == "confirm_dream":
-                return cls._collecting_result(
-                    current, 
-                    next_step="confirm_dream",
-                    output={"message": current.artifacts.get("dream_summary", "Review your suggested persona below:")}
-                )
-
-        # ── Step 1: Standard Collection ────────────────────────────────────
-        if missing:
-            next_step = current.step_key or "collect_persona_id"
-            if "persona_id" in missing:
-                next_step = "collect_persona_id"
-            elif "language" in missing:
-                next_step = "choose_language"
-            elif "voice" in missing:
-                next_step = "choose_voice"
-            elif "appearance_prompt_or_photo" in missing:
-                next_step = "collect_appearance"
-            return cls._collecting_result(
-                current,
-                next_step=next_step,
-                output={"missing_params": missing},
-            )
-
-        payload = {
-            "persona_id": current.collected["persona_id"],
-            "display_name": cls._display_name_from_persona_id(
-                current.collected["persona_id"]
-            ),
-            "language": current.collected["language"],
-            "tts_voice": GoogleTTSService.resolve_voice_name(
-                current.collected["voice"],
-                language=current.collected.get("language"),
-            ),
-            "avatar_prompt": current.collected["appearance_prompt_or_photo"],
-        }
-        owner_params = cls._owner_params(current)
-        if owner_params:
-            payload.update(owner_params)
-        try:
-            persona = await cls._request_json(
-                http_client,
-                "POST",
-                backend_url,
-                "/api/personas",
-                json=payload,
-            )
-        except httpx.HTTPStatusError as exc:
-            detail = "Failed to create persona. Please try again."
-            try:
-                error_payload = exc.response.json()
-                if isinstance(error_payload, dict) and isinstance(
-                    error_payload.get("detail"), str
-                ):
-                    detail = error_payload["detail"]
-            except Exception:
-                pass
-            
-            # Efficiently handle editing existing personas
-            if "already exists" in detail.lower() or current.artifacts.get("is_editing"):
-                persona = await cls._get_existing_persona(
-                    current, backend_url, http_client
-                )
-                if persona:
-                    if current.artifacts.get("is_editing"):
-                        logger.info(f"Editing existing persona | id={current.collected['persona_id']}")
-                    else:
-                        current.artifacts["resumed_existing_persona"] = True
-                        logger.info(f"Resumed existing persona session | id={current.collected['persona_id']}")
-                else:
-                    return cls._error_result(current, f"Persona '{current.collected['persona_id']}' exists but could not be fetched.")
-            else:
-                return cls._error_result(current, detail)
-        except Exception as exc:
-            return cls._error_result(current, f"Failed to create persona: {exc}")
-
-        # Sync profile and ensure avatar with clear error handling
-        try:
-            persona = await cls._sync_persona_profile(
-                current, persona, payload, backend_url, http_client
-            )
-        except Exception as exc:
-            return cls._error_result(current, f"Failed to sync persona profile: {exc}")
-
-        try:
-            if current.artifacts.get("uploaded_reference_image_url"):
-                persona = await cls._attach_uploaded_avatar(
-                    current, persona, backend_url, http_client
-                )
-            else:
-                persona = await cls._ensure_avatar_image(
                     current,
-                    persona,
-                    backend_url,
-                    http_client,
-                    force=force_regenerate_avatar,
+                    next_step=next_step,
+                    output={"missing_params": missing},
                 )
-        except Exception as exc:
-            return cls._error_result(
-                current,
-                f"Failed to generate/attach persona avatar: {exc}. Please try again or use a different appearance description.",
+
+            # ── Step 2: Persistence Guard ──────────────────────────────────────
+            # IMPORTANT: We only proceed to the heavy POST block if we are actually
+            # on the final preview or save steps. This prevents "Stuck" issues 
+            # on intermediate steps like 'confirm_dream'.
+            if current.step_key not in ["save", "generate_preview", "preview"]:
+                return cls._collecting_result(current, next_step=current.step_key)
+
+            payload = {
+                "persona_id": current.collected["persona_id"],
+                "display_name": cls._display_name_from_persona_id(
+                    current.collected["persona_id"]
+                ),
+                "language": current.collected["language"],
+                "tts_voice": GoogleTTSService.resolve_voice_name(
+                    current.collected["voice"],
+                    language=current.collected.get("language"),
+                ),
+                "avatar_prompt": current.collected["appearance_prompt_or_photo"],
+            }
+            owner_params = cls._owner_params(current)
+            if owner_params:
+                payload.update(owner_params)
+            try:
+                persona = await cls._request_json(
+                    http_client,
+                    "POST",
+                    backend_url,
+                    "/api/personas",
+                    json=payload,
+                )
+            except httpx.HTTPStatusError as exc:
+                detail = "Failed to create persona. Please try again."
+                try:
+                    error_payload = exc.response.json()
+                    if isinstance(error_payload, dict) and isinstance(
+                        error_payload.get("detail"), str
+                    ):
+                        detail = error_payload["detail"]
+                except Exception:
+                    pass
+                
+                # Efficiently handle editing existing personas
+                if "already exists" in detail.lower() or current.artifacts.get("is_editing"):
+                    persona = await cls._get_existing_persona(
+                        current, backend_url, http_client
+                    )
+                    if persona:
+                        if current.artifacts.get("is_editing"):
+                            logger.info(f"Editing existing persona | id={current.collected['persona_id']}")
+                        else:
+                            current.artifacts["resumed_existing_persona"] = True
+                            logger.info(f"Resumed existing persona session | id={current.collected['persona_id']}")
+                    else:
+                        return cls._error_result(current, f"Persona '{current.collected['persona_id']}' exists but could not be fetched.")
+                else:
+                    return cls._error_result(current, detail)
+            except Exception as exc:
+                return cls._error_result(current, f"Failed to create persona: {exc}")
+
+            # Sync profile and ensure avatar with clear error handling
+            try:
+                persona = await cls._sync_persona_profile(
+                    current, persona, payload, backend_url, http_client
+                )
+            except Exception as exc:
+                return cls._error_result(current, f"Failed to sync persona profile: {exc}")
+
+            try:
+                if current.artifacts.get("uploaded_reference_image_url"):
+                    persona = await cls._attach_uploaded_avatar(
+                        current, persona, backend_url, http_client
+                    )
+                else:
+                    persona = await cls._ensure_avatar_image(
+                        current,
+                        persona,
+                        backend_url,
+                        http_client,
+                        force=force_regenerate_avatar,
+                    )
+            except Exception as exc:
+                return cls._error_result(
+                    current,
+                    f"Failed to generate/attach persona avatar: {exc}. Please try again or use a different appearance description.",
+                )
+
+            uploaded_reference_url = current.artifacts.get("uploaded_reference_image_url")
+            uploaded_reference_asset_id = current.artifacts.get(
+                "uploaded_reference_asset_id"
+            )
+            if uploaded_reference_url and not persona.get("avatar_image_url"):
+                persona = {**persona, "avatar_image_url": uploaded_reference_url}
+            if uploaded_reference_asset_id and not persona.get("avatar_media_asset_id"):
+                persona = {**persona, "avatar_media_asset_id": uploaded_reference_asset_id}
+
+            readiness = cls._build_readiness_report(
+                current.collected["persona_id"], persona
             )
 
-        uploaded_reference_url = current.artifacts.get("uploaded_reference_image_url")
-        uploaded_reference_asset_id = current.artifacts.get(
-            "uploaded_reference_asset_id"
-        )
-        if uploaded_reference_url and not persona.get("avatar_image_url"):
-            persona = {**persona, "avatar_image_url": uploaded_reference_url}
-        if uploaded_reference_asset_id and not persona.get("avatar_media_asset_id"):
-            persona = {**persona, "avatar_media_asset_id": uploaded_reference_asset_id}
-
-        readiness = cls._build_readiness_report(
-            current.collected["persona_id"], persona
-        )
-
-        avatar_url = persona.get("avatar_image_url") or uploaded_reference_url
-        current.artifacts["preview_image_url"] = avatar_url
-        current.artifacts["avatar_image_url"] = avatar_url
-        current.artifacts["avatar_media_asset_id"] = (
-            persona.get("avatar_media_asset_id") or uploaded_reference_asset_id
-        )
-        current.artifacts["heygen_avatar_id"] = persona.get("heygen_avatar_id")
-        current.artifacts["persona_id"] = persona.get("persona_id")
-        current.artifacts["persona_data"] = persona
-        current.artifacts["readiness"] = readiness
-        current.step_key = "preview"
-        current.control.status = SkillStatus.preview_ready
-        return SkillResult(
-            success=True,
-            next_step="preview",
-            output={
-                "persona": persona,
-                "readiness": readiness,
-                "preview_image_url": avatar_url,
-                "backend_status": cls.backend_status,
-            },
-            session=current,
-        )
+            avatar_url = persona.get("avatar_image_url") or uploaded_reference_url
+            current.artifacts["preview_image_url"] = avatar_url
+            current.artifacts["avatar_image_url"] = avatar_url
+            current.artifacts["avatar_media_asset_id"] = (
+                persona.get("avatar_media_asset_id") or uploaded_reference_asset_id
+            )
+            current.artifacts["heygen_avatar_id"] = persona.get("heygen_avatar_id")
+            current.artifacts["persona_id"] = persona.get("persona_id")
+            current.artifacts["persona_data"] = persona
+            current.artifacts["readiness"] = readiness
+            current.step_key = "preview"
+            current.control.status = SkillStatus.preview_ready
+            return SkillResult(
+                success=True,
+                next_step="preview",
+                output={
+                    "persona": persona,
+                    "readiness": readiness,
+                    "preview_image_url": avatar_url,
+                    "backend_status": cls.backend_status,
+                },
+                session=current,
+            )
+        except Exception as exc:
+            import traceback
+            error_details = traceback.format_exc()
+            logger.error(f"SKILL EXECUTION FAILED: {exc}\n{error_details}")
+            msg = f"🚫 Unexpected Error: {exc}"
+            if settings.DEBUG:
+                msg += f"\n\nTraceback:\n{error_details[:800]}"
+            return cls._error_result(current, msg)

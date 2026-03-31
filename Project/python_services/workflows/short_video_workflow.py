@@ -319,8 +319,14 @@ class ShortVideoWorkflow:
                 try:
                     talking_head_result = await talking_head_handle
                 except Exception as exc:
-                    workflow.logger.warning("Talking head generation failed: %s", exc)
-                    talking_head_result = {"url": "", "status": "failed"}
+                    workflow.logger.error(
+                        "Talking head generation FAILED | persona=%s | error_type=%s | error=%s",
+                        persona_id,
+                        type(exc).__name__,
+                        str(exc)[:300],
+                    )
+                    # Re-raise to fail the workflow - talking head is required for split-screen
+                    raise
 
             self.workflow_status = "assembling"
             self.current_step = "assembling"

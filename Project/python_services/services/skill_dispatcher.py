@@ -283,6 +283,17 @@ class SkillDispatcher:
 
     @classmethod
     async def handle_action(cls, chat_id: int, action: str, app: Any) -> SkillResult:
+        # ── Bootstrap Persona Actions (No session required) ───────────────────
+        if action.startswith(("edit_p_name::", "edit_p_appearance::", "inspect_persona::")):
+            parts = action.split("::")
+            command = parts[0]
+            persona_id = parts[1] if len(parts) > 1 else None
+            
+            if not persona_id:
+                return SkillResult(success=False, error="Invalid persona ID.")
+                
+            return await cls._start_persona_edit(chat_id, persona_id, command, app)
+
         session = await TelegramSkillSessionStore.get_session(chat_id)
         if session is None:
             return SkillResult(success=False, error="No active skill session.")
@@ -600,16 +611,6 @@ class SkillDispatcher:
                 ),
             )
 
-        # ── Persona Edit Actions ─────────────────────────────────────────────
-        if action.startswith(("edit_p_name::", "edit_p_appearance::", "inspect_persona::")):
-            parts = action.split("::")
-            command = parts[0]
-            persona_id = parts[1] if len(parts) > 1 else None
-            
-            if not persona_id:
-                return SkillResult(success=False, error="Invalid persona ID for editing.")
-
-            return await cls._start_persona_edit(chat_id, persona_id, command, app)
 
         if action == "regenerate":
             existing_artifacts = deepcopy(session.artifacts)
@@ -722,6 +723,8 @@ class SkillDispatcher:
         else:
             return SkillResult(success=False, error=f"Unsupported edit command: {command}")
 
-        if result.session:
+        # 4. Prepare session only if using picker (not for direct inspection)
+        if result.session and command != "inspect_persona":
             await cls._prepare_prompt_session(app, result.session)
+        
         return await cls._save_or_clear(chat_id, result)

@@ -265,54 +265,69 @@ async def _send_rendered_message(
     message_id: Optional[int] = None,
 ) -> None:
     photo_url = rendered.get("photo_url")
-    if photo_url:
-        if message_id is not None:
-            await edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=rendered["text"],
-                parse_mode=rendered.get("parse_mode"),
-                reply_markup=rendered.get("reply_markup"),
-            )
+    text = rendered.get("text") or "Done."
+    reply_markup = rendered.get("reply_markup")
+    parse_mode = rendered.get("parse_mode")
 
-        photo_result = await send_photo(
-            chat_id=chat_id,
-            photo=photo_url,
-            caption=rendered.get("photo_caption"),
-            parse_mode=rendered.get("photo_parse_mode"),
-        )
-        if not photo_result.get("ok"):
-            await send_message(
-                chat_id=chat_id,
-                text=rendered.get("photo_fallback_text") or f"Preview image URL:\n{photo_url}",
-                parse_mode=None,
-            )
-
-        if message_id is None:
-            await send_message(
-                chat_id=chat_id,
-                text=rendered["text"],
-                parse_mode=rendered.get("parse_mode"),
-                reply_markup=rendered.get("reply_markup"),
-            )
-        return
-
+    # 1. Clear placeholder if present
     if message_id is not None:
-        await edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=rendered["text"],
-            parse_mode=rendered.get("parse_mode"),
-            reply_markup=rendered.get("reply_markup"),
-        )
-        return
+        try:
+            # We prefer deleting the "Processing..." text for a cleaner look when photos arrive
+            await _tg_call("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+            message_id = None # Message is gone, future calls should use send_message
+        except Exception:
+            # Fallback: Edit the text to a neutral state if delete fails
+            try:
+                await edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text="✨ Processing done...",
+                )
+            except Exception:
+                pass
 
-    await send_message(
-        chat_id=chat_id,
-        text=rendered["text"],
-        parse_mode=rendered.get("parse_mode"),
-        reply_markup=rendered.get("reply_markup"),
-    )
+    # 2. Try sending photo if present
+    photo_sent = False
+    if photo_url:
+        try:
+            photo_result = await send_photo(
+                chat_id=chat_id,
+                photo=photo_url,
+                caption=rendered.get("photo_caption") or text[:1024],
+                parse_mode=rendered.get("photo_parse_mode") or parse_mode,
+                reply_markup=reply_markup if not text or len(text) < 200 else None
+            )
+            if photo_result.get("ok"):
+                photo_sent = True
+        except Exception as exc:
+            logger.warning("Failed to send photo: %s", exc)
+
+    # 3. Send text message if photo failed, or if text is long, or if no photo at all
+    # We always send the full text message if it's long or if photo wasn't sent
+    if not photo_sent or (text and len(text) > 200):
+        if message_id is not None:
+            try:
+                await edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=text,
+                    parse_mode=parse_mode,
+                    reply_markup=reply_markup,
+                )
+            except Exception:
+                await send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    parse_mode=parse_mode,
+                    reply_markup=reply_markup,
+                )
+        else:
+            await send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup,
+            )
 
 
 async def _await_with_callback_progress(

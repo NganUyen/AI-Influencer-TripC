@@ -437,11 +437,13 @@ def _help_text() -> str:
     return (
         "TripC Bot Help\n\n"
         "Use /media to open the studio menu.\n"
-        "Or send a normal message to chat with OpenClaw AI.\n"
-        "Images: poster or scene batch.\n"
-        "Video: AI influencer lane.\n"
-        "Content: carousel and publish queue.\n"
-        "Manage: personas, quota, weekly planning.\n\n"
+        "Or send a normal message to chat with OpenClaw AI.\n\n"
+        "Quick shortcuts:\n"
+        "  /create_image — Image creation modes (Poster or Scene)\n"
+        "  /create_video — Start AI Influencer video\n"
+        "  /create_persona — Build a new persona\n"
+        "  /inspect_persona — View & inspect personas\n"
+        "  /quota — Check usage quota\n\n"
         "Telegram also stays active for workflow approvals and daily story actions."
     )
 
@@ -840,6 +842,39 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                 [("Help", "help")],
             ),
         )
+        return
+
+    # ── Shortcut slash commands ───────────────────────────────────────────
+    _SHORTCUT_MENU_MAP = {
+        "/create_image": "menu_image",
+        "/create-image": "menu_image",
+    }
+    _SHORTCUT_SKILL_MAP = {
+        "/create_video": "video-ai",
+        "/create-video": "video-ai",
+        "/create_persona": "persona-creator",
+        "/create-persona": "persona-creator",
+        "/inspect_persona": "persona-inspector",
+        "/inspect-persona": "persona-inspector",
+        "/quota": "quota-inspector",
+    }
+
+    text_cmd = text.strip().lower().split()[0] if text.strip() else ""
+
+    if text_cmd in _SHORTCUT_MENU_MAP:
+        await TelegramSkillSessionStore.clear_session(chat_id)
+        rendered = TelegramRenderer.render_menu(_SHORTCUT_MENU_MAP[text_cmd])
+        await _send_rendered_message(chat_id, rendered)
+        return
+
+    if text_cmd in _SHORTCUT_SKILL_MAP:
+        await TelegramSkillSessionStore.clear_session(chat_id)
+        skill_result, pending_message_id = await _await_with_message_progress(
+            chat_id,
+            SkillDispatcher.start_skill(chat_id, _SHORTCUT_SKILL_MAP[text_cmd], app),
+        )
+        rendered = TelegramRenderer.render_skill_result(skill_result)
+        await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)
         return
 
     if text.startswith("/media"):

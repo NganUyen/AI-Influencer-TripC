@@ -14,6 +14,7 @@ MAIN_MENU: Dict[str, Any] = {
     "rows": [
         [("📖 Daily Story", "skill_daily-story")],
         [("🖼️ Create Image", "menu_image"), ("🎬 Create Video", "menu_video")],
+        [("➕ Create Persona", "skill_persona-creator"), ("🔍 Inspect Persona", "skill_persona-inspector")],
         [("📝 Content", "menu_content"), ("🎠 Carousel", "skill_carousel")],
         [("⚙️ Manage", "menu_manage")],
     ],
@@ -43,10 +44,8 @@ SUBMENUS: Dict[str, Dict[str, Any]] = {
         ],
     },
     "menu_manage": {
-        "text": "⚙️ Manage Your Content:",
+        "text": "⚙️ Manage & Monitor:",
         "rows": [
-            [("➕ Create Persona", "skill_persona-creator")],
-            [("📋 Inspect Personas", "skill_persona-inspector")],
             [("📊 Quota", "skill_quota-inspector"), ("📅 Weekly Plan", "skill_weekly-planner")],
             [("🔙 Back", "menu_main")],
         ],
@@ -88,12 +87,12 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_brief": {
             "input_type": "free_text",
             "field": "topic_or_brief",
-            "prompt_text": "What should the poster promote?",
+            "prompt_text": "🖼️ What should this poster promote?\n\nInclude the key message, product, or event you want to highlight.",
         },
         "choose_style": {
             "input_type": "inline_keyboard",
             "field": "style",
-            "prompt_text": "Choose a poster style.",
+            "prompt_text": "🎨 Choose a visual style for the poster.",
             "options": _options(
                 ("Bold", "bold"),
                 ("Clean", "clean"),
@@ -103,7 +102,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "choose_tone": {
             "input_type": "inline_keyboard",
             "field": "tone",
-            "prompt_text": "Choose a tone.",
+            "prompt_text": "🎭 Choose the tone that best fits your audience.",
             "options": _options(
                 ("Premium", "premium"),
                 ("Friendly", "friendly"),
@@ -113,7 +112,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "choose_ratio": {
             "input_type": "inline_keyboard",
             "field": "aspect_ratio",
-            "prompt_text": "Choose the poster aspect ratio.",
+            "prompt_text": "📐 Choose the aspect ratio for this poster.",
             "options": _options(
                 ("4:5", "4:5"),
                 ("1:1", "1:1"),
@@ -123,7 +122,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "confirm_or_regenerate": {
             "input_type": "preview_actions",
-            "prompt_text": "Poster preview ready. Use it, regenerate, or cancel.",
+            "prompt_text": "✅ Poster preview is ready. Use it, regenerate with the same inputs, or cancel.",
             "options": PREVIEW_ACTIONS,
         },
     },
@@ -131,12 +130,12 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_prompt": {
             "input_type": "free_text",
             "field": "topic_or_prompt",
-            "prompt_text": "🌅 What would you like to see in the scene? Please describe it:",
+            "prompt_text": "🌅 Describe the scene you want to generate.\n\nExample: \"A futuristic city at night\" or \"A sunrise over mountain peaks\"",
         },
         "choose_style": {
             "input_type": "inline_keyboard",
             "field": "style",
-            "prompt_text": "🎨 Please choose an artistic style for your image:",
+            "prompt_text": "🎨 Choose an artistic style for this scene.",
             "options": _options(
                 ("Clean", "clean"),
                 ("Cinematic", "cinematic"),
@@ -146,7 +145,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "choose_ratio": {
             "input_type": "inline_keyboard",
             "field": "aspect_ratio",
-            "prompt_text": "📐 Select the aspect ratio for your image:",
+            "prompt_text": "📐 Select the aspect ratio for this image.",
             "options": _options(
                 ("16:9", "16:9"),
                 ("9:16", "9:16"),
@@ -156,25 +155,25 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "confirm_or_regenerate": {
             "input_type": "preview_actions",
-            "prompt_text": "✨ Here's your preview! How does it look?",
+            "prompt_text": "✅ Scene preview is ready. Use it, regenerate, or cancel.",
             "options": IMAGE_SCENE_BATCH_ACTIONS,
         },
         "selecting_images": {
             "input_type": "image_multi_select",
-            "prompt_text": "Select one or more images, then submit.",
+            "prompt_text": "Select one or more images from the batch, then submit.",
         },
     },
     "carousel": {
         "pick_persona": {
             "input_type": "persona_picker",
             "field": "persona_id",
-            "prompt_text": "👤 Who will be the star? Choose a persona (or skip):",
+            "prompt_text": "👤 Choose a persona for this carousel, or skip.",
             "allow_skip": True,
         },
         "collect_topic": {
             "input_type": "free_text",
             "field": "topic",
-            "prompt_text": "Carousel topic.",
+            "prompt_text": "📝 What topic should this carousel cover?\n\nExample: \"Top 5 hidden beaches in Da Nang\" or \"How to book a group trip\"",
         },
         "choose_platform": {
             "input_type": "inline_keyboard",
@@ -200,7 +199,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "choose_tone": {
             "input_type": "inline_keyboard",
             "field": "tone",
-            "prompt_text": "🎭 What tone should we use for the content?",
+            "prompt_text": "🎭 Choose the content tone for this carousel.",
             "options": _options(
                 ("Educational", "educational"),
                 ("Bold", "bold"),
@@ -209,7 +208,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "preview": {
             "input_type": "preview_actions",
-            "prompt_text": "🎡 Carousel preview is ready! Should we keep it?",
+            "prompt_text": "✅ Carousel preview is ready. Approve it, regenerate, or cancel.",
             "options": PREVIEW_ACTIONS,
         },
     },
@@ -217,23 +216,23 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "pick_persona": {
             "input_type": "persona_picker",
             "field": "persona_id",
-            "prompt_text": "Select a ready persona for this video concept.",
+            "prompt_text": "👤 Select a ready persona for this video.",
             "allow_skip": False,
         },
         "collect_idea_brief": {
             "input_type": "free_text",
             "field": "idea_brief",
-            "prompt_text": "What is the core idea for this influencer video?",
+            "prompt_text": "🎬 What is the core idea for this video?\n\nExample: \"Showcasing the itinerary booking flow for first-time users\"",
         },
         "collect_feature_focus": {
             "input_type": "free_text",
             "field": "feature_focus",
-            "prompt_text": "Which feature or product angle should the video focus on?",
+            "prompt_text": "🔍 Which specific feature or product angle should this video focus on?\n\nExample: \"Group trip planning\" or \"One-click hotel booking\"",
         },
         "choose_video_goal": {
             "input_type": "inline_keyboard",
             "field": "video_goal",
-            "prompt_text": "What is the main goal of this video?",
+            "prompt_text": "🎯 What is the main goal of this video?",
             "options": _options(
                 ("Feature Demo", "feature_demo"),
                 ("Conversion", "conversion"),
@@ -244,22 +243,22 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_audience": {
             "input_type": "free_text",
             "field": "audience",
-            "prompt_text": "Who is this video for?",
+            "prompt_text": "👥 Who is the target audience for this video?\n\nExample: \"Young Vietnamese travelers aged 20–35\"",
         },
         "collect_cta": {
             "input_type": "free_text",
             "field": "cta",
-            "prompt_text": "What CTA should the video end with?",
+            "prompt_text": "📣 What call-to-action should the video end with?\n\nExample: \"Book your trip at tripc.vn\" or \"Download the app now\"",
         },
         "collect_reference_url": {
             "input_type": "free_text",
             "field": "reference_url",
-            "prompt_text": "Send the product or app URL this video should be grounded on.",
+            "prompt_text": "🔗 Send a URL this video should reference.\n\nExample: a product page, landing page, or feature walkthrough.",
         },
         "choose_access_level": {
             "input_type": "inline_keyboard",
             "field": "access_level",
-            "prompt_text": "What access do you have for that source?",
+            "prompt_text": "🔐 What level of access do you have for that source?",
             "options": _options(
                 ("Public Page Only", "public_page_only"),
                 ("Has Logged-in Access", "has_logged_in_access"),
@@ -269,12 +268,12 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "confirm_concept": {
             "input_type": "preview_actions",
-            "prompt_text": "Review the concept brief before continuing.",
+            "prompt_text": "📋 Review the concept brief before continuing.",
             "options": PREPRO_APPROVAL_ACTIONS,
         },
         "confirm_beats": {
             "input_type": "preview_actions",
-            "prompt_text": "Review the beat plan before packaging the concept.",
+            "prompt_text": "📋 Review the beat plan before packaging the concept.",
             "options": PREPRO_APPROVAL_ACTIONS,
         },
     },
@@ -298,7 +297,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "choose_provider_or_summary": {
             "input_type": "inline_keyboard",
             "field": "provider",
-            "prompt_text": "📊 Would you like a general summary, or view quota for a specific provider?",
+            "prompt_text": "📊 View a usage summary across all providers, or check quota for a specific one.",
             "options": _options(
                 ("Summary", "__summary__"),
                 ("fal_ai", "fal_ai"),
@@ -316,7 +315,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "select_persona": {
             "input_type": "persona_selector",
             "field": "persona_id",
-            "prompt_text": "🔍 Which persona would you like to inspect?",
+            "prompt_text": "🔍 Select a persona to inspect.",
             "allow_skip": False,
         },
     },
@@ -324,7 +323,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "choose_creation_mode": {
             "input_type": "inline_keyboard",
             "field": "creation_mode",
-            "prompt_text": "🎨 *How would you like to build your persona?*",
+            "prompt_text": "🎨 *How would you like to create this persona?*",
             "options": _options(
                 ("✍️ Create Manually", "manual"),
                 ("✨ Dream up with AI", "dream"),
@@ -349,12 +348,12 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_persona_id": {
             "input_type": "free_text",
             "field": "persona_id",
-            "prompt_text": "🆔 Send a unique ID for the new persona.\nExample: ray-aus",
+            "prompt_text": "🆔 Set a unique ID for this persona.\n\nExample: ray-aus, linh-hcm",
         },
         "choose_language": {
             "input_type": "inline_keyboard",
             "field": "language",
-            "prompt_text": "🌐 What language will your persona speak?",
+            "prompt_text": "🌐 What language will this persona communicate in?",
             "options": _options(
                 ("Vietnamese", "Vietnamese"),
                 ("English", "English"),
@@ -363,7 +362,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "choose_voice": {
             "input_type": "inline_keyboard",
             "field": "voice",
-            "prompt_text": "🗣️ Please select a voice for your persona:",
+            "prompt_text": "🗣️ Select a voice type for this persona.",
             "options": _options(
                 ("Male Friendly", "male_friendly"),
                 ("Female Warm", "female_warm"),
@@ -374,7 +373,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_appearance": {
             "input_type": "free_text",
             "field": "appearance_prompt_or_photo",
-            "prompt_text": "📸 Describe the persona's appearance, or upload a reference photo.\nTip: include style, outfit, age range, and setting.",
+            "prompt_text": "📸 Describe the persona's appearance or upload a reference photo.\n\nInclude: age range, style, outfit, and setting.",
         },
     },
     "weekly-planner": {

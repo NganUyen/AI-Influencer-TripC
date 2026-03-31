@@ -804,6 +804,9 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "implementation_priority": 3,
         "integration_note": "Define now. Integrate after persona registry endpoints exist.",
         "steps": [
+            "choose_creation_mode",
+            "collect_dream_brief",
+            "confirm_dream",
             "collect_persona_id",
             "choose_language",
             "choose_voice",
@@ -813,8 +816,10 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "save_db",
         ],
         "session_shape": {
-            "step_key": "collect_persona_id",
+            "step_key": "choose_creation_mode",
             "collected": {
+                "creation_mode": None,
+                "dream_brief": None,
                 "persona_id": None,
                 "language": None,
                 "voice": None,
@@ -823,6 +828,8 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "creative_notes": None,
             },
             "artifacts": {
+                "dream_ready": False,
+                "dream_summary": None,
                 "preview_image_url": None,
                 "avatar_image_url": None,
                 "heygen_avatar_id": None,

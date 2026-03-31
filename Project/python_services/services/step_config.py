@@ -321,6 +321,31 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
     },
     "persona-creator": {
+        "choose_creation_mode": {
+            "input_type": "inline_keyboard",
+            "field": "creation_mode",
+            "prompt_text": "🎨 *How would you like to build your persona?*",
+            "options": _options(
+                ("✍️ Create Manually", "manual"),
+                ("✨ Dream up with AI", "dream"),
+            ),
+        },
+        "collect_dream_brief": {
+            "input_type": "free_text",
+            "field": "dream_brief",
+            "prompt_text": "✨ *Describe the type of persona you'd like to create\\.*\n\nExample: 'Jamaican woman, travel influencer' or 'Swedish male baker in his 50s'\\.",
+        },
+        "confirm_dream": {
+            "input_type": "preview_actions",
+            "prompt_text": "✨ *AI Dream Ready\\!* How does this identity look to you?",
+            "options": _options(
+                ("✅ Use & Continue", "use"),
+                ("✏️ Edit ID", "edit_id"),
+                ("🎭 Edit Appearance", "edit_appearance"),
+                ("🔄 Dream Again", "regenerate"),
+                ("❌ Cancel", "cancel"),
+            ),
+        },
         "collect_persona_id": {
             "input_type": "free_text",
             "field": "persona_id",

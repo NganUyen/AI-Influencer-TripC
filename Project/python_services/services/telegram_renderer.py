@@ -348,9 +348,16 @@ def _render_persona_inspector_result(
             ]
         )
 
+    # Add Edit Buttons
+    persona_actions = [
+        [("✏️ Name", f"edit_p_name::{persona_id}"), ("🎭 Appearance", f"edit_p_appearance::{persona_id}")],
+        [("🔄 Regenerate Image", f"edit_p_appearance::{persona_id}")],
+        [("Refresh", f"inspect_persona::{persona_id}")],
+    ]
+    
     payload: Dict[str, Any] = {
         "text": "\n".join(lines),
-        "reply_markup": None,
+        "reply_markup": _inline_keyboard_from_pairs(persona_actions, prefix="action::"),
         "parse_mode": None,
     }
     if avatar_image_url:

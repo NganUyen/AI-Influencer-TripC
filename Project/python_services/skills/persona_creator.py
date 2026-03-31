@@ -7,7 +7,12 @@ from copy import deepcopy
 from typing import Any, Dict, Optional
 
 import httpx
+import json
+import logging
 from services.google_tts_service import GoogleTTSService
+from services.ai_service import AIService
+
+logger = logging.getLogger(__name__)
 
 from .base import BaseSkill, SkillResult, SkillSession, SkillStatus
 from .definitions import get_skill_definition
@@ -125,6 +130,52 @@ class PersonaCreatorSkill(BaseSkill):
                 "metadata": metadata,
             },
         )
+
+    @classmethod
+    async def _dream_persona_details(
+        cls, brief: str, ai_service: AIService
+    ) -> Dict[str, Any]:
+        """Use AI to suggest a name, ID, and appearance description based on a brief."""
+        system_prompt = (
+            "You are a creative persona designer for an AI social media agency.\n"
+            "Given a brief (nationality, gender, optional vibes), suggest:\n"
+            "1. display_name: A natural-sounding full name for this persona.\n"
+            "2. persona_id: A unique snake_case slug (max 12 chars).\n"
+            "3. appearance: A 150-word photorealistic description for AI image generation, "
+            "focusing on features, outfit, lighting, and a high-end social media look.\n"
+            "\n"
+            "RESPONSE FORMAT: Strict JSON only.\n"
+            "{\n"
+            '  "display_name": "...",\n'
+            '  "persona_id": "...",\n'
+            '  "appearance": "..."\n'
+            "}"
+        )
+        try:
+            raw_json = await ai_service.generate_text(
+                prompt=f"Dream up a persona for this brief: {brief}",
+                system_prompt=system_prompt,
+                temperature=0.8,
+            )
+            # Find the first { and last } to handle any extra text from AI
+            start = raw_json.find("{")
+            end = raw_json.rfind("}") + 1
+            if start == -1 or end == 0:
+                raise ValueError("AI did not return valid JSON block")
+            
+            data = json.loads(raw_json[start:end])
+            return {
+                "display_name": str(data.get("display_name") or "Unnamed Persona"),
+                "persona_id": str(data.get("persona_id") or "unnamed_p")[:15].strip("_"),
+                "appearance": str(data.get("appearance") or ""),
+            }
+        except Exception as e:
+            logger.error(f"Failed to dream persona: {e}")
+            return {
+                "display_name": "New Persona",
+                "persona_id": "new-p",
+                "appearance": brief,
+            }
 
     @classmethod
     def _build_readiness_report(
@@ -387,6 +438,57 @@ class PersonaCreatorSkill(BaseSkill):
             current.artifacts.pop("force_regenerate_avatar", False)
         )
         missing = cls._missing_required_params(current)
+        
+        # ── Step 0: Dream Logic (Discovery Layer) ──────────────────────────
+        # We skip this if we are editing an existing persona
+        if current.artifacts.get("is_editing"):
+            creation_mode = "manual"
+        else:
+            creation_mode = current.artifacts.get("creation_mode") or current.collected.get("creation_mode")
+
+        if not creation_mode:
+            current.step_key = "choose_creation_mode"
+            return cls._collecting_result(current, next_step="choose_creation_mode")
+
+        if creation_mode == "dream":
+            # 1. Collect Brief
+            dream_brief = current.collected.get("dream_brief")
+            if not dream_brief:
+                current.step_key = "collect_dream_brief"
+                return cls._collecting_result(current, next_step="collect_dream_brief")
+            
+            # 2. Trigger AI Magic
+            if not current.artifacts.get("dream_ready"):
+                from services.ai_service import AIService
+                async with AIService() as ai:
+                    dream = await cls._dream_persona_details(dream_brief, ai)
+                
+                # Pre-populate fields
+                current.artifact_updates["dream_ready"] = True
+                current.collected["persona_id"] = dream["persona_id"]
+                current.collected["appearance_prompt_or_photo"] = dream["appearance"]
+                current.artifacts["dream_summary"] = (
+                    f"✨ *AI Suggested Identity:*\n"
+                    f"Name: *{dream['display_name']}*\n"
+                    f"ID: `{dream['persona_id']}`\n\n"
+                    f"*Appearance:* {dream['appearance'][:200]}..."
+                )
+                current.step_key = "confirm_dream"
+                return cls._collecting_result(
+                    current, 
+                    next_step="confirm_dream",
+                    output={"message": current.artifacts["dream_summary"]}
+                )
+
+            # 3. Handle Confirmation Actions (handled by handle_action usually, but if execute is called)
+            if current.step_key == "confirm_dream":
+                return cls._collecting_result(
+                    current, 
+                    next_step="confirm_dream",
+                    output={"message": current.artifacts.get("dream_summary", "Review your suggested persona below:")}
+                )
+
+        # ── Step 1: Standard Collection ────────────────────────────────────
         if missing:
             next_step = current.step_key or "collect_persona_id"
             if "persona_id" in missing:
@@ -436,14 +538,20 @@ class PersonaCreatorSkill(BaseSkill):
                     detail = error_payload["detail"]
             except Exception:
                 pass
-            if "already exists" in detail.lower():
+            
+            # Efficiently handle editing existing personas
+            if "already exists" in detail.lower() or current.artifacts.get("is_editing"):
                 persona = await cls._get_existing_persona(
                     current, backend_url, http_client
                 )
                 if persona:
-                    current.artifacts["resumed_existing_persona"] = True
+                    if current.artifacts.get("is_editing"):
+                        logger.info(f"Editing existing persona | id={current.collected['persona_id']}")
+                    else:
+                        current.artifacts["resumed_existing_persona"] = True
+                        logger.info(f"Resumed existing persona session | id={current.collected['persona_id']}")
                 else:
-                    return cls._error_result(current, detail)
+                    return cls._error_result(current, f"Persona '{current.collected['persona_id']}' exists but could not be fetched.")
             else:
                 return cls._error_result(current, detail)
         except Exception as exc:

@@ -600,6 +600,17 @@ class SkillDispatcher:
                 ),
             )
 
+        # ── Persona Edit Actions ─────────────────────────────────────────────
+        if action.startswith(("edit_p_name::", "edit_p_appearance::", "inspect_persona::")):
+            parts = action.split("::")
+            command = parts[0]
+            persona_id = parts[1] if len(parts) > 1 else None
+            
+            if not persona_id:
+                return SkillResult(success=False, error="Invalid persona ID for editing.")
+
+            return await cls._start_persona_edit(chat_id, persona_id, command, app)
+
         if action == "regenerate":
             existing_artifacts = deepcopy(session.artifacts)
             telegram_chat_id = existing_artifacts.get("telegram_chat_id")
@@ -637,5 +648,72 @@ class SkillDispatcher:
         async with cls._transport_client(app) as client:
             result = await skill_cls.execute(session, "http://backend", client)
         if result.session is not None:
+            await cls._prepare_prompt_session(app, result.session)
+        return await cls._save_or_clear(chat_id, result)
+
+    @classmethod
+    async def _start_persona_edit(
+        cls, 
+        chat_id: int, 
+        persona_id: str, 
+        command: str,
+        app: Any
+    ) -> SkillResult:
+        """Helper to initialize a persona-creator session for editing an existing persona."""
+        from services.persona_registry_service import PersonaRegistryService
+        from skills.persona_creator import PersonaCreatorSkill
+        
+        # 1. Fetch existing persona
+        owner_key = f"telegram:{chat_id}"
+        persona = await PersonaRegistryService.get_persona(persona_id, owner_key=owner_key)
+        if not persona:
+            return SkillResult(success=False, error=f"Persona '{persona_id}' not found in your workspace.")
+
+        # 2. Build skill session
+        session = PersonaCreatorSkill.initial_session()
+        session.artifacts["telegram_chat_id"] = str(chat_id)
+        session.artifacts["is_editing"] = True
+        session.artifacts["persona_data"] = persona
+        
+        # Pre-populate collected data
+        session.collected["persona_id"] = persona_id
+        session.collected["language"] = persona.get("language") or "English"
+        session.collected["voice"] = persona.get("tts_voice") or "English AU Female Clear"
+        session.collected["appearance_prompt_or_photo"] = persona.get("avatar_prompt") or ""
+        
+        # 3. Determine entry point
+        if command == "edit_p_name":
+            # We treat 'name' as persona_id in the creation flow, 
+            # but if it exists we just want to confirm or skip to next?
+            # Actually, let's just jump to a summary/preview if they just want to refresh.
+            session.step_key = "collect_persona_id"
+            result = SkillResult(
+                success=True, 
+                next_step="collect_persona_id", 
+                session=session,
+                output={"message": f"Editing persona *{persona_id}*. Send a new name/ID, or send /cancel."}
+            )
+        elif command == "edit_p_appearance":
+            session.step_key = "collect_appearance"
+            # Flag to ensure prompt-to-generation flow
+            session.artifacts["force_regenerate_avatar"] = True
+            result = SkillResult(
+                success=True, 
+                next_step="collect_appearance", 
+                session=session,
+                output={"message": f"Editing *{persona_id}*. Send a new appearance description, upload a photo, or send /cancel."}
+            )
+        elif command == "inspect_persona":
+            # Special case for 'Refresh'
+            from skills.persona_creator import PersonaCreatorSkill
+            readiness = PersonaCreatorSkill._build_readiness_report(persona_id, persona)
+            session.artifacts["readiness"] = readiness
+            session.step_key = "preview"
+            async with cls._transport_client(app) as client:
+                result = await PersonaCreatorSkill.execute(session, "http://backend", client)
+        else:
+            return SkillResult(success=False, error=f"Unsupported edit command: {command}")
+
+        if result.session:
             await cls._prepare_prompt_session(app, result.session)
         return await cls._save_or_clear(chat_id, result)

@@ -393,7 +393,16 @@ class HeyGenService:
 
             if status in ["failed", "error"]:
                 error = status_data.get("data", {}).get("error") or status_data.get("error", "Unknown")
-                raise ValueError(f"HeyGen video failed: {error}")
+                error_code = status_data.get("data", {}).get("error_code") or status_data.get("error_code")
+                logger.error(
+                    "HeyGen video generation FAILED | video_id=%s | status=%s | error=%s | error_code=%s | full_response=%s",
+                    video_id,
+                    status,
+                    error,
+                    error_code,
+                    str(status_data)[:500],
+                )
+                raise ValueError(f"HeyGen video failed: {error} (code={error_code}, video_id={video_id})")
 
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval

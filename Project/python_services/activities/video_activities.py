@@ -136,10 +136,15 @@ async def _download_optional(url: str, dest: str, label: str) -> Optional[str]:
 
 
 def _run_ffmpeg(cmd: List[str], label: str, cwd: Optional[str] = None) -> None:
-    result = subprocess.run(cmd, capture_output=True, cwd=cwd)
+    result = subprocess.run(cmd, capture_output=True, cwd=cwd, text=True)
     if result.returncode != 0:
-        error_text = result.stderr.decode("utf-8", errors="replace")[-1000:]
-        raise AssemblyError(f"ffmpeg failed ({label}): {error_text}")
+        stderr_text = (result.stderr or "").strip()
+        stdout_text = (result.stdout or "").strip()
+        combined = "\n".join(part for part in [stderr_text, stdout_text] if part).strip()
+        error_text = (combined or "<no ffmpeg output>")[-3000:]
+        raise AssemblyError(
+            f"ffmpeg failed ({label}) [code={result.returncode}] cmd={' '.join(cmd[:12])}...: {error_text}"
+        )
     logger.info("ffmpeg OK: %s", label)
 
 
@@ -622,14 +627,42 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
             "Using split-screen assembly with talking head | scene_count=%s",
             len(image_paths),
         )
+
+        talking_head_normalized = str(tmp_path / "talking_head_normalized.mp4")
         _run_ffmpeg(
             [
                 "ffmpeg",
                 "-y",
+                "-v",
+                "error",
+                "-nostats",
+                "-i",
+                talking_head_path,
+                "-an",
+                "-vf",
+                "fps=25,format=yuv420p,setsar=1",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-movflags",
+                "+faststart",
+                talking_head_normalized,
+            ],
+            "normalize_talking_head",
+        )
+
+        _run_ffmpeg(
+            [
+                "ffmpeg",
+                "-y",
+                "-v",
+                "error",
+                "-nostats",
                 "-i",
                 slideshow_path,
                 "-i",
-                talking_head_path,
+                talking_head_normalized,
                 "-i",
                 audio_path,
                 "-filter_complex",
@@ -640,9 +673,17 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                 "2:a",
                 "-c:v",
                 "libx264",
+                "-preset",
+                "veryfast",
+                "-pix_fmt",
+                "yuv420p",
+                "-r",
+                "25",
                 "-c:a",
                 "aac",
                 "-shortest",
+                "-movflags",
+                "+faststart",
                 final_path,
             ],
             "split_screen_assembly",

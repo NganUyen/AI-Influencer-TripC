@@ -578,13 +578,310 @@ async def generate_web_tutorial_activity(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Scene Images Generation (fal.ai, song song)
+# Scene Images Generation (Multi-source: Browser capture + AI fallback)
 # ─────────────────────────────────────────────────────────────────────────────
+
+# Valid top-half source types
+_BROWSER_CAPTURE_TYPES = {"public_page_capture", "hybrid_candidate"}
+_AI_FALLBACK_TYPES = {"ai_visual_fallback"}
+_ALL_SOURCE_TYPES = _BROWSER_CAPTURE_TYPES | _AI_FALLBACK_TYPES | {"authenticated_capture_later"}
+
+# Minimum valid video file size (bytes)
+_MIN_VIDEO_FILE_SIZE = 2000
+_MIN_IMAGE_FILE_SIZE = 1000
+
+
+async def _generate_ai_visual(
+    scene: Dict[str, Any],
+    scene_metadata: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Generate an AI visual for a scene using fal.ai.
+    
+    Uses top_half_target and top_half_capture_hint to build a contextual prompt.
+    Returns storage result dict with url, storage_key, etc.
+    """
+    scene_id = scene.get("id", "unknown")
+    top_half_target = scene.get("top_half_target", "")
+    capture_hint = scene.get("top_half_capture_hint", "")
+    image_prompt = scene.get("image_prompt") or scene.get("prompt", "")
+    
+    # Build an enriched prompt from available context
+    prompt_parts = []
+    if top_half_target:
+        prompt_parts.append(f"Scene depicting: {top_half_target}")
+    if capture_hint and capture_hint not in {"scroll", "static", "none"}:
+        prompt_parts.append(f"Visual style: {capture_hint}")
+    if image_prompt:
+        prompt_parts.append(image_prompt)
+    
+    if not prompt_parts:
+        prompt_parts.append("Modern app interface screenshot, clean UI design, professional look")
+    
+    final_prompt = ". ".join(prompt_parts)
+    
+    logger.info(
+        "Generating AI visual | scene=%s | prompt=%s",
+        scene_id,
+        final_prompt[:100],
+    )
+    
+    image_service = ImageGenerationService()
+    
+    try:
+        result = await image_service.generate_images(
+            prompt=final_prompt,
+            model="fal-ai/flux-pro",
+            aspect_ratio="9:8",  # Top-half aspect ratio
+            safety_tolerance=2,
+            num_images=1,
+            campaign_id=scene_metadata.get("campaign_id"),
+            user_id=scene_metadata.get("user_id"),
+            owner_key=scene_metadata.get("owner_key"),
+            persona_id=scene_metadata.get("persona_id"),
+            metadata=scene_metadata,
+            file_name_hint=f"ai-visual-scene-{scene_id}",
+        )
+        
+        if not result or not result.get("images"):
+            raise RuntimeError(f"AI image generation returned no images for scene {scene_id}")
+        
+        image_data = result["images"][0]
+        final_url = image_data.get("url") or image_data.get("storage_url")
+        
+        if not final_url:
+            raise RuntimeError(f"AI image generation returned no URL for scene {scene_id}")
+        
+        logger.info(
+            "AI visual generated | scene=%s | url=%s",
+            scene_id,
+            final_url[:80],
+        )
+        
+        return {
+            "url": final_url,
+            "storage_url": image_data.get("storage_url"),
+            "storage_key": image_data.get("storage_key"),
+            "media_asset_id": image_data.get("media_asset_id"),
+            "is_video": False,
+            "generation_method": "ai_visual",
+        }
+    except Exception as e:
+        logger.error(
+            "AI visual generation FAILED | scene=%s | error=%s",
+            scene_id,
+            str(e)[:200],
+        )
+        raise
+
+
+async def _capture_browser_video(
+    scene: Dict[str, Any],
+    scene_metadata: Dict[str, Any],
+    source_ref: str,
+) -> Dict[str, Any]:
+    """
+    Capture a browser recording for a scene using Playwright.
+    
+    Returns storage result dict with url, storage_key, etc.
+    Raises on failure (caller handles fallback).
+    """
+    scene_id = scene.get("id", "unknown")
+    browser = None
+    
+    browser_service_class = BrowserAutomationService
+    if browser_service_class is None and browser_automation_module is not None:
+        browser_service_class = browser_automation_module.BrowserAutomationService
+    if browser_service_class is None:
+        raise RuntimeError(
+            "Browser automation dependencies are not installed in this runtime image."
+        )
+
+    browser = browser_service_class()
+    os.makedirs("/tmp/tutorials_videos", exist_ok=True)
+
+    # Inject region and proxy to avoid being blocked (white screen)
+    region_info = None
+    proxy_config = None
+    user_id = scene_metadata.get("user_id") or scene_metadata.get("uid")
+    
+    # Determine platform for viewport (mobile vs desktop)
+    platform_hint = "generic"
+    video_format = scene_metadata.get("video_format", "").lower()
+    if "tiktok" in str(scene_metadata.get("platform", "")).lower() or "portrait" in video_format or "9:16" in video_format:
+        platform_hint = "tiktok"
+
+    try:
+        from services.region_service import RegionService
+        from services.proxy_manager_service import ProxyManagerService
+
+        region_info = await RegionService().build_region_profile()
+
+        if user_id:
+            try:
+                lease = await ProxyManagerService.lease_proxy(
+                    account_key=str(user_id),
+                    platform="generic"
+                )
+                proxy_config = lease.get("proxy")
+                logger.info(f"Leased proxy for capture | user_id={user_id} | server={proxy_config.get('server')}")
+            except Exception as pe:
+                logger.warning(f"Failed to lease proxy for capture: {pe}. Proceeding without proxy.")
+    except ImportError:
+        logger.warning("Region/Proxy services not available. Proceeding with defaults.")
+
+    try:
+        await browser.initialize_browser(
+            record_video_dir="/tmp/tutorials_videos",
+            record_video_size={"width": 1080, "height": 960},
+            region_info=region_info,
+            proxy_config=proxy_config,
+            platform=platform_hint
+        )
+
+        capture_hint = scene.get("top_half_capture_hint", "scroll")
+        target_selector = scene.get("top_half_target")
+        max_capture_seconds = (
+            scene.get("top_half_max_capture_seconds")
+            or scene_metadata.get("top_half_max_capture_seconds")
+            or 60
+        )
+        follow_relevant_links = scene.get("top_half_follow_links")
+        if follow_relevant_links is None:
+            follow_relevant_links = scene_metadata.get("top_half_follow_links")
+        if follow_relevant_links is None:
+            follow_relevant_links = True
+        
+        # Calculate scene duration for capture sync
+        scene_duration_sec = None
+        ts_start = scene.get("timestamp_start")
+        ts_end = scene.get("timestamp_end")
+        if ts_start is not None and ts_end is not None:
+            scene_duration_sec = float(ts_end) - float(ts_start)
+        
+        logger.info(
+            "Starting browser capture | scene=%s | url=%s | hint=%s | target=%s | platform=%s | max_seconds=%s | scene_duration=%s",
+            scene_id,
+            source_ref[:60],
+            capture_hint,
+            target_selector,
+            platform_hint,
+            max_capture_seconds,
+            scene_duration_sec,
+        )
+        
+        video_path = await browser.record_video_for_tutorial(
+            source_ref,
+            capture_hint=capture_hint,
+            target_selector=target_selector,
+            viewport_width=1080,
+            viewport_height=960,
+            max_capture_seconds=int(max_capture_seconds),
+            follow_relevant_links=bool(follow_relevant_links),
+            scene_duration_sec=scene_duration_sec,
+        )
+
+        # CRITICAL: Close browser BEFORE reading the file to ensure Playwright finalizes the .webm
+        await browser.close()
+        browser = None
+
+        if not video_path or not os.path.exists(video_path):
+            raise RuntimeError(
+                f"Playwright recording did not produce a video file for scene {scene_id}"
+            )
+
+        # Wait for file to be fully written
+        for _ in range(120):
+            if os.path.exists(video_path) and os.path.getsize(video_path) >= 1024:
+                break
+            await asyncio.sleep(0.25)
+
+        # Validate file size
+        file_size = os.path.getsize(video_path)
+        if file_size < _MIN_VIDEO_FILE_SIZE:
+            raise RuntimeError(
+                f"Browser capture produced an invalid/tiny file ({file_size} bytes) for scene {scene_id}"
+            )
+
+        with open(video_path, "rb") as f:
+            data = f.read()
+
+        if len(data) < 1024:
+            raise RuntimeError(
+                f"Playwright recording is too small for scene {scene_id}: {len(data)} bytes"
+            )
+
+        # Upload to storage
+        media_storage_service_class = MediaStorageService
+        if media_storage_service_class is _DEFAULT_MEDIA_STORAGE_SERVICE_CLASS:
+            media_storage_service_class = media_storage_service_module.MediaStorageService
+        media_storage = media_storage_service_class()
+        run_suffix = str(
+            scene_metadata.get("workflow_run_id")
+            or scene_metadata.get("workflow_id")
+            or "run"
+        ).replace("/", "-")
+        storage_result = await media_storage.upload_bytes(
+            data=data,
+            destination_path=None,
+            content_type="video/webm",
+            asset_kind="video",
+            asset_origin="generated",
+            persona_id=scene.get("persona_id") or scene_metadata.get("persona_id"),
+            owner_key=scene.get("owner_key") or scene_metadata.get("owner_key"),
+            campaign_id=scene.get("campaign_id") or scene_metadata.get("campaign_id"),
+            user_id=scene.get("user_id") or scene_metadata.get("user_id"),
+            file_name_hint=f"browser-capture-scene-{scene_id}-{run_suffix[:24]}",
+        )
+
+        if storage_result is None:
+            raise RuntimeError(
+                "MediaStorageService.upload_bytes returned None for Playwright recording"
+            )
+
+        final_url = storage_result.get("url") or storage_result.get("storage_url")
+        if not final_url:
+            raise RuntimeError(
+                f"Playwright recording uploaded but URL is missing for scene {scene_id}"
+            )
+
+        logger.info(
+            "Browser capture completed | scene=%s | url=%s | file_size=%d",
+            scene_id,
+            final_url[:80],
+            file_size,
+        )
+
+        return {
+            "url": final_url,
+            "storage_url": storage_result.get("storage_url"),
+            "storage_key": storage_result.get("storage_key"),
+            "media_asset_id": storage_result.get("media_asset_id"),
+            "is_video": True,
+            "generation_method": "browser_capture",
+        }
+    finally:
+        if browser is not None:
+            try:
+                await browser.close()
+            except Exception as close_exc:
+                logger.warning(
+                    "Failed to close browser after scene %s capture attempt: %s",
+                    scene_id,
+                    close_exc,
+                )
 
 
 @activity.defn
 async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Generate top-half scene assets as Playwright browser recordings only."""
+    """
+    Generate top-half scene assets using the appropriate method per scene.
+    
+    Supports multiple source types:
+    - public_page_capture: Browser recording via Playwright
+    - ai_visual_fallback: AI image generation via fal.ai
+    - hybrid_candidate: Try browser first, fall back to AI on failure
+    """
 
     raw_limit = os.getenv("TOP_HALF_CAPTURE_CONCURRENCY", "2")
     try:
@@ -596,227 +893,103 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
     async def gen_one(scene: dict) -> dict:
         async with semaphore:
             scene_metadata = dict(scene.get("metadata") or {})
-            top_half_type = scene.get("top_half_source_type")
+            top_half_type = scene.get("top_half_source_type", "public_page_capture")
             source_ref = scene.get("source_ref")
             scene_id = scene.get("id", "unknown")
-            browser = None
+            
+            logger.info(
+                "Processing scene | id=%s | type=%s | has_source_ref=%s",
+                scene_id,
+                top_half_type,
+                bool(source_ref),
+            )
 
-            if top_half_type != "public_page_capture":
-                raise ApplicationError(
-                    (
-                        "Top-half scene must use public_page_capture for Playwright "
-                        f"recording (scene={scene_id}, source_type={top_half_type!r})"
-                    ),
-                    non_retryable=True,
-                )
-
-            if not source_ref:
-                raise ApplicationError(
-                    (
-                        "Top-half scene is missing source_ref URL required for "
-                        f"Playwright recording (scene={scene_id})"
-                    ),
-                    non_retryable=True,
-                )
-
+            # Route to appropriate generation method
             try:
-                browser_service_class = BrowserAutomationService
-                if browser_service_class is None and browser_automation_module is not None:
-                    browser_service_class = browser_automation_module.BrowserAutomationService
-                if browser_service_class is None:
-                    raise RuntimeError(
-                        "Browser automation dependencies are not installed in this runtime image."
+                if top_half_type in _AI_FALLBACK_TYPES:
+                    # Pure AI generation
+                    result = await _generate_ai_visual(scene, scene_metadata)
+                    
+                elif top_half_type == "hybrid_candidate":
+                    # Try browser first, fall back to AI
+                    if not source_ref:
+                        logger.info(
+                            "hybrid_candidate scene %s has no source_ref, using AI fallback directly",
+                            scene_id,
+                        )
+                        result = await _generate_ai_visual(scene, scene_metadata)
+                    else:
+                        # hybrid_candidate with source_ref - use browser capture, no fallback
+                        result = await _capture_browser_video(scene, scene_metadata, source_ref)
+                            
+                elif top_half_type in _BROWSER_CAPTURE_TYPES:
+                    # Browser capture required
+                    if not source_ref:
+                        raise ApplicationError(
+                            f"Scene {scene_id} requires source_ref for browser capture (type={top_half_type})",
+                            non_retryable=True,
+                        )
+                    result = await _capture_browser_video(scene, scene_metadata, source_ref)
+                    
+                else:
+                    # Unknown type - log error and fail
+                    logger.error(
+                        "Unknown top_half_source_type=%s for scene %s - cannot generate asset",
+                        top_half_type,
+                        scene_id,
+                    )
+                    raise ApplicationError(
+                        f"Scene {scene_id} has unsupported top_half_source_type={top_half_type}",
+                        non_retryable=True,
                     )
 
-                browser = browser_service_class()
-                os.makedirs("/tmp/tutorials_videos", exist_ok=True)
-
-                # Inject region and proxy to avoid being blocked (white screen)
-                region_info = None
-                proxy_config = None
-                user_id = scene_metadata.get("user_id") or scene_metadata.get("uid")
-                
-                # Determine platform for viewport (mobile vs desktop)
-                # If metadata mentions tiktok or portrait format, use mobile settings
-                platform_hint = "generic"
-                video_format = scene_metadata.get("video_format", "").lower()
-                if "tiktok" in str(scene_metadata.get("platform", "")).lower() or "portrait" in video_format or "9:16" in video_format:
-                    platform_hint = "tiktok"
-
-                try:
-                    from services.region_service import RegionService
-                    from services.proxy_manager_service import ProxyManagerService
-
-                    # 1. Get region profile
-                    region_info = await RegionService().build_region_profile()
-
-                    # 2. Lease a generic proxy to avoid datacenter IP blocks
-                    if user_id:
-                        try:
-                            lease = await ProxyManagerService.lease_proxy(
-                                account_key=str(user_id),
-                                platform="generic"
-                            )
-                            proxy_config = lease.get("proxy")
-                            logger.info(f"Leased proxy for capture | user_id={user_id} | server={proxy_config.get('server')}")
-                        except Exception as pe:
-                            logger.warning(f"Failed to lease proxy for capture: {pe}. Proceeding without proxy.")
-                except ImportError:
-                    logger.warning("Region/Proxy services not available. Proceeding with defaults.")
-
-                await browser.initialize_browser(
-                    record_video_dir="/tmp/tutorials_videos",
-                    record_video_size={"width": 1080, "height": 960},
-                    region_info=region_info,
-                    proxy_config=proxy_config,
-                    platform=platform_hint
-                )
-
-                capture_hint = scene.get("top_half_capture_hint", "scroll")
-                target_selector = scene.get("top_half_target")
-                max_capture_seconds = (
-                    scene.get("top_half_max_capture_seconds")
-                    or scene_metadata.get("top_half_max_capture_seconds")
-                    or 60
-                )
-                follow_relevant_links = scene.get("top_half_follow_links")
-                if follow_relevant_links is None:
-                    follow_relevant_links = scene_metadata.get("top_half_follow_links")
-                if follow_relevant_links is None:
-                    follow_relevant_links = True
+                # Build final scene result
+                final_url = result.get("url") or result.get("storage_url")
                 
                 logger.info(
-                    "Starting browser capture | scene=%s | url=%s | hint=%s | target=%s | platform=%s | max_seconds=%s | follow_links=%s",
-                    scene_id,
-                    source_ref[:60],
-                    capture_hint,
-                    target_selector,
-                    platform_hint,
-                    max_capture_seconds,
-                    follow_relevant_links,
-                )
-                
-                video_path = await browser.record_video_for_tutorial(
-                    source_ref,
-                    capture_hint=capture_hint,
-                    target_selector=target_selector,
-                    viewport_width=1080,
-                    viewport_height=960,
-                    max_capture_seconds=int(max_capture_seconds),
-                    follow_relevant_links=bool(follow_relevant_links),
-                )
-
-                # CRITICAL: Close browser BEFORE reading the file to ensure Playwright finalizes the .webm
-                await browser.close()
-                browser = None
-
-                if not video_path or not os.path.exists(video_path):
-                    raise RuntimeError(
-                        f"Playwright recording did not produce a video file for scene {scene_id}"
-                    )
-
-                for _ in range(120):
-                    if os.path.exists(video_path) and os.path.getsize(video_path) >= 1024:
-                        break
-                    await asyncio.sleep(0.25)
-
-                # Guard against 0-byte or corrupted (tiny header only) captures
-                file_size = os.path.getsize(video_path)
-                if file_size < 2000:
-                    raise RuntimeError(
-                        f"Browser capture produced an invalid/tiny file ({file_size} bytes) for scene {scene_id}"
-                    )
-
-                with open(video_path, "rb") as f:
-                    data = f.read()
-
-                if len(data) < 1024:
-                    raise RuntimeError(
-                        f"Playwright recording is too small for scene {scene_id}: {len(data)} bytes"
-                    )
-
-                media_storage_service_class = MediaStorageService
-                if media_storage_service_class is _DEFAULT_MEDIA_STORAGE_SERVICE_CLASS:
-                    media_storage_service_class = media_storage_service_module.MediaStorageService
-                media_storage = media_storage_service_class()
-                run_suffix = str(
-                    scene_metadata.get("workflow_run_id")
-                    or scene_metadata.get("workflow_id")
-                    or "run"
-                ).replace("/", "-")
-                storage_result = await media_storage.upload_bytes(
-                    data=data,
-                    destination_path=None,
-                    content_type="video/webm",
-                    asset_kind="video",
-                    asset_origin="generated",
-                    persona_id=scene.get("persona_id") or scene_metadata.get("persona_id"),
-                    owner_key=scene.get("owner_key") or scene_metadata.get("owner_key"),
-                    campaign_id=scene.get("campaign_id") or scene_metadata.get("campaign_id"),
-                    user_id=scene.get("user_id") or scene_metadata.get("user_id"),
-                    file_name_hint=f"browser-capture-scene-{scene_id}-{run_suffix[:24]}",
-                )
-
-                if storage_result is None:
-                    raise RuntimeError(
-                        "MediaStorageService.upload_bytes returned None for Playwright recording"
-                    )
-
-                final_url = storage_result.get("url") or storage_result.get("storage_url")
-                if not final_url:
-                    raise RuntimeError(
-                        f"Playwright recording uploaded but URL is missing for scene {scene_id}"
-                    )
-
-                logger.info(
-                    "Scene asset resolved | scene=%s | type=%s | url=%s | is_video=%s",
+                    "Scene asset resolved | scene=%s | type=%s | method=%s | url=%s | is_video=%s",
                     scene_id,
                     top_half_type,
-                    final_url[:80],
-                    True,
+                    result.get("generation_method"),
+                    final_url[:80] if final_url else "NONE",
+                    result.get("is_video", False),
                 )
 
                 return {
                     **scene,
                     "image_url": final_url,
                     "source_image_url": final_url,
-                    "storage_image_url": storage_result.get("storage_url"),
-                    "image_storage_key": storage_result.get("storage_key"),
-                    "media_asset_id": storage_result.get("media_asset_id"),
+                    "storage_image_url": result.get("storage_url"),
+                    "image_storage_key": result.get("storage_key"),
+                    "media_asset_id": result.get("media_asset_id"),
                     "status": "completed",
-                    "is_video": True,
+                    "is_video": result.get("is_video", False),
+                    "generation_method": result.get("generation_method"),
                 }
+                
+            except ApplicationError:
+                raise
             except Exception as e:
                 logger.error(
-                    "Browser capture FAILED for scene %s | url=%s | error_type=%s | error=%s",
+                    "Scene generation FAILED | scene=%s | type=%s | error_type=%s | error=%s",
                     scene_id,
-                    source_ref[:80],
+                    top_half_type,
                     type(e).__name__,
                     str(e)[:300],
                 )
                 raise ApplicationError(
-                    f"Playwright top-half recording failed for scene {scene_id}: {e}",
+                    f"Top-half generation failed for scene {scene_id}: {e}",
                     non_retryable=False,
                 )
-            finally:
-                if browser is not None:
-                    try:
-                        await browser.close()
-                    except Exception as close_exc:
-                        logger.warning(
-                            "Failed to close browser after scene %s capture attempt: %s",
-                            scene_id,
-                            close_exc,
-                        )
 
     logger.info(
-        "Generating %s top-half browser recordings with concurrency=%s...",
+        "Generating %s top-half scene assets with concurrency=%s...",
         len(scenes),
         max_parallel,
     )
     tasks = [gen_one(scene) for scene in scenes]
     enriched = await asyncio.gather(*tasks)
-    logger.info("Top-half browser recording completed")
+    logger.info("Top-half scene generation completed | total=%s", len(enriched))
     return list(enriched)
 
 

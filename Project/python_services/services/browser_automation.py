@@ -326,6 +326,7 @@ class BrowserAutomationService:
         max_capture_seconds: int = 60,
         follow_relevant_links: bool = True,
         max_links_to_visit: int = 3,
+        scene_duration_sec: Optional[float] = None,
     ) -> str:
         """
         Record a video of a website for the top-half of a split-screen video.
@@ -334,23 +335,48 @@ class BrowserAutomationService:
             url: The website URL to record
             capture_hint: How to capture the page ("scroll", "static", "interactive")
             target_selector: Specific CSS selector or section name to record.
+            viewport_width: Recording viewport width (default 1080)
+            viewport_height: Recording viewport height (default 960)
+            max_capture_seconds: Maximum capture duration budget
+            follow_relevant_links: Whether to navigate to related pages
+            max_links_to_visit: Max number of links to traverse
+            scene_duration_sec: Target scene duration to sync capture pacing
+            
+        Returns:
+            Path to the recorded video file.
         """
+        import time as _time
+        capture_start = _time.monotonic()
+        
         if not self.context:
             raise Exception("Browser context not fully initialized for video recording!")
 
         # Warm up navigation first so the returned recording starts on rendered content,
-        # not on initial browser/network loading.
-        await self._warm_up_capture_navigation(url=url)
+        # not on initial browser/network loading. Use reduced timeout.
+        warmup_ok = await self._warm_up_capture_navigation(url=url, timeout_seconds=12)
 
         page = await self.context.new_page()
         video = page.video
 
         try:
-            logger.info(f"Recording website | url={url} | hint={capture_hint} | target={target_selector}")
+            logger.info(
+                "Recording website | url=%s | hint=%s | target=%s | scene_duration=%s | warmup_ok=%s",
+                url[:60],
+                capture_hint,
+                target_selector,
+                scene_duration_sec,
+                warmup_ok,
+            )
 
             # Hard cap recording time so a single orchestration run cannot overrun worker budgets.
             max_capture_seconds = max(8, min(int(max_capture_seconds or 60), 60))
             max_links_to_visit = max(0, min(int(max_links_to_visit or 0), 5))
+            
+            # If scene_duration_sec is provided, use it to constrain capture budget
+            if scene_duration_sec and scene_duration_sec > 0:
+                # Add 1.5s buffer for transitions, but don't exceed max
+                target_duration = min(float(scene_duration_sec) + 1.5, float(max_capture_seconds))
+                max_capture_seconds = int(target_duration)
 
             # Force a deterministic 9:8 capture frame for tutorial top-half output.
             await page.set_viewport_size(
@@ -448,12 +474,15 @@ class BrowserAutomationService:
                     if loop.time() >= deadline:
                         break
                     remaining_ms = int(max(0.0, deadline - loop.time()) * 1000)
-                    duration_ms = max(380, min(1200, remaining_ms - 120))
+                    # Scale scroll duration based on scene timing for smoother pacing
+                    base_duration_ms = 800 if scene_duration_sec and scene_duration_sec > 6 else 600
+                    duration_ms = max(380, min(1400, min(remaining_ms - 100, base_duration_ms)))
                     await self._smooth_scroll_to(page=page, target_y=int(y_target), duration_ms=duration_ms)
 
                     if loop.time() >= deadline:
                         break
-                    await asyncio.sleep(min(0.2, max(0.05, deadline - loop.time())))
+                    # Slightly longer pause between scrolls for visual settling
+                    await asyncio.sleep(min(0.35, max(0.1, deadline - loop.time())))
 
             # Page must be closed before resolving the recording path.
             await page.close()
@@ -465,32 +494,77 @@ class BrowserAutomationService:
             if not os.path.exists(path):
                 raise RuntimeError(f"Playwright video file path not found: {path}")
             
-            logger.info(f"Video recorded successfully | path={path}")
+            capture_duration = _time.monotonic() - capture_start
+            logger.info(
+                "Browser capture completed | url=%s | path=%s | duration=%.2fs | target_duration=%s | pages_visited=%d",
+                url[:60],
+                path,
+                capture_duration,
+                scene_duration_sec,
+                len(visit_urls),
+            )
             return path
         except Exception as e:
-            logger.error(f"Failed to record video from {url}: {e}")
+            capture_duration = _time.monotonic() - capture_start
+            logger.error(
+                "Browser capture FAILED | url=%s | error=%s | duration=%.2fs | warmup_ok=%s",
+                url[:60],
+                str(e)[:200],
+                capture_duration,
+                warmup_ok,
+            )
             try:
                 await page.close()
             except:
                 pass
             raise
 
-    async def _warm_up_capture_navigation(self, url: str) -> None:
-        """Prime the browser cache/session so the returned video avoids initial loading screens."""
+    async def _warm_up_capture_navigation(self, url: str, timeout_seconds: int = 15) -> bool:
+        """
+        Prime the browser cache/session so the returned video avoids initial loading screens.
+        
+        Returns:
+            True if warm-up succeeded, False if it failed (capture can still proceed).
+        """
+        import asyncio
         warmup_page = await self.context.new_page()
+        success = False
         try:
-            await self._ensure_page_has_rendered_content(page=warmup_page, url=url)
+            # Use a shorter timeout for warm-up to avoid blocking capture
+            await asyncio.wait_for(
+                self._ensure_page_has_rendered_content(page=warmup_page, url=url),
+                timeout=float(timeout_seconds),
+            )
             # Tiny delay to allow pending image decode/font settle in warm cache.
-            import asyncio
             await asyncio.sleep(0.2)
+            success = True
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Warm-up navigation timed out after %ss; proceeding with direct capture | url=%s",
+                timeout_seconds,
+                url[:80],
+            )
         except Exception as exc:
             # Best-effort only: do not fail capture if warm-up cannot complete.
-            logger.warning("Warm-up navigation failed; proceeding with direct capture | url=%s | err=%s", url, exc)
+            logger.warning(
+                "Warm-up navigation failed; proceeding with direct capture | url=%s | err=%s",
+                url[:80],
+                str(exc)[:100],
+            )
         finally:
-            await warmup_page.close()
+            try:
+                await warmup_page.close()
+            except Exception:
+                pass
+        return success
 
     async def _smooth_scroll_to(self, page: Any, target_y: int, duration_ms: int = 900) -> None:
-        """Frame-synced scroll animation using requestAnimationFrame (~60fps)."""
+        """
+        Frame-synced scroll animation using requestAnimationFrame (~60fps).
+        
+        Uses an improved easing function for smoother, more cinematic scrolling
+        that feels natural in video recordings.
+        """
         await page.evaluate(
             """
             async ({ targetY, durationMs }) => {
@@ -501,24 +575,43 @@ class BrowserAutomationService:
                 );
                 const endY = Math.max(0, Math.min(Number(targetY) || 0, maxY));
                 const delta = endY - startY;
-                const duration = Math.max(250, Number(durationMs) || 900);
+                const duration = Math.max(300, Math.min(Number(durationMs) || 900, 2500));
 
+                // Improved easing: ease-out-quint for smoother deceleration
+                // More natural feel when reaching scroll destinations
+                const easeOutQuint = (t) => 1 - Math.pow(1 - t, 5);
+                
+                // For short scrolls use ease-in-out, for long scrolls use ease-out
+                const scrollDistance = Math.abs(delta);
+                const useEaseOut = scrollDistance > 400;
+                
                 const easeInOutCubic = (t) => (
                     t < 0.5
                         ? 4 * t * t * t
                         : 1 - Math.pow(-2 * t + 2, 3) / 2
                 );
+                
+                const easingFn = useEaseOut ? easeOutQuint : easeInOutCubic;
 
                 await new Promise((resolve) => {
+                    if (Math.abs(delta) < 5) {
+                        resolve();
+                        return;
+                    }
+                    
                     const startedAt = performance.now();
                     const step = (now) => {
-                        const progress = Math.min(1, (now - startedAt) / duration);
-                        const eased = easeInOutCubic(progress);
-                        window.scrollTo(0, Math.round(startY + delta * eased));
+                        const elapsed = now - startedAt;
+                        const progress = Math.min(1, elapsed / duration);
+                        const eased = easingFn(progress);
+                        window.scrollTo({ top: Math.round(startY + delta * eased), behavior: 'instant' });
+                        
                         if (progress < 1) {
                             requestAnimationFrame(step);
                             return;
                         }
+                        // Ensure we land exactly on target
+                        window.scrollTo({ top: endY, behavior: 'instant' });
                         resolve();
                     };
                     requestAnimationFrame(step);

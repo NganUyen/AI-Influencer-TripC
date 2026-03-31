@@ -212,13 +212,17 @@ class ScriptService:
         current_timestamp = 0.0
         for index, beat in enumerate(beats, start=1):
             raw_source_type = beat.get("top_half_source_type", "public_page_capture")
-            if raw_source_type != "public_page_capture":
-                logger.info(
-                    "Beat %s top_half_source_type=%s overridden to public_page_capture for Playwright recording",
+            
+            # Preserve valid source types; normalize unknown types to ai_visual_fallback
+            if raw_source_type in _VALID_TOP_HALF_SOURCE_TYPES:
+                top_half_source_type = raw_source_type
+            else:
+                logger.warning(
+                    "Beat %s has unknown top_half_source_type=%s, defaulting to ai_visual_fallback",
                     index,
                     raw_source_type,
                 )
-            top_half_source_type = "public_page_capture"
+                top_half_source_type = "ai_visual_fallback"
 
             top_half_target = beat.get("top_half_target", "")
             beat_duration = float(beat.get("duration_sec", 4))
@@ -230,11 +234,16 @@ class ScriptService:
             else:
                 source_ref = default_source_ref
 
-            if not source_ref:
+            # source_ref is only required for browser capture types
+            requires_source_ref = top_half_source_type in {
+                "public_page_capture",
+                "hybrid_candidate",
+            }
+            if requires_source_ref and not source_ref:
                 raise ScriptContractError(
                     (
                         "Beat sheet is missing source_ref/reference_url for "
-                        f"Playwright top-half capture at beat {index}"
+                        f"browser capture at beat {index} (type={top_half_source_type})"
                     )
                 )
 
@@ -252,6 +261,10 @@ class ScriptService:
                 top_half_source_type=top_half_source_type,
                 top_half_target=top_half_target,
                 top_half_capture_hint=beat.get("top_half_capture_hint", "medium"),
+                top_half_follow_links=bool(beat.get("top_half_follow_links", True)),
+                top_half_max_capture_seconds=int(
+                    beat.get("top_half_max_capture_seconds", 60)
+                ),
                 source_ref=source_ref,
             )
 

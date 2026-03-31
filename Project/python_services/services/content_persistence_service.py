@@ -16,6 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover - depends on local env
     asyncpg = None
 
 from config.settings import settings
+from services.database_service import DatabaseService
 
 logger = logging.getLogger(__name__)
 
@@ -67,9 +68,6 @@ def _sum_engagement_metrics(metrics: Dict[str, Any]) -> float:
 
 
 class ContentPersistenceService:
-    _pool: Optional[Any] = None
-    _pool_lock = asyncio.Lock()
-
     @staticmethod
     def empty_analytics_summary(days: int = 30) -> Dict[str, Any]:
         return {
@@ -91,24 +89,11 @@ class ContentPersistenceService:
 
     @classmethod
     async def _get_pool(cls) -> Any:
-        if asyncpg is None:
-            raise RuntimeError("asyncpg is not installed")
-        if cls._pool is None:
-            async with cls._pool_lock:
-                if cls._pool is None:
-                    cls._pool = await asyncpg.create_pool(
-                        dsn=settings.DATABASE_URL,
-                        min_size=1,
-                        max_size=5,
-                        command_timeout=15,
-                    )
-        return cls._pool
+        return await DatabaseService.get_pool()
 
     @classmethod
     async def close_pool(cls) -> None:
-        if cls._pool is not None:
-            await cls._pool.close()
-            cls._pool = None
+        return None
 
     @staticmethod
     def _resolve_user_uuid(user_id: str) -> UUID:

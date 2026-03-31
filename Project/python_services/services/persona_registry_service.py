@@ -19,6 +19,7 @@ except ModuleNotFoundError:  # pragma: no cover - depends on local env
 
 from services.errors import PersonaConfigurationError, PersonaNotReadyError
 from config.settings import settings
+from services.database_service import DatabaseService
 from services.customer_media_service import CustomerMediaService
 from services.google_tts_service import GoogleTTSService
 from services.telegram_link_service import TelegramLinkService
@@ -53,8 +54,6 @@ def _normalize_uuid(value: Optional[str]) -> Optional[str]:
 
 
 class PersonaRegistryService:
-    _pool: Optional[Any] = None
-    _pool_lock = asyncio.Lock()
     _memory_store: Dict[str, Dict[str, Any]] = {}
 
     @classmethod
@@ -154,24 +153,11 @@ class PersonaRegistryService:
 
     @classmethod
     async def _get_pool(cls) -> Any:
-        if asyncpg is None:
-            raise RuntimeError("asyncpg is not installed")
-        if cls._pool is None:
-            async with cls._pool_lock:
-                if cls._pool is None:
-                    cls._pool = await asyncpg.create_pool(
-                        dsn=settings.DATABASE_URL,
-                        min_size=1,
-                        max_size=5,
-                        command_timeout=15,
-                    )
-        return cls._pool
+        return await DatabaseService.get_pool()
 
     @classmethod
     async def close_pool(cls) -> None:
-        if cls._pool is not None:
-            await cls._pool.close()
-            cls._pool = None
+        return None
 
     @staticmethod
     def _record_from_row(row: Any) -> Dict[str, Any]:

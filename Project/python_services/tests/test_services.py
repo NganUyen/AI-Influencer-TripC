@@ -709,6 +709,10 @@ async def test_heygen_service_records_video_job_usage(monkeypatch):
     captured = {}
 
     class StubResponse:
+        is_success = True
+        status_code = 200
+        text = ""
+
         def raise_for_status(self):
             return None
 

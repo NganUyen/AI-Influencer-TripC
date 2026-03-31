@@ -32,6 +32,7 @@ except ModuleNotFoundError:  # pragma: no cover
     asyncpg = None
 
 from config.settings import settings
+from services.database_service import DatabaseService
 
 logger = logging.getLogger(__name__)
 
@@ -47,29 +48,13 @@ class TelegramSubscriberService:
         chat_ids = await TelegramSubscriberService.get_active_chat_ids()
     """
 
-    _pool: Optional[Any] = None
-    _pool_lock = asyncio.Lock()
-
     @classmethod
     async def _get_pool(cls) -> Any:
-        if asyncpg is None:
-            raise RuntimeError("asyncpg is not installed")
-        if cls._pool is None:
-            async with cls._pool_lock:
-                if cls._pool is None:
-                    cls._pool = await asyncpg.create_pool(
-                        dsn=settings.DATABASE_URL,
-                        min_size=1,
-                        max_size=3,
-                        command_timeout=10,
-                    )
-        return cls._pool
+        return await DatabaseService.get_pool()
 
     @classmethod
     async def close_pool(cls) -> None:
-        if cls._pool is not None:
-            await cls._pool.close()
-            cls._pool = None
+        return None
 
     # ── Write ──────────────────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 import pytest
 import os
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
 
 from activities.media_activities import generate_scene_images
 
@@ -29,8 +29,11 @@ async def test_top_half_browser_capture(MockMediaStorage, MockBrowser):
     import builtins
     from unittest.mock import mock_open
 
+    # Create fake video data that's large enough to pass validation (> 2000 bytes)
+    fake_video_data = b"WEBM" + b"\x00" * 5000
+    
     with (
-        patch("builtins.open", mock_open(read_data=b"fake_image_data")),
+        patch("builtins.open", mock_open(read_data=fake_video_data)),
         patch("os.makedirs"),
         patch("os.path.exists", return_value=True),
         patch("os.path.getsize", return_value=5000), # Mock 5KB file
@@ -51,9 +54,8 @@ async def test_top_half_browser_capture(MockMediaStorage, MockBrowser):
         # Assertions
         assert len(results) == 1
         assert results[0]["status"] == "completed"
-        mock_browser_instance.record_video_for_tutorial.assert_called_once_with(
-            "https://example.com", capture_hint="scroll"
-        )
+        assert results[0]["is_video"] == True
+        assert results[0]["generation_method"] == "browser_capture"
 
     print("Browser top-half automation test (success) passed!")
 
@@ -82,3 +84,136 @@ async def test_top_half_browser_capture_too_small(MockBrowser):
     # Ensure browser was still closed even on failure
     mock_browser_instance.close.assert_called()
     print("Browser top-half automation test (size guard) passed!")
+
+
+@pytest.mark.asyncio
+@patch("activities.media_activities.ImageGenerationService")
+async def test_top_half_ai_visual_fallback(MockImageService):
+    """Test that ai_visual_fallback scenes use AI image generation."""
+    mock_image_service = AsyncMock()
+    mock_image_service.generate_images.return_value = {
+        "images": [
+            {
+                "url": "https://mocked.com/ai_images/generated.png",
+                "storage_url": "https://mocked.com/ai_images/generated.png",
+                "storage_key": "ai_images/test/generated.png",
+                "media_asset_id": "asset-ai-123",
+            }
+        ]
+    }
+    MockImageService.return_value = mock_image_service
+
+    scenes = [
+        {
+            "id": 1,
+            "top_half_source_type": "ai_visual_fallback",
+            "top_half_target": "Futuristic code editor",
+            "top_half_capture_hint": "cinematic",
+            "image_prompt": "Abstract technology background",
+        },
+    ]
+
+    results = await generate_scene_images(scenes)
+
+    assert len(results) == 1
+    assert results[0]["status"] == "completed"
+    assert results[0]["is_video"] == False
+    assert results[0]["generation_method"] == "ai_visual"
+    assert "ai_images" in results[0]["image_url"]
+    
+    # Verify ImageGenerationService was called
+    mock_image_service.generate_images.assert_called_once()
+    call_kwargs = mock_image_service.generate_images.call_args
+    assert "Futuristic code editor" in call_kwargs.kwargs["prompt"]
+    
+    print("AI visual fallback test passed!")
+
+
+@pytest.mark.asyncio
+@patch("activities.media_activities.BrowserAutomationService")
+async def test_hybrid_candidate_fails_without_fallback(MockBrowser):
+    """Test that hybrid_candidate fails with error when browser capture fails (no fallback)."""
+    # Make browser capture fail
+    mock_browser_instance = AsyncMock()
+    mock_browser_instance.record_video_for_tutorial.side_effect = RuntimeError("Browser capture failed")
+    MockBrowser.return_value = mock_browser_instance
+
+    scenes = [
+        {
+            "id": 1,
+            "top_half_source_type": "hybrid_candidate",
+            "source_ref": "https://example.com",
+            "top_half_target": "Product demo",
+            "top_half_capture_hint": "scroll",
+        },
+    ]
+
+    with (
+        patch("os.makedirs"),
+    ):
+        from temporalio.exceptions import ApplicationError
+        with pytest.raises(ApplicationError) as exc:
+            await generate_scene_images(scenes)
+        
+        assert "Browser capture failed" in str(exc.value) or "failed for scene 1" in str(exc.value)
+    
+    print("Hybrid candidate failure test passed!")
+
+
+@pytest.mark.asyncio
+@patch("activities.media_activities.ImageGenerationService")
+async def test_hybrid_candidate_without_source_ref_uses_ai_directly(MockImageService):
+    """Test that hybrid_candidate without source_ref goes directly to AI."""
+    mock_image_service = AsyncMock()
+    mock_image_service.generate_images.return_value = {
+        "images": [
+            {
+                "url": "https://mocked.com/ai_direct/image.png",
+                "storage_url": "https://mocked.com/ai_direct/image.png",
+                "storage_key": "ai_direct/test/image.png",
+                "media_asset_id": "asset-direct-123",
+            }
+        ]
+    }
+    MockImageService.return_value = mock_image_service
+
+    scenes = [
+        {
+            "id": 1,
+            "top_half_source_type": "hybrid_candidate",
+            "source_ref": None,  # No source_ref
+            "top_half_target": "Abstract visual",
+            "top_half_capture_hint": "static",
+        },
+    ]
+
+    results = await generate_scene_images(scenes)
+
+    assert len(results) == 1
+    assert results[0]["status"] == "completed"
+    assert results[0]["generation_method"] == "ai_visual"
+    # Should not have fallback_reason since it went directly to AI
+    assert results[0].get("fallback_reason") is None
+    
+    print("Hybrid candidate direct AI test passed!")
+
+
+@pytest.mark.asyncio
+async def test_public_page_capture_requires_source_ref():
+    """Test that public_page_capture fails without source_ref."""
+    scenes = [
+        {
+            "id": 1,
+            "top_half_source_type": "public_page_capture",
+            "source_ref": None,  # Missing source_ref
+            "top_half_target": "Landing page",
+        },
+    ]
+
+    from temporalio.exceptions import ApplicationError
+    with pytest.raises(ApplicationError) as exc:
+        await generate_scene_images(scenes)
+    
+    assert "source_ref" in str(exc.value).lower()
+    
+    print("Public page capture source_ref requirement test passed!")

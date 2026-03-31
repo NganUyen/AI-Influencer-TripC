@@ -259,6 +259,8 @@ class CreativeDirectorService:
             "- bottom_half_message should be concise and production-friendly.\n"
             "- top_half_target should name the source area or section to capture (e.g., 'Hero Section', 'Features Grid', 'Pricing Table').\n"
             "- top_half_capture_hint should describe how to capture it (e.g., 'scroll', 'static', 'Scroll hero section').\n"
+            "- top_half_follow_links must be true for walkthrough-like or demo-like beats where moving to relevant internal pages helps storytelling.\n"
+            "- top_half_max_capture_seconds must be an integer between 8 and 60. Prefer 45-60 for walkthrough beats and 12-30 for simple beats.\n"
             "- Do not invent product details beyond the concept brief and source_summary.\n"
             "Return this exact shape:\n"
             "{\n"
@@ -271,6 +273,8 @@ class CreativeDirectorService:
             '      "top_half_source_type": "public_page_capture",\n'
             '      "top_half_target": "Hero Section",\n'
             '      "top_half_capture_hint": "scroll",\n'
+            '      "top_half_follow_links": true,\n'
+            '      "top_half_max_capture_seconds": 45,\n'
             '      "source_ref": null,\n'
             '      "overlay_text": "...",\n'
             '      "duration_sec": 4\n'

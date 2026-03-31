@@ -221,6 +221,7 @@ class HeyGenService:
         aspect_ratio: str = "9:16",
         width: int = 1080,
         height: int = 1920,
+        allow_aspect_ratio_fallback: bool = True,
     ) -> dict:
         """
         Tạo request video mới trên HeyGen.
@@ -237,7 +238,7 @@ class HeyGenService:
         logger.info(f"Tạo HeyGen video | avatar: {avatar_id} | ratio: {aspect_ratio}")
 
         candidate_ratios = [aspect_ratio]
-        if aspect_ratio == "1:1":
+        if aspect_ratio == "1:1" and allow_aspect_ratio_fallback:
             # HeyGen v2 may reject square aspect ratio for some accounts/avatar types.
             candidate_ratios.append("9:16")
 
@@ -392,7 +393,16 @@ class HeyGenService:
 
             if status in ["failed", "error"]:
                 error = status_data.get("data", {}).get("error") or status_data.get("error", "Unknown")
-                raise ValueError(f"HeyGen video failed: {error}")
+                error_code = status_data.get("data", {}).get("error_code") or status_data.get("error_code")
+                logger.error(
+                    "HeyGen video generation FAILED | video_id=%s | status=%s | error=%s | error_code=%s | full_response=%s",
+                    video_id,
+                    status,
+                    error,
+                    error_code,
+                    str(status_data)[:500],
+                )
+                raise ValueError(f"HeyGen video failed: {error} (code={error_code}, video_id={video_id})")
 
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval

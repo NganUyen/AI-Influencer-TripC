@@ -52,6 +52,14 @@ class ShortVideoWorkflow:
         self.current_step = "queued"
         self.decision = None
 
+        # Version gates for deterministic replay across deployed workflow changes.
+        progress_notify_enabled = workflow.patched(
+            "short-video-progress-notify-v1"
+        )
+        error_notify_enabled = workflow.patched(
+            "short-video-error-notify-v1"
+        )
+
         workflow_id = workflow.info().workflow_id
         payload_dict = payload if isinstance(payload, dict) else {}
         fallback_persona_id = payload_dict.get("persona_id", "")
@@ -59,6 +67,8 @@ class ShortVideoWorkflow:
         telegram_chat_id = payload_dict.get("telegram_chat_id")
 
         async def notify_progress(stage_label: str, details: str = "") -> None:
+            if not progress_notify_enabled:
+                return
             if not telegram_chat_id:
                 return
             try:
@@ -209,6 +219,10 @@ class ShortVideoWorkflow:
                     "top_half_source_type": scene.get("top_half_source_type"),
                     "top_half_target": scene.get("top_half_target"),
                     "top_half_capture_hint": scene.get("top_half_capture_hint"),
+                    "top_half_follow_links": scene.get("top_half_follow_links"),
+                    "top_half_max_capture_seconds": scene.get(
+                        "top_half_max_capture_seconds"
+                    ),
                     "source_ref": scene.get("source_ref"),
                 }
                 for scene in scenes
@@ -305,8 +319,14 @@ class ShortVideoWorkflow:
                 try:
                     talking_head_result = await talking_head_handle
                 except Exception as exc:
-                    workflow.logger.warning("Talking head generation failed: %s", exc)
-                    talking_head_result = {"url": "", "status": "failed"}
+                    workflow.logger.error(
+                        "Talking head generation FAILED | persona=%s | error_type=%s | error=%s",
+                        persona_id,
+                        type(exc).__name__,
+                        str(exc)[:300],
+                    )
+                    # Re-raise to fail the workflow - talking head is required for split-screen
+                    raise
 
             self.workflow_status = "assembling"
             self.current_step = "assembling"
@@ -510,7 +530,7 @@ class ShortVideoWorkflow:
                 error_details["error_type"],
                 error_details["error_summary"],
             )
-            if telegram_chat_id:
+            if telegram_chat_id and error_notify_enabled:
                 try:
                     await workflow.execute_activity(
                         send_telegram_error_notification,

@@ -239,9 +239,31 @@ class ExtractedFeatureContract(BaseModel):
     keyframe_ids: List[str] = Field(default_factory=list)
 
 
+class GroundedFeatureContract(BaseModel):
+    """
+    A feature after OpenClaw grounding against official sources (Phase 5).
+
+    Source-of-truth priority:
+    1. official site/docs (grounded=True)
+    2. user confirmation
+    3. video evidence
+    4. model inference (grounded=False)
+    """
+
+    feature_id: str  # Reference to ExtractedFeatureContract
+    original_name: str  # Name from OCR/analysis
+    grounded: bool = False  # True if verified against official source
+    official_name: Optional[str] = None  # Corrected name from official docs
+    official_description: Optional[str] = None  # Description from official source
+    value_proposition: Optional[str] = None  # Why this feature matters
+    source_url: Optional[str] = None  # URL where verified
+    grounding_confidence: Literal["high", "medium", "low"] = "low"
+    grounding_note: str = ""  # Explanation of grounding result
+
+
 class RecordedDemoEvidenceContract(BaseModel):
     """
-    Evidence extracted from uploaded demo video (Phase 4).
+    Evidence extracted from uploaded demo video (Phase 4-5).
 
     This is the internal analysis output contract.
     Kept separate from ConceptBrief until Phase 6 integration.
@@ -263,8 +285,11 @@ class RecordedDemoEvidenceContract(BaseModel):
     # Timeline segmentation
     segments: List[TimelineSegmentContract] = Field(default_factory=list)
 
-    # Extracted features from OCR and analysis
+    # Extracted features from OCR and analysis (Phase 4)
     extracted_features: List[ExtractedFeatureContract] = Field(default_factory=list)
+
+    # Grounded features after OpenClaw verification (Phase 5)
+    grounded_features: List[GroundedFeatureContract] = Field(default_factory=list)
 
     # Summary outputs for downstream phases (Phase 5+)
     # Note: segments (above) contain structured timeline data
@@ -272,7 +297,12 @@ class RecordedDemoEvidenceContract(BaseModel):
     timeline_narrative: str = ""  # Human-readable summary of timeline flow
     feature_candidates: List[str] = Field(
         default_factory=list
-    )  # Top feature names to highlight
+    )  # Top feature names to highlight (updated after grounding)
+
+    # Grounding metadata (Phase 5)
+    grounding_reference_url: Optional[str] = None  # URL used for grounding
+    grounding_project_name: Optional[str] = None  # Project name if provided
+    grounding_completed: bool = False  # Whether grounding step has run
 
     # Confidence scoring
     analysis_confidence_overall: Literal["high", "medium", "low"] = "low"

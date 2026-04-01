@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from copy import deepcopy
 from typing import Any, Dict, Optional
 
@@ -16,6 +17,52 @@ from .step_config import get_step_definition
 
 class SkillDispatcher:
     """Load, update, execute, and persist skill sessions."""
+
+    @classmethod
+    def _check_demo_preview_timeout(
+        cls, session: SkillSession
+    ) -> Optional[SkillResult]:
+        """
+        Check if demo preview confirmation has timed out (Phase 5).
+
+        Returns a timeout error result if expired, None otherwise.
+        """
+        if (
+            session.skill_name != "video-ai"
+            or session.step_key != "demo_preview_confirm"
+        ):
+            return None
+
+        timeout_at = session.artifacts.get("demo_preview_timeout_at")
+        if not timeout_at:
+            return None
+
+        current_time = int(time.time())
+        if current_time < timeout_at:
+            return None
+
+        # Timeout expired - abort (not auto-confirm per spec)
+        session.control.status = SkillStatus.failed
+        session.control.error_message = (
+            "Demo preview confirmation timed out (15 minutes). "
+            "Please start again or re-upload the video."
+        )
+        return SkillResult(
+            success=False,
+            next_step="demo_preview_confirm",
+            output={
+                "message": (
+                    "Preview confirmation timed out after 15 minutes.\n\n"
+                    "The session has been paused. You can:\n"
+                    "• Re-upload the video to start fresh\n"
+                    "• Contact support if you need assistance"
+                ),
+                "timeout": True,
+                "retryable": True,
+            },
+            error="Preview confirmation timed out",
+            session=session,
+        )
 
     @classmethod
     def _build_heygen_avatar_name(cls, persona_id: str) -> str:
@@ -103,6 +150,11 @@ class SkillDispatcher:
         if session is None:
             return None
         session.artifacts.setdefault("telegram_chat_id", str(chat_id))
+
+        # Phase 5: Check demo preview timeout before processing
+        timeout_result = cls._check_demo_preview_timeout(session)
+        if timeout_result:
+            return await cls._save_or_clear(chat_id, timeout_result)
 
         step = get_step_definition(session.skill_name, session.step_key)
         input_type = step.get("input_type")
@@ -410,6 +462,11 @@ class SkillDispatcher:
             )
         session.artifacts.setdefault("telegram_chat_id", str(chat_id))
 
+        # Phase 5: Check demo preview timeout before processing
+        timeout_result = cls._check_demo_preview_timeout(session)
+        if timeout_result:
+            return await cls._save_or_clear(chat_id, timeout_result)
+
         step = get_step_definition(session.skill_name, session.step_key)
         field = step.get("field")
         if field:
@@ -446,6 +503,12 @@ class SkillDispatcher:
         if session is None:
             return SkillResult(success=False, error="No active skill session.")
         session.artifacts.setdefault("telegram_chat_id", str(chat_id))
+
+        # Phase 5: Check demo preview timeout before processing (unless canceling)
+        if action != "cancel":
+            timeout_result = cls._check_demo_preview_timeout(session)
+            if timeout_result:
+                return await cls._save_or_clear(chat_id, timeout_result)
 
         if action == "cancel":
             workflow_id = session.control.workflow_id or session.artifacts.get(
@@ -547,6 +610,30 @@ class SkillDispatcher:
                     action,
                     "http://backend",
                     client,
+                )
+            if result.session is not None:
+                await cls._prepare_prompt_session(app, result.session)
+            return await cls._save_or_clear(chat_id, result)
+
+        # Phase 5: Demo preview confirmation actions
+        if session.skill_name == "video-ai" and action in {
+            "confirm",
+            "correct",
+            "reemphasize",
+            "reupload",
+        }:
+            # Get correction/reemphasis text from collected fields if already captured
+            correction_text = session.collected.get("feature_correction")
+            reemphasis_text = session.collected.get("feature_reemphasis")
+
+            async with cls._transport_client(app) as client:
+                result = await skill_cls.handle_demo_preview_action(
+                    session,
+                    action,
+                    "http://backend",
+                    client,
+                    correction_text=correction_text,
+                    reemphasis_text=reemphasis_text,
                 )
             if result.session is not None:
                 await cls._prepare_prompt_session(app, result.session)

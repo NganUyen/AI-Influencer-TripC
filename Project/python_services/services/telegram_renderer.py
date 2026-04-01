@@ -266,6 +266,79 @@ def _video_ai_retry_text(
     return "\n".join(lines)
 
 
+def _video_ai_demo_preview_text(
+    preview_summary: Dict[str, Any],
+    session_collected: Dict[str, Any],
+) -> str:
+    """Format the demo video preview confirmation message (Phase 5)."""
+    lines = ["📹 *Demo Video Analysis Complete*", ""]
+
+    # Video info section
+    video_info = preview_summary.get("video_info", {})
+    duration = video_info.get("duration_sec", 0)
+    resolution = video_info.get("resolution", "unknown")
+    segment_count = video_info.get("segment_count", 0)
+    lines.append(f"• Duration: {duration:.0f}s")
+    lines.append(f"• Resolution: {resolution}")
+    lines.append(f"• Segments detected: {segment_count}")
+    lines.append("")
+
+    # Confidence indicator
+    confidence = preview_summary.get("confidence", "medium")
+    conf_emoji = {"high": "🟢", "medium": "🟡", "low": "🔴"}.get(confidence, "⚪")
+    lines.append(f"Analysis confidence: {conf_emoji} {confidence}")
+    lines.append("")
+
+    # Features section
+    grounded_features = preview_summary.get("grounded_features", [])
+    ungrounded_features = preview_summary.get("ungrounded_features", [])
+    feature_candidates = preview_summary.get("feature_candidates", [])
+
+    if grounded_features:
+        lines.append("*Verified Features* (from official docs):")
+        for feat in grounded_features[:5]:
+            lines.append(f"  ✓ {feat}")
+        lines.append("")
+
+    if ungrounded_features:
+        lines.append("*Detected Features* (not verified):")
+        for feat in ungrounded_features[:3]:
+            lines.append(f"  ? {feat}")
+        lines.append("")
+
+    if not grounded_features and not ungrounded_features and feature_candidates:
+        lines.append("*Feature Candidates*:")
+        for feat in feature_candidates[:5]:
+            lines.append(f"  • {feat}")
+        lines.append("")
+
+    # Timeline narrative
+    narrative = preview_summary.get("timeline_narrative", "")
+    if narrative:
+        lines.append("*Video Flow*:")
+        lines.append(f"  {_truncate(narrative, 200)}")
+        lines.append("")
+
+    # User context
+    video_goal = session_collected.get("video_goal", "")
+    audience = session_collected.get("audience", "")
+    if video_goal:
+        lines.append(f"Video goal: {_humanize_token(video_goal)}")
+    if audience:
+        lines.append(f"Target audience: {_truncate(audience, 60)}")
+
+    lines.append("")
+    lines.append(
+        "Please review the analysis above.\n"
+        "• *Confirm* to proceed with video generation\n"
+        "• *Correct* to fix any misunderstandings\n"
+        "• *Re-emphasize* to focus on specific features\n"
+        "• *Re-upload* to start with a different video"
+    )
+
+    return "\n".join(lines)
+
+
 def _status_badge(status: str) -> str:
     normalized = str(status or "unknown").strip().lower()
     return {
@@ -360,7 +433,7 @@ def _render_persona_inspector_result(
 
     payload: Dict[str, Any] = {
         "text": "\n".join(lines),
-        "reply_markup": _inline_keyboard_from_pairs(persona_actions, prefix="action::"),
+        "reply_markup": _inline_keyboard_from_pairs(persona_actions),
         "parse_mode": None,
     }
     if avatar_image_url:
@@ -550,6 +623,22 @@ class TelegramRenderer:
                     prefix="action::",
                 ),
                 "parse_mode": None,
+            }
+
+        # Phase 5: Demo preview confirmation step
+        if (
+            session.skill_name == "video-ai"
+            and session.step_key == "demo_preview_confirm"
+        ):
+            step = get_step_definition(session.skill_name, session.step_key)
+            preview_summary = session.artifacts.get("demo_preview_summary") or {}
+            return {
+                "text": _video_ai_demo_preview_text(preview_summary, session.collected),
+                "reply_markup": _inline_keyboard_from_options(
+                    step.get("options", []),
+                    prefix="action::",
+                ),
+                "parse_mode": "Markdown",
             }
 
         if session.skill_name == "video-ai" and session.step_key == "package_ready":
@@ -881,6 +970,40 @@ class TelegramRenderer:
                     prefix="action::",
                 ),
                 "parse_mode": None,
+            }
+
+        # Phase 5: Demo preview confirmation result
+        if (
+            session.skill_name == "video-ai"
+            and session.step_key == "demo_preview_confirm"
+        ):
+            output = result.output or {}
+            preview_summary = (
+                output.get("demo_preview_summary")
+                or session.artifacts.get("demo_preview_summary")
+                or {}
+            )
+            step = get_step_definition(session.skill_name, session.step_key)
+            # Check for timeout error
+            if output.get("timeout"):
+                return {
+                    "text": output.get("message", "Preview confirmation timed out."),
+                    "reply_markup": _inline_keyboard_from_options(
+                        [
+                            {"label": "🔄 Re-upload", "value": "reupload"},
+                            {"label": "❌ Cancel", "value": "cancel"},
+                        ],
+                        prefix="action::",
+                    ),
+                    "parse_mode": None,
+                }
+            return {
+                "text": _video_ai_demo_preview_text(preview_summary, session.collected),
+                "reply_markup": _inline_keyboard_from_options(
+                    step.get("options", []),
+                    prefix="action::",
+                ),
+                "parse_mode": "Markdown",
             }
 
         if (

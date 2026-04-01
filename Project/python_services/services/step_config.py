@@ -297,6 +297,38 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
                 ("Not Sure", "unknown"),
             ),
         },
+        # Phase 5: Demo video preview confirmation step
+        # Only shown for recorded_demo_video mode after grounding
+        "demo_preview_confirm": {
+            "input_type": "inline_keyboard",
+            "field": "demo_preview_action",
+            "prompt_text": "📋 *Analysis Complete*\n\n"
+            "Please review what I detected from your demo video.\n"
+            "You can confirm to proceed, correct any misunderstandings, "
+            "or re-emphasize specific features.",
+            "options": _options(
+                ("✅ Confirm", "confirm"),
+                ("✏️ Correct", "correct"),
+                ("🎯 Re-emphasize", "reemphasize"),
+                ("🔄 Re-upload", "reupload"),
+            ),
+            "timeout_sec": 900,  # 15 minutes
+            "timeout_action": "abort",  # Abort on timeout, don't auto-confirm
+        },
+        # Phase 5: Feature correction step (if user chooses "correct")
+        "demo_correct_features": {
+            "input_type": "free_text",
+            "field": "feature_correction",
+            "prompt_text": "✏️ What should I correct about the detected features?\n\n"
+            "Tell me which features are wrong or what I missed.",
+        },
+        # Phase 5: Feature re-emphasis step (if user chooses "reemphasize")
+        "demo_reemphasize_features": {
+            "input_type": "free_text",
+            "field": "feature_reemphasis",
+            "prompt_text": "🎯 Which features should I focus on?\n\n"
+            "List the features that matter most for this video.",
+        },
         "confirm_concept": {
             "input_type": "preview_actions",
             "prompt_text": "📋 Review the concept brief before continuing.",

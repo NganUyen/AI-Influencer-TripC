@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from typing import Any, Dict, Optional
 
@@ -11,11 +12,19 @@ from services.contracts import (
     ApprovedProductionPackageContract,
     BeatSheetContract,
     ConceptBriefContract,
+    RecordedDemoEvidenceContract,
 )
 from services.creative_director_service import CreativeDirectorService
+from services.demo_feature_grounding_service import (
+    DemoFeatureGroundingService,
+    build_preview_summary,
+)
+from services.demo_video_analyzer_service import DemoVideoAnalyzerService
 
 from .base import BaseSkill, SkillResult, SkillSession, SkillStatus
 from .definitions import get_skill_definition
+
+logger = logging.getLogger(__name__)
 
 _DEFINITION = get_skill_definition("video-ai")
 
@@ -72,6 +81,11 @@ class VideoAISkill(BaseSkill):
         session.artifacts.setdefault("approved_production_package", None)
         session.artifacts.setdefault("concept_approved", False)
         session.artifacts.setdefault("beat_sheet_approved", False)
+        # Phase 5: Demo video preview confirmation artifacts
+        session.artifacts.setdefault("demo_evidence", None)
+        session.artifacts.setdefault("demo_preview_summary", None)
+        session.artifacts.setdefault("demo_preview_confirmed", False)
+        session.artifacts.setdefault("demo_preview_timeout_at", None)
         return session
 
     @classmethod
@@ -122,13 +136,22 @@ class VideoAISkill(BaseSkill):
                 return "collect_reference_url"
             if not session.collected.get("access_level"):
                 return "choose_access_level"
+            # Phase 5: Check if demo preview has been confirmed
+            if not session.artifacts.get("demo_preview_confirmed"):
+                return "demo_preview_confirm"
             return None
 
         # For idea_brief mode (original flow)
+        # idea_brief and feature_focus are required in this mode
+        if not session.collected.get("idea_brief"):
+            return "collect_idea_brief"
+        if not session.collected.get("feature_focus"):
+            return "collect_feature_focus"
+        # Then check remaining required params
         missing = cls._missing_required_params(session)
         if not missing:
             return None
-        return _FIELD_TO_STEP.get(missing[0], "collect_idea_brief")
+        return _FIELD_TO_STEP.get(missing[0], "choose_video_goal")
 
     @classmethod
     async def _resolve_persona_snapshot(
@@ -211,6 +234,79 @@ class VideoAISkill(BaseSkill):
         }
         session.artifacts["persona_snapshot"] = resolved_snapshot
         return resolved_snapshot
+
+    @classmethod
+    async def _run_demo_analysis_and_grounding(
+        cls,
+        session: SkillSession,
+        backend_url: str,
+        http_client: Any,
+    ) -> RecordedDemoEvidenceContract:
+        """
+        Run Phase 4 analysis and Phase 5 grounding for recorded_demo_video mode.
+
+        This method:
+        1. Calls DemoVideoAnalyzerService to analyze the uploaded video
+        2. Calls DemoFeatureGroundingService to ground features against official website
+        3. Returns the enriched RecordedDemoEvidenceContract
+
+        Raises:
+            ValueError: If video asset URL is missing or analysis fails
+        """
+        demo_video_url = session.collected.get("demo_video_asset_url")
+        if not demo_video_url:
+            raise ValueError("Demo video asset URL is missing. Please re-upload.")
+
+        reference_url = session.collected.get("reference_url", "")
+        video_goal = session.collected.get("video_goal", "feature_demo")
+        audience = session.collected.get("audience", "")
+        cta = session.collected.get("cta", "")
+        telegram_chat_id = session.artifacts.get("telegram_chat_id")
+        user_id = f"telegram:{telegram_chat_id}" if telegram_chat_id else "system"
+
+        # Phase 4: Run video analysis
+        logger.info("Running Phase 4 demo video analysis for %s", demo_video_url)
+        analyzer = DemoVideoAnalyzerService()
+        evidence = await analyzer.analyze_demo_video(
+            video_url=demo_video_url,
+            reference_url=reference_url,
+            video_goal=video_goal,
+            audience=audience,
+            cta=cta,
+        )
+
+        # Store quality report from Phase 3 if available
+        quality_report = session.artifacts.get("demo_video_quality_report")
+        if quality_report:
+            evidence.confidence_signals["quality_report"] = quality_report
+
+        # Phase 5: Run feature grounding against official website
+        if reference_url:
+            logger.info(
+                "Running Phase 5 feature grounding against %s",
+                reference_url,
+            )
+            grounding_service = DemoFeatureGroundingService()
+            evidence = await grounding_service.ground_features(
+                evidence=evidence,
+                reference_url=reference_url,
+                project_name=None,  # Will be inferred from website
+                video_goal=video_goal,
+                audience=audience,
+                cta=cta,
+                user_id=user_id,
+            )
+        else:
+            logger.info("No reference_url provided, skipping feature grounding")
+            evidence.grounding_completed = False
+
+        logger.info(
+            "Demo analysis complete: %d features, %d grounded",
+            len(evidence.extracted_features),
+            sum(1 for f in evidence.grounded_features if f.grounded),
+        )
+
+        return evidence
 
     @classmethod
     def _preview_result(
@@ -397,6 +493,11 @@ class VideoAISkill(BaseSkill):
         session.artifacts["workflow_id"] = None
         session.artifacts["concept_approved"] = False
         session.artifacts["beat_sheet_approved"] = False
+        # Phase 5: Reset demo preview artifacts
+        session.artifacts["demo_evidence"] = None
+        session.artifacts["demo_preview_summary"] = None
+        session.artifacts["demo_preview_confirmed"] = False
+        session.artifacts["demo_preview_timeout_at"] = None
         session.control.workflow_id = None
         session.control.approval_required = False
         session.control.error_message = None
@@ -496,6 +597,147 @@ class VideoAISkill(BaseSkill):
         )
 
     @classmethod
+    async def handle_demo_preview_action(
+        cls,
+        session: Optional[SkillSession | Dict[str, Any]],
+        action: str,
+        backend_url: str,
+        http_client: Any,
+        *,
+        correction_text: Optional[str] = None,
+        reemphasis_text: Optional[str] = None,
+    ) -> SkillResult:
+        """
+        Handle demo preview confirmation actions (Phase 5).
+
+        Actions:
+        - confirm: User confirms the analysis, proceed to ConceptBrief generation
+        - correct: User wants to correct feature misunderstandings
+        - reemphasize: User wants to focus on specific features
+        - reupload: User wants to re-upload a different demo video
+        - timeout: System-triggered timeout (abort, not auto-confirm)
+        """
+        current = cls._normalize_session(session)
+
+        # Only handle if we're at the demo_preview_confirm step
+        if current.step_key != "demo_preview_confirm":
+            return cls._error_result(
+                current,
+                f"Demo preview action not applicable at step: {current.step_key}",
+            )
+
+        if action == "confirm":
+            # User confirms the analysis - proceed to ConceptBrief generation
+            current.artifacts["demo_preview_confirmed"] = True
+            current.artifacts["demo_preview_timeout_at"] = None
+            logger.info("Demo preview confirmed by user, proceeding to ConceptBrief")
+            return await cls.execute(current, backend_url, http_client)
+
+        if action == "correct":
+            if correction_text:
+                # Apply correction to evidence
+                evidence_payload = current.artifacts.get("demo_evidence")
+                if evidence_payload:
+                    try:
+                        evidence = RecordedDemoEvidenceContract.model_validate(
+                            evidence_payload
+                        )
+                        # Store correction for later use in ConceptBrief generation
+                        evidence.confidence_signals["user_correction"] = correction_text
+                        current.artifacts["demo_evidence"] = evidence.model_dump(
+                            mode="json"
+                        )
+                    except ValidationError:
+                        pass
+                # Mark as confirmed after correction
+                current.artifacts["demo_preview_confirmed"] = True
+                current.artifacts["demo_preview_timeout_at"] = None
+                logger.info(
+                    "Demo preview confirmed with correction: %s", correction_text
+                )
+                return await cls.execute(current, backend_url, http_client)
+            else:
+                # Need to collect correction text
+                current.step_key = "demo_correct_features"
+                return cls._collecting_result(
+                    current, next_step="demo_correct_features"
+                )
+
+        if action == "reemphasize":
+            if reemphasis_text:
+                # Apply re-emphasis to feature_emphasis field
+                current.collected["feature_emphasis"] = reemphasis_text
+                evidence_payload = current.artifacts.get("demo_evidence")
+                if evidence_payload:
+                    try:
+                        evidence = RecordedDemoEvidenceContract.model_validate(
+                            evidence_payload
+                        )
+                        evidence.confidence_signals["user_reemphasis"] = reemphasis_text
+                        current.artifacts["demo_evidence"] = evidence.model_dump(
+                            mode="json"
+                        )
+                    except ValidationError:
+                        pass
+                # Mark as confirmed after re-emphasis
+                current.artifacts["demo_preview_confirmed"] = True
+                current.artifacts["demo_preview_timeout_at"] = None
+                logger.info(
+                    "Demo preview confirmed with re-emphasis: %s", reemphasis_text
+                )
+                return await cls.execute(current, backend_url, http_client)
+            else:
+                # Need to collect re-emphasis text
+                current.step_key = "demo_reemphasize_features"
+                return cls._collecting_result(
+                    current, next_step="demo_reemphasize_features"
+                )
+
+        if action == "reupload":
+            # Reset demo video artifacts and restart from upload step
+            current.collected["demo_video_telegram_file_id"] = None
+            current.collected["demo_video_asset_url"] = None
+            current.artifacts["demo_evidence"] = None
+            current.artifacts["demo_preview_summary"] = None
+            current.artifacts["demo_preview_confirmed"] = False
+            current.artifacts["demo_preview_timeout_at"] = None
+            current.artifacts["demo_video_quality_report"] = None
+            current.step_key = "upload_demo_video"
+            return cls._collecting_result(
+                current,
+                next_step="upload_demo_video",
+                output={"message": "Please upload a new demo video."},
+            )
+
+        if action == "timeout":
+            # Timeout abort - do NOT auto-confirm per spec
+            current.control.status = SkillStatus.failed
+            current.control.error_message = (
+                "Demo preview confirmation timed out (15 minutes). "
+                "Please start again or re-upload the video."
+            )
+            current.step_key = "demo_preview_confirm"
+            logger.warning("Demo preview timed out, aborting (not auto-confirming)")
+            return SkillResult(
+                success=False,
+                next_step="demo_preview_confirm",
+                output={
+                    "message": (
+                        "Preview confirmation timed out after 15 minutes.\n\n"
+                        "The session has been paused. You can:\n"
+                        "• Re-upload the video to start fresh\n"
+                        "• Contact support if you need assistance"
+                    ),
+                    "timeout": True,
+                    "retryable": True,
+                },
+                error="Preview confirmation timed out",
+                session=current,
+            )
+
+        return cls._error_result(current, f"Unknown demo preview action: {action}")
+
+    @classmethod
     async def execute(
         cls,
         session: Optional[SkillSession | Dict[str, Any]],
@@ -516,7 +758,53 @@ class VideoAISkill(BaseSkill):
             )
 
         next_step = cls._missing_step(current)
+
+        # Phase 5: For recorded_demo_video mode, run analysis and grounding before preview
+        if (
+            next_step == "demo_preview_confirm"
+            and current.collected.get("creative_input_mode") == "recorded_demo_video"
+            and not current.artifacts.get("demo_evidence")
+        ):
+            # Run Phase 4 analysis + Phase 5 grounding
+            try:
+                evidence = await cls._run_demo_analysis_and_grounding(
+                    current, backend_url, http_client
+                )
+                current.artifacts["demo_evidence"] = evidence.model_dump(mode="json")
+                # Build preview summary for Telegram rendering
+                current.artifacts["demo_preview_summary"] = build_preview_summary(
+                    evidence,
+                    video_goal=current.collected.get("video_goal"),
+                )
+                # Set timeout timestamp (15 minutes from now)
+                import time
+
+                current.artifacts["demo_preview_timeout_at"] = int(time.time()) + 900
+            except Exception as exc:
+                logger.warning("Demo analysis/grounding failed: %s", exc)
+                return cls._retryable_error_result(
+                    current,
+                    step_key="demo_preview_confirm",
+                    error=f"Could not analyze demo video. Please try again or re-upload. ({exc})",
+                    output={"retryable": True},
+                )
+
         if next_step:
+            # For demo_preview_confirm, include the preview summary in output
+            if next_step == "demo_preview_confirm":
+                preview_summary = current.artifacts.get("demo_preview_summary") or {}
+                current.step_key = "demo_preview_confirm"
+                current.control.status = SkillStatus.preview_ready
+                return SkillResult(
+                    success=True,
+                    next_step="demo_preview_confirm",
+                    output={
+                        "message": "Demo video analysis complete. Please review.",
+                        "demo_preview_summary": preview_summary,
+                        "demo_evidence": current.artifacts.get("demo_evidence"),
+                    },
+                    session=current,
+                )
             return cls._collecting_result(current, next_step=next_step)
 
         try:

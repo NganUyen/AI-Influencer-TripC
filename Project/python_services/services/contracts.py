@@ -200,7 +200,7 @@ URL_REQUIRED_SOURCE_TYPES = {
 
 class ConceptBriefContract(BaseModel):
     persona_id: str
-    creative_input_mode: Literal["idea_brief"] = "idea_brief"
+    creative_input_mode: Literal["idea_brief", "recorded_demo_video"] = "idea_brief"
     feature_focus: str
     video_goal: str
     audience: str
@@ -211,6 +211,10 @@ class ConceptBriefContract(BaseModel):
     access_level: str
     source_summary: str
     tone_resolved: str
+
+    # Optional fields for recorded_demo_video mode
+    demo_video_telegram_file_id: Optional[str] = None
+    demo_video_asset_url: Optional[str] = None
 
     @field_validator("video_goal")
     @classmethod
@@ -275,7 +279,9 @@ class BeatContract(BaseModel):
 
     @field_validator("top_half_max_capture_seconds")
     @classmethod
-    def validate_top_half_max_capture_seconds(cls, value: Optional[int]) -> Optional[int]:
+    def validate_top_half_max_capture_seconds(
+        cls, value: Optional[int]
+    ) -> Optional[int]:
         if value is None:
             return None
         if value < 8 or value > 60:

@@ -28,15 +28,19 @@ _FIELD_TO_STEP = {
     "cta": "collect_cta",
     "reference_url": "collect_reference_url",
     "access_level": "choose_access_level",
+    "demo_video_telegram_file_id": "upload_demo_video",
 }
 _RESETTABLE_FIELDS = [
     "idea_brief",
     "feature_focus",
+    "feature_emphasis",
     "video_goal",
     "audience",
     "cta",
     "reference_url",
     "access_level",
+    "demo_video_telegram_file_id",
+    "demo_video_asset_url",
 ]
 
 
@@ -55,6 +59,9 @@ class VideoAISkill(BaseSkill):
     def initial_session(cls) -> SkillSession:
         session = super().initial_session()
         session.collected["platform"] = session.collected.get("platform") or "tiktok"
+        session.collected["creative_input_mode"] = (
+            session.collected.get("creative_input_mode") or "idea_brief"
+        )
         session.artifacts.setdefault("persona_snapshot", None)
         session.artifacts.setdefault("persona_readiness", None)
         session.artifacts.setdefault("workflow_id", None)
@@ -88,6 +95,36 @@ class VideoAISkill(BaseSkill):
 
     @classmethod
     def _missing_step(cls, session: SkillSession) -> Optional[str]:
+        """Determine next required step based on creative_input_mode and missing params."""
+        creative_input_mode = session.collected.get("creative_input_mode", "idea_brief")
+
+        # Mode selection is first if not set
+        if not creative_input_mode:
+            return "select_mode"
+
+        # Check persona_id first (required for both modes)
+        if not session.collected.get("persona_id"):
+            return "pick_persona"
+
+        # For recorded_demo_video mode
+        if creative_input_mode == "recorded_demo_video":
+            if not session.collected.get("demo_video_telegram_file_id"):
+                return "upload_demo_video"
+            # Skip idea_brief and feature_focus, they're not required
+            # Continue with other required fields
+            if not session.collected.get("video_goal"):
+                return "choose_video_goal"
+            if not session.collected.get("audience"):
+                return "collect_audience"
+            if not session.collected.get("cta"):
+                return "collect_cta"
+            if not session.collected.get("reference_url"):
+                return "collect_reference_url"
+            if not session.collected.get("access_level"):
+                return "choose_access_level"
+            return None
+
+        # For idea_brief mode (original flow)
         missing = cls._missing_required_params(session)
         if not missing:
             return None
@@ -194,7 +231,9 @@ class VideoAISkill(BaseSkill):
 
     @classmethod
     def _active_workflow_id(cls, session: SkillSession) -> Optional[str]:
-        workflow_id = session.control.workflow_id or session.artifacts.get("workflow_id")
+        workflow_id = session.control.workflow_id or session.artifacts.get(
+            "workflow_id"
+        )
         normalized = str(workflow_id or "").strip()
         return normalized or None
 
@@ -207,9 +246,9 @@ class VideoAISkill(BaseSkill):
         message: Optional[str] = None,
     ) -> SkillResult:
         talking_head_optional = bool(session.artifacts.get("talking_head_optional"))
-        production_note = session.artifacts.get("production_note") or cls._production_note(
-            talking_head_optional=talking_head_optional
-        )
+        production_note = session.artifacts.get(
+            "production_note"
+        ) or cls._production_note(talking_head_optional=talking_head_optional)
         session.artifacts["production_note"] = production_note
         session.artifacts["workflow_id"] = workflow_id
         session.control.status = SkillStatus.waiting_approval
@@ -314,9 +353,7 @@ class VideoAISkill(BaseSkill):
                     "approved_production_package": package.model_dump(mode="json"),
                     "talking_head_optional": talking_head_optional,
                     "production_mode": (
-                        "voiceover_only"
-                        if talking_head_optional
-                        else "talking_head"
+                        "voiceover_only" if talking_head_optional else "talking_head"
                     ),
                     "production_note": production_note,
                 },
@@ -349,6 +386,7 @@ class VideoAISkill(BaseSkill):
 
     @classmethod
     def _restart_collection(cls, session: SkillSession, *, message: str) -> SkillResult:
+        """Reset collected fields and restart from appropriate step based on mode."""
         for field in _RESETTABLE_FIELDS:
             session.collected[field] = None
         session.artifacts["talking_head_optional"] = False
@@ -363,10 +401,19 @@ class VideoAISkill(BaseSkill):
         session.control.approval_required = False
         session.control.error_message = None
         session.control.status = SkillStatus.collecting
-        session.step_key = "collect_idea_brief"
+
+        # Determine restart step based on mode
+        creative_input_mode = session.collected.get("creative_input_mode", "idea_brief")
+        if creative_input_mode == "recorded_demo_video":
+            session.step_key = "upload_demo_video"
+            next_step = "upload_demo_video"
+        else:
+            session.step_key = "collect_idea_brief"
+            next_step = "collect_idea_brief"
+
         return SkillResult(
             success=True,
-            next_step="collect_idea_brief",
+            next_step=next_step,
             output={"message": message},
             session=session,
         )
@@ -457,6 +504,10 @@ class VideoAISkill(BaseSkill):
     ) -> SkillResult:
         current = cls._normalize_session(session)
         current.collected["platform"] = current.collected.get("platform") or "tiktok"
+        current.collected["creative_input_mode"] = (
+            current.collected.get("creative_input_mode") or "idea_brief"
+        )
+
         active_workflow_id = cls._active_workflow_id(current)
         if active_workflow_id:
             return cls._workflow_started_result(
@@ -490,10 +541,44 @@ class VideoAISkill(BaseSkill):
 
         if not concept_payload:
             try:
-                concept = await CreativeDirectorService.build_concept_brief(
-                    current.collected,
-                    persona_snapshot,
+                # Build concept based on input mode
+                creative_input_mode = current.collected.get(
+                    "creative_input_mode", "idea_brief"
                 )
+
+                if creative_input_mode == "recorded_demo_video":
+                    # PLACEHOLDER: For now, build concept using the same method
+                    # In future phases, this will use demo video analysis results
+                    # Temporarily use empty strings for required fields not in recorded_demo_video flow
+                    collected_copy = dict(current.collected)
+                    if not collected_copy.get("idea_brief"):
+                        collected_copy["idea_brief"] = "Demo video showcase"
+                    if not collected_copy.get("feature_focus"):
+                        # Use feature_emphasis if available, otherwise placeholder
+                        collected_copy["feature_focus"] = (
+                            collected_copy.get("feature_emphasis")
+                            or "Feature highlights from demo video"
+                        )
+
+                    concept = await CreativeDirectorService.build_concept_brief(
+                        collected_copy,
+                        persona_snapshot,
+                    )
+                    # Store demo video metadata in concept
+                    if current.collected.get("demo_video_telegram_file_id"):
+                        concept.demo_video_telegram_file_id = current.collected.get(
+                            "demo_video_telegram_file_id"
+                        )
+                    if current.collected.get("demo_video_asset_url"):
+                        concept.demo_video_asset_url = current.collected.get(
+                            "demo_video_asset_url"
+                        )
+                else:
+                    # Original idea_brief flow
+                    concept = await CreativeDirectorService.build_concept_brief(
+                        current.collected,
+                        persona_snapshot,
+                    )
             except Exception as exc:
                 return cls._retryable_error_result(
                     current,

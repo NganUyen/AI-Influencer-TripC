@@ -14,7 +14,10 @@ MAIN_MENU: Dict[str, Any] = {
     "rows": [
         [("📖 Daily Story", "skill_daily-story")],
         [("🖼️ Create Image", "menu_image"), ("🎬 Create Video", "menu_video")],
-        [("➕ Create Persona", "skill_persona-creator"), ("🔍 Inspect Persona", "skill_persona-inspector")],
+        [
+            ("➕ Create Persona", "skill_persona-creator"),
+            ("🔍 Inspect Persona", "skill_persona-inspector"),
+        ],
         [("📝 Content", "menu_content"), ("🎠 Carousel", "skill_carousel")],
         [("⚙️ Manage", "menu_manage")],
     ],
@@ -46,7 +49,10 @@ SUBMENUS: Dict[str, Dict[str, Any]] = {
     "menu_manage": {
         "text": "⚙️ Manage & Monitor:",
         "rows": [
-            [("📊 Quota", "skill_quota-inspector"), ("📅 Weekly Plan", "skill_weekly-planner")],
+            [
+                ("📊 Quota", "skill_quota-inspector"),
+                ("📅 Weekly Plan", "skill_weekly-planner"),
+            ],
             [("🔙 Back", "menu_main")],
         ],
     },
@@ -130,7 +136,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_prompt": {
             "input_type": "free_text",
             "field": "topic_or_prompt",
-            "prompt_text": "🌅 Describe the scene you want to generate.\n\nExample: \"A futuristic city at night\" or \"A sunrise over mountain peaks\"",
+            "prompt_text": '🌅 Describe the scene you want to generate.\n\nExample: "A futuristic city at night" or "A sunrise over mountain peaks"',
         },
         "choose_style": {
             "input_type": "inline_keyboard",
@@ -173,7 +179,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_topic": {
             "input_type": "free_text",
             "field": "topic",
-            "prompt_text": "📝 What topic should this carousel cover?\n\nExample: \"Top 5 hidden beaches in Da Nang\" or \"How to book a group trip\"",
+            "prompt_text": '📝 What topic should this carousel cover?\n\nExample: "Top 5 hidden beaches in Da Nang" or "How to book a group trip"',
         },
         "choose_platform": {
             "input_type": "inline_keyboard",
@@ -213,21 +219,46 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
     },
     "video-ai": {
+        "select_mode": {
+            "input_type": "inline_keyboard",
+            "field": "creative_input_mode",
+            "prompt_text": "🎬 How would you like to create your video?\n\n"
+            "Choose your input method:",
+            "options": _options(
+                ("💡 Idea Brief", "idea_brief"),
+                ("📹 Recorded Demo Video", "recorded_demo_video"),
+            ),
+        },
         "pick_persona": {
             "input_type": "persona_picker",
             "field": "persona_id",
             "prompt_text": "👤 Select a ready persona for this video.",
             "allow_skip": False,
         },
+        "upload_demo_video": {
+            "input_type": "video_upload",
+            "field": "demo_video_telegram_file_id",
+            "prompt_text": "📹 Please upload your demo video.\n\n"
+            "Requirements:\n"
+            "• Duration: 30 seconds to 3 minutes\n"
+            "• Resolution: 720p or higher recommended\n"
+            "• Format: MP4, MOV, or WebM",
+        },
         "collect_idea_brief": {
             "input_type": "free_text",
             "field": "idea_brief",
-            "prompt_text": "🎬 What is the core idea for this video?\n\nExample: \"Showcasing the itinerary booking flow for first-time users\"",
+            "prompt_text": '🎬 What is the core idea for this video?\n\nExample: "Showcasing the itinerary booking flow for first-time users"',
         },
         "collect_feature_focus": {
             "input_type": "free_text",
             "field": "feature_focus",
-            "prompt_text": "🔍 Which specific feature or product angle should this video focus on?\n\nExample: \"Group trip planning\" or \"One-click hotel booking\"",
+            "prompt_text": '🔍 Which specific feature or product angle should this video focus on?\n\nExample: "Group trip planning" or "One-click hotel booking"',
+        },
+        "collect_feature_emphasis": {
+            "input_type": "free_text",
+            "field": "feature_emphasis",
+            "prompt_text": "🔍 (Optional) Any specific features you'd like to emphasize in the video?\n\n"
+            "Send /skip if you want the system to decide automatically based on the uploaded video.",
         },
         "choose_video_goal": {
             "input_type": "inline_keyboard",
@@ -243,12 +274,12 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_audience": {
             "input_type": "free_text",
             "field": "audience",
-            "prompt_text": "👥 Who is the target audience for this video?\n\nExample: \"Young Vietnamese travelers aged 20–35\"",
+            "prompt_text": '👥 Who is the target audience for this video?\n\nExample: "Young Vietnamese travelers aged 20–35"',
         },
         "collect_cta": {
             "input_type": "free_text",
             "field": "cta",
-            "prompt_text": "📣 What call-to-action should the video end with?\n\nExample: \"Book your trip at tripc.vn\" or \"Download the app now\"",
+            "prompt_text": '📣 What call-to-action should the video end with?\n\nExample: "Book your trip at tripc.vn" or "Download the app now"',
         },
         "collect_reference_url": {
             "input_type": "free_text",

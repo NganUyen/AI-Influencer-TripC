@@ -544,11 +544,21 @@ class TelegramRenderer:
             display_name = session.artifacts.get("persona_data", {}).get("display_name") or persona_id
             
             prompt_text = step.get("prompt_text") or "✨ *Persona Profile Ready\\!*"
+            # Readiness/Status message restoration
+            readiness = session.artifacts.get("readiness") or {}
+            blocking_reason = readiness.get("blocking_reason")
+            status_text = ""
+            if blocking_reason:
+                status_text = f"\n\n⚠️ {blocking_reason}"
+            elif readiness.get("ready"):
+                status_text = "\n\n✅ All checks passed; ready for production\\!"
+
             full_text = (
                 f"{prompt_text}\n\n"
                 f"• ID: `{persona_id}`\n"
                 f"• Language: {language}\n"
-                f"• Voice: {voice}\n\n"
+                f"• Voice: {voice}\n"
+                f"{status_text}\n\n"
                 "Use the buttons below to edit or proceed\\."
             )
             

@@ -137,39 +137,26 @@ class PersonaCreatorSkill(BaseSkill):
         cls, 
         nationality: str, 
         brief: str, 
-        ai: AIService
+        ai: Optional[AIService] = None
     ) -> Dict[str, Any]:
-        """Focused LLM call for localized name and ID generation using Gemini."""
-        system_prompt = (
-            "You are a professional persona architect. "
-            "Given a nationality and a visual description, suggest a culturally appropriate name and a short, descriptive persona ID.\n"
-            "Output strictly as valid JSON: {\"name\": \"...\", \"id\": \"...\", \"prompt_enhancement\": \"...\"}"
-        )
-        user_prompt = f"Nationality: {nationality}\nDescription: {brief}\n\nGenerate the details."
+        """Deterministic identity generation that mimics the reliability of manual creation."""
+        # Sanitize nationality for ID
+        nat_id = re.sub(r"[^a-z0-9]", "", nationality.lower().strip())
         
-        # Explicitly use Gemini and remove fallbacks as requested
-        response_text = await ai.generate_text(
-            prompt=user_prompt,
-            system_prompt=system_prompt,
-            model="models/gemini-2.0-flash",
-            temperature=0.7,
-            max_tokens=300
-        )
+        # Clean brief keywords for ID (take first 3 words)
+        words = re.sub(r"[^a-z0-9\s]", "", brief.lower()).split()
+        brief_id = "_".join(words[:2]) if words else "persona"
         
-        # Standard JSON extraction
-        import json
-        import re
-        json_match = re.search(r"({.*})", response_text.replace("\n", " "), re.DOTALL)
-        if json_match:
-            data = json.loads(json_match.group(1))
-            return {
-                "persona_id": re.sub(r"[^a-z0-9_]", "", data.get("id", "persona").lower().replace(" ", "_")),
-                "display_name": data.get("name", "New Persona"),
-                "appearance": f"{nationality} {brief}. {data.get('prompt_enhancement', '')}",
-                "success": True
-            }
+        persona_id = f"{nat_id}_{brief_id}"
+        display_name = f"{nationality.strip().title()} {' '.join(words[:2]).title()}"
         
-        raise ValueError(f"Could not parse AI response as JSON: {response_text[:200]}...")
+        # Return summary
+        return {
+            "persona_id": persona_id,
+            "display_name": display_name,
+            "appearance": f"A {nationality.strip()} {brief.strip()}",
+            "success": True
+        }
 
     @classmethod
     def _build_readiness_report(
@@ -642,6 +629,19 @@ class PersonaCreatorSkill(BaseSkill):
             current.artifacts["persona_id"] = persona.get("persona_id")
             current.artifacts["persona_data"] = persona
             current.artifacts["readiness"] = readiness
+            if current.step_key == "save":
+                current.control.status = SkillStatus.done
+                return SkillResult(
+                    success=True,
+                    next_step="done",
+                    output={
+                        "message": f"✅ Persona *{current.collected['persona_id']}* saved, linked to storage, and marked as ready\\!",
+                        "persona": persona,
+                        "readiness": readiness,
+                    },
+                    session=current,
+                )
+
             current.step_key = "preview"
             current.control.status = SkillStatus.preview_ready
             return SkillResult(

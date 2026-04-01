@@ -629,6 +629,19 @@ class PersonaCreatorSkill(BaseSkill):
             current.artifacts["persona_id"] = persona.get("persona_id")
             current.artifacts["persona_data"] = persona
             current.artifacts["readiness"] = readiness
+            if current.step_key == "save":
+                current.control.status = SkillStatus.done
+                return SkillResult(
+                    success=True,
+                    next_step="done",
+                    output={
+                        "message": f"✅ Persona *{current.collected['persona_id']}* saved, linked to storage, and marked as ready\\!",
+                        "persona": persona,
+                        "readiness": readiness,
+                    },
+                    session=current,
+                )
+
             current.step_key = "preview"
             current.control.status = SkillStatus.preview_ready
             return SkillResult(

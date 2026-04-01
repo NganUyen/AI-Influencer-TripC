@@ -682,6 +682,10 @@ class SkillDispatcher:
         session.collected["voice"] = persona.get("tts_voice") or "English AU Female Clear"
         session.collected["appearance_prompt_or_photo"] = persona.get("avatar_prompt") or ""
         
+        # Ensure image URL is in artifacts for the renderer
+        session.artifacts["avatar_image_url"] = persona.get("avatar_image_url")
+        session.artifacts["persona_id"] = persona_id
+        
         # 3. Determine entry point
         if command == "edit_p_name":
             # We treat 'name' as persona_id in the creation flow, 

@@ -139,7 +139,7 @@ class PersonaCreatorSkill(BaseSkill):
         brief: str, 
         ai: AIService
     ) -> Dict[str, Any]:
-        """Focused LLM call for localized name and ID generation."""
+        """Focused LLM call for localized name and ID generation using Gemini."""
         system_prompt = (
             "You are a professional persona architect. "
             "Given a nationality and a visual description, suggest a culturally appropriate name and a short, descriptive persona ID.\n"
@@ -147,46 +147,29 @@ class PersonaCreatorSkill(BaseSkill):
         )
         user_prompt = f"Nationality: {nationality}\nDescription: {brief}\n\nGenerate the details."
         
-        try:
-            response_text = await ai.generate_text(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                temperature=0.7,
-                max_tokens=300
-            )
-            
-            # Simple JSON extraction
-            import json
-            import re
-            json_match = re.search(r"({.*})", response_text.replace("\n", " "), re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group(1))
-                return {
-                    "persona_id": re.sub(r"[^a-z0-9_]", "", data.get("id", "persona").lower().replace(" ", "_")),
-                    "display_name": data.get("name", "New Persona"),
-                    "appearance": f"{nationality} {brief}. {data.get('prompt_enhancement', '')}",
-                    "success": True
-                }
-            
-            # Fallback
+        # Explicitly use Gemini and remove fallbacks as requested
+        response_text = await ai.generate_text(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            model="models/gemini-2.0-flash",
+            temperature=0.7,
+            max_tokens=300
+        )
+        
+        # Standard JSON extraction
+        import json
+        import re
+        json_match = re.search(r"({.*})", response_text.replace("\n", " "), re.DOTALL)
+        if json_match:
+            data = json.loads(json_match.group(1))
             return {
-                "persona_id": f"{nationality.lower().replace(' ', '_')}_persona",
-                "display_name": f"{nationality} Persona",
-                "appearance": f"{nationality} {brief}",
-                "success": False,
-                "error": "Could not parse AI response as JSON."
+                "persona_id": re.sub(r"[^a-z0-9_]", "", data.get("id", "persona").lower().replace(" ", "_")),
+                "display_name": data.get("name", "New Persona"),
+                "appearance": f"{nationality} {brief}. {data.get('prompt_enhancement', '')}",
+                "success": True
             }
-        except Exception as e:
-            logger.error(f"Refined dream failed: {e}")
-            # Robust fallback for 401s or other AI failures
-            return {
-                "persona_id": f"{nationality.lower().replace(' ', '_')}_persona",
-                "display_name": f"{nationality} Persona",
-                "appearance": f"{nationality} {brief}",
-                "success": False,
-                "error": str(e),
-                "debug_info": "Check your AI service configuration / API keys."
-            }
+        
+        raise ValueError(f"Could not parse AI response as JSON: {response_text[:200]}...")
 
     @classmethod
     def _build_readiness_report(

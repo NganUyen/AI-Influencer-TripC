@@ -531,11 +531,17 @@ class TelegramRenderer:
                 session.artifacts.get("avatar_image_url")
                 or session.artifacts.get("preview_image_url")
                 or session.collected.get("avatar_image_url")
+                or session.artifacts.get("persona_data", {}).get("avatar_image_url")
             )
             
             # Simple metadata summary for the prompt
             language = session.artifacts.get("language") or session.collected.get("language", "—")
-            voice = session.artifacts.get("tts_voice") or session.collected.get("voice", "—")
+            voice = (
+                session.artifacts.get("tts_voice") 
+                or session.collected.get("voice")
+                or session.artifacts.get("persona_data", {}).get("tts_voice", "—")
+            )
+            display_name = session.artifacts.get("persona_data", {}).get("display_name") or persona_id
             
             prompt_text = step.get("prompt_text") or "✨ *Persona Profile Ready\\!*"
             full_text = (
@@ -556,7 +562,7 @@ class TelegramRenderer:
             }
             if image_url:
                 payload["photo_url"] = image_url
-                payload["photo_caption"] = f"👤 {persona_id} | {language}"
+                payload["photo_caption"] = f"👤 {display_name} | {language}"
                 
             return payload
 

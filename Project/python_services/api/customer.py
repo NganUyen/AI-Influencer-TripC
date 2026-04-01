@@ -466,7 +466,8 @@ async def get_system_summary(
         # 1. Quota Summary (OpenAI, HeyGen, etc.)
         # Default empty if monitor service fails
         try:
-            raw_quota = await QuotaMonitorService.get_summary(days=30)
+            summary_data = await QuotaMonitorService.get_summary(days=30)
+            raw_quota = summary_data.get("providers", [])
         except Exception:
             raw_quota = []
             
@@ -474,10 +475,10 @@ async def get_system_summary(
         quota_list = []
         for q in raw_quota:
             quota_list.append({
-                "name": str(q.get("name", "Unknown")),
-                "used": float(q.get("used", 0)),
-                "total": float(q.get("total", 100)),
-                "unit": str(q.get("unit", "units"))
+                "name": str(q.get("label", q.get("name", "Unknown"))),
+                "used": float(q.get("usage_value") or q.get("used") or 0),
+                "total": float(q.get("remaining_limit") or q.get("monthly_limit") or q.get("total") or 100),
+                "unit": str(q.get("usage_unit") or q.get("unit") or "units")
             })
 
         # 2. Service Health

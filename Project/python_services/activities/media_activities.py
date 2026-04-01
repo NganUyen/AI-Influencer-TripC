@@ -18,7 +18,12 @@ from services.heygen_service import HeyGenService
 from services.storage_service import StorageService
 from services.media_storage_service import MediaStorageService
 from services.image_generation_service import ImageGenerationService
-from services.contracts import AudioInput, ImageInput, VideoInput
+from services.contracts import (
+    AudioInput,
+    ImageInput,
+    VALID_TOP_HALF_SOURCE_TYPES,
+    VideoInput,
+)
 from .video_activities import build_split_screen_video
 import services.media_storage_service as media_storage_service_module
 try:
@@ -33,6 +38,39 @@ from services.content_scenes_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+SAFE_FALLBACK_SOURCE_TYPE = "ai_visual_fallback"
+
+
+def resolve_top_half_source_type(
+    raw_type: str | None, logger: logging.Logger, beat: dict | None = None
+) -> str:
+    if raw_type in VALID_TOP_HALF_SOURCE_TYPES:
+        return raw_type
+
+    logger.error(
+        "Unknown top_half_source_type; falling back to ai_visual_fallback",
+        extra={
+            "raw_type": raw_type,
+            "beat_idx": beat.get("idx") if beat else None,
+            "source_ref": beat.get("source_ref") if beat else None,
+        },
+    )
+    return SAFE_FALLBACK_SOURCE_TYPE
+
+
+def normalize_unknown_source_type_beat(beat: dict) -> dict:
+    normalized = dict(beat)
+
+    if normalized.get("top_half_source_type") == SAFE_FALLBACK_SOURCE_TYPE:
+        normalized["top_half_prompt"] = (
+            normalized.get("top_half_prompt")
+            or normalized.get("prompt")
+            or normalized.get("bottom_half_message")
+            or "Create a relevant visual for this scene"
+        )
+
+    return normalized
 
 
 def _prompt_metadata(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -581,10 +619,13 @@ async def generate_web_tutorial_activity(
 # Scene Images Generation (Multi-source: Browser capture + AI fallback)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Valid top-half source types
-_BROWSER_CAPTURE_TYPES = {"public_page_capture", "hybrid_candidate"}
+_BROWSER_CAPTURE_TYPES = {
+    "public_page_capture",
+    "hybrid_candidate",
+    "authenticated_capture_later",
+}
 _AI_FALLBACK_TYPES = {"ai_visual_fallback"}
-_ALL_SOURCE_TYPES = _BROWSER_CAPTURE_TYPES | _AI_FALLBACK_TYPES | {"authenticated_capture_later"}
+_ALL_SOURCE_TYPES = VALID_TOP_HALF_SOURCE_TYPES  # Use unified definition
 
 # Minimum valid video file size (bytes)
 _MIN_VIDEO_FILE_SIZE = 2000
@@ -893,13 +934,25 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
     async def gen_one(scene: dict) -> dict:
         async with semaphore:
             scene_metadata = dict(scene.get("metadata") or {})
-            top_half_type = scene.get("top_half_source_type", "public_page_capture")
-            source_ref = scene.get("source_ref")
-            scene_id = scene.get("id", "unknown")
+            raw_top_half_type = scene.get("top_half_source_type")
+            resolved_top_half_type = resolve_top_half_source_type(
+                raw_top_half_type, logger, scene
+            )
+            normalized_scene = normalize_unknown_source_type_beat(
+                {
+                    **scene,
+                    "raw_top_half_source_type": raw_top_half_type,
+                    "top_half_source_type": resolved_top_half_type,
+                }
+            )
+            top_half_type = normalized_scene.get("top_half_source_type")
+            source_ref = normalized_scene.get("source_ref")
+            scene_id = normalized_scene.get("id", "unknown")
             
             logger.info(
-                "Processing scene | id=%s | type=%s | has_source_ref=%s",
+                "Processing scene | id=%s | raw_type=%s | resolved_type=%s | has_source_ref=%s",
                 scene_id,
+                raw_top_half_type,
                 top_half_type,
                 bool(source_ref),
             )
@@ -908,7 +961,7 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
             try:
                 if top_half_type in _AI_FALLBACK_TYPES:
                     # Pure AI generation
-                    result = await _generate_ai_visual(scene, scene_metadata)
+                    result = await _generate_ai_visual(normalized_scene, scene_metadata)
                     
                 elif top_half_type == "hybrid_candidate":
                     # Try browser first, fall back to AI
@@ -917,10 +970,12 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                             "hybrid_candidate scene %s has no source_ref, using AI fallback directly",
                             scene_id,
                         )
-                        result = await _generate_ai_visual(scene, scene_metadata)
+                        result = await _generate_ai_visual(normalized_scene, scene_metadata)
                     else:
                         # hybrid_candidate with source_ref - use browser capture, no fallback
-                        result = await _capture_browser_video(scene, scene_metadata, source_ref)
+                        result = await _capture_browser_video(
+                            normalized_scene, scene_metadata, source_ref
+                        )
                             
                 elif top_half_type in _BROWSER_CAPTURE_TYPES:
                     # Browser capture required
@@ -929,17 +984,19 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                             f"Scene {scene_id} requires source_ref for browser capture (type={top_half_type})",
                             non_retryable=True,
                         )
-                    result = await _capture_browser_video(scene, scene_metadata, source_ref)
+                    result = await _capture_browser_video(
+                        normalized_scene, scene_metadata, source_ref
+                    )
                     
                 else:
                     # Unknown type - log error and fail
                     logger.error(
-                        "Unknown top_half_source_type=%s for scene %s - cannot generate asset",
+                        "Unhandled normalized top_half_source_type=%s for scene %s - cannot generate asset",
                         top_half_type,
                         scene_id,
                     )
                     raise ApplicationError(
-                        f"Scene {scene_id} has unsupported top_half_source_type={top_half_type}",
+                        f"Scene {scene_id} has unsupported normalized top_half_source_type={top_half_type}",
                         non_retryable=True,
                     )
 
@@ -956,7 +1013,7 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                 )
 
                 return {
-                    **scene,
+                    **normalized_scene,
                     "image_url": final_url,
                     "source_image_url": final_url,
                     "storage_image_url": result.get("storage_url"),

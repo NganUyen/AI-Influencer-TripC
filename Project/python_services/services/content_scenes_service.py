@@ -231,7 +231,16 @@ async def generate_app_tutorial_scenes(
                 )
                 try:
                     scene["caption"] = await ai.generate_text(prompt=prompt)
-                except: pass
+                except Exception:
+                    logger.exception(
+                        "Caption generation failed",
+                        extra={
+                            "scene_idx": scene.get("scene_idx"),
+                            "role": scene.get("role"),
+                            "app_name": app_name,
+                        },
+                    )
+                    scene["caption"] = ""
                 scene["persona_config"] = persona
                 scenes.append(scene)
     else:

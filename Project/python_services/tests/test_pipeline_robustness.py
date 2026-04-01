@@ -475,8 +475,8 @@ class TestInvalidSourceTypeHandling:
     """Tests for strict source type enforcement in script generation."""
 
     @pytest.mark.asyncio
-    async def test_invalid_source_type_defaults_to_ai_visual_fallback(self, caplog):
-        """Invalid top_half_source_type should be overridden to public_page_capture."""
+    async def test_invalid_source_type_raises_validation_error(self):
+        """Invalid top_half_source_type should fail validation."""
         service = ScriptService()
 
         package = {
@@ -495,27 +495,25 @@ class TestInvalidSourceTypeHandling:
             },
         }
 
-        with caplog.at_level(logging.INFO):
-            contract = await service.generate_script_from_package(
+        with pytest.raises(ValueError, match="Invalid top_half_source_type"):
+            await service.generate_script_from_package(
                 app_name="TestApp",
                 package=package,
                 persona_config={"language_name": "English"},
             )
 
-        # Check override was logged
-        assert any(
-            "overridden to public_page_capture" in record.message
-            for record in caplog.records
-        ), f"Expected override log. Got: {[r.message for r in caplog.records]}"
-
-        assert contract.scenes[0].top_half_source_type == "public_page_capture"
-
     @pytest.mark.asyncio
     async def test_valid_source_types_pass_through(self):
-        """Any source type should normalize to public_page_capture."""
+        """Supported source types should pass through unchanged."""
         service = ScriptService()
 
-        for valid_type in ["public_page_capture", "ai_visual_fallback", "search"]:
+        for valid_type in [
+            "public_page_capture",
+            "ai_visual_fallback",
+            "authenticated_capture_later",
+            "hybrid_candidate",
+            "uploaded_demo_video",
+        ]:
             package = {
                 "concept_brief": {"reference_url": "https://example.com/root"},
                 "beat_sheet": {
@@ -538,7 +536,7 @@ class TestInvalidSourceTypeHandling:
                 persona_config={},
             )
 
-            assert contract.scenes[0].top_half_source_type == "public_page_capture"
+            assert contract.scenes[0].top_half_source_type == valid_type
 
     def test_valid_source_types_set_is_complete(self):
         """Verify the valid source types set includes expected values."""
@@ -546,7 +544,7 @@ class TestInvalidSourceTypeHandling:
         assert "ai_visual_fallback" in VALID_TOP_HALF_SOURCE_TYPES
         assert "authenticated_capture_later" in VALID_TOP_HALF_SOURCE_TYPES
         assert "hybrid_candidate" in VALID_TOP_HALF_SOURCE_TYPES
-        assert "hybrid_candidate" in _VALID_TOP_HALF_SOURCE_TYPES
+        assert "uploaded_demo_video" in VALID_TOP_HALF_SOURCE_TYPES
 
 
 class TestCheckpointLogging:

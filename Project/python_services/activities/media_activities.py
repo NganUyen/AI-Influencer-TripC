@@ -509,10 +509,10 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
         avatar_id=avatar_id,
         audio_url=audio_url,
         background=background,
-        aspect_ratio="9:16",
+        aspect_ratio="1:1",
         width=1080,
-        height=1920,
-        allow_aspect_ratio_fallback=True,
+        height=1080,
+        allow_aspect_ratio_fallback=False,
     )
 
     video_id = video_job.get("video_id")
@@ -1285,6 +1285,11 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                     type(e).__name__,
                     str(e)[:300],
                 )
+                if top_half_type in _BROWSER_CAPTURE_TYPES:
+                    raise ApplicationError(
+                        f"Playwright top-half recording failed for scene {scene_id}: {e}",
+                        non_retryable=False,
+                    )
                 raise ApplicationError(
                     f"Top-half generation failed for scene {scene_id}: {e}",
                     non_retryable=False,

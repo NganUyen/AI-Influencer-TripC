@@ -310,7 +310,11 @@ class BrowserAutomationService:
                 path2 = f"{output_dir}/step2_features.png"
                 await page.screenshot(path=path2)
                 screenshots.append({"step": "features", "path": path2})
-            except: pass
+            except Exception:
+                logger.exception(
+                    "Failed to capture feature section screenshot",
+                    extra={"url": url, "output_dir": output_dir},
+                )
             
             return screenshots
         finally:

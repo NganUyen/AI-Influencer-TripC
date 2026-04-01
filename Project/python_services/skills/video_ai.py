@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import ValidationError
 
@@ -20,6 +20,10 @@ from services.demo_feature_grounding_service import (
     build_preview_summary,
 )
 from services.demo_video_analyzer_service import DemoVideoAnalyzerService
+from services.recorded_demo_failure_policy import (
+    build_preview_warnings,
+    should_block_before_concept,
+)
 
 from .base import BaseSkill, SkillResult, SkillSession, SkillStatus
 from .definitions import get_skill_definition
@@ -757,6 +761,66 @@ class VideoAISkill(BaseSkill):
                 workflow_id=active_workflow_id,
             )
 
+        # P0.4: Handle feature correction/reemphasis free-text submissions
+        # When user types correction text after clicking "correct" button
+        if current.step_key == "demo_correct_features" and current.collected.get(
+            "feature_correction"
+        ):
+            correction_text = current.collected.get("feature_correction", "").strip()
+            if correction_text:
+                # Apply correction to evidence
+                evidence_payload = current.artifacts.get("demo_evidence")
+                if evidence_payload:
+                    try:
+                        evidence = RecordedDemoEvidenceContract.model_validate(
+                            evidence_payload
+                        )
+                        evidence.confidence_signals["user_correction"] = correction_text
+                        current.artifacts["demo_evidence"] = evidence.model_dump(
+                            mode="json"
+                        )
+                    except ValidationError:
+                        pass
+                # Mark as confirmed and proceed
+                current.artifacts["demo_preview_confirmed"] = True
+                current.artifacts["demo_preview_timeout_at"] = None
+                logger.info(
+                    "Demo preview confirmed with correction (free-text): %s",
+                    correction_text,
+                )
+                # Clear the step_key to allow normal flow
+                current.step_key = None
+
+        # When user types reemphasis text after clicking "reemphasize" button
+        if current.step_key == "demo_reemphasize_features" and current.collected.get(
+            "feature_reemphasis"
+        ):
+            reemphasis_text = current.collected.get("feature_reemphasis", "").strip()
+            if reemphasis_text:
+                # Apply re-emphasis
+                current.collected["feature_emphasis"] = reemphasis_text
+                evidence_payload = current.artifacts.get("demo_evidence")
+                if evidence_payload:
+                    try:
+                        evidence = RecordedDemoEvidenceContract.model_validate(
+                            evidence_payload
+                        )
+                        evidence.confidence_signals["user_reemphasis"] = reemphasis_text
+                        current.artifacts["demo_evidence"] = evidence.model_dump(
+                            mode="json"
+                        )
+                    except ValidationError:
+                        pass
+                # Mark as confirmed and proceed
+                current.artifacts["demo_preview_confirmed"] = True
+                current.artifacts["demo_preview_timeout_at"] = None
+                logger.info(
+                    "Demo preview confirmed with re-emphasis (free-text): %s",
+                    reemphasis_text,
+                )
+                # Clear the step_key to allow normal flow
+                current.step_key = None
+
         next_step = cls._missing_step(current)
 
         # Phase 5: For recorded_demo_video mode, run analysis and grounding before preview
@@ -771,11 +835,20 @@ class VideoAISkill(BaseSkill):
                     current, backend_url, http_client
                 )
                 current.artifacts["demo_evidence"] = evidence.model_dump(mode="json")
+
                 # Build preview summary for Telegram rendering
-                current.artifacts["demo_preview_summary"] = build_preview_summary(
+                preview_summary = build_preview_summary(
                     evidence,
                     video_goal=current.collected.get("video_goal"),
                 )
+
+                # Phase 8: Add warnings from failure policy
+                warnings = build_preview_warnings(evidence)
+                if warnings:
+                    preview_summary["warnings"] = warnings
+
+                current.artifacts["demo_preview_summary"] = preview_summary
+
                 # Set timeout timestamp (15 minutes from now)
                 import time
 
@@ -843,6 +916,13 @@ class VideoAISkill(BaseSkill):
                     evidence = RecordedDemoEvidenceContract.model_validate(
                         evidence_payload
                     )
+
+                    # Phase 8: Use failure policy for combined usability check
+                    # Blocks only when low confidence + weak evidence combined
+                    block_message = should_block_before_concept(evidence)
+                    if block_message:
+                        raise ValueError(block_message)
+
                     concept = (
                         await CreativeDirectorService.build_concept_from_demo_evidence(
                             evidence,
@@ -913,6 +993,12 @@ class VideoAISkill(BaseSkill):
                     evidence = RecordedDemoEvidenceContract.model_validate(
                         evidence_payload
                     )
+
+                    # Phase 8: Use failure policy for combined usability check
+                    block_message = should_block_before_concept(evidence)
+                    if block_message:
+                        raise ValueError(block_message)
+
                     beat_sheet = (
                         await CreativeDirectorService.build_beats_from_demo_evidence(
                             concept,

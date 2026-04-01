@@ -81,6 +81,79 @@ class DemoVideoAnalyzerService:
         """Initialize the analyzer service."""
         self._ocr_available: Optional[bool] = None
 
+    async def analyze_demo_video(
+        self,
+        video_url: str,
+        reference_url: str = "",
+        video_goal: str = "feature_demo",
+        audience: str = "",
+        cta: str = "",
+    ) -> RecordedDemoEvidenceContract:
+        """
+        Download and analyze a demo video from a storage URL.
+
+        This is a convenience wrapper that downloads the video, runs analysis,
+        and enriches the evidence with contextual metadata.
+
+        Args:
+            video_url: Storage URL of the uploaded demo video
+            reference_url: Optional reference website URL (stored in evidence)
+            video_goal: Video goal/intent (stored in evidence)
+            audience: Target audience (stored in evidence)
+            cta: Call-to-action (stored in evidence)
+
+        Returns:
+            RecordedDemoEvidenceContract with analysis results
+        """
+        import httpx
+
+        # Download video to temp file
+        temp_video_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                delete=False, suffix=".mp4", prefix="demo_video_"
+            ) as tmp:
+                temp_video_path = Path(tmp.name)
+
+            logger.info("Downloading demo video from %s", video_url)
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.get(video_url, follow_redirects=True)
+                response.raise_for_status()
+                content = response.content
+
+            if len(content) < 256:
+                raise ValueError(
+                    f"Downloaded video is too small ({len(content)} bytes)"
+                )
+
+            with open(temp_video_path, "wb") as f:
+                f.write(content)
+
+            # Run analysis on local file
+            evidence = await self.analyze(
+                video_path=temp_video_path,
+                video_url=video_url,
+                original_filename="",
+            )
+
+            # Store contextual metadata in confidence_signals for downstream use
+            # (these will be transferred to ConceptBrief in Phase 6)
+            evidence.confidence_signals["video_goal"] = video_goal
+            evidence.confidence_signals["audience"] = audience
+            evidence.confidence_signals["cta"] = cta
+            if reference_url:
+                evidence.confidence_signals["reference_url"] = reference_url
+
+            return evidence
+
+        finally:
+            # Clean up temp file
+            if temp_video_path and temp_video_path.exists():
+                try:
+                    temp_video_path.unlink()
+                except Exception as exc:
+                    logger.warning("Failed to clean up temp video file: %s", exc)
+
     async def analyze(
         self,
         video_path: str | Path,
@@ -753,6 +826,10 @@ class DemoVideoAnalyzerService:
         """
         signals: dict[str, Any] = {}
 
+        # Phase 8: Explicit OCR availability signals
+        ocr_available = self._check_ocr_available()
+        signals["ocr_available"] = ocr_available
+
         # Signal 1: Resolution quality
         min_dim = min(metadata.width, metadata.height)
         if min_dim >= 1080:
@@ -787,22 +864,41 @@ class DemoVideoAnalyzerService:
             signals["segmentation"] = "minimal"
             seg_score = 0.3
 
-        # Signal 4: OCR success
+        # Signal 4: OCR success (Phase 8: distinguish unavailable vs weak)
         frames_with_text = sum(1 for texts in ocr_results.values() if texts)
         total_text_count = sum(len(texts) for texts in ocr_results.values())
 
-        if frames_with_text >= 5 and total_text_count >= 10:
+        signals["frames_with_text"] = frames_with_text
+        signals["total_ocr_texts"] = total_text_count
+
+        if not ocr_available:
+            # OCR unavailable (tesseract not installed)
+            signals["ocr_quality"] = "unavailable"
+            signals["ocr_useful"] = False
+            signals["ocr_text_found"] = False
+            ocr_score = 0.0  # No OCR contribution
+        elif frames_with_text >= 5 and total_text_count >= 10:
             signals["ocr_quality"] = "good"
+            signals["ocr_useful"] = True
+            signals["ocr_text_found"] = True
             ocr_score = 1.0
         elif frames_with_text >= 2 and total_text_count >= 3:
             signals["ocr_quality"] = "moderate"
+            signals["ocr_useful"] = True
+            signals["ocr_text_found"] = True
             ocr_score = 0.6
+        elif frames_with_text >= 1 or total_text_count >= 1:
+            # OCR ran but found minimal text
+            signals["ocr_quality"] = "weak"
+            signals["ocr_useful"] = False
+            signals["ocr_text_found"] = True
+            ocr_score = 0.3
         else:
-            signals["ocr_quality"] = "poor"
+            # OCR ran but found no text at all
+            signals["ocr_quality"] = "none"
+            signals["ocr_useful"] = False
+            signals["ocr_text_found"] = False
             ocr_score = 0.2
-
-        signals["frames_with_text"] = frames_with_text
-        signals["total_ocr_texts"] = total_text_count
 
         # Signal 5: Feature extraction quality
         high_conf_features = sum(1 for f in features if f.confidence == "high")
@@ -820,13 +916,24 @@ class DemoVideoAnalyzerService:
         signals["high_confidence_features"] = high_conf_features
 
         # Compute weighted average
-        weights = {
-            "resolution": 0.15,
-            "duration": 0.10,
-            "segmentation": 0.20,
-            "ocr": 0.30,
-            "features": 0.25,
-        }
+        # Phase 8: Adjust weights when OCR unavailable to not penalize unfairly
+        if ocr_available:
+            weights = {
+                "resolution": 0.15,
+                "duration": 0.10,
+                "segmentation": 0.20,
+                "ocr": 0.30,
+                "features": 0.25,
+            }
+        else:
+            # Redistribute OCR weight when unavailable
+            weights = {
+                "resolution": 0.20,
+                "duration": 0.15,
+                "segmentation": 0.30,
+                "ocr": 0.0,
+                "features": 0.35,
+            }
 
         weighted_score = (
             weights["resolution"] * res_score

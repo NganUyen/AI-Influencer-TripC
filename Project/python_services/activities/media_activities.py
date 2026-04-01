@@ -979,13 +979,28 @@ async def _extract_uploaded_demo_segment(
             non_retryable=True,
         )
 
-    # Log confidence policy
-    if trim_confidence is not None and trim_confidence < 0.5:
-        logger.warning(
-            "Scene %s has low trim_confidence=%s (< 0.5), proceeding conservatively",
-            scene_id,
-            trim_confidence,
-        )
+    # Phase 8: Explicit trim confidence handling per policy
+    # >= 0.8: normal, 0.5-0.79: caution, < 0.5: conservative_hold
+    if trim_confidence is not None:
+        if trim_confidence >= 0.8:
+            logger.info(
+                "Scene %s trim_confidence=%.2f (normal) - proceeding with trim",
+                scene_id,
+                trim_confidence,
+            )
+        elif trim_confidence >= 0.5:
+            logger.warning(
+                "Scene %s trim_confidence=%.2f (caution) - segment boundaries may be approximate",
+                scene_id,
+                trim_confidence,
+            )
+        else:
+            # < 0.5: conservative_hold - use conservative window, do not auto-fallback
+            logger.warning(
+                "Scene %s trim_confidence=%.2f (conservative_hold) - using conservative boundaries, may not be precise",
+                scene_id,
+                trim_confidence,
+            )
 
     # Download demo video
     tmp_dir = Path(tempfile.mkdtemp(prefix="demo_segment_"))

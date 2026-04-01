@@ -289,6 +289,14 @@ def _video_ai_demo_preview_text(
     lines.append(f"Analysis confidence: {conf_emoji} {confidence}")
     lines.append("")
 
+    # Phase 8: Warnings section (if any)
+    warnings = preview_summary.get("warnings", [])
+    if warnings:
+        lines.append("⚠️ *Warnings*:")
+        for warning in warnings[:4]:  # Max 4 warnings to keep message readable
+            lines.append(f"  • {_truncate(warning, 120)}")
+        lines.append("")
+
     # Features section
     grounded_features = preview_summary.get("grounded_features", [])
     ungrounded_features = preview_summary.get("ungrounded_features", [])

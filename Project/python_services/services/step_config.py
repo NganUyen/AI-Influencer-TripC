@@ -333,7 +333,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_nationality": {
             "input_type": "free_text",
             "field": "nationality",
-            "prompt_text": "🏳️ *Step 1: Nationality*\n\nWhich nationality should this persona represent?\nExamples: 'North Korean', 'Italian', 'Brazilian'\\.",
+            "prompt_text": "🏳️ *Step 1: Nationality*\n\nWhich nationality should this persona represent?\nExamples: 'American', 'Italian', 'Japanese'\\.",
         },
         "choose_voice": {
             "input_type": "inline_keyboard",
@@ -349,7 +349,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_dream_brief": {
             "input_type": "free_text",
             "field": "dream_brief",
-            "prompt_text": "👤 *Step 3: Description*\n\nNow, describe who you want to create in a few words\\.\nExample: 'man in his 20s, military uniform' or 'young woman, casual street clothes'\\.",
+            "prompt_text": "👤 *Step 3: Description*\n\nNow, describe who you want to create in a few words\\.\nExample: 'young woman in a Paris café' or 'fitness coach in an urban gym'\\.",
         },
         "confirm_dream": {
             "input_type": "preview_actions",
@@ -389,6 +389,28 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
             "input_type": "free_text",
             "field": "appearance_prompt_or_photo",
             "prompt_text": "📸 Describe the persona's appearance, or upload a reference photo.\nTip: include style, outfit, age range, and setting.",
+        },
+        "preview": {
+            "input_type": "preview_actions",
+            "prompt_text": "✨ *Persona Profile Ready\\!*",
+            "options": _options(
+                ("✏️ Edit Name", "edit_p_name"),
+                ("🎭 Edit Appearance", "edit_appearance"),
+                ("🗣️ Change Voice", "choose_voice"),
+                ("🔄 Rebuild Avatar", "rebuild_avatar"),
+                ("✅ Ready / Finish", "ready"),
+                ("❌ Cancel", "cancel"),
+            ),
+        },
+        "edit_p_name": {
+            "input_type": "free_text",
+            "field": "display_name",
+            "prompt_text": "✏️ *Update Persona Name*\n\nPlease send the new name for this persona:",
+        },
+        "edit_appearance": {
+            "input_type": "free_text",
+            "field": "appearance_prompt_or_photo",
+            "prompt_text": "🎭 *Update Appearance*\n\nDescribe the new visual style or upload a reference photo:",
         },
     },
     "weekly-planner": {

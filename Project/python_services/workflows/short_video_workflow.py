@@ -4,6 +4,7 @@ Short video workflow for persona-driven vertical video generation.
 
 from __future__ import annotations
 import asyncio
+import re
 from datetime import timedelta
 from typing import Any, Dict, List
 
@@ -53,12 +54,8 @@ class ShortVideoWorkflow:
         self.decision = None
 
         # Version gates for deterministic replay across deployed workflow changes.
-        progress_notify_enabled = workflow.patched(
-            "short-video-progress-notify-v1"
-        )
-        error_notify_enabled = workflow.patched(
-            "short-video-error-notify-v1"
-        )
+        progress_notify_enabled = workflow.patched("short-video-progress-notify-v1")
+        error_notify_enabled = workflow.patched("short-video-error-notify-v1")
 
         workflow_id = workflow.info().workflow_id
         payload_dict = payload if isinstance(payload, dict) else {}
@@ -95,14 +92,90 @@ class ShortVideoWorkflow:
 
         def summarize_exception(exc: Exception) -> Dict[str, str]:
             """Return a more useful error type/summary for Telegram and status payloads."""
+
+            def sanitize_for_user(error_text: str, error_type: str) -> str:
+                """
+                Convert technical error messages to user-friendly text.
+                P0.3: Prevent leaking ffmpeg, storage paths, stack traces to users.
+                """
+                text_lower = error_text.lower()
+
+                # ffmpeg/video processing errors
+                if "ffmpeg" in text_lower or "ffprobe" in text_lower:
+                    return "Video processing encountered an issue. Please try again."
+                if "codec" in text_lower or "encoding" in text_lower:
+                    return "Video encoding issue. Please try with a different video format."
+
+                # Storage/file system errors
+                if any(
+                    p in text_lower
+                    for p in ["/tmp/", "\\tmp\\", "storage", "bucket", "blob", "s3://"]
+                ):
+                    return "Temporary storage issue. Please try again in a few minutes."
+                if "file not found" in text_lower or "no such file" in text_lower:
+                    return "A required file was unavailable. Please try again."
+
+                # Network/API errors
+                if "timeout" in text_lower:
+                    return "Request timed out. Please try again."
+                if "connection" in text_lower or "network" in text_lower:
+                    return "Network issue encountered. Please try again."
+                if "rate limit" in text_lower or "429" in text_lower:
+                    return "Service is busy. Please try again in a few minutes."
+
+                # Authentication errors (don't expose details)
+                if (
+                    "auth" in text_lower
+                    or "token" in text_lower
+                    or "credential" in text_lower
+                ):
+                    return "Authentication issue. Please contact support."
+
+                # Generic ApplicationError from activities
+                if "applicationerror" in error_type.lower():
+                    # Strip technical prefixes but keep user-safe portion
+                    clean = re.sub(
+                        r"^(ActivityError/|ApplicationError:?\s*)", "", error_text
+                    )
+                    # If still looks technical, use generic message
+                    if any(c in clean for c in ["\\", "/", "0x", "stack", "trace"]):
+                        return "An unexpected error occurred. Please try again."
+                    return clean[:200] if len(clean) <= 200 else clean[:197] + "..."
+
+                # Check for stack trace patterns
+                if re.search(
+                    r"(File \".+\", line \d+|Traceback|at 0x[0-9a-f]+)", error_text
+                ):
+                    return "An internal error occurred. Our team has been notified."
+
+                # If message looks safe (no paths, no stack traces), return truncated
+                if len(error_text) <= 150 and not any(
+                    c in error_text for c in ["\\", "://", "/home/", "/var/", "C:\\"]
+                ):
+                    return error_text
+
+                return (
+                    "An unexpected error occurred. Please try again or contact support."
+                )
+
             if isinstance(exc, ActivityError):
                 cause = getattr(exc, "cause", None)
                 cause_text = str(cause or exc).strip() or "Activity task failed"
-                cause_type = type(cause).__name__ if cause is not None else "UnknownCause"
+                cause_type = (
+                    type(cause).__name__ if cause is not None else "UnknownCause"
+                )
+                error_type = f"ActivityError/{cause_type}"
                 return {
-                    "error_type": f"ActivityError/{cause_type}",
-                    "error_summary": cause_text[:300],
+                    "error_type": error_type,
+                    "error_summary": sanitize_for_user(cause_text, error_type),
                 }
+
+            error_type = type(exc).__name__
+            raw_text = str(exc).strip() or repr(exc)
+            return {
+                "error_type": error_type,
+                "error_summary": sanitize_for_user(raw_text, error_type),
+            }
 
             return {
                 "error_type": type(exc).__name__,
@@ -393,10 +466,7 @@ class ShortVideoWorkflow:
                         )
                         or 0.0
                     ),
-                    "text": str(
-                        scenes[i].get("narration_text")
-                        or ""
-                    ).strip(),
+                    "text": str(scenes[i].get("narration_text") or "").strip(),
                 }
                 for i, _ in valid_scenes_with_index
             ]

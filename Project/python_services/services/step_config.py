@@ -14,6 +14,10 @@ MAIN_MENU: Dict[str, Any] = {
     "rows": [
         [("📖 Daily Story", "skill_daily-story")],
         [("🖼️ Create Image", "menu_image"), ("🎬 Create Video", "menu_video")],
+        [
+            ("➕ Create Persona", "skill_persona-creator"),
+            ("🔍 Inspect Persona", "skill_persona-inspector"),
+        ],
         [("📝 Content", "menu_content"), ("🎠 Carousel", "skill_carousel")],
         [("⚙️ Manage", "menu_manage")],
     ],
@@ -131,7 +135,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_prompt": {
             "input_type": "free_text",
             "field": "topic_or_prompt",
-            "prompt_text": "🌅 What would you like to see in the scene? Please describe it:",
+            "prompt_text": '🌅 Describe the scene you want to generate.\n\nExample: "A futuristic city at night" or "A sunrise over mountain peaks"',
         },
         "choose_style": {
             "input_type": "inline_keyboard",
@@ -174,7 +178,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_topic": {
             "input_type": "free_text",
             "field": "topic",
-            "prompt_text": "Carousel topic.",
+            "prompt_text": '📝 What topic should this carousel cover?\n\nExample: "Top 5 hidden beaches in Da Nang" or "How to book a group trip"',
         },
         "choose_platform": {
             "input_type": "inline_keyboard",
@@ -214,21 +218,46 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
     },
     "video-ai": {
+        "select_mode": {
+            "input_type": "inline_keyboard",
+            "field": "creative_input_mode",
+            "prompt_text": "🎬 How would you like to create your video?\n\n"
+            "Choose your input method:",
+            "options": _options(
+                ("💡 Idea Brief", "idea_brief"),
+                ("📹 Recorded Demo Video", "recorded_demo_video"),
+            ),
+        },
         "pick_persona": {
             "input_type": "persona_picker",
             "field": "persona_id",
             "prompt_text": "Select a ready persona for this video concept.",
             "allow_skip": False,
         },
+        "upload_demo_video": {
+            "input_type": "video_upload",
+            "field": "demo_video_telegram_file_id",
+            "prompt_text": "📹 Please upload your demo video.\n\n"
+            "Requirements:\n"
+            "• Duration: 30 seconds to 3 minutes\n"
+            "• Resolution: 720p or higher recommended\n"
+            "• Format: MP4, MOV, or WebM",
+        },
         "collect_idea_brief": {
             "input_type": "free_text",
             "field": "idea_brief",
-            "prompt_text": "What is the core idea for this influencer video?",
+            "prompt_text": '🎬 What is the core idea for this video?\n\nExample: "Showcasing the itinerary booking flow for first-time users"',
         },
         "collect_feature_focus": {
             "input_type": "free_text",
             "field": "feature_focus",
-            "prompt_text": "Which feature or product angle should the video focus on?",
+            "prompt_text": '🔍 Which specific feature or product angle should this video focus on?\n\nExample: "Group trip planning" or "One-click hotel booking"',
+        },
+        "collect_feature_emphasis": {
+            "input_type": "free_text",
+            "field": "feature_emphasis",
+            "prompt_text": "🔍 (Optional) Any specific features you'd like to emphasize in the video?\n\n"
+            "Send /skip if you want the system to decide automatically based on the uploaded video.",
         },
         "choose_video_goal": {
             "input_type": "inline_keyboard",
@@ -244,12 +273,12 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_audience": {
             "input_type": "free_text",
             "field": "audience",
-            "prompt_text": "Who is this video for?",
+            "prompt_text": '👥 Who is the target audience for this video?\n\nExample: "Young Vietnamese travelers aged 20–35"',
         },
         "collect_cta": {
             "input_type": "free_text",
             "field": "cta",
-            "prompt_text": "What CTA should the video end with?",
+            "prompt_text": '📣 What call-to-action should the video end with?\n\nExample: "Book your trip at tripc.vn" or "Download the app now"',
         },
         "collect_reference_url": {
             "input_type": "free_text",
@@ -266,6 +295,38 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
                 ("Login Needed But Not Available", "login_required_but_not_available"),
                 ("Not Sure", "unknown"),
             ),
+        },
+        # Phase 5: Demo video preview confirmation step
+        # Only shown for recorded_demo_video mode after grounding
+        "demo_preview_confirm": {
+            "input_type": "inline_keyboard",
+            "field": "demo_preview_action",
+            "prompt_text": "📋 *Analysis Complete*\n\n"
+            "Please review what I detected from your demo video.\n"
+            "You can confirm to proceed, correct any misunderstandings, "
+            "or re-emphasize specific features.",
+            "options": _options(
+                ("✅ Confirm", "confirm"),
+                ("✏️ Correct", "correct"),
+                ("🎯 Re-emphasize", "reemphasize"),
+                ("🔄 Re-upload", "reupload"),
+            ),
+            "timeout_sec": 900,  # 15 minutes
+            "timeout_action": "abort",  # Abort on timeout, don't auto-confirm
+        },
+        # Phase 5: Feature correction step (if user chooses "correct")
+        "demo_correct_features": {
+            "input_type": "free_text",
+            "field": "feature_correction",
+            "prompt_text": "✏️ What should I correct about the detected features?\n\n"
+            "Tell me which features are wrong or what I missed.",
+        },
+        # Phase 5: Feature re-emphasis step (if user chooses "reemphasize")
+        "demo_reemphasize_features": {
+            "input_type": "free_text",
+            "field": "feature_reemphasis",
+            "prompt_text": "🎯 Which features should I focus on?\n\n"
+            "List the features that matter most for this video.",
         },
         "confirm_concept": {
             "input_type": "preview_actions",

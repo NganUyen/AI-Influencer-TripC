@@ -185,6 +185,7 @@ VALID_TOP_HALF_SOURCE_TYPES = {
     "authenticated_capture_later",
     "ai_visual_fallback",
     "hybrid_candidate",
+    "uploaded_demo_video",
 }
 
 # Backward compatibility alias
@@ -198,9 +199,130 @@ URL_REQUIRED_SOURCE_TYPES = {
 }
 
 
+# ==============================================================================
+# Recorded Demo Video Analysis Contracts (Phase 4)
+# ==============================================================================
+
+
+class KeyframeContract(BaseModel):
+    """A single keyframe extracted from demo video."""
+
+    frame_id: str
+    timestamp_sec: float
+    image_path: Optional[str] = None  # Local temp path during analysis
+    image_url: Optional[str] = None  # Storage URL after upload (optional)
+
+
+class TimelineSegmentContract(BaseModel):
+    """A logical segment of the demo video timeline."""
+
+    segment_id: str
+    start_sec: float
+    end_sec: float
+    segment_type: Literal["intro", "feature_demo", "transition", "outro", "unknown"] = (
+        "unknown"
+    )
+    description: str = ""
+    keyframe_ids: List[str] = Field(default_factory=list)
+    ocr_texts: List[str] = Field(default_factory=list)
+
+
+class ExtractedFeatureContract(BaseModel):
+    """A feature detected in the demo video via OCR/analysis."""
+
+    feature_id: str
+    name: str
+    description: str = ""
+    timestamp_start_sec: float
+    timestamp_end_sec: float
+    confidence: Literal["high", "medium", "low"] = "medium"
+    ocr_evidence: List[str] = Field(default_factory=list)
+    keyframe_ids: List[str] = Field(default_factory=list)
+
+
+class GroundedFeatureContract(BaseModel):
+    """
+    A feature after OpenClaw grounding against official sources (Phase 5).
+
+    Source-of-truth priority:
+    1. official site/docs (grounded=True)
+    2. user confirmation
+    3. video evidence
+    4. model inference (grounded=False)
+    """
+
+    feature_id: str  # Reference to ExtractedFeatureContract
+    original_name: str  # Name from OCR/analysis
+    grounded: bool = False  # True if verified against official source
+    official_name: Optional[str] = None  # Corrected name from official docs
+    official_description: Optional[str] = None  # Description from official source
+    value_proposition: Optional[str] = None  # Why this feature matters
+    source_url: Optional[str] = None  # URL where verified
+    grounding_confidence: Literal["high", "medium", "low"] = "low"
+    grounding_note: str = ""  # Explanation of grounding result
+
+
+class RecordedDemoEvidenceContract(BaseModel):
+    """
+    Evidence extracted from uploaded demo video (Phase 4-5).
+
+    This is the internal analysis output contract.
+    Kept separate from ConceptBrief until Phase 6 integration.
+
+    Structured data (segments, keyframes, features) is separate from
+    human-readable summaries (timeline_narrative, feature_candidates).
+    """
+
+    # Source video info
+    demo_video_asset_url: str
+    original_filename: str = ""
+    duration_sec: float
+    width: int
+    height: int
+
+    # Extracted keyframes (representative, not all frames)
+    keyframes: List[KeyframeContract] = Field(default_factory=list)
+
+    # Timeline segmentation
+    segments: List[TimelineSegmentContract] = Field(default_factory=list)
+
+    # Extracted features from OCR and analysis (Phase 4)
+    extracted_features: List[ExtractedFeatureContract] = Field(default_factory=list)
+
+    # Grounded features after OpenClaw verification (Phase 5)
+    grounded_features: List[GroundedFeatureContract] = Field(default_factory=list)
+
+    # Summary outputs for downstream phases (Phase 5+)
+    # Note: segments (above) contain structured timeline data
+    # timeline_narrative is human-readable text for preview/debugging
+    timeline_narrative: str = ""  # Human-readable summary of timeline flow
+    feature_candidates: List[str] = Field(
+        default_factory=list
+    )  # Top feature names to highlight (updated after grounding)
+
+    # Grounding metadata (Phase 5)
+    grounding_reference_url: Optional[str] = None  # URL used for grounding
+    grounding_project_name: Optional[str] = None  # Project name if provided
+    grounding_completed: bool = False  # Whether grounding step has run
+
+    # Confidence scoring
+    analysis_confidence_overall: Literal["high", "medium", "low"] = "low"
+    confidence_signals: Dict[str, Any] = Field(default_factory=dict)  # Debug/audit info
+
+    # Analysis metadata
+    analysis_version: str = "1.0"
+    ocr_enabled: bool = False
+    vision_model_used: Optional[str] = None  # None if OCR-only fallback
+
+
+# ==============================================================================
+# ConceptBrief and related contracts
+# ==============================================================================
+
+
 class ConceptBriefContract(BaseModel):
     persona_id: str
-    creative_input_mode: Literal["idea_brief"] = "idea_brief"
+    creative_input_mode: Literal["idea_brief", "recorded_demo_video"] = "idea_brief"
     feature_focus: str
     video_goal: str
     audience: str
@@ -211,6 +333,13 @@ class ConceptBriefContract(BaseModel):
     access_level: str
     source_summary: str
     tone_resolved: str
+
+    # Optional fields for recorded_demo_video mode (Phase 2-3)
+    demo_video_telegram_file_id: Optional[str] = None
+    demo_video_asset_url: Optional[str] = None
+
+    # Note: demo_evidence integration deferred to Phase 6 (ConceptBrief generation changes)
+    # For now, evidence is stored in session artifacts, not in ConceptBrief
 
     @field_validator("video_goal")
     @classmethod
@@ -249,6 +378,7 @@ class BeatContract(BaseModel):
     source_ref: Optional[str] = None
     overlay_text: str
     duration_sec: int
+    trim_confidence: Optional[float] = None
 
     @field_validator("purpose")
     @classmethod
@@ -275,12 +405,23 @@ class BeatContract(BaseModel):
 
     @field_validator("top_half_max_capture_seconds")
     @classmethod
-    def validate_top_half_max_capture_seconds(cls, value: Optional[int]) -> Optional[int]:
+    def validate_top_half_max_capture_seconds(
+        cls, value: Optional[int]
+    ) -> Optional[int]:
         if value is None:
             return None
         if value < 8 or value > 60:
             raise ValueError("top_half_max_capture_seconds must be between 8 and 60")
         return value
+
+    @field_validator("trim_confidence")
+    @classmethod
+    def validate_trim_confidence(cls, value: Optional[float]) -> Optional[float]:
+        if value is None:
+            return None
+        if value < 0 or value > 1:
+            raise ValueError("trim_confidence must be between 0 and 1")
+        return round(float(value), 3)
 
 
 class BeatSheetContract(BaseModel):

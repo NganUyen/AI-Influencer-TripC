@@ -65,7 +65,7 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "input_contract": {
             "mode": "structured_with_optional_freeform",
             "freeform_fields": ["feedback"],
-            "note": "Collects topic and optional feedback to regenerate the text."
+            "note": "Collects topic and optional feedback to regenerate the text.",
         },
         "internal_skills": ["persona-picker"],
         "api_call": {
@@ -79,7 +79,7 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "pick_persona",
             "collect_content",
             "generate_draft",
-            "choose_media_action"
+            "choose_media_action",
         ],
         "session_shape": {
             "step_key": "pick_persona",
@@ -87,13 +87,10 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "persona_id": None,
                 "topic": None,
                 "feedback": None,
-                "media_action": None
+                "media_action": None,
             },
-            "artifacts": {
-                "story_draft": None,
-                "story_body": None
-            }
-        }
+            "artifacts": {"story_draft": None, "story_body": None},
+        },
     },
     "image-menu": {
         "name": "ImageMenu",
@@ -282,7 +279,11 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "input_contract": {
             "mode": "structured_with_optional_freeform",
-            "freeform_fields": ["appearance_prompt", "identity_notes", "creative_notes"],
+            "freeform_fields": [
+                "appearance_prompt",
+                "identity_notes",
+                "creative_notes",
+            ],
             "note": (
                 "Avatar generation stays anchored to persona identity fields, but"
                 " still allows open text notes for look-and-feel refinement."
@@ -355,7 +356,7 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "command": "/media",
         "role": "Prepare AI influencer video concepts before production",
         "description": (
-            "Collect a video idea brief, normalize it into an approved concept,"
+            "Collect a video idea brief OR upload a recorded demo video, normalize it into an approved concept,"
             " generate an approved beat sheet, and hand the approved package"
             " into the production workflow from Telegram."
         ),
@@ -365,8 +366,6 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "menu_options": [],
         "required_params": [
             "persona_id",
-            "idea_brief",
-            "feature_focus",
             "video_goal",
             "audience",
             "cta",
@@ -375,14 +374,27 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "optional_params": [
             "platform",
+            "creative_input_mode",
+            "idea_brief",
+            "feature_focus",
+            "demo_video_telegram_file_id",
+            "demo_video_asset_url",
+            "feature_emphasis",
         ],
         "input_contract": {
-            "mode": "structured_idea_brief",
-            "freeform_fields": ["idea_brief", "feature_focus", "audience", "cta"],
+            "mode": "structured_idea_brief_or_demo_video",
+            "freeform_fields": [
+                "idea_brief",
+                "feature_focus",
+                "feature_emphasis",
+                "audience",
+                "cta",
+            ],
             "note": (
-                "The Telegram flow remains deterministic. OpenClaw is used only"
-                " to normalize the collected brief into a ConceptBrief and"
-                " BeatSheet after the required fields are collected."
+                "The Telegram flow supports two input modes: idea_brief (original) and recorded_demo_video (new)."
+                " In idea_brief mode: idea_brief and feature_focus are required."
+                " In recorded_demo_video mode: demo_video_telegram_file_id is required, feature_focus becomes optional feature_emphasis."
+                " OpenClaw is used to normalize the collected brief into a ConceptBrief and BeatSheet after required fields are collected."
             ),
         },
         "internal_skills": [
@@ -400,11 +412,14 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         },
         "output": "Approved production package plus active production workflow session",
         "implementation_priority": 3,
-        "integration_note": "Pre-production review now hands off directly into the live production workflow.",
+        "integration_note": "Pre-production review now hands off directly into the live production workflow. Phase 2 adds recorded_demo_video mode.",
         "steps": [
+            "select_mode",
             "pick_persona",
+            "upload_demo_video",
             "collect_idea_brief",
             "collect_feature_focus",
+            "collect_feature_emphasis",
             "choose_video_goal",
             "collect_audience",
             "collect_cta",
@@ -414,17 +429,21 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "confirm_beats",
         ],
         "session_shape": {
-            "step_key": "pick_persona",
+            "step_key": "select_mode",
             "collected": {
+                "creative_input_mode": None,
                 "persona_id": None,
                 "idea_brief": None,
                 "feature_focus": None,
+                "feature_emphasis": None,
                 "video_goal": None,
                 "audience": None,
                 "cta": None,
                 "reference_url": None,
                 "access_level": None,
                 "platform": "tiktok",
+                "demo_video_telegram_file_id": None,
+                "demo_video_asset_url": None,
             },
             "artifacts": {
                 "persona_snapshot": None,

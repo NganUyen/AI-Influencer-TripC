@@ -133,54 +133,59 @@ class PersonaCreatorSkill(BaseSkill):
         )
 
     @classmethod
-    async def _dream_persona_details(
-        cls, brief: str, ai_service: AIService
+    async def _dream_persona_details_refined(
+        cls, 
+        nationality: str, 
+        brief: str, 
+        ai: AIService
     ) -> Dict[str, Any]:
-        """Use AI to suggest a name, ID, and appearance description based on a brief."""
+        """Focused LLM call for localized name and ID generation."""
         system_prompt = (
-            "You are a creative persona designer for an AI social media agency.\n"
-            "Given a brief (nationality, gender, optional vibes), suggest:\n"
-            "1. display_name: A natural-sounding full name for this persona.\n"
-            "2. persona_id: A unique snake_case slug (max 12 chars).\n"
-            "3. appearance: A 150-word photorealistic description for AI image generation, "
-            "focusing on features, outfit, lighting, and a high-end social media look.\n"
-            "\n"
-            "RESPONSE FORMAT: Strict JSON only.\n"
-            "{\n"
-            '  "display_name": "...",\n'
-            '  "persona_id": "...",\n'
-            '  "appearance": "..."\n'
-            "}"
+            "You are a professional persona architect. "
+            "Given a nationality and a visual description, suggest a culturally appropriate name and a short, descriptive persona ID.\n"
+            "Output strictly as valid JSON: {\"name\": \"...\", \"id\": \"...\", \"prompt_enhancement\": \"...\"}"
         )
+        user_prompt = f"Nationality: {nationality}\nDescription: {brief}\n\nGenerate the details."
+        
         try:
-            raw_json = await ai_service.generate_text(
-                prompt=f"Dream up a persona for this brief: {brief}",
+            response_text = await ai.generate_text(
+                prompt=user_prompt,
                 system_prompt=system_prompt,
-                temperature=0.8,
-                max_tokens=600,
+                temperature=0.7,
+                max_tokens=300
             )
-            # Find the first { and last } to handle any extra text from AI
-            start = raw_json.find("{")
-            end = raw_json.rfind("}") + 1
-            if start == -1 or end == 0:
-                raise ValueError("AI did not return valid JSON block")
             
-            data = json.loads(raw_json[start:end])
+            # Simple JSON extraction
+            import json
+            import re
+            json_match = re.search(r"({.*})", response_text.replace("\n", " "), re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group(1))
+                return {
+                    "persona_id": re.sub(r"[^a-z0-9_]", "", data.get("id", "persona").lower().replace(" ", "_")),
+                    "display_name": data.get("name", "New Persona"),
+                    "appearance": f"{nationality} {brief}. {data.get('prompt_enhancement', '')}",
+                    "success": True
+                }
+            
+            # Fallback
             return {
-                "display_name": str(data.get("display_name") or "Unnamed Persona"),
-                "persona_id": str(data.get("persona_id") or "unnamed_p")[:15].strip("_"),
-                "appearance": str(data.get("appearance") or ""),
+                "persona_id": f"{nationality.lower().replace(' ', '_')}_persona",
+                "display_name": f"{nationality} Persona",
+                "appearance": f"{nationality} {brief}",
+                "success": False,
+                "error": "Could not parse AI response as JSON."
             }
         except Exception as e:
-            import traceback
-            error_details = traceback.format_exc()
-            logger.error(f"Failed to dream persona: {e}\n{error_details}")
+            logger.error(f"Refined dream failed: {e}")
+            # Robust fallback for 401s or other AI failures
             return {
-                "display_name": "New Persona",
-                "persona_id": "new-p",
-                "appearance": brief,
+                "persona_id": f"{nationality.lower().replace(' ', '_')}_persona",
+                "display_name": f"{nationality} Persona",
+                "appearance": f"{nationality} {brief}",
+                "success": False,
                 "error": str(e),
-                "debug_info": error_details[:500] if settings.DEBUG else None
+                "debug_info": "Check your AI service configuration / API keys."
             }
 
     @classmethod
@@ -456,64 +461,70 @@ class PersonaCreatorSkill(BaseSkill):
                 return cls._collecting_result(current, next_step="choose_creation_mode")
 
             if creation_mode == "dream":
-                # Handle Return from Confirmation
-                dream_confirmed = current.collected.get("dream_confirmed")
-                if dream_confirmed == "retry":
-                    # Clear brief and restart
+                # Handle Clear/Retry
+                if current.collected.get("dream_confirmed") == "retry":
+                    current.collected.pop("nationality", None)
+                    current.collected.pop("voice", None)
                     current.collected.pop("dream_brief", None)
                     current.collected.pop("dream_confirmed", None)
-                    current.artifacts["dream_ready"] = False
+                    current.artifact_updates["dream_ready"] = False
+                    current.step_key = "collect_nationality"
+                    return cls._collecting_result(current, next_step="collect_nationality")
+
+                # Step 1: Nationality
+                nationality = current.collected.get("nationality")
+                if not nationality:
+                    current.step_key = "collect_nationality"
+                    return cls._collecting_result(current, next_step="collect_nationality")
+
+                # Step 2: Voice
+                voice = current.collected.get("voice")
+                if not voice:
+                    current.step_key = "choose_voice"
+                    return cls._collecting_result(current, next_step="choose_voice")
+
+                # Step 3: Brief/Description
+                dream_brief = current.collected.get("dream_brief")
+                if not dream_brief:
                     current.step_key = "collect_dream_brief"
                     return cls._collecting_result(current, next_step="collect_dream_brief")
-                
-                if dream_confirmed == "confirm":
-                    # We are done dreaming, proceed to standard logic
-                    pass 
-                else:
-                    # 1. Collect Brief
-                    dream_brief = current.collected.get("dream_brief")
-                    if not dream_brief:
-                        current.step_key = "collect_dream_brief"
-                        return cls._collecting_result(current, next_step="collect_dream_brief")
+
+                # Step 4: Generate Results
+                if not current.artifacts.get("dream_ready"):
+                    from services.ai_service import AIService
+                    async with AIService() as ai:
+                        dream = await cls._dream_persona_details_refined(nationality, dream_brief, ai)
                     
-                    # 2. Trigger AI Magic
-                    if not current.artifacts.get("dream_ready"):
-                        from services.ai_service import AIService
-                        async with AIService() as ai:
-                            dream = await cls._dream_persona_details(dream_brief, ai)
-                        
-                        # Pre-populate fields
-                        current.artifacts["dream_ready"] = True
-                        current.collected["persona_id"] = dream["persona_id"]
-                        current.collected["appearance_prompt_or_photo"] = dream["appearance"]
-                        
-                        # Build summary with optional debug info
-                        summary = (
-                            f"✨ *AI Suggested Identity:*\n"
-                            f"Name: *{dream['display_name']}*\n"
-                            f"ID: `{dream['persona_id']}`\n\n"
-                            f"*Appearance:* {dream['appearance'][:200]}..."
-                        )
-                        if dream.get("error"):
-                            summary += f"\n\n⚠️ *AI Dream Warning:* {dream['error']}"
-                            if dream.get("debug_info"):
-                                summary += f"\n`{dream['debug_info']}`"
+                    current.artifact_updates["dream_ready"] = True
+                    current.collected["persona_id"] = dream["persona_id"]
+                    current.collected["appearance_prompt_or_photo"] = dream["appearance"]
+                    
+                    summary = (
+                        f"✨ *AI Suggested Identity:*\n"
+                        f"Nationalty: {nationality}\n"
+                        f"Suggested Name: *{dream['display_name']}*\n"
+                        f"ID: `{dream['persona_id']}`\n\n"
+                        f"*Appearance:* {dream['appearance'][:200]}..."
+                    )
+                    if not dream.get("success"):
+                        summary += f"\n\n⚠️ *AI Dream Warning:* {dream.get('error')}"
+                        if dream.get("debug_info"):
+                            summary += f"\n`{dream['debug_info']}`"
 
-                        current.artifacts["dream_summary"] = summary
-                        current.step_key = "confirm_dream"
-                        return cls._collecting_result(
-                            current, 
-                            next_step="confirm_dream",
-                            output={"message": summary}
-                        )
+                    current.artifacts["dream_summary"] = summary
+                    current.step_key = "confirm_dream"
+                    return cls._collecting_result(
+                        current, 
+                        next_step="confirm_dream",
+                        output={"message": summary}
+                    )
 
-                    # 3. Handle Stay on Confirmation Prompt
-                    if current.step_key == "confirm_dream":
-                        return cls._collecting_result(
-                            current, 
-                            next_step="confirm_dream",
-                            output={"message": current.artifacts.get("dream_summary", "Review your suggested persona below:")}
-                        )
+                if current.collected.get("dream_confirmed") == "confirm":
+                    current.step_key = "generate_preview"
+                    # Proceed to standard collection
+                elif current.step_key == "confirm_dream":
+                    # Stay here until confirmed or retried
+                    return cls._collecting_result(current, next_step="confirm_dream")
 
             # ── Step 1: Standard Collection ────────────────────────────────────
             # We re-evaluate missing params AFTER the dreaming layer has pre-filled them
@@ -544,6 +555,8 @@ class PersonaCreatorSkill(BaseSkill):
             if current.step_key not in ["save", "generate_preview", "preview"]:
                 return cls._collecting_result(current, next_step=current.step_key)
 
+            # NOTE: We explicitly construct the payload with ONLY valid DB columns.
+            # Transient inputs like 'nationality' are filtered out here.
             payload = {
                 "persona_id": current.collected["persona_id"],
                 "display_name": cls._display_name_from_persona_id(
@@ -664,6 +677,6 @@ class PersonaCreatorSkill(BaseSkill):
             error_details = traceback.format_exc()
             logger.error(f"SKILL EXECUTION FAILED: {exc}\n{error_details}")
             msg = f"🚫 Unexpected Error: {exc}"
-            if settings.DEBUG:
+            if getattr(settings, "DEBUG", False):
                 msg += f"\n\nTraceback:\n{error_details[:800]}"
             return cls._error_result(current, msg)

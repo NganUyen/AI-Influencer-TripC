@@ -607,7 +607,10 @@ class TelegramRenderer:
     def render_skill_prompt(
         cls, session: SkillSession, prefix: str = ""
     ) -> Dict[str, Any]:
-        if session.skill_name == "persona-creator" and session.step_key == "preview":
+        if (
+            session.skill_name == "persona-creator"
+            and session.step_key in ("preview", "confirm_dream")
+        ):
             step = get_step_definition(session.skill_name, session.step_key)
             persona_id = session.artifacts.get("persona_id") or session.collected.get(
                 "persona_id", "—"
@@ -629,10 +632,16 @@ class TelegramRenderer:
             )
             display_name = (
                 session.artifacts.get("persona_data", {}).get("display_name")
+                or session.collected.get("display_name")
                 or persona_id
             )
 
             prompt_text = step.get("prompt_text") or "✨ *Persona Profile Ready\\!*"
+            dynamic_message = session.last_result.output.get("message") if session.last_result else None
+            if dynamic_message:
+                prompt_text = f"{prompt_text}\n\n{dynamic_message}"
+
+            # Readiness/Status message restoration
             readiness = session.artifacts.get("readiness") or {}
             blocking_reason = readiness.get("blocking_reason")
             status_text = ""
@@ -816,6 +825,10 @@ class TelegramRenderer:
         prompt_text = (
             step.get("prompt_text") or f"{session.skill_name}: {session.step_key}"
         )
+        dynamic_message = session.last_result.output.get("message") if session.last_result else None
+        if dynamic_message:
+            prompt_text = f"{prompt_text}\n\n{dynamic_message}"
+        
         input_type = step.get("input_type")
 
         if input_type in {"persona_picker", "persona_selector"}:

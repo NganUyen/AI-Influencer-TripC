@@ -467,11 +467,31 @@ class PersonaCreatorSkill(BaseSkill):
                     
                     current.artifacts["dream_ready"] = True
                     current.collected["persona_id"] = dream["persona_id"]
+                    current.collected["display_name"] = dream["display_name"]
                     current.collected["appearance_prompt_or_photo"] = dream["appearance"]
+                    
+                    # IMMEDIATELY generate avatar preview for the 'Wow' factor
+                    try:
+                        persona_record = {
+                            "persona_id": dream["persona_id"],
+                            "display_name": dream["display_name"],
+                            "avatar_prompt": dream["appearance"],
+                        }
+                        persona_record = await cls._ensure_avatar_image(
+                            current, 
+                            persona_record, 
+                            backend_url, 
+                            http_client,
+                            force=True
+                        )
+                        current.artifacts["avatar_image_url"] = persona_record.get("avatar_image_url")
+                        current.artifacts["preview_image_url"] = persona_record.get("avatar_image_url")
+                    except Exception as e:
+                        logger.error(f"Early avatar generation failed: {e}")
                     
                     summary = (
                         f"✨ *AI Suggested Identity:*\n"
-                        f"Nationalty: {nationality}\n"
+                        f"Nationality: {nationality}\n"
                         f"Suggested Name: *{dream['display_name']}*\n"
                         f"ID: `{dream['persona_id']}`\n\n"
                         f"*Appearance:* {dream['appearance'][:200]}..."

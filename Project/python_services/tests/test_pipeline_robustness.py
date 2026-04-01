@@ -27,7 +27,8 @@ from activities.video_activities import (
     _split_screen_filter,
     _style_subtitle_line,
 )
-from services.script_service import ScriptService, _VALID_TOP_HALF_SOURCE_TYPES
+from services.script_service import ScriptService
+from services.contracts import VALID_TOP_HALF_SOURCE_TYPES
 
 
 class TestTalkingHeadGeneration:
@@ -533,10 +534,10 @@ class TestInvalidSourceTypeHandling:
 
     def test_valid_source_types_set_is_complete(self):
         """Verify the valid source types set includes expected values."""
-        assert "public_page_capture" in _VALID_TOP_HALF_SOURCE_TYPES
-        assert "ai_visual_fallback" in _VALID_TOP_HALF_SOURCE_TYPES
-        assert "search" in _VALID_TOP_HALF_SOURCE_TYPES
-        assert "authenticated_capture_later" in _VALID_TOP_HALF_SOURCE_TYPES
+        assert "public_page_capture" in VALID_TOP_HALF_SOURCE_TYPES
+        assert "ai_visual_fallback" in VALID_TOP_HALF_SOURCE_TYPES
+        assert "authenticated_capture_later" in VALID_TOP_HALF_SOURCE_TYPES
+        assert "hybrid_candidate" in VALID_TOP_HALF_SOURCE_TYPES
         assert "hybrid_candidate" in _VALID_TOP_HALF_SOURCE_TYPES
 
 

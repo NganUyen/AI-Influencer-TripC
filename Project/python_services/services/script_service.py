@@ -11,18 +11,15 @@ import asyncio
 from typing import Optional, Set
 
 from services.ai_service import AIService
-from services.contracts import ScriptContract, SceneContract
-
-# [MEDIUM-3] Import valid source types for validation
-_VALID_TOP_HALF_SOURCE_TYPES: Set[str] = {
-    "public_page_capture",
-    "authenticated_capture_later",
-    "ai_visual_fallback",
-    "hybrid_candidate",
-    "search",  # Default fallback type
-}
-
+from services.contracts import (
+    ScriptContract,
+    SceneContract,
+    ApprovedProductionPackageContract,
+    VALID_TOP_HALF_SOURCE_TYPES,
+    URL_REQUIRED_SOURCE_TYPES,
+)
 from services.errors import ScriptGenerationError, ScriptContractError
+from utils.beat_normalization import normalize_beats
 
 logger = logging.getLogger(__name__)
 
@@ -198,53 +195,53 @@ class ScriptService:
             default_source_ref[:60] if default_source_ref else "NONE (no reference_url in concept_brief)",
         )
 
+        # Normalize beats: backfill missing source_ref from alternative field names
+        # This handles CreativeDirector using reference_url, url, page_url, etc.
+        try:
+            normalized_beats = normalize_beats(beats, default_source_ref)
+        except ValueError as e:
+            raise ScriptContractError(str(e)) from e
+
         # We need to construct the script string by concatenating bottom_half_message from beats
         script_text = " ".join(
-            [b.get("bottom_half_message", "") for b in beats]
+            [b.get("bottom_half_message", "") for b in normalized_beats]
         ).strip()
 
         # Calculate total duration from beat duration_sec fields
-        duration_estimate = sum(b.get("duration_sec", 0) for b in beats)
+        duration_estimate = sum(b.get("duration_sec", 0) for b in normalized_beats)
         if duration_estimate < 10.0:
             duration_estimate = 30.0
 
         scenes = []
         current_timestamp = 0.0
-        for index, beat in enumerate(beats, start=1):
-            raw_source_type = beat.get("top_half_source_type", "public_page_capture")
-            
-            # Preserve valid source types; normalize unknown types to ai_visual_fallback
-            if raw_source_type in _VALID_TOP_HALF_SOURCE_TYPES:
-                top_half_source_type = raw_source_type
-            else:
-                logger.warning(
-                    "Beat %s has unknown top_half_source_type=%s, defaulting to ai_visual_fallback",
-                    index,
-                    raw_source_type,
+        for index, beat in enumerate(normalized_beats, start=1):
+            raw_source_type = beat.get("top_half_source_type")
+
+            # Strict, case-sensitive validation with no defaults or fallbacks.
+            if not isinstance(raw_source_type, str) or not raw_source_type.strip():
+                raise ValueError(
+                    f"Invalid top_half_source_type {raw_source_type!r} for Beat {index}. "
+                    f"Valid options are: {sorted(VALID_TOP_HALF_SOURCE_TYPES)}"
                 )
-                top_half_source_type = "ai_visual_fallback"
+            
+            if raw_source_type not in VALID_TOP_HALF_SOURCE_TYPES:
+                raise ValueError(
+                    f"Invalid top_half_source_type {raw_source_type!r} for Beat {index}. "
+                    f"Valid options are: {sorted(VALID_TOP_HALF_SOURCE_TYPES)}"
+                )
+            top_half_source_type = raw_source_type
 
             top_half_target = beat.get("top_half_target", "")
             beat_duration = float(beat.get("duration_sec", 4))
             
-            # Use beat source URL when present, otherwise concept_brief reference URL.
-            beat_source_ref = beat.get("source_ref")
-            if beat_source_ref:
-                source_ref = beat_source_ref
-            else:
-                source_ref = default_source_ref
+            # After normalization, source_ref should be present for URL-required types
+            source_ref = beat.get("source_ref")
 
-            # source_ref is only required for browser capture types
-            requires_source_ref = top_half_source_type in {
-                "public_page_capture",
-                "hybrid_candidate",
-            }
-            if requires_source_ref and not source_ref:
+            # Final safety check (should not trigger after normalization)
+            if top_half_source_type in URL_REQUIRED_SOURCE_TYPES and not source_ref:
                 raise ScriptContractError(
-                    (
-                        "Beat sheet is missing source_ref/reference_url for "
-                        f"browser capture at beat {index} (type={top_half_source_type})"
-                    )
+                    f"Beat {index} type '{top_half_source_type}' requires source_ref "
+                    f"but normalization failed to provide one"
                 )
 
             # Keep captions aligned to narration to avoid top-half overlay text paths.

@@ -178,10 +178,22 @@ _BEAT_PURPOSES = {
     "expectation_setting",
     "cta",
 }
-_TOP_HALF_SOURCE_TYPES = {
+# Single source of truth for valid top_half_source_type values
+# Used across: script_service, creative_director_service, media_activities
+VALID_TOP_HALF_SOURCE_TYPES = {
     "public_page_capture",
     "authenticated_capture_later",
     "ai_visual_fallback",
+    "hybrid_candidate",
+}
+
+# Backward compatibility alias
+_TOP_HALF_SOURCE_TYPES = VALID_TOP_HALF_SOURCE_TYPES
+_VALID_TOP_HALF_SOURCE_TYPES = VALID_TOP_HALF_SOURCE_TYPES
+
+# Source types that require URL to function
+URL_REQUIRED_SOURCE_TYPES = {
+    "public_page_capture",
     "hybrid_candidate",
 }
 

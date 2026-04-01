@@ -392,8 +392,19 @@ class HeyGenService:
                 return video_url
 
             if status in ["failed", "error"]:
-                error = status_data.get("data", {}).get("error") or status_data.get("error", "Unknown")
-                error_code = status_data.get("data", {}).get("error_code") or status_data.get("error_code")
+                # Extract error details from various possible response shapes
+                data = status_data.get("data", {})
+                error = (
+                    data.get("failure_message")
+                    or data.get("error")
+                    or status_data.get("error")
+                    or "Unknown"
+                )
+                error_code = (
+                    data.get("failure_code")
+                    or data.get("error_code")
+                    or status_data.get("error_code")
+                )
                 logger.error(
                     "HeyGen video generation FAILED | video_id=%s | status=%s | error=%s | error_code=%s | full_response=%s",
                     video_id,

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 from copy import deepcopy
 from typing import Any, Dict, Optional
@@ -24,8 +23,8 @@ _DEFINITION = get_skill_definition("persona-creator")
 
 class PersonaCreatorSkill(BaseSkill):
     name = "persona-creator"
-    required_params = ["persona_id", "language", "voice", "appearance_prompt_or_photo"]
-    optional_params = ["nationality", "brief", "gender", "identity_notes", "creative_notes"]
+    required_params = list(_DEFINITION.get("required_params", []))
+    optional_params = list(_DEFINITION.get("optional_params", []))
     api_target = _DEFINITION.get("api_call", {}).get(
         "target",
         "POST /api/personas + PATCH /api/personas/{persona_id} + GET /api/personas/{persona_id}/readiness",
@@ -174,20 +173,20 @@ class PersonaCreatorSkill(BaseSkill):
             }
         except Exception as e:
             import traceback
-            logger.error(f"Failed to generate dream identity: {e}")
+            error_details = traceback.format_exc()
+            logger.error(f"Failed to dream persona: {e}\n{error_details}")
             
-        # Robust fallback
-        name = f"{nationality} Creator"
-        return {
-            "name": name,
-            "id": f"{name.lower().replace(' ', '_')}_{int(asyncio.get_event_loop().time()) % 1000}",
-            "refined_prompt": f"Photorealistic portrait of a {nationality} person, {brief}"
-        }
-
-    @classmethod
-    async def _dream_persona_details(cls, brief: str, ai: AIService) -> Dict[str, Any]:
-        """Legacy method - kept for backward compatibility if needed, but not used in the new flow."""
-        return {}
+            error_msg = str(e)
+            if "401" in error_msg or "invalid_api_key" in error_msg.lower():
+                error_msg = "OpenAI API key is invalid or missing. Please check your VPS environment variables or .env file."
+                
+            return {
+                "display_name": "New Persona",
+                "persona_id": "new-p",
+                "appearance": brief,
+                "error": error_msg,
+                "debug_info": error_details[:500] if getattr(settings, "DEBUG", False) else None
+            }
 
     @classmethod
     def _build_readiness_report(
@@ -462,67 +461,63 @@ class PersonaCreatorSkill(BaseSkill):
                 return cls._collecting_result(current, next_step="choose_creation_mode")
 
             if creation_mode == "dream":
-                # Revised Flow: Nationality -> Voice -> Description -> Auto-Gen
-                nationality = current.collected.get("nationality")
-                if not nationality:
-                    current.step_key = "collect_nationality"
-                    return cls._collecting_result(current, next_step="collect_nationality")
+                # Handle Return from Confirmation
+                dream_confirmed = current.collected.get("dream_confirmed")
+                if dream_confirmed == "retry":
+                    # Clear brief and restart
+                    current.collected.pop("dream_brief", None)
+                    current.collected.pop("dream_confirmed", None)
+                    current.artifact_updates["dream_ready"] = False
+                    current.step_key = "collect_dream_brief"
+                    return cls._collecting_result(current, next_step="collect_dream_brief")
                 
-                voice = current.collected.get("voice")
-                if not voice:
-                    current.step_key = "choose_voice"
-                    return cls._collecting_result(current, next_step="choose_voice")
-                
-                dream_brief = current.collected.get("brief")
-                if not dream_brief:
-                    current.step_key = "collect_description"
-                    return cls._collecting_result(current, next_step="collect_description")
-
-                # 4. Trigger AI Identity Generation once we have all 3
-                if not current.artifacts.get("dream_identity_ready"):
-                    dream = await cls._generate_dream_identity(nationality, dream_brief, voice)
+                if dream_confirmed == "confirm":
+                    # We are done dreaming, proceed to standard logic
+                    pass 
+                else:
+                    # 1. Collect Brief
+                    dream_brief = current.collected.get("dream_brief")
+                    if not dream_brief:
+                        current.step_key = "collect_dream_brief"
+                        return cls._collecting_result(current, next_step="collect_dream_brief")
                     
-                    # Store suggestions in artifacts first
-                    current.artifacts["dream_suggestion"] = dream
-                    current.artifacts["dream_summary"] = (
-                        f"✨ *AI Suggested Identity:*\n"
-                        f"Name: *{dream['name']}*\n"
-                        f"ID: `{dream['id']}`\n\n"
-                        f"*Refined Appearance:* {dream['refined_prompt'][:200]}..."
-                    )
-                    current.artifacts["dream_identity_ready"] = True
-                    current.step_key = "confirm_dream"
-                    return cls._collecting_result(
-                        current, next_step="confirm_dream", output={"message": current.artifacts["dream_summary"]}
-                    )
-
-                # 5. Handle Confirmation
-                if current.step_key == "confirm_dream":
-                    confirm = current.collected.get("confirm_dream")
-                    if confirm == "retry":
-                        # Start over from nationality
-                        to_clear = ["nationality", "voice", "brief"]
-                        for field in to_clear:
-                            current.collected.pop(field, None)
-                        current.artifacts.pop("dream_identity_ready", None)
-                        current.artifacts.pop("dream_suggestion", None)
-                        current.step_key = "collect_nationality"
-                        return cls._collecting_result(current, next_step="collect_nationality")
-                    
-                    if confirm == "confirm":
-                        # Commit the suggestion to standard fields and proceed
-                        dream = current.artifacts.get("dream_suggestion", {})
-                        current.collected["persona_id"] = dream.get("id")
-                        current.collected["language"] = current.collected.get("language") or "English"
-                        current.collected["appearance_prompt_or_photo"] = dream.get("refined_prompt")
-                        current.artifacts["display_name_suggestion"] = dream.get("name")
+                    # 2. Trigger AI Magic
+                    if not current.artifacts.get("dream_ready"):
+                        from services.ai_service import AIService
+                        async with AIService() as ai:
+                            dream = await cls._dream_persona_details(dream_brief, ai)
                         
-                        # Proceed directly to preview generation (Step 1 below will fall through)
-                        pass
-                    else:
-                        # Re-show the summary if no valid confirm button yet
+                        # Pre-populate fields
+                        current.artifact_updates["dream_ready"] = True
+                        current.collected["persona_id"] = dream["persona_id"]
+                        current.collected["appearance_prompt_or_photo"] = dream["appearance"]
+                        
+                        # Build summary with optional debug info
+                        summary = (
+                            f"✨ *AI Suggested Identity:*\n"
+                            f"Name: *{dream['display_name']}*\n"
+                            f"ID: `{dream['persona_id']}`\n\n"
+                            f"*Appearance:* {dream['appearance'][:200]}..."
+                        )
+                        if dream.get("error"):
+                            summary += f"\n\n⚠️ *AI Dream Warning:* {dream['error']}"
+                            if dream.get("debug_info"):
+                                summary += f"\n`{dream['debug_info']}`"
+
+                        current.artifacts["dream_summary"] = summary
+                        current.step_key = "confirm_dream"
                         return cls._collecting_result(
-                            current, next_step="confirm_dream", output={"message": current.artifacts["dream_summary"]}
+                            current, 
+                            next_step="confirm_dream",
+                            output={"message": summary}
+                        )
+
+                    # 3. Handle Stay on Confirmation Prompt
+                    if current.step_key == "confirm_dream":
+                        return cls._collecting_result(
+                            current, 
+                            next_step="confirm_dream",
+                            output={"message": current.artifacts.get("dream_summary", "Review your suggested persona below:")}
                         )
 
             # ── Step 1: Standard Collection ────────────────────────────────────
@@ -556,7 +551,7 @@ class PersonaCreatorSkill(BaseSkill):
 
             payload = {
                 "persona_id": current.collected["persona_id"],
-                "display_name": current.artifacts.get("display_name_suggestion") or cls._display_name_from_persona_id(
+                "display_name": cls._display_name_from_persona_id(
                     current.collected["persona_id"]
                 ),
                 "language": current.collected["language"],

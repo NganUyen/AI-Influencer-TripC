@@ -68,7 +68,9 @@ async def _tg_call_multipart(
     response = await client.post(url, data=payload, files=files, timeout=20.0)
     data = response.json()
     if not data.get("ok"):
-        logger.warning("Telegram API %s (multipart) failed: %s", method, data.get("description"))
+        logger.warning(
+            "Telegram API %s (multipart) failed: %s", method, data.get("description")
+        )
     return data
 
 
@@ -180,7 +182,9 @@ async def send_photo(
             {"photo": (filename, image_response.content, content_type)},
         )
     except Exception as exc:
-        logger.warning("Telegram sendPhoto URL fallback download/upload failed: %s", exc)
+        logger.warning(
+            "Telegram sendPhoto URL fallback download/upload failed: %s", exc
+        )
         return response
 
 
@@ -230,6 +234,57 @@ async def _download_telegram_image(
     return response.content, content_type, filename
 
 
+async def _download_telegram_video(
+    message: Dict[str, Any],
+) -> Optional[tuple[bytes, str, str]]:
+    """
+    Download video file from Telegram message.
+
+    Returns:
+        tuple of (file_content, content_type, filename) or None if no video found
+    """
+    video = message.get("video")
+    document = message.get("document")
+
+    file_id: Optional[str] = None
+    filename = "telegram-video.mp4"
+    content_type = "video/mp4"
+
+    if isinstance(video, dict):
+        file_id = video.get("file_id")
+        unique_id = video.get("file_unique_id") or video.get("file_id") or "upload"
+        filename = f"telegram-video-{unique_id}.mp4"
+        content_type = video.get("mime_type") or "video/mp4"
+    elif isinstance(document, dict):
+        document_mime = str(document.get("mime_type") or "").strip().lower()
+        if not document_mime.startswith("video/"):
+            return None
+        file_id = document.get("file_id")
+        filename = document.get("file_name") or "telegram-video"
+        content_type = document_mime or "video/mp4"
+    else:
+        return None
+
+    if not file_id:
+        return None
+
+    file_response = await _tg_call("getFile", {"file_id": file_id})
+    file_path = file_response.get("result", {}).get("file_path")
+    if not file_path:
+        logger.warning(
+            "Telegram getFile returned no file_path for video file_id=%s", file_id
+        )
+        return None
+
+    download_url = _telegram_file_download_url(file_path)
+    client = _get_telegram_http_client()
+
+    # Use longer timeout for video files (they can be larger)
+    response = await client.get(download_url, timeout=120.0, follow_redirects=True)
+    response.raise_for_status()
+    return response.content, content_type, filename
+
+
 def inline_keyboard(*rows: list[tuple[str, str]]) -> Dict[str, Any]:
     return {
         "inline_keyboard": [
@@ -273,8 +328,10 @@ async def _send_rendered_message(
     if message_id is not None:
         try:
             # We prefer deleting the "Processing..." text for a cleaner look when photos arrive
-            await _tg_call("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
-            message_id = None # Message is gone, future calls should use send_message
+            await _tg_call(
+                "deleteMessage", {"chat_id": chat_id, "message_id": message_id}
+            )
+            message_id = None  # Message is gone, future calls should use send_message
         except Exception:
             # Fallback: Edit the text to a neutral state if delete fails
             try:
@@ -295,7 +352,7 @@ async def _send_rendered_message(
                 photo=photo_url,
                 caption=rendered.get("photo_caption") or text[:1024],
                 parse_mode=rendered.get("photo_parse_mode") or parse_mode,
-                reply_markup=reply_markup if not text or len(text) < 200 else None
+                reply_markup=reply_markup if not text or len(text) < 200 else None,
             )
             if photo_result.get("ok"):
                 photo_sent = True
@@ -533,7 +590,10 @@ def _extract_agent_decision(result: Any) -> Optional[Dict[str, str]]:
             parsed_text = json.loads(text)
             if isinstance(parsed_text, dict):
                 parsed_action = parsed_text.get("action")
-                if isinstance(parsed_action, str) and parsed_action in {"chat", "start_skill"}:
+                if isinstance(parsed_action, str) and parsed_action in {
+                    "chat",
+                    "start_skill",
+                }:
                     return {
                         "action": parsed_action,
                         "skill_name": str(parsed_text.get("skill_name") or "").strip(),
@@ -553,7 +613,7 @@ async def _handle_openclaw_message(chat_id: int, text: str, app: Any) -> None:
             "You are the Telegram orchestrator for TripC. "
             "Decide whether to start one of the available skills or answer in chat.\n\n"
             "Return ONLY strict JSON with this exact schema:\n"
-            "{\"action\":\"chat|start_skill\",\"skill_name\":\"<skill-or-empty>\",\"reply\":\"<short-plain-text-reply>\"}\n\n"
+            '{"action":"chat|start_skill","skill_name":"<skill-or-empty>","reply":"<short-plain-text-reply>"}\n\n'
             "Rules:\n"
             "- Use action=start_skill only when user clearly asks for task execution/content generation.\n"
             "- If starting skill, choose one from available_skills exactly.\n"
@@ -573,7 +633,9 @@ async def _handle_openclaw_message(chat_id: int, text: str, app: Any) -> None:
         if decision and decision.get("action") == "start_skill":
             skill_name = decision.get("skill_name", "")
             if skill_name in SKILL_REGISTRY:
-                skill_result = await SkillDispatcher.start_skill(chat_id, skill_name, app)
+                skill_result = await SkillDispatcher.start_skill(
+                    chat_id, skill_name, app
+                )
                 rendered = TelegramRenderer.render_skill_result(skill_result)
                 await _send_rendered_message(chat_id, rendered)
                 return
@@ -694,14 +756,20 @@ async def _handle_story_callback(
                 namespace=settings.TEMPORAL_NAMESPACE,
             )
             handle = client.get_workflow_handle(workflow_id)
-            await handle.signal("story_decision", {"action": action, "chat_id": chat_id})
+            await handle.signal(
+                "story_decision", {"action": action, "chat_id": chat_id}
+            )
             logger.info("Signalled workflow %s with action=%s", workflow_id, action)
         except RPCError as exc:
             logger.warning("Could not signal workflow %s: %s", workflow_id, exc)
         except Exception as exc:
-            logger.error("Unexpected error signalling workflow %s: %s", workflow_id, exc)
+            logger.error(
+                "Unexpected error signalling workflow %s: %s", workflow_id, exc
+            )
     else:
-        logger.warning("Temporal unavailable or workflow_id empty; story signal skipped.")
+        logger.warning(
+            "Temporal unavailable or workflow_id empty; story signal skipped."
+        )
     return True
 
 
@@ -753,11 +821,78 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
 
     has_file = any(key in message for key in ("document", "photo", "video", "audio"))
     if has_file:
+        # Check if this is a video upload for video-ai skill
+        has_video = "video" in message or (
+            isinstance(message.get("document"), dict)
+            and str(message["document"].get("mime_type", "")).startswith("video/")
+        )
+
+        if has_video:
+            active_session = await TelegramSkillSessionStore.get_session(chat_id)
+            if (
+                active_session is not None
+                and active_session.skill_name == "video-ai"
+                and active_session.step_key == "upload_demo_video"
+            ):
+                await send_chat_action(chat_id, action="upload_video")
+                try:
+                    telegram_video = await _download_telegram_video(message)
+                except Exception as exc:
+                    logger.warning(
+                        "Telegram video download failed for chat_id=%s: %s",
+                        chat_id,
+                        exc,
+                    )
+                    telegram_video = None
+
+                if telegram_video is not None:
+                    video_bytes, content_type, filename = telegram_video
+
+                    # Extract file_id for storage
+                    video_obj = message.get("video")
+                    document_obj = message.get("document")
+                    file_id = None
+                    if video_obj:
+                        file_id = video_obj.get("file_id")
+                    elif document_obj:
+                        file_id = document_obj.get("file_id")
+
+                    if not file_id:
+                        await send_message(
+                            chat_id,
+                            "Could not process video file. Please try uploading again.",
+                            parse_mode=None,
+                        )
+                        return
+
+                    skill_result = await SkillDispatcher.handle_video_upload(
+                        chat_id,
+                        file_id=file_id,
+                        data=video_bytes,
+                        content_type=content_type,
+                        filename=filename,
+                        app=app,
+                    )
+                    if skill_result is not None:
+                        rendered = TelegramRenderer.render_skill_result(skill_result)
+                        await _send_rendered_message(chat_id, rendered)
+                        return
+
+                await send_message(
+                    chat_id,
+                    "Video download failed. Please try uploading again or send /cancel to restart.",
+                    parse_mode=None,
+                )
+                return
+
+        # Handle image uploads
         await send_chat_action(chat_id, action="upload_photo")
         try:
             telegram_image = await _download_telegram_image(message)
         except Exception as exc:
-            logger.warning("Telegram image download failed for chat_id=%s: %s", chat_id, exc)
+            logger.warning(
+                "Telegram image download failed for chat_id=%s: %s", chat_id, exc
+            )
             telegram_image = None
 
         if telegram_image is not None:
@@ -900,7 +1035,9 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
 
     if text.startswith("/cancel"):
         await TelegramSkillSessionStore.clear_session(chat_id)
-        await send_message(chat_id, "Cancelled the active skill session.", parse_mode=None)
+        await send_message(
+            chat_id, "Cancelled the active skill session.", parse_mode=None
+        )
         return
 
     skill_result, pending_message_id = await _await_with_message_progress(
@@ -945,7 +1082,9 @@ async def receive_telegram_update(
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
     if "callback_query" in payload:
-        background_tasks.add_task(_handle_callback_query, request.app, payload["callback_query"])
+        background_tasks.add_task(
+            _handle_callback_query, request.app, payload["callback_query"]
+        )
     elif "message" in payload:
         background_tasks.add_task(_handle_message, request.app, payload["message"])
     else:

@@ -255,6 +255,152 @@ class SkillDispatcher:
         return await cls._save_or_clear(chat_id, result)
 
     @classmethod
+    async def handle_video_upload(
+        cls,
+        chat_id: int,
+        *,
+        file_id: str,
+        data: bytes,
+        content_type: str,
+        filename: str,
+        app: Any,
+    ) -> Optional[SkillResult]:
+        """
+        Handle video file upload for recorded_demo_video mode.
+
+        Saves video to storage, runs quality gate, and stores file_id + URL in session.
+        """
+        import tempfile
+        from pathlib import Path
+
+        session = await TelegramSkillSessionStore.get_session(chat_id)
+        if session is None:
+            return None
+        session.artifacts.setdefault("telegram_chat_id", str(chat_id))
+
+        # Only handle video uploads for video-ai skill in upload_demo_video step
+        if session.skill_name != "video-ai" or session.step_key != "upload_demo_video":
+            return SkillResult(
+                success=False,
+                error="This step does not accept video uploads yet. Please follow the current prompt or send /cancel.",
+                session=session,
+            )
+
+        if not str(content_type or "").lower().startswith("video/"):
+            return SkillResult(
+                success=False,
+                error="Please send a video file for the demo video step.",
+                session=session,
+            )
+
+        # Run quality gate on uploaded video
+        from services.video_quality_gate_service import VideoQualityGateService
+
+        quality_service = VideoQualityGateService()
+
+        # Save to temp file for quality gate validation
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+            tmp.write(data)
+
+        try:
+            quality_report = await quality_service.validate_video_file(tmp_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+        # Check if quality gate passed
+        if not quality_report.passed:
+            error_msg = "❌ Video quality check failed:\n\n"
+            for error in quality_report.errors:
+                error_msg += f"• {error}\n"
+            error_msg += (
+                "\nPlease upload a different video that meets the requirements."
+            )
+
+            return SkillResult(
+                success=False,
+                error=error_msg,
+                session=session,
+                output={"quality_report": quality_report.model_dump()},
+            )
+
+        # Quality gate passed - save video to storage
+        from services.media_storage_service import MediaStorageService
+
+        owner_key = f"telegram:{chat_id}"
+        storage_result = await MediaStorageService().upload_bytes(
+            data=data,
+            content_type=content_type,
+            asset_type="VIDEO",
+            asset_kind="demo_video",
+            asset_origin="uploaded",
+            owner_key=owner_key,
+            metadata={
+                "source": "telegram_upload",
+                "skill_name": session.skill_name,
+                "filename": filename,
+                "duration_sec": quality_report.duration_sec,
+                "resolution": quality_report.resolution_string,
+                "file_size_bytes": quality_report.file_size_bytes,
+            },
+            file_name_hint=f"demo-video-{chat_id}",
+        )
+
+        if not storage_result or not storage_result.get("media_asset_id"):
+            return SkillResult(
+                success=False,
+                error=(
+                    "I couldn't save that video to workspace storage. "
+                    "Link Telegram to a customer workspace first, then try again."
+                ),
+                session=session,
+            )
+
+        access_url = storage_result.get("access_url") or storage_result.get("url")
+
+        # Store file_id and URL in session
+        session.collected["demo_video_telegram_file_id"] = file_id
+        session.collected["demo_video_asset_url"] = access_url
+        session.artifacts["demo_video_asset_id"] = storage_result.get("media_asset_id")
+        session.artifacts["demo_video_filename"] = filename
+        session.artifacts["demo_video_quality_report"] = quality_report.model_dump()
+
+        # Build success message with warnings if any
+        success_msg = f"✅ Video uploaded successfully!\n\n"
+        success_msg += f"Duration: {quality_report.duration_sec:.1f}s\n"
+        success_msg += f"Resolution: {quality_report.resolution_string}"
+
+        if quality_report.has_warnings:
+            success_msg += "\n\n⚠️ Warnings:\n"
+            for warning in quality_report.warnings:
+                success_msg += f"• {warning}\n"
+            success_msg += "\nYou can continue, but consider the warnings above."
+
+        # Execute skill to move to next step
+        skill_cls = SKILL_REGISTRY[session.skill_name]
+        async with cls._transport_client(app) as client:
+            result = await skill_cls.execute(session, "http://backend", client)
+
+        # Prepend success message to the result
+        if result.session is not None:
+            # Store quality report in artifacts for later reference
+            result.session.artifacts["demo_video_upload_message"] = success_msg
+            result.session.artifacts["demo_video_quality_report"] = (
+                quality_report.model_dump()
+            )
+            await cls._prepare_prompt_session(app, result.session)
+
+        # Return result with success message prepended to next prompt
+        saved_result = await cls._save_or_clear(chat_id, result)
+
+        # Inject upload success message into the output
+        if saved_result.output is None:
+            saved_result.output = {}
+        saved_result.output["upload_success_prefix"] = success_msg
+
+        return saved_result
+
+    @classmethod
     async def handle_option(cls, chat_id: int, value: str, app: Any) -> SkillResult:
         session = await TelegramSkillSessionStore.get_session(chat_id)
         if session is None:
@@ -284,14 +430,16 @@ class SkillDispatcher:
     @classmethod
     async def handle_action(cls, chat_id: int, action: str, app: Any) -> SkillResult:
         # ── Bootstrap Persona Actions (No session required) ───────────────────
-        if action.startswith(("edit_p_name::", "edit_p_appearance::", "inspect_persona::")):
+        if action.startswith(
+            ("edit_p_name::", "edit_p_appearance::", "inspect_persona::")
+        ):
             parts = action.split("::")
             command = parts[0]
             persona_id = parts[1] if len(parts) > 1 else None
-            
+
             if not persona_id:
                 return SkillResult(success=False, error="Invalid persona ID.")
-                
+
             return await cls._start_persona_edit(chat_id, persona_id, command, app)
 
         session = await TelegramSkillSessionStore.get_session(chat_id)
@@ -611,7 +759,6 @@ class SkillDispatcher:
                 ),
             )
 
-
         if action == "regenerate":
             existing_artifacts = deepcopy(session.artifacts)
             telegram_chat_id = existing_artifacts.get("telegram_chat_id")
@@ -654,58 +801,68 @@ class SkillDispatcher:
 
     @classmethod
     async def _start_persona_edit(
-        cls, 
-        chat_id: int, 
-        persona_id: str, 
-        command: str,
-        app: Any
+        cls, chat_id: int, persona_id: str, command: str, app: Any
     ) -> SkillResult:
         """Helper to initialize a persona-creator session for editing an existing persona."""
         from services.persona_registry_service import PersonaRegistryService
         from skills.persona_creator import PersonaCreatorSkill
-        
+
         # 1. Fetch existing persona
         owner_key = f"telegram:{chat_id}"
-        persona = await PersonaRegistryService.get_persona(persona_id, owner_key=owner_key)
+        persona = await PersonaRegistryService.get_persona(
+            persona_id, owner_key=owner_key
+        )
         if not persona:
-            return SkillResult(success=False, error=f"Persona '{persona_id}' not found in your workspace.")
+            return SkillResult(
+                success=False,
+                error=f"Persona '{persona_id}' not found in your workspace.",
+            )
 
         # 2. Build skill session
         session = PersonaCreatorSkill.initial_session()
         session.artifacts["telegram_chat_id"] = str(chat_id)
         session.artifacts["is_editing"] = True
         session.artifacts["persona_data"] = persona
-        
+
         # Pre-populate collected data
         session.collected["persona_id"] = persona_id
         session.collected["language"] = persona.get("language") or "English"
-        session.collected["voice"] = persona.get("tts_voice") or "English AU Female Clear"
-        session.collected["appearance_prompt_or_photo"] = persona.get("avatar_prompt") or ""
-        
+        session.collected["voice"] = (
+            persona.get("tts_voice") or "English AU Female Clear"
+        )
+        session.collected["appearance_prompt_or_photo"] = (
+            persona.get("avatar_prompt") or ""
+        )
+
         # 3. Determine entry point
         if command == "edit_p_name":
-            # We treat 'name' as persona_id in the creation flow, 
+            # We treat 'name' as persona_id in the creation flow,
             # but if it exists we just want to confirm or skip to next?
             # Actually, let's just jump to a summary/preview if they just want to refresh.
             session.step_key = "collect_persona_id"
             result = SkillResult(
-                success=True, 
-                next_step="collect_persona_id", 
+                success=True,
+                next_step="collect_persona_id",
                 session=session,
-                output={"message": f"Editing persona *{persona_id}*. Send a new name/ID, or send /cancel."}
+                output={
+                    "message": f"Editing persona *{persona_id}*. Send a new name/ID, or send /cancel."
+                },
             )
         elif command == "edit_p_appearance":
             session.step_key = "collect_appearance"
             # Flag to ensure prompt-to-generation flow
             session.artifacts["force_regenerate_avatar"] = True
             result = SkillResult(
-                success=True, 
-                next_step="collect_appearance", 
+                success=True,
+                next_step="collect_appearance",
                 session=session,
-                output={"message": f"Editing *{persona_id}*. Send a new appearance description, upload a photo, or send /cancel."}
+                output={
+                    "message": f"Editing *{persona_id}*. Send a new appearance description, upload a photo, or send /cancel."
+                },
             )
         elif command == "inspect_persona":
             from skills.persona_creator import PersonaCreatorSkill
+
             readiness = PersonaCreatorSkill._build_readiness_report(persona_id, persona)
             session.artifacts["readiness"] = readiness
             session.step_key = "preview"
@@ -721,10 +878,12 @@ class SkillDispatcher:
                 session=session,
             )
         else:
-            return SkillResult(success=False, error=f"Unsupported edit command: {command}")
+            return SkillResult(
+                success=False, error=f"Unsupported edit command: {command}"
+            )
 
         # 4. Prepare session only if using picker (not for direct inspection)
         if result.session and command != "inspect_persona":
             await cls._prepare_prompt_session(app, result.session)
-        
+
         return await cls._save_or_clear(chat_id, result)

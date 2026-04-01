@@ -350,11 +350,14 @@ def _render_persona_inspector_result(
 
     # Add Edit Buttons
     persona_actions = [
-        [("✏️ Name", f"edit_p_name::{persona_id}"), ("🎭 Appearance", f"edit_p_appearance::{persona_id}")],
+        [
+            ("✏️ Name", f"edit_p_name::{persona_id}"),
+            ("🎭 Appearance", f"edit_p_appearance::{persona_id}"),
+        ],
         [("🔄 Regenerate Image", f"edit_p_appearance::{persona_id}")],
         [("Refresh", f"inspect_persona::{persona_id}")],
     ]
-    
+
     payload: Dict[str, Any] = {
         "text": "\n".join(lines),
         "reply_markup": _inline_keyboard_from_pairs(persona_actions, prefix="action::"),
@@ -520,7 +523,9 @@ class TelegramRenderer:
         }
 
     @classmethod
-    def render_skill_prompt(cls, session: SkillSession) -> Dict[str, Any]:
+    def render_skill_prompt(
+        cls, session: SkillSession, prefix: str = ""
+    ) -> Dict[str, Any]:
         if session.skill_name == "video-ai" and session.step_key == "confirm_concept":
             step = get_step_definition(session.skill_name, session.step_key)
             concept = session.artifacts.get("concept_brief") or {}
@@ -617,16 +622,19 @@ class TelegramRenderer:
                 "parse_mode": None,
             }
 
-        if session.skill_name == "daily-story" and session.step_key == "choose_media_action":
+        if (
+            session.skill_name == "daily-story"
+            and session.step_key == "choose_media_action"
+        ):
             step = get_step_definition(session.skill_name, session.step_key)
             story_draft = session.artifacts.get("story_draft") or {}
             title = story_draft.get("title", "Daily Story")
             body = story_draft.get("body", "")
             tags = " ".join(f"#{t}" for t in story_draft.get("hashtags", []))
-            
+
             prompt_text = step.get("prompt_text") or "Story draft is ready!"
             full_text = f"*{title}*\n\n{body}\n\n{tags}\n\n{prompt_text}"
-            
+
             return {
                 "text": full_text,
                 "reply_markup": _inline_keyboard_from_options(
@@ -673,9 +681,13 @@ class TelegramRenderer:
             if not options:
                 prompt_text = "🚫 No personas available yet. Please create one first or try again later."
                 return {"text": prompt_text, "reply_markup": None, "parse_mode": None}
-            
+
             # Use 'action::inspect_persona::' for better bootstrapping
-            prefix = "action::inspect_persona::" if session.skill_name == "persona-inspector" else "option::"
+            prefix = (
+                "action::inspect_persona::"
+                if session.skill_name == "persona-inspector"
+                else "option::"
+            )
             return {
                 "text": prompt_text,
                 "reply_markup": _inline_keyboard_from_options(options, prefix=prefix),
@@ -699,8 +711,10 @@ class TelegramRenderer:
                 "parse_mode": None,
             }
 
+        # Prepend prefix if provided (e.g., upload success message)
+        final_text = f"{prefix}\n\n{prompt_text}" if prefix else prompt_text
         return {
-            "text": prompt_text,
+            "text": final_text,
             "reply_markup": None,
             "parse_mode": None,
         }
@@ -749,10 +763,9 @@ class TelegramRenderer:
                     or {}
                 )
                 beat_count = len(beat_sheet.get("beats") or [])
-                production_note = (
-                    output.get("production_note")
-                    or session.artifacts.get("production_note")
-                )
+                production_note = output.get(
+                    "production_note"
+                ) or session.artifacts.get("production_note")
                 lines = [
                     "Pre-production package ready.",
                     "Production workflow could not be started.",
@@ -1092,7 +1105,8 @@ class TelegramRenderer:
             return payload
 
         if (
-            session.control.status in {SkillStatus.waiting_approval, SkillStatus.running}
+            session.control.status
+            in {SkillStatus.waiting_approval, SkillStatus.running}
             or result.next_step == "poll_status"
         ):
             output = result.output or {}
@@ -1112,10 +1126,9 @@ class TelegramRenderer:
                     or session.artifacts.get("approved_production_package")
                     or session.step_key == "package_ready"
                 )
-                production_note = (
-                    output.get("production_note")
-                    or session.artifacts.get("production_note")
-                )
+                production_note = output.get(
+                    "production_note"
+                ) or session.artifacts.get("production_note")
                 lines = [
                     "🎬 *Video Generation Started!*",
                     "",
@@ -1172,10 +1185,9 @@ class TelegramRenderer:
 
                 # Check if production workflow was started
                 workflow_id = output.get("workflow_id")
-                production_note = (
-                    output.get("production_note")
-                    or session.artifacts.get("production_note")
-                )
+                production_note = output.get(
+                    "production_note"
+                ) or session.artifacts.get("production_note")
                 if workflow_id:
                     lines = [
                         "Production workflow started!",
@@ -1248,4 +1260,9 @@ class TelegramRenderer:
                 "parse_mode": "Markdown",
             }
 
-        return cls.render_skill_prompt(session)
+        # Extract upload_success_prefix from output if present
+        upload_prefix = ""
+        if isinstance(output, dict) and output.get("upload_success_prefix"):
+            upload_prefix = output.get("upload_success_prefix")
+
+        return cls.render_skill_prompt(session, prefix=upload_prefix)

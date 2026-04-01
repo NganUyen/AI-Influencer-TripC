@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 import httpx
 import json
 import logging
+from config.settings import settings
 from services.google_tts_service import GoogleTTSService
 from services.ai_service import AIService
 
@@ -461,7 +462,7 @@ class PersonaCreatorSkill(BaseSkill):
                     # Clear brief and restart
                     current.collected.pop("dream_brief", None)
                     current.collected.pop("dream_confirmed", None)
-                    current.artifact_updates["dream_ready"] = False
+                    current.artifacts["dream_ready"] = False
                     current.step_key = "collect_dream_brief"
                     return cls._collecting_result(current, next_step="collect_dream_brief")
                 
@@ -482,7 +483,7 @@ class PersonaCreatorSkill(BaseSkill):
                             dream = await cls._dream_persona_details(dream_brief, ai)
                         
                         # Pre-populate fields
-                        current.artifact_updates["dream_ready"] = True
+                        current.artifacts["dream_ready"] = True
                         current.collected["persona_id"] = dream["persona_id"]
                         current.collected["appearance_prompt_or_photo"] = dream["appearance"]
                         

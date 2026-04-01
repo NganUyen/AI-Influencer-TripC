@@ -835,32 +835,21 @@ class VideoAISkill(BaseSkill):
                 )
 
                 if creative_input_mode == "recorded_demo_video":
-                    # PLACEHOLDER: For now, build concept using the same method
-                    # In future phases, this will use demo video analysis results
-                    # Temporarily use empty strings for required fields not in recorded_demo_video flow
-                    collected_copy = dict(current.collected)
-                    if not collected_copy.get("idea_brief"):
-                        collected_copy["idea_brief"] = "Demo video showcase"
-                    if not collected_copy.get("feature_focus"):
-                        # Use feature_emphasis if available, otherwise placeholder
-                        collected_copy["feature_focus"] = (
-                            collected_copy.get("feature_emphasis")
-                            or "Feature highlights from demo video"
+                    evidence_payload = current.artifacts.get("demo_evidence")
+                    if not evidence_payload:
+                        raise ValueError(
+                            "Recorded demo evidence is missing. Please re-run the preview step."
                         )
-
-                    concept = await CreativeDirectorService.build_concept_brief(
-                        collected_copy,
-                        persona_snapshot,
+                    evidence = RecordedDemoEvidenceContract.model_validate(
+                        evidence_payload
                     )
-                    # Store demo video metadata in concept
-                    if current.collected.get("demo_video_telegram_file_id"):
-                        concept.demo_video_telegram_file_id = current.collected.get(
-                            "demo_video_telegram_file_id"
+                    concept = (
+                        await CreativeDirectorService.build_concept_from_demo_evidence(
+                            evidence,
+                            current.collected,
+                            persona_snapshot,
                         )
-                    if current.collected.get("demo_video_asset_url"):
-                        concept.demo_video_asset_url = current.collected.get(
-                            "demo_video_asset_url"
-                        )
+                    )
                 else:
                     # Original idea_brief flow
                     concept = await CreativeDirectorService.build_concept_brief(
@@ -912,9 +901,28 @@ class VideoAISkill(BaseSkill):
 
         if not beat_payload:
             try:
-                beat_sheet = await CreativeDirectorService.build_beat_sheet(
-                    concept, persona_snapshot
-                )
+                if (
+                    current.collected.get("creative_input_mode")
+                    == "recorded_demo_video"
+                ):
+                    evidence_payload = current.artifacts.get("demo_evidence")
+                    if not evidence_payload:
+                        raise ValueError(
+                            "Recorded demo evidence is missing. Please re-run the preview step."
+                        )
+                    evidence = RecordedDemoEvidenceContract.model_validate(
+                        evidence_payload
+                    )
+                    beat_sheet = (
+                        await CreativeDirectorService.build_beats_from_demo_evidence(
+                            concept,
+                            evidence,
+                        )
+                    )
+                else:
+                    beat_sheet = await CreativeDirectorService.build_beat_sheet(
+                        concept, persona_snapshot
+                    )
             except Exception as exc:
                 return cls._retryable_error_result(
                     current,

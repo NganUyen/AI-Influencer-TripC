@@ -185,6 +185,7 @@ VALID_TOP_HALF_SOURCE_TYPES = {
     "authenticated_capture_later",
     "ai_visual_fallback",
     "hybrid_candidate",
+    "uploaded_demo_video",
 }
 
 # Backward compatibility alias
@@ -377,6 +378,7 @@ class BeatContract(BaseModel):
     source_ref: Optional[str] = None
     overlay_text: str
     duration_sec: int
+    trim_confidence: Optional[float] = None
 
     @field_validator("purpose")
     @classmethod
@@ -411,6 +413,15 @@ class BeatContract(BaseModel):
         if value < 8 or value > 60:
             raise ValueError("top_half_max_capture_seconds must be between 8 and 60")
         return value
+
+    @field_validator("trim_confidence")
+    @classmethod
+    def validate_trim_confidence(cls, value: Optional[float]) -> Optional[float]:
+        if value is None:
+            return None
+        if value < 0 or value > 1:
+            raise ValueError("trim_confidence must be between 0 and 1")
+        return round(float(value), 3)
 
 
 class BeatSheetContract(BaseModel):

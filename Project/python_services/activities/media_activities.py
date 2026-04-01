@@ -26,6 +26,7 @@ from services.contracts import (
 )
 from .video_activities import build_split_screen_video
 import services.media_storage_service as media_storage_service_module
+
 try:
     import services.browser_automation as browser_automation_module
 except ImportError:  # pragma: no cover - exercised in slim runtime images
@@ -317,7 +318,9 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
     except httpx.HTTPStatusError as e:
         status_code = e.response.status_code if e.response is not None else None
         error_message = str(e)
-        non_retryable = bool(status_code and 400 <= status_code < 500 and status_code != 429)
+        non_retryable = bool(
+            status_code and 400 <= status_code < 500 and status_code != 429
+        )
 
         if status_code in {401, 403}:
             error_message = (
@@ -638,7 +641,7 @@ async def _generate_ai_visual(
 ) -> Dict[str, Any]:
     """
     Generate an AI visual for a scene using fal.ai.
-    
+
     Uses top_half_target and top_half_capture_hint to build a contextual prompt.
     Returns storage result dict with url, storage_key, etc.
     """
@@ -646,7 +649,7 @@ async def _generate_ai_visual(
     top_half_target = scene.get("top_half_target", "")
     capture_hint = scene.get("top_half_capture_hint", "")
     image_prompt = scene.get("image_prompt") or scene.get("prompt", "")
-    
+
     # Build an enriched prompt from available context
     prompt_parts = []
     if top_half_target:
@@ -655,20 +658,22 @@ async def _generate_ai_visual(
         prompt_parts.append(f"Visual style: {capture_hint}")
     if image_prompt:
         prompt_parts.append(image_prompt)
-    
+
     if not prompt_parts:
-        prompt_parts.append("Modern app interface screenshot, clean UI design, professional look")
-    
+        prompt_parts.append(
+            "Modern app interface screenshot, clean UI design, professional look"
+        )
+
     final_prompt = ". ".join(prompt_parts)
-    
+
     logger.info(
         "Generating AI visual | scene=%s | prompt=%s",
         scene_id,
         final_prompt[:100],
     )
-    
+
     image_service = ImageGenerationService()
-    
+
     try:
         result = await image_service.generate_images(
             prompt=final_prompt,
@@ -683,22 +688,26 @@ async def _generate_ai_visual(
             metadata=scene_metadata,
             file_name_hint=f"ai-visual-scene-{scene_id}",
         )
-        
+
         if not result or not result.get("images"):
-            raise RuntimeError(f"AI image generation returned no images for scene {scene_id}")
-        
+            raise RuntimeError(
+                f"AI image generation returned no images for scene {scene_id}"
+            )
+
         image_data = result["images"][0]
         final_url = image_data.get("url") or image_data.get("storage_url")
-        
+
         if not final_url:
-            raise RuntimeError(f"AI image generation returned no URL for scene {scene_id}")
-        
+            raise RuntimeError(
+                f"AI image generation returned no URL for scene {scene_id}"
+            )
+
         logger.info(
             "AI visual generated | scene=%s | url=%s",
             scene_id,
             final_url[:80],
         )
-        
+
         return {
             "url": final_url,
             "storage_url": image_data.get("storage_url"),
@@ -723,13 +732,13 @@ async def _capture_browser_video(
 ) -> Dict[str, Any]:
     """
     Capture a browser recording for a scene using Playwright.
-    
+
     Returns storage result dict with url, storage_key, etc.
     Raises on failure (caller handles fallback).
     """
     scene_id = scene.get("id", "unknown")
     browser = None
-    
+
     browser_service_class = BrowserAutomationService
     if browser_service_class is None and browser_automation_module is not None:
         browser_service_class = browser_automation_module.BrowserAutomationService
@@ -745,11 +754,15 @@ async def _capture_browser_video(
     region_info = None
     proxy_config = None
     user_id = scene_metadata.get("user_id") or scene_metadata.get("uid")
-    
+
     # Determine platform for viewport (mobile vs desktop)
     platform_hint = "generic"
     video_format = scene_metadata.get("video_format", "").lower()
-    if "tiktok" in str(scene_metadata.get("platform", "")).lower() or "portrait" in video_format or "9:16" in video_format:
+    if (
+        "tiktok" in str(scene_metadata.get("platform", "")).lower()
+        or "portrait" in video_format
+        or "9:16" in video_format
+    ):
         platform_hint = "tiktok"
 
     try:
@@ -761,13 +774,16 @@ async def _capture_browser_video(
         if user_id:
             try:
                 lease = await ProxyManagerService.lease_proxy(
-                    account_key=str(user_id),
-                    platform="generic"
+                    account_key=str(user_id), platform="generic"
                 )
                 proxy_config = lease.get("proxy")
-                logger.info(f"Leased proxy for capture | user_id={user_id} | server={proxy_config.get('server')}")
+                logger.info(
+                    f"Leased proxy for capture | user_id={user_id} | server={proxy_config.get('server')}"
+                )
             except Exception as pe:
-                logger.warning(f"Failed to lease proxy for capture: {pe}. Proceeding without proxy.")
+                logger.warning(
+                    f"Failed to lease proxy for capture: {pe}. Proceeding without proxy."
+                )
     except ImportError:
         logger.warning("Region/Proxy services not available. Proceeding with defaults.")
 
@@ -777,7 +793,7 @@ async def _capture_browser_video(
             record_video_size={"width": 1080, "height": 960},
             region_info=region_info,
             proxy_config=proxy_config,
-            platform=platform_hint
+            platform=platform_hint,
         )
 
         capture_hint = scene.get("top_half_capture_hint", "scroll")
@@ -792,14 +808,14 @@ async def _capture_browser_video(
             follow_relevant_links = scene_metadata.get("top_half_follow_links")
         if follow_relevant_links is None:
             follow_relevant_links = True
-        
+
         # Calculate scene duration for capture sync
         scene_duration_sec = None
         ts_start = scene.get("timestamp_start")
         ts_end = scene.get("timestamp_end")
         if ts_start is not None and ts_end is not None:
             scene_duration_sec = float(ts_end) - float(ts_start)
-        
+
         logger.info(
             "Starting browser capture | scene=%s | url=%s | hint=%s | target=%s | platform=%s | max_seconds=%s | scene_duration=%s",
             scene_id,
@@ -810,7 +826,7 @@ async def _capture_browser_video(
             max_capture_seconds,
             scene_duration_sec,
         )
-        
+
         video_path = await browser.record_video_for_tutorial(
             source_ref,
             capture_hint=capture_hint,
@@ -855,7 +871,9 @@ async def _capture_browser_video(
         # Upload to storage
         media_storage_service_class = MediaStorageService
         if media_storage_service_class is _DEFAULT_MEDIA_STORAGE_SERVICE_CLASS:
-            media_storage_service_class = media_storage_service_module.MediaStorageService
+            media_storage_service_class = (
+                media_storage_service_module.MediaStorageService
+            )
         media_storage = media_storage_service_class()
         run_suffix = str(
             scene_metadata.get("workflow_run_id")
@@ -913,15 +931,220 @@ async def _capture_browser_video(
                 )
 
 
+async def _extract_uploaded_demo_segment(
+    scene: Dict[str, Any],
+    scene_metadata: Dict[str, Any],
+    source_ref: str,
+) -> Dict[str, Any]:
+    """
+    Extract a segment from an uploaded demo video using timestamp range.
+
+    Args:
+        scene: Scene dict with top_half_target (timestamp range: "HH:MM:SS-HH:MM:SS")
+        scene_metadata: Metadata for storage (campaign_id, user_id, etc.)
+        source_ref: URL to the uploaded demo video
+
+    Returns:
+        Dict with url, storage_url, storage_key, is_video, generation_method
+    """
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    scene_id = scene.get("id", "unknown")
+    top_half_target = scene.get("top_half_target", "")
+    trim_confidence = scene.get("trim_confidence")
+
+    logger.info(
+        "Extracting demo segment | scene=%s | target=%s | trim_confidence=%s",
+        scene_id,
+        top_half_target,
+        trim_confidence,
+    )
+
+    # Parse timestamp range
+    if not top_half_target or "-" not in top_half_target:
+        raise ApplicationError(
+            f"Scene {scene_id}: invalid timestamp range '{top_half_target}' for uploaded_demo_video",
+            non_retryable=True,
+        )
+
+    try:
+        start_str, end_str = top_half_target.split("-", 1)
+        start_str = start_str.strip()
+        end_str = end_str.strip()
+    except ValueError:
+        raise ApplicationError(
+            f"Scene {scene_id}: cannot parse timestamp range '{top_half_target}'",
+            non_retryable=True,
+        )
+
+    # Log confidence policy
+    if trim_confidence is not None and trim_confidence < 0.5:
+        logger.warning(
+            "Scene %s has low trim_confidence=%s (< 0.5), proceeding conservatively",
+            scene_id,
+            trim_confidence,
+        )
+
+    # Download demo video
+    tmp_dir = Path(tempfile.mkdtemp(prefix="demo_segment_"))
+    demo_video_path = tmp_dir / "demo_video.mp4"
+    segment_output_path = tmp_dir / f"segment_{scene_id}.mp4"
+
+    try:
+        logger.info(
+            "Downloading demo video | scene=%s | url=%s", scene_id, source_ref[:80]
+        )
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(source_ref)
+            response.raise_for_status()
+            demo_video_path.write_bytes(response.content)
+
+        logger.info(
+            "Downloaded demo video | scene=%s | size_mb=%.2f",
+            scene_id,
+            demo_video_path.stat().st_size / (1024 * 1024),
+        )
+
+        # Extract segment using ffmpeg
+        # -ss START: seek to start time
+        # -to END: extract until end time
+        # -i INPUT: input file
+        # -vf scale=...: scale to 1080x960 (top-half standard dimensions)
+        # -c:v libx264: re-encode with h264
+        # -preset fast: encoding speed
+        # -crf 23: quality (lower = better, 23 is default)
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-y",  # Overwrite output
+            "-ss",
+            start_str,
+            "-to",
+            end_str,
+            "-i",
+            str(demo_video_path),
+            "-vf",
+            "scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "23",
+            "-an",  # No audio (top-half is silent)
+            str(segment_output_path),
+        ]
+
+        logger.info(
+            "Extracting segment | scene=%s | start=%s | end=%s",
+            scene_id,
+            start_str,
+            end_str,
+        )
+
+        result = subprocess.run(
+            ffmpeg_cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+        if result.returncode != 0:
+            error_output = result.stderr[-500:] if result.stderr else "no stderr"
+            logger.error(
+                "ffmpeg trim failed | scene=%s | returncode=%s | stderr=%s",
+                scene_id,
+                result.returncode,
+                error_output,
+            )
+            raise ApplicationError(
+                f"Scene {scene_id}: ffmpeg failed to extract segment (rc={result.returncode})",
+                non_retryable=False,
+            )
+
+        if (
+            not segment_output_path.exists()
+            or segment_output_path.stat().st_size < _MIN_VIDEO_FILE_SIZE
+        ):
+            raise ApplicationError(
+                f"Scene {scene_id}: extracted segment is too small or missing",
+                non_retryable=False,
+            )
+
+        segment_bytes = segment_output_path.read_bytes()
+        logger.info(
+            "Segment extracted | scene=%s | size_mb=%.2f",
+            scene_id,
+            len(segment_bytes) / (1024 * 1024),
+        )
+
+        # Upload to storage
+        media_storage = MediaStorageService()
+        campaign_id = scene_metadata.get("campaign_id")
+        user_id = scene_metadata.get("user_id")
+        owner_key = scene_metadata.get("owner_key")
+        persona_id = scene_metadata.get("persona_id")
+
+        storage_result = await media_storage.upload_bytes(
+            data=segment_bytes,
+            content_type="video/mp4",
+            asset_kind="video",
+            asset_type="VIDEO",
+            metadata={
+                "source_type": "uploaded_demo_video",
+                "scene_id": scene_id,
+                "timestamp_range": top_half_target,
+                "trim_confidence": trim_confidence,
+                **scene_metadata,
+            },
+            campaign_id=str(campaign_id) if campaign_id else None,
+            user_id=user_id,
+            owner_key=owner_key,
+            persona_id=persona_id,
+            file_name_hint=f"demo_segment_{scene_id}",
+        )
+
+        logger.info(
+            "Segment uploaded | scene=%s | storage_url=%s | media_asset_id=%s",
+            scene_id,
+            storage_result.get("url", "")[:80],
+            storage_result.get("media_asset_id"),
+        )
+
+        return {
+            "url": storage_result.get("url"),
+            "storage_url": storage_result.get("url"),
+            "storage_key": storage_result.get("key"),
+            "media_asset_id": storage_result.get("media_asset_id"),
+            "is_video": True,
+            "generation_method": "uploaded_demo_segment",
+        }
+
+    finally:
+        # Cleanup temp files
+        try:
+            import shutil
+
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception as cleanup_exc:
+            logger.warning(
+                "Failed to cleanup temp dir for scene %s: %s",
+                scene_id,
+                cleanup_exc,
+            )
+
+
 @activity.defn
 async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Generate top-half scene assets using the appropriate method per scene.
-    
+
     Supports multiple source types:
     - public_page_capture: Browser recording via Playwright
     - ai_visual_fallback: AI image generation via fal.ai
     - hybrid_candidate: Try browser first, fall back to AI on failure
+    - uploaded_demo_video: Extract segment from uploaded demo video (Phase 7)
     """
 
     raw_limit = os.getenv("TOP_HALF_CAPTURE_CONCURRENCY", "2")
@@ -948,7 +1171,7 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
             top_half_type = normalized_scene.get("top_half_source_type")
             source_ref = normalized_scene.get("source_ref")
             scene_id = normalized_scene.get("id", "unknown")
-            
+
             logger.info(
                 "Processing scene | id=%s | raw_type=%s | resolved_type=%s | has_source_ref=%s",
                 scene_id,
@@ -959,10 +1182,21 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
 
             # Route to appropriate generation method
             try:
-                if top_half_type in _AI_FALLBACK_TYPES:
+                if top_half_type == "uploaded_demo_video":
+                    # Phase 7: Extract segment from uploaded demo video
+                    if not source_ref:
+                        raise ApplicationError(
+                            f"Scene {scene_id} requires source_ref (demo video URL) for uploaded_demo_video type",
+                            non_retryable=True,
+                        )
+                    result = await _extract_uploaded_demo_segment(
+                        normalized_scene, scene_metadata, source_ref
+                    )
+
+                elif top_half_type in _AI_FALLBACK_TYPES:
                     # Pure AI generation
                     result = await _generate_ai_visual(normalized_scene, scene_metadata)
-                    
+
                 elif top_half_type == "hybrid_candidate":
                     # Try browser first, fall back to AI
                     if not source_ref:
@@ -970,13 +1204,15 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                             "hybrid_candidate scene %s has no source_ref, using AI fallback directly",
                             scene_id,
                         )
-                        result = await _generate_ai_visual(normalized_scene, scene_metadata)
+                        result = await _generate_ai_visual(
+                            normalized_scene, scene_metadata
+                        )
                     else:
                         # hybrid_candidate with source_ref - use browser capture, no fallback
                         result = await _capture_browser_video(
                             normalized_scene, scene_metadata, source_ref
                         )
-                            
+
                 elif top_half_type in _BROWSER_CAPTURE_TYPES:
                     # Browser capture required
                     if not source_ref:
@@ -987,7 +1223,7 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                     result = await _capture_browser_video(
                         normalized_scene, scene_metadata, source_ref
                     )
-                    
+
                 else:
                     # Unknown type - log error and fail
                     logger.error(
@@ -1002,7 +1238,7 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
 
                 # Build final scene result
                 final_url = result.get("url") or result.get("storage_url")
-                
+
                 logger.info(
                     "Scene asset resolved | scene=%s | type=%s | method=%s | url=%s | is_video=%s",
                     scene_id,
@@ -1023,7 +1259,7 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                     "is_video": result.get("is_video", False),
                     "generation_method": result.get("generation_method"),
                 }
-                
+
             except ApplicationError:
                 raise
             except Exception as e:

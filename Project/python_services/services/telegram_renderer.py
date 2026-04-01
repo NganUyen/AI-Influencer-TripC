@@ -673,9 +673,12 @@ class TelegramRenderer:
             if not options:
                 prompt_text = "🚫 No personas available yet. Please create one first or try again later."
                 return {"text": prompt_text, "reply_markup": None, "parse_mode": None}
+            
+            # Use 'action::inspect_persona::' for better bootstrapping
+            prefix = "action::inspect_persona::" if session.skill_name == "persona-inspector" else "option::"
             return {
                 "text": prompt_text,
-                "reply_markup": _inline_keyboard_from_options(options),
+                "reply_markup": _inline_keyboard_from_options(options, prefix=prefix),
                 "parse_mode": None,
             }
 

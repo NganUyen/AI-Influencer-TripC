@@ -443,8 +443,6 @@ class PersonaCreatorSkill(BaseSkill):
             force_regenerate_avatar = bool(
                 current.artifacts.pop("force_regenerate_avatar", False)
             )
-            missing = cls._missing_required_params(current)
-            
             # ── Step 0: Dream Logic (Discovery Layer) ──────────────────────────
             # We skip this if we are editing an existing persona
             if current.artifacts.get("is_editing"):
@@ -457,52 +455,68 @@ class PersonaCreatorSkill(BaseSkill):
                 return cls._collecting_result(current, next_step="choose_creation_mode")
 
             if creation_mode == "dream":
-                # 1. Collect Brief
-                dream_brief = current.collected.get("dream_brief")
-                if not dream_brief:
+                # Handle Return from Confirmation
+                dream_confirmed = current.collected.get("dream_confirmed")
+                if dream_confirmed == "retry":
+                    # Clear brief and restart
+                    current.collected.pop("dream_brief", None)
+                    current.collected.pop("dream_confirmed", None)
+                    current.artifact_updates["dream_ready"] = False
                     current.step_key = "collect_dream_brief"
                     return cls._collecting_result(current, next_step="collect_dream_brief")
                 
-                # 2. Trigger AI Magic
-                if not current.artifacts.get("dream_ready"):
-                    from services.ai_service import AIService
-                    async with AIService() as ai:
-                        dream = await cls._dream_persona_details(dream_brief, ai)
+                if dream_confirmed == "confirm":
+                    # We are done dreaming, proceed to standard logic
+                    pass 
+                else:
+                    # 1. Collect Brief
+                    dream_brief = current.collected.get("dream_brief")
+                    if not dream_brief:
+                        current.step_key = "collect_dream_brief"
+                        return cls._collecting_result(current, next_step="collect_dream_brief")
                     
-                    # Pre-populate fields
-                    current.artifact_updates["dream_ready"] = True
-                    current.collected["persona_id"] = dream["persona_id"]
-                    current.collected["appearance_prompt_or_photo"] = dream["appearance"]
-                    
-                    # Build summary with optional debug info
-                    summary = (
-                        f"✨ *AI Suggested Identity:*\n"
-                        f"Name: *{dream['display_name']}*\n"
-                        f"ID: `{dream['persona_id']}`\n\n"
-                        f"*Appearance:* {dream['appearance'][:200]}..."
-                    )
-                    if dream.get("error"):
-                        summary += f"\n\n⚠️ *AI Dream Warning:* {dream['error']}"
-                        if dream.get("debug_info"):
-                            summary += f"\n`{dream['debug_info']}`"
+                    # 2. Trigger AI Magic
+                    if not current.artifacts.get("dream_ready"):
+                        from services.ai_service import AIService
+                        async with AIService() as ai:
+                            dream = await cls._dream_persona_details(dream_brief, ai)
+                        
+                        # Pre-populate fields
+                        current.artifact_updates["dream_ready"] = True
+                        current.collected["persona_id"] = dream["persona_id"]
+                        current.collected["appearance_prompt_or_photo"] = dream["appearance"]
+                        
+                        # Build summary with optional debug info
+                        summary = (
+                            f"✨ *AI Suggested Identity:*\n"
+                            f"Name: *{dream['display_name']}*\n"
+                            f"ID: `{dream['persona_id']}`\n\n"
+                            f"*Appearance:* {dream['appearance'][:200]}..."
+                        )
+                        if dream.get("error"):
+                            summary += f"\n\n⚠️ *AI Dream Warning:* {dream['error']}"
+                            if dream.get("debug_info"):
+                                summary += f"\n`{dream['debug_info']}`"
 
-                    current.artifacts["dream_summary"] = summary
-                    current.step_key = "confirm_dream"
-                    return cls._collecting_result(
-                        current, 
-                        next_step="confirm_dream",
-                        output={"message": summary}
-                    )
+                        current.artifacts["dream_summary"] = summary
+                        current.step_key = "confirm_dream"
+                        return cls._collecting_result(
+                            current, 
+                            next_step="confirm_dream",
+                            output={"message": summary}
+                        )
 
-                # 3. Handle Confirmation Actions (handled by handle_action usually, but if execute is called)
-                if current.step_key == "confirm_dream":
-                    return cls._collecting_result(
-                        current, 
-                        next_step="confirm_dream",
-                        output={"message": current.artifacts.get("dream_summary", "Review your suggested persona below:")}
-                    )
+                    # 3. Handle Stay on Confirmation Prompt
+                    if current.step_key == "confirm_dream":
+                        return cls._collecting_result(
+                            current, 
+                            next_step="confirm_dream",
+                            output={"message": current.artifacts.get("dream_summary", "Review your suggested persona below:")}
+                        )
 
             # ── Step 1: Standard Collection ────────────────────────────────────
+            # We re-evaluate missing params AFTER the dreaming layer has pre-filled them
+            missing = cls._missing_required_params(current)
             if missing:
                 next_step = current.step_key or "collect_persona_id"
                 if "persona_id" in missing:
@@ -513,6 +527,9 @@ class PersonaCreatorSkill(BaseSkill):
                     next_step = "choose_voice"
                 elif "appearance_prompt_or_photo" in missing:
                     next_step = "collect_appearance"
+                
+                # Move step_key forward if it was still on confirm_dream
+                current.step_key = next_step
                 return cls._collecting_result(
                     current,
                     next_step=next_step,

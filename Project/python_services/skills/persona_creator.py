@@ -467,7 +467,7 @@ class PersonaCreatorSkill(BaseSkill):
                     current.collected.pop("voice", None)
                     current.collected.pop("dream_brief", None)
                     current.collected.pop("dream_confirmed", None)
-                    current.artifact_updates["dream_ready"] = False
+                    current.artifacts["dream_ready"] = False
                     current.step_key = "collect_nationality"
                     return cls._collecting_result(current, next_step="collect_nationality")
 
@@ -495,7 +495,7 @@ class PersonaCreatorSkill(BaseSkill):
                     async with AIService() as ai:
                         dream = await cls._dream_persona_details_refined(nationality, dream_brief, ai)
                     
-                    current.artifact_updates["dream_ready"] = True
+                    current.artifacts["dream_ready"] = True
                     current.collected["persona_id"] = dream["persona_id"]
                     current.collected["appearance_prompt_or_photo"] = dream["appearance"]
                     

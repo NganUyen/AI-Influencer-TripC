@@ -521,6 +521,45 @@ class TelegramRenderer:
 
     @classmethod
     def render_skill_prompt(cls, session: SkillSession) -> Dict[str, Any]:
+        if (
+            session.skill_name == "persona-creator"
+            and session.step_key == "preview"
+        ):
+            step = get_step_definition(session.skill_name, session.step_key)
+            persona_id = session.artifacts.get("persona_id") or session.collected.get("persona_id", "—")
+            image_url = (
+                session.artifacts.get("avatar_image_url")
+                or session.artifacts.get("preview_image_url")
+                or session.collected.get("avatar_image_url")
+            )
+            
+            # Simple metadata summary for the prompt
+            language = session.artifacts.get("language") or session.collected.get("language", "—")
+            voice = session.artifacts.get("tts_voice") or session.collected.get("voice", "—")
+            
+            prompt_text = step.get("prompt_text") or "✨ *Persona Profile Ready\\!*"
+            full_text = (
+                f"{prompt_text}\n\n"
+                f"• ID: `{persona_id}`\n"
+                f"• Language: {language}\n"
+                f"• Voice: {voice}\n\n"
+                "Use the buttons below to edit or proceed\\."
+            )
+            
+            payload = {
+                "text": full_text,
+                "reply_markup": _inline_keyboard_from_options(
+                    step.get("options", []),
+                    prefix="action::",
+                ),
+                "parse_mode": "Markdown",
+            }
+            if image_url:
+                payload["photo_url"] = image_url
+                payload["photo_caption"] = f"👤 {persona_id} | {language}"
+                
+            return payload
+
         if session.skill_name == "video-ai" and session.step_key == "confirm_concept":
             step = get_step_definition(session.skill_name, session.step_key)
             concept = session.artifacts.get("concept_brief") or {}

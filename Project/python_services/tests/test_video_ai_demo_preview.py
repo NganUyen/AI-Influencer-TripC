@@ -666,6 +666,62 @@ async def test_execute_recorded_demo_builds_concept_from_grounded_evidence():
 
 
 @pytest.mark.asyncio
+async def test_execute_recorded_demo_uses_novel_user_correction_for_feature_focus():
+    """
+    Bug fix verification: User corrections should be used as feature_focus
+    even when they don't match any existing detected feature.
+    Previously, novel corrections were discarded in favor of existing features.
+    """
+    session = _demo_session_at_preview_confirm()
+    session.artifacts["demo_preview_confirmed"] = True
+    evidence = _sample_evidence()
+    # Clear extracted_features to avoid partial matching with "Budget Tracker"
+    evidence.extracted_features = []
+    evidence.feature_candidates = []
+    # Existing grounded feature
+    evidence.grounded_features = [
+        GroundedFeatureContract(
+            feature_id="feat_1",
+            original_name="AI Itinerary Planner",
+            grounded=True,
+            official_name="AI Trip Optimizer",
+            grounding_confidence="high",
+        )
+    ]
+    # User provides a completely novel correction that doesn't match any feature
+    evidence.confidence_signals["user_correction"] = "Smart Budget Tracker"
+    session.artifacts["demo_evidence"] = evidence.model_dump(mode="json")
+
+    with patch.object(
+        VideoAISkill, "_request_json", new_callable=AsyncMock
+    ) as mock_request:
+        mock_request.side_effect = [
+            {"ready": True},
+            {
+                "persona_id": "minh_vn",
+                "display_name": "Minh VN",
+                "language": "Vietnamese",
+                "tts_voice": "vi-VN-Neural2-A",
+                "tone_default": "confident",
+                "status": "ready",
+                "heygen_avatar_id": "avatar_123",
+            },
+        ]
+        result = await VideoAISkill.execute(
+            session=session,
+            backend_url="http://backend",
+            http_client=AsyncMock(),
+        )
+
+    concept = ConceptBriefContract.model_validate(
+        result.session.artifacts["concept_brief"]
+    )
+    # The user's novel correction should be used, not the existing detected feature
+    assert concept.feature_focus == "Smart Budget Tracker"
+    assert concept.feature_focus != "AI Trip Optimizer"  # Not the existing feature
+
+
+@pytest.mark.asyncio
 async def test_execute_recorded_demo_builds_beats_with_timestamp_ranges():
     session = _demo_session_at_preview_confirm()
     session.artifacts["demo_preview_confirmed"] = True

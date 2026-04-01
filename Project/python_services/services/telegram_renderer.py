@@ -1392,7 +1392,9 @@ class TelegramRenderer:
             }
 
         # Extract upload_success_prefix from output if present
+        # Note: output may not be defined if we fell through from a collecting status
         upload_prefix = ""
+        output = result.output
         if isinstance(output, dict) and output.get("upload_success_prefix"):
             upload_prefix = output.get("upload_success_prefix")
 

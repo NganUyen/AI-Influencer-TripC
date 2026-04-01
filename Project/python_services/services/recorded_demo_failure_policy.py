@@ -87,26 +87,25 @@ def evaluate_analysis_usability(
         "ocr_available", True
     )  # Default true for backward compat
     ocr_useful = signals.get("ocr_useful", True)
-    has_ocr_text = bool(evidence.extracted_features) or signals.get(
-        "ocr_text_found", False
-    )
+    has_ocr_text = bool(signals.get("ocr_text_found", False))
 
     # Evaluate feature extraction
     has_features = len(evidence.extracted_features) > 0
-    has_grounded = len(evidence.grounded_features) > 0
-
     # Get overall confidence
     confidence = evidence.analysis_confidence_overall
 
-    # Case: Low confidence + no features + OCR unavailable = block
-    if confidence == "low" and not has_features and not ocr_available:
+    # Case: No features + OCR unavailable = block (regardless of confidence)
+    # Phase 4 is OCR-only, so without OCR we have no content analysis capability.
+    # High confidence from video metadata alone is not sufficient for content generation.
+    if not has_features and not ocr_available:
         return FailurePolicyResult(
             severity="block",
             can_proceed=False,
-            block_reason="low_confidence_no_features_no_ocr",
+            block_reason="no_features_no_ocr",
             user_message=(
-                "Could not extract enough information from this video. "
-                "Please upload a clearer recording or one with visible text/UI elements."
+                "Could not analyze the video content. Text recognition is unavailable "
+                "and no features were detected. Please try uploading a video with "
+                "visible text or UI elements."
             ),
         )
 
@@ -122,10 +121,10 @@ def evaluate_analysis_usability(
             ),
         )
 
-    # Case: OCR unavailable - warn but continue if has features
-    if not ocr_available:
+    # Case: OCR unavailable but has features - warn (features came from other sources)
+    if not ocr_available and has_features:
         warnings.append(
-            "Text recognition was unavailable. Feature detection relied on visual analysis only."
+            "Text recognition was unavailable. Feature names may need manual correction."
         )
 
     # Case: OCR weak/no useful text - warn but continue
@@ -398,6 +397,13 @@ def build_preview_warnings(
         grounding_result = evaluate_grounding_quality(evidence)
         if grounding_result.severity == "warn":
             warnings.extend(grounding_result.warnings)
+        elif grounding_result.severity == "block":
+            # Preview should remain informative and allow confirm/correct/reupload.
+            # The actual block is enforced later before concept/beat generation.
+            warnings.append(
+                "Detected features could not be verified against the reference website. "
+                "Review carefully or correct the feature list before continuing."
+            )
 
     # Deduplicate while preserving order
     seen = set()

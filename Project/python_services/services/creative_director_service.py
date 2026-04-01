@@ -260,11 +260,35 @@ class CreativeDirectorService:
             or collected.get("feature_emphasis")
             or ""
         )
+
+        # If user provided a correction/emphasis, they explicitly want to override
+        # detected features. Use their input directly unless it's an exact match
+        # to an existing feature (in which case, normalize to official name).
+        if user_text.strip():
+            clean_user_text = user_text.strip()[:100]
+            normalized_user = cls._normalized(clean_user_text)
+
+            # Check for exact or near-exact match with existing features
+            for feature in evidence.grounded_features:
+                official = feature.official_name or feature.original_name
+                if official and cls._normalized(official) == normalized_user:
+                    return official  # Use normalized official name
+            for name in fallback_names:
+                if name and cls._normalized(name) == normalized_user:
+                    return name  # Use the existing name casing
+
+            # No exact match - user is providing a novel feature name
+            # Trust their input as-is (they may be correcting a miss)
+            return clean_user_text
+
+        # No user input - try to find best match from existing features
         matched = cls._best_feature_match(
-            user_text, evidence.grounded_features, fallback_names
+            "", evidence.grounded_features, fallback_names
         )
         if matched:
             return matched
+
+        # Fall back to first detected feature name
         if fallback_names:
             return fallback_names[0]
         return "Recorded demo highlights"
@@ -332,6 +356,14 @@ class CreativeDirectorService:
         if cls._normalized(concept.tone_resolved) != cls._normalized(expected_tone):
             raise ValueError("Recorded demo ConceptBrief drifted from persona tone")
         allowed_names = cls._demo_grounded_feature_names(evidence)
+        # Also allow user corrections/emphases as valid feature_focus values
+        # (users may provide novel features not detected by analysis)
+        user_correction = evidence.confidence_signals.get("user_correction", "")
+        user_reemphasis = evidence.confidence_signals.get("user_reemphasis", "")
+        if user_correction and user_correction.strip():
+            allowed_names.append(user_correction.strip()[:100])
+        if user_reemphasis and user_reemphasis.strip():
+            allowed_names.append(user_reemphasis.strip()[:100])
         if allowed_names and concept.feature_focus not in allowed_names:
             raise ValueError(
                 "Recorded demo ConceptBrief feature_focus is not grounded in confirmed evidence"

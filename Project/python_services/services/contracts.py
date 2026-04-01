@@ -198,6 +198,97 @@ URL_REQUIRED_SOURCE_TYPES = {
 }
 
 
+# ==============================================================================
+# Recorded Demo Video Analysis Contracts (Phase 4)
+# ==============================================================================
+
+
+class KeyframeContract(BaseModel):
+    """A single keyframe extracted from demo video."""
+
+    frame_id: str
+    timestamp_sec: float
+    image_path: Optional[str] = None  # Local temp path during analysis
+    image_url: Optional[str] = None  # Storage URL after upload (optional)
+
+
+class TimelineSegmentContract(BaseModel):
+    """A logical segment of the demo video timeline."""
+
+    segment_id: str
+    start_sec: float
+    end_sec: float
+    segment_type: Literal["intro", "feature_demo", "transition", "outro", "unknown"] = (
+        "unknown"
+    )
+    description: str = ""
+    keyframe_ids: List[str] = Field(default_factory=list)
+    ocr_texts: List[str] = Field(default_factory=list)
+
+
+class ExtractedFeatureContract(BaseModel):
+    """A feature detected in the demo video via OCR/analysis."""
+
+    feature_id: str
+    name: str
+    description: str = ""
+    timestamp_start_sec: float
+    timestamp_end_sec: float
+    confidence: Literal["high", "medium", "low"] = "medium"
+    ocr_evidence: List[str] = Field(default_factory=list)
+    keyframe_ids: List[str] = Field(default_factory=list)
+
+
+class RecordedDemoEvidenceContract(BaseModel):
+    """
+    Evidence extracted from uploaded demo video (Phase 4).
+
+    This is the internal analysis output contract.
+    Kept separate from ConceptBrief until Phase 6 integration.
+
+    Structured data (segments, keyframes, features) is separate from
+    human-readable summaries (timeline_narrative, feature_candidates).
+    """
+
+    # Source video info
+    demo_video_asset_url: str
+    original_filename: str = ""
+    duration_sec: float
+    width: int
+    height: int
+
+    # Extracted keyframes (representative, not all frames)
+    keyframes: List[KeyframeContract] = Field(default_factory=list)
+
+    # Timeline segmentation
+    segments: List[TimelineSegmentContract] = Field(default_factory=list)
+
+    # Extracted features from OCR and analysis
+    extracted_features: List[ExtractedFeatureContract] = Field(default_factory=list)
+
+    # Summary outputs for downstream phases (Phase 5+)
+    # Note: segments (above) contain structured timeline data
+    # timeline_narrative is human-readable text for preview/debugging
+    timeline_narrative: str = ""  # Human-readable summary of timeline flow
+    feature_candidates: List[str] = Field(
+        default_factory=list
+    )  # Top feature names to highlight
+
+    # Confidence scoring
+    analysis_confidence_overall: Literal["high", "medium", "low"] = "low"
+    confidence_signals: Dict[str, Any] = Field(default_factory=dict)  # Debug/audit info
+
+    # Analysis metadata
+    analysis_version: str = "1.0"
+    ocr_enabled: bool = False
+    vision_model_used: Optional[str] = None  # None if OCR-only fallback
+
+
+# ==============================================================================
+# ConceptBrief and related contracts
+# ==============================================================================
+
+
 class ConceptBriefContract(BaseModel):
     persona_id: str
     creative_input_mode: Literal["idea_brief", "recorded_demo_video"] = "idea_brief"
@@ -212,9 +303,12 @@ class ConceptBriefContract(BaseModel):
     source_summary: str
     tone_resolved: str
 
-    # Optional fields for recorded_demo_video mode
+    # Optional fields for recorded_demo_video mode (Phase 2-3)
     demo_video_telegram_file_id: Optional[str] = None
     demo_video_asset_url: Optional[str] = None
+
+    # Note: demo_evidence integration deferred to Phase 6 (ConceptBrief generation changes)
+    # For now, evidence is stored in session artifacts, not in ConceptBrief
 
     @field_validator("video_goal")
     @classmethod

@@ -330,19 +330,22 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
                 ("✨ Dream up with AI", "dream"),
             ),
         },
-        "collect_dream_brief": {
+        "collect_nationality": {
             "input_type": "free_text",
-            "field": "dream_brief",
-            "prompt_text": "✨ *Describe the type of persona you'd like to create\\.*\n\nExample: 'Jamaican woman, travel influencer' or 'Swedish male baker in his 50s'\\.",
+            "field": "nationality",
+            "prompt_text": "🌍 *Which nationality should the persona have?*\n\nExample: 'North Korean', 'Japanese', 'Brazilian'\\.",
+        },
+        "collect_description": {
+            "input_type": "free_text",
+            "field": "brief",
+            "prompt_text": "👤 *Describe the persona's appearance or vibe\\.*\n\nExample: 'Man in his 30s wearing a military uniform' or 'Fashion blogger in a busy city'\\.",
         },
         "confirm_dream": {
             "input_type": "preview_actions",
-            "prompt_text": "✨ *AI Dream Ready\\!* How does this identity look to you?",
+            "prompt_text": "✨ *AI Identity Suggested\\!* Review the details below:",
             "options": _options(
-                ("✅ Use & Continue", "use"),
-                ("✏️ Edit ID", "edit_id"),
-                ("🎭 Edit Appearance", "edit_appearance"),
-                ("🔄 Dream Again", "regenerate"),
+                ("✅ Use & Continue", "confirm"),
+                ("🔄 Start Over", "retry"),
                 ("❌ Cancel", "cancel"),
             ),
         },

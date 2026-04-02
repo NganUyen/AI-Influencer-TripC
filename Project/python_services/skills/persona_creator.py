@@ -365,15 +365,22 @@ class PersonaCreatorSkill(BaseSkill):
             "avatar_prompt": appearance,
             "avatar_media_asset_id": avatar_media_asset_id,
         }
-        patched = await cls._request_json(
-            http_client,
-            "PATCH",
-            backend_url,
-            f"/api/personas/{current.collected['persona_id']}",
-            params=patch_params,
-            json=patch_payload,
-        )
-        return patched if isinstance(patched, dict) else persona
+        try:
+            patched = await cls._request_json(
+                http_client,
+                "PATCH",
+                backend_url,
+                f"/api/personas/{current.collected['persona_id']}",
+                params=patch_params,
+                json=patch_payload,
+            )
+            return patched if isinstance(patched, dict) else persona
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                # Persona doesn't exist yet (normal for early preview steps)
+                # We return the local record so the caller has the new avatar info
+                return {**persona, **patch_payload}
+            raise RuntimeError(cls._extract_http_error_detail(e)) from e
 
     @classmethod
     async def _sync_persona_profile(

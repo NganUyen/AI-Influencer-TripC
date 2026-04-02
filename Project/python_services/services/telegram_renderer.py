@@ -707,8 +707,8 @@ class TelegramRenderer:
 
         if session.skill_name == "video-ai" and session.step_key == "confirm_beats":
             step = get_step_definition(session.skill_name, session.step_key)
-            beat_sheet = session.artifacts.get("beat_sheet") or {}
             concept = session.artifacts.get("concept_brief") or {}
+            beat_sheet = session.artifacts.get("beat_sheet") or {}
             return {
                 "text": _video_ai_beats_text(beat_sheet, concept),
                 "reply_markup": _inline_keyboard_from_options(
@@ -1020,6 +1020,47 @@ class TelegramRenderer:
                     ),
                     "parse_mode": None,
                 }
+            # Phase 5: Demo preview confirmation failure/timeout
+            if (
+                session.skill_name == "video-ai"
+                and session.step_key == "demo_preview_confirm"
+            ):
+                output = result.output or {}
+                # Check for timeout
+                if output.get("timeout"):
+                    return {
+                        "text": output.get(
+                            "message", "Preview confirmation timed out."
+                        ),
+                        "reply_markup": _inline_keyboard_from_options(
+                            [
+                                {"label": "Re-upload", "value": "reupload"},
+                                {"label": "Cancel", "value": "cancel"},
+                            ],
+                            prefix="action::",
+                        ),
+                        "parse_mode": None,
+                    }
+                # Generic demo preview failure
+                preview_summary = (
+                    output.get("demo_preview_summary")
+                    or session.artifacts.get("demo_preview_summary")
+                    or {}
+                )
+                return {
+                    "text": _video_ai_demo_preview_text(
+                        preview_summary, session.collected
+                    )
+                    + f"\n\n⚠️ {result.error or 'Preview step failed.'}",
+                    "reply_markup": _inline_keyboard_from_options(
+                        [
+                            {"label": "Re-upload", "value": "reupload"},
+                            {"label": "Cancel", "value": "cancel"},
+                        ],
+                        prefix="action::",
+                    ),
+                    "parse_mode": None,
+                }
             return {
                 "text": result.error or "❌ Skill execution failed. Please try again.",
                 "reply_markup": _inline_keyboard_from_options(
@@ -1102,7 +1143,7 @@ class TelegramRenderer:
                     step.get("options", []),
                     prefix="action::",
                 ),
-                "parse_mode": "Markdown",
+                "parse_mode": None,  # Use plain text to safely handle OCR-derived content
             }
 
         if (

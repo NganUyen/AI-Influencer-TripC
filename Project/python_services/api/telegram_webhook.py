@@ -432,6 +432,14 @@ async def _await_with_message_progress(
         return result, waiting_message_id
 
 
+async def _start_video_ai_via_openclaw(chat_id: int, text: str, app: Any) -> None:
+    # Send an immediate confirmation so button presses feel responsive.
+    await TelegramSkillSessionStore.clear_session(chat_id)
+    await send_message(chat_id, "Starting video creation now...", parse_mode=None)
+    await send_chat_action(chat_id, action="typing")
+    await _handle_openclaw_message(chat_id, text, app)
+
+
 async def _handle_skill_callback(
     app: Any,
     chat_id: int,
@@ -445,13 +453,11 @@ async def _handle_skill_callback(
 
     if data.startswith("skill_"):
         skill_name = data.split("skill_", 1)[1]
-        
+
         # Route video-ai through OpenClaw for proper orchestration
         if skill_name == "video-ai":
-            await TelegramSkillSessionStore.clear_session(chat_id)
-            await send_chat_action(chat_id, action="typing")
             # Simulate user saying "create video" to trigger OpenClaw routing
-            await _handle_openclaw_message(chat_id, "create video", app)
+            await _start_video_ai_via_openclaw(chat_id, "create video", app)
             return True
         
         # Other skills start directly
@@ -1045,9 +1051,7 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         skill_name = _TEXT_SKILL_MAP[text_lower]
         # Route video-ai through OpenClaw for proper orchestration
         if skill_name == "video-ai":
-            await TelegramSkillSessionStore.clear_session(chat_id)
-            await send_chat_action(chat_id, action="typing")
-            await _handle_openclaw_message(chat_id, text.strip(), app)
+            await _start_video_ai_via_openclaw(chat_id, text.strip(), app)
             return
         # Other skills can start directly
         await TelegramSkillSessionStore.clear_session(chat_id)
@@ -1075,9 +1079,7 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         skill_name = _SHORTCUT_SKILL_MAP[text_cmd]
         # Route video-ai through OpenClaw for proper orchestration
         if skill_name == "video-ai":
-            await TelegramSkillSessionStore.clear_session(chat_id)
-            await send_chat_action(chat_id, action="typing")
-            await _handle_openclaw_message(chat_id, text.strip(), app)
+            await _start_video_ai_via_openclaw(chat_id, text.strip(), app)
             return
         # Other skills can start directly
         await TelegramSkillSessionStore.clear_session(chat_id)

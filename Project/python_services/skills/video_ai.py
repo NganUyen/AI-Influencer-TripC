@@ -124,7 +124,11 @@ class VideoAISkill(BaseSkill):
 
         # For recorded_demo_video mode
         if creative_input_mode == "recorded_demo_video":
-            if not session.collected.get("demo_video_telegram_file_id"):
+            # Check both file_id AND asset_url - both are required for analysis
+            # If only one is set (stale session state), force re-upload
+            if not session.collected.get(
+                "demo_video_telegram_file_id"
+            ) or not session.collected.get("demo_video_asset_url"):
                 return "upload_demo_video"
             # Skip idea_brief and feature_focus, they're not required
             # Continue with other required fields

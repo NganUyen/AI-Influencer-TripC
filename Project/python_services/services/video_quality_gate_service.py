@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -64,7 +66,36 @@ class VideoQualityGateService:
 
     def __init__(self):
         """Initialize the quality gate service."""
-        pass
+        self._ffprobe_binary = self._resolve_binary(
+            env_var="FFPROBE_BINARY", binary_name="ffprobe"
+        )
+        self._ffmpeg_binary = self._resolve_binary(
+            env_var="FFMPEG_BINARY", binary_name="ffmpeg"
+        )
+
+    @staticmethod
+    def _resolve_binary(env_var: str, binary_name: str) -> str:
+        """Resolve command binary from env override, PATH, or common install paths."""
+        env_value = os.environ.get(env_var)
+        if env_value:
+            return env_value
+
+        resolved = shutil.which(binary_name)
+        if resolved:
+            return resolved
+
+        for base_dir in (
+            "/usr/bin",
+            "/usr/local/bin",
+            "/bin",
+            "/opt/homebrew/bin",
+            "/home/linuxbrew/.linuxbrew/bin",
+        ):
+            candidate = Path(base_dir) / binary_name
+            if candidate.exists() and candidate.is_file():
+                return str(candidate)
+
+        return binary_name
 
     async def validate_video_file(
         self,
@@ -165,7 +196,7 @@ class VideoQualityGateService:
         try:
             result = subprocess.run(
                 [
-                    "ffprobe",
+                    self._ffprobe_binary,
                     "-v",
                     "error",
                     "-select_streams",
@@ -246,7 +277,7 @@ class VideoQualityGateService:
                 try:
                     result = subprocess.run(
                         [
-                            "ffmpeg",
+                            self._ffmpeg_binary,
                             "-i",
                             str(video_path),
                             "-vframes",

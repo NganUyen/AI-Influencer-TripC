@@ -976,16 +976,14 @@ class SkillDispatcher:
 
         # 3. Determine entry point
         if command == "edit_p_name":
-            # We treat 'name' as persona_id in the creation flow,
-            # but if it exists we just want to confirm or skip to next?
-            # Actually, let's just jump to a summary/preview if they just want to refresh.
-            session.step_key = "collect_persona_id"
+            # Jump to edit_p_name step to collect the display name
+            session.step_key = "edit_p_name"
             result = SkillResult(
                 success=True,
-                next_step="collect_persona_id",
+                next_step="edit_p_name",
                 session=session,
                 output={
-                    "message": f"Editing persona *{persona_id}*. Send a new name/ID, or send /cancel."
+                    "message": f"Editing persona *{persona_id}*. Send a new name, or send /cancel."
                 },
             )
         elif command == "edit_p_appearance":

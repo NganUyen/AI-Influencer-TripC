@@ -603,7 +603,10 @@ class DemoVideoAnalyzerService:
 
             pytesseract.get_tesseract_version()
             self._ocr_available = True
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "OCR unavailable: pytesseract/tesseract not ready (%s)", exc
+            )
             self._ocr_available = False
 
         return self._ocr_available

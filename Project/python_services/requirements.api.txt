@@ -1,1 +1,4 @@
 -r requirements.base.txt
+
+# OCR support for recorded demo video analysis in backend API
+pytesseract==0.3.10

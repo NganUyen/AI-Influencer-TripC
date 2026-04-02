@@ -998,10 +998,11 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
     _SHORTCUT_MENU_MAP = {
         "/create_image": "menu_image",
         "/create-image": "menu_image",
+        "/create_video": "menu_video",
+        "/create-video": "menu_video",
+        "/start": "menu_video",
     }
     _SHORTCUT_SKILL_MAP = {
-        "/create_video": "video-ai",
-        "/create-video": "video-ai",
         "/create_persona": "persona-creator",
         "/create-persona": "persona-creator",
         "/inspect_persona": "persona-inspector",
@@ -1009,7 +1010,42 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         "/quota": "quota-inspector",
     }
 
+    # ── Plain text shortcuts (case-insensitive) ────────────────────────────
+    _TEXT_MENU_MAP = {
+        "create video": "menu_video",
+        "make video": "menu_video",
+        "video": "menu_video",
+        "create image": "menu_image",
+        "make image": "menu_image",
+        "image": "menu_image",
+    }
+    _TEXT_SKILL_MAP = {
+        "create persona": "persona-creator",
+        "new persona": "persona-creator",
+        "inspect persona": "persona-inspector",
+        "check persona": "persona-inspector",
+        "quota": "quota-inspector",
+    }
+
     text_cmd = text.strip().lower().split()[0] if text.strip() else ""
+    text_lower = text.strip().lower()
+
+    # Check plain text shortcuts first
+    if text_lower in _TEXT_MENU_MAP:
+        await TelegramSkillSessionStore.clear_session(chat_id)
+        rendered = TelegramRenderer.render_menu(_TEXT_MENU_MAP[text_lower])
+        await _send_rendered_message(chat_id, rendered)
+        return
+
+    if text_lower in _TEXT_SKILL_MAP:
+        await TelegramSkillSessionStore.clear_session(chat_id)
+        skill_result, pending_message_id = await _await_with_message_progress(
+            chat_id,
+            SkillDispatcher.start_skill(chat_id, _TEXT_SKILL_MAP[text_lower], app),
+        )
+        rendered = TelegramRenderer.render_skill_result(skill_result)
+        await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)
+        return
 
     if text_cmd in _SHORTCUT_MENU_MAP:
         await TelegramSkillSessionStore.clear_session(chat_id)

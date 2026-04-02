@@ -12,6 +12,7 @@ import logging
 from config.settings import settings
 from services.google_tts_service import GoogleTTSService
 from services.ai_service import AIService
+from services.openclaw_service import OpenClawService
 
 logger = logging.getLogger(__name__)
 
@@ -198,104 +199,60 @@ class PersonaCreatorSkill(BaseSkill):
         brief: str, 
         ai: Optional[AIService] = None
     ) -> Dict[str, Any]:
-        """AI-powered identity generation for any country in the world."""
-        if not ai:
-            raise RuntimeError("AI Service is not initialized. Please check your configuration.")
-
-        system_prompt = (
-            "You are a master of global identities and cultural nuances. "
-            "Your task is to suggest a realistic, culturally accurate persona identity based on a nationality and a brief description."
-        )
+        """AI-powered identity generation using OpenClaw."""
+        openclaw = OpenClawService()
         
-        user_prompt = f"""
-        Suggest a persona with the following details:
-        Nationality: {nationality}
-        Brief: {brief}
+        prompt = f"""You are a master of global identities and cultural nuances.
+Suggest a realistic, culturally accurate persona identity.
 
-        You MUST return valid JSON with these keys:
-        - persona_id: A unique URL-safe slug (e.g., 'kaito_tanaka')
-        - display_name: A realistic, localized full name (e.g., 'Kaito Tanaka')
-        - appearance: A detailed visual description for an image generator (e.g., 'A portrait of an elderly man with silver hair wearing a kimono...')
+Nationality: {nationality}
+Brief: {brief}
 
-        Response format:
-        {{
-          "persona_id": "...",
-          "display_name": "...",
-          "appearance": "..."
-        }}
-        """
+You MUST return valid JSON with these keys:
+- persona_id: A unique URL-safe slug (e.g., 'kaito_tanaka')
+- display_name: A realistic, localized full name (e.g., 'Kaito Tanaka')
+- appearance: A detailed visual description for an image generator (e.g., 'A portrait of an elderly man with silver hair wearing a kimono...')
+
+Response format:
+{{
+  "persona_id": "...",
+  "display_name": "...",
+  "appearance": "..."
+}}"""
 
         try:
-            preferred_model = None
-            if getattr(settings, "GOOGLE_AI_API_KEY", ""):
-                preferred_model = "models/gemini-2.0-flash"
-
-            try:
-                if preferred_model:
-                    logger.info(
-                        "Dream: attempting AI generation with Gemini preferred model"
-                    )
-                    response_text = await ai.generate_text(
-                        prompt=user_prompt,
-                        system_prompt=system_prompt,
-                        model=preferred_model,
-                        temperature=0.7,
-                    )
-                else:
-                    logger.info("Dream: attempting AI generation with default model")
-                    response_text = await ai.generate_text(
-                        prompt=user_prompt,
-                        system_prompt=system_prompt,
-                        temperature=0.7,
-                    )
-                logger.info("Dream: AI generation successful, parsing response")
-            except Exception as primary_exc:
-                logger.warning(
-                    "Dream: primary AI call failed with %s: %s",
-                    type(primary_exc).__name__,
-                    primary_exc,
-                )
-
-                # If Gemini was preferred and failed, fallback to configured default model.
-                if preferred_model:
-                    logger.warning(
-                        "Dream: Gemini preferred model failed, retrying with default model"
-                    )
-                    response_text = await ai.generate_text(
-                        prompt=user_prompt,
-                        system_prompt=system_prompt,
-                        temperature=0.7,
-                    )
-                # Fallback to Gemini when default auth fails and Gemini is configured.
-                elif cls._is_ai_auth_error(primary_exc) and getattr(settings, "GOOGLE_AI_API_KEY", ""):
-                    logger.warning(
-                        "Dream identity generation hit provider auth error; retrying with Gemini fallback"
-                    )
-                    response_text = await ai.generate_text(
-                        prompt=user_prompt,
-                        system_prompt=system_prompt,
-                        model="models/gemini-2.0-flash",
-                        temperature=0.7,
-                    )
-                else:
-                    raise
+            logger.info("Dream: generating persona identity via OpenClaw")
+            result = await openclaw.execute_task(
+                task_type="dream_persona",
+                prompt=prompt,
+                user_id="system",
+                context={"nationality": nationality, "brief": brief},
+            )
             
-            # Robust JSON extraction for cases where AI adds markdown or preamble
-            json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group(0))
-                # Validate required keys
-                if not all(k in data for k in ["persona_id", "display_name", "appearance"]):
-                    raise ValueError("AI response missing required JSON keys")
-                return {**data, "success": True}
+            # Result may already be parsed JSON or contain a 'result' key
+            data = result if isinstance(result.get("persona_id"), str) else result.get("result", result)
             
-            logger.error(f"Raw AI response (failed parse): {response_text}")
-            raise ValueError("The AI suggested an identity but the response was formatted incorrectly. Please try again.")
+            # If data is still a string, try to parse it
+            if isinstance(data, str):
+                json_match = re.search(r"\{.*\}", data, re.DOTALL)
+                if json_match:
+                    data = json.loads(json_match.group(0))
+            
+            # Validate required keys
+            if not isinstance(data, dict) or not all(k in data for k in ["persona_id", "display_name", "appearance"]):
+                logger.error(f"OpenClaw response missing required keys: {result}")
+                raise ValueError("AI response missing required JSON keys")
+            
+            logger.info("Dream: OpenClaw generation successful")
+            return {
+                "persona_id": data["persona_id"],
+                "display_name": data["display_name"],
+                "appearance": data["appearance"],
+                "success": True,
+            }
             
         except Exception as e:
-            logger.error(f"AI Dream execution failed: {e}")
-            # Re-raising ensures the user sees the original error (e.g., 403, 429) 
-            # if the service is disabled or over quota.
+            logger.error(f"Dream via OpenClaw failed: {e}")
             raise
 
     @classmethod

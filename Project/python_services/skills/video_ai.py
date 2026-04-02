@@ -402,7 +402,10 @@ class VideoAISkill(BaseSkill):
         persona_id = session.collected.get("persona_id")
         telegram_chat_id = session.artifacts.get("telegram_chat_id")
         platform = session.collected.get("platform", "tiktok")
-        topic = session.collected.get("idea_brief", "")
+        # Ensure topic is always a string (could be None from session)
+        topic = session.collected.get("idea_brief") or ""
+        if not isinstance(topic, str):
+            topic = str(topic) if topic is not None else ""
         talking_head_optional = bool(session.artifacts.get("talking_head_optional"))
         production_note = cls._production_note(
             talking_head_optional=talking_head_optional

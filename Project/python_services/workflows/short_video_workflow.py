@@ -27,6 +27,7 @@ with workflow.unsafe.imports_passed_through():
         create_talking_head_video,
     )
     from activities.video_activities import build_split_screen_video
+    from activities.capture.storage import persist_capture_result_activity
     from services.contracts import VideoWorkflowStartPayloadContract
     from services.errors import (
         PersonaNotReadyError,
@@ -65,6 +66,7 @@ class ShortVideoWorkflow:
         fallback_persona_id = payload_dict.get("persona_id", "")
         fallback_topic = payload_dict.get("topic", "")
         telegram_chat_id = payload_dict.get("telegram_chat_id")
+        campaign_id = payload_dict.get("campaign_id")
 
         async def notify_progress(stage_label: str, details: str = "") -> None:
             if not progress_notify_enabled:
@@ -439,6 +441,30 @@ class ShortVideoWorkflow:
                 start_to_close_timeout=timedelta(minutes=20),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
+
+            if campaign_id:
+                await workflow.execute_activity(
+                    persist_capture_result_activity,
+                    args=[
+                        {
+                            "campaign_id": str(campaign_id),
+                            "output_video_path": final_video.get("video_url"),
+                            "scenes": [
+                                {
+                                    "scene_index": idx,
+                                    "caption": s.get("caption"),
+                                    "narration_text": s.get("narration_text"),
+                                    "timestamp_start": s.get("timestamp_start"),
+                                    "timestamp_end": s.get("timestamp_end"),
+                                }
+                                for idx, s in enumerate(scenes)
+                            ],
+                            "upload_to_storage": False,
+                        }
+                    ],
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
 
             self.workflow_status = "waiting_final_decision"
             self.current_step = "waiting_final_decision"

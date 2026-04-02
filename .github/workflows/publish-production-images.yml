@@ -95,7 +95,7 @@ jobs:
             dockerfile: Project/python_services/Dockerfile
             context: Project/python_services
             target: api-runtime
-            max_bytes: "700000000"
+            max_bytes: "1200000000"
           - name: python-worker
             image: ai-influencer-python-worker
             dockerfile: Project/python_services/Dockerfile

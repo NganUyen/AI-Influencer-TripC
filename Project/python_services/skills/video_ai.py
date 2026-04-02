@@ -447,11 +447,45 @@ class VideoAISkill(BaseSkill):
             session.control.workflow_id = None
             session.control.error_message = str(exc)
             session.artifacts["workflow_id"] = None
+
+            # Extract more detailed error info for 422 validation errors
+            error_detail = str(exc)
+            error_message = "Pre-production package is ready, but I couldn't start the production workflow."
+
+            # Check for HTTP 422 validation errors
+            if "422" in error_detail:
+                try:
+                    # Try to extract validation details from httpx response
+                    import json
+                    if hasattr(exc, "response"):
+                        resp = exc.response
+                        if hasattr(resp, "json"):
+                            try:
+                                error_json = resp.json()
+                                if isinstance(error_json, dict):
+                                    detail = error_json.get("detail")
+                                    if isinstance(detail, list):
+                                        # Pydantic validation errors
+                                        validation_issues = []
+                                        for err in detail[:3]:  # Limit to first 3
+                                            loc = ".".join(str(x) for x in err.get("loc", []))
+                                            msg = err.get("msg", "validation error")
+                                            validation_issues.append(f"- {loc}: {msg}")
+                                        if validation_issues:
+                                            error_detail = "Validation errors:\n" + "\n".join(validation_issues)
+                                    elif isinstance(detail, str):
+                                        error_detail = detail
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                error_message = f"Production workflow validation failed.\n\n{error_detail}"
+
             return SkillResult(
                 success=False,
                 next_step="package_ready",
                 output={
-                    "message": "Pre-production package is ready, but I couldn't start the production workflow.",
+                    "message": error_message,
                     "approved_production_package": package.model_dump(mode="json"),
                     "talking_head_optional": talking_head_optional,
                     "production_mode": (
@@ -459,7 +493,7 @@ class VideoAISkill(BaseSkill):
                     ),
                     "production_note": production_note,
                 },
-                error=str(exc),
+                error=error_detail,
                 session=session,
             )
 

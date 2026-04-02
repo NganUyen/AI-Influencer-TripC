@@ -75,7 +75,9 @@ class DemoVideoAnalyzerService:
     DEFAULT_KEYFRAME_INTERVAL_SEC = 10.0  # Fallback if no scene changes
 
     # OCR config
-    OCR_CONFIDENCE_THRESHOLD = 60  # Minimum tesseract confidence
+    # Lower threshold for Vietnamese text (diacritics reduce confidence scores)
+    OCR_CONFIDENCE_THRESHOLD = 40  # Minimum tesseract confidence
+    OCR_CONFIDENCE_THRESHOLD_VIE = 30  # Lower threshold for Vietnamese-heavy text
 
     def __init__(self):
         """Initialize the analyzer service."""
@@ -628,6 +630,16 @@ class DemoVideoAnalyzerService:
         try:
             import pytesseract
             from PIL import Image
+            import unicodedata
+
+            def is_vietnamese_text(text: str) -> bool:
+                """Check if text contains Vietnamese diacritics."""
+                vietnamese_chars = set("àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ")
+                return any(c in vietnamese_chars for c in text)
+
+            def normalize_vietnamese(text: str) -> str:
+                """Normalize Vietnamese text to NFC form for consistent handling."""
+                return unicodedata.normalize("NFC", text)
 
             for kf in keyframes:
                 if not kf.image_path or not Path(kf.image_path).exists():
@@ -635,12 +647,13 @@ class DemoVideoAnalyzerService:
 
                 try:
                     # Run OCR with confidence data
+                    # Use eng+vie for mixed English/Vietnamese text support
                     image = Image.open(kf.image_path)
                     ocr_data = pytesseract.image_to_data(
-                        image, output_type=pytesseract.Output.DICT
+                        image, lang='eng+vie', output_type=pytesseract.Output.DICT
                     )
 
-                    # Extract high-confidence text
+                    # Extract text with adaptive confidence threshold
                     texts: list[str] = []
                     for i, conf in enumerate(ocr_data.get("conf", [])):
                         try:
@@ -648,9 +661,25 @@ class DemoVideoAnalyzerService:
                         except (ValueError, TypeError):
                             continue
 
-                        if confidence >= self.OCR_CONFIDENCE_THRESHOLD:
-                            text = ocr_data["text"][i].strip()
-                            if text and len(text) > 1:  # Skip single chars
+                        text = ocr_data["text"][i].strip()
+                        if not text:
+                            continue
+
+                        # Normalize Vietnamese text
+                        text = normalize_vietnamese(text)
+
+                        # Use lower threshold for Vietnamese text (diacritics reduce OCR confidence)
+                        threshold = (
+                            self.OCR_CONFIDENCE_THRESHOLD_VIE
+                            if is_vietnamese_text(text)
+                            else self.OCR_CONFIDENCE_THRESHOLD
+                        )
+
+                        if confidence >= threshold:
+                            # For Vietnamese, allow single syllables (common in Vietnamese)
+                            # For English, skip single characters
+                            min_length = 1 if is_vietnamese_text(text) else 2
+                            if len(text) >= min_length:
                                 texts.append(text)
 
                     results[kf.frame_id] = texts

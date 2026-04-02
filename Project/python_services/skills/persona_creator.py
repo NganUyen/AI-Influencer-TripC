@@ -45,6 +45,54 @@ class PersonaCreatorSkill(BaseSkill):
         )
 
     @classmethod
+    def _is_ai_service_unavailable_error(cls, exc: Exception) -> bool:
+        message = str(exc).lower()
+        return (
+            "service_disabled" in message
+            or "has not been used in project" in message
+            or "api is disabled" in message
+            or "quota" in message
+            or "rate limit" in message
+            or "status code: 429" in message
+            or "permission denied" in message
+            or "forbidden" in message
+        )
+
+    @classmethod
+    def _dream_persona_details_fallback(
+        cls,
+        nationality: str,
+        brief: str,
+        *,
+        reason: str,
+    ) -> Dict[str, Any]:
+        # Build a deterministic, safe fallback so Dream flow can continue without external AI.
+        nat = cls._trim_text(nationality, max_length=40) or "Global"
+        brief_clean = cls._trim_text(brief, max_length=120) or "social media creator"
+
+        tokens = [
+            part.lower()
+            for part in re.split(r"[^a-zA-Z0-9]+", f"{nat} {brief_clean}")
+            if part
+        ]
+        persona_id = "_".join(tokens[:5]) or "creator_profile"
+        persona_id = persona_id[:48].strip("_") or "creator_profile"
+
+        display_name = f"{nat.title()} Creator"
+        appearance = (
+            f"A realistic portrait of a {nat} content creator, {brief_clean}. "
+            "Natural lighting, clean background, confident expression, social-media-ready style."
+        )
+
+        return {
+            "persona_id": persona_id,
+            "display_name": display_name,
+            "appearance": appearance,
+            "success": False,
+            "error": reason,
+        }
+
+    @classmethod
     def _display_name_from_persona_id(cls, persona_id: str) -> str:
         parts = [part for part in re.split(r"[_-]+", persona_id.strip()) if part]
         if not parts:
@@ -540,13 +588,18 @@ class PersonaCreatorSkill(BaseSkill):
                                 nationality, dream_brief, ai
                             )
                     except Exception as exc:
-                        if cls._is_ai_auth_error(exc):
-                            return cls._error_result(
-                                current,
-                                "AI Dream is unavailable because the configured AI API key is invalid. "
-                                "Please update provider credentials (OPENAI_API_KEY or DEFAULT_AI_MODEL) and try again.",
+                        if cls._is_ai_auth_error(exc) or cls._is_ai_service_unavailable_error(exc):
+                            logger.warning(
+                                "Dream provider unavailable, switching to deterministic fallback: %s",
+                                exc,
                             )
-                        raise
+                            dream = cls._dream_persona_details_fallback(
+                                nationality,
+                                dream_brief,
+                                reason="Provider unavailable. Generated from your inputs.",
+                            )
+                        else:
+                            raise
                     
                     current.artifacts["dream_ready"] = True
                     current.collected["persona_id"] = dream["persona_id"]

@@ -170,6 +170,7 @@ class PersonaCreatorSkill(BaseSkill):
             response_text = await ai.generate_text(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
+                model="models/gemini-2.0-flash",
                 temperature=0.7
             )
             

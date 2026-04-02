@@ -158,8 +158,8 @@ class CarouselArtifact(BaseModel):
 _VIDEO_GOALS = {
     "feature_demo",
     "conversion",
-    "awareness",
     "walkthrough",
+    # Deprecated: "awareness" - auto-migrated to "feature_demo" for backward compatibility
 }
 _ACCESS_LEVELS = {
     "public_page_only",
@@ -345,6 +345,17 @@ class ConceptBriefContract(BaseModel):
     @classmethod
     def validate_video_goal(cls, value: str) -> str:
         normalized = str(value).strip().lower()
+
+        # Backward compatibility: auto-migrate "awareness" to "feature_demo"
+        if normalized == "awareness":
+            import logging
+
+            logging.warning(
+                "video_goal='awareness' is deprecated and auto-migrated to 'feature_demo'. "
+                "Please update to use one of: feature_demo, walkthrough, conversion"
+            )
+            return "feature_demo"
+
         if normalized not in _VIDEO_GOALS:
             raise ValueError(f"Unsupported video_goal: {value}")
         return normalized

@@ -678,6 +678,10 @@ class PersonaCreatorSkill(BaseSkill):
             # IMPORTANT: We only proceed to the heavy POST block if we are actually
             # on the final preview or save steps. This prevents "Stuck" issues 
             # on intermediate steps like 'confirm_dream'.
+            # Handle edit_p_name: after collecting the name, go back to preview
+            if current.step_key == "edit_p_name":
+                current.step_key = "preview"
+                return cls._collecting_result(current, next_step="preview")
             if current.step_key not in ["save", "generate_preview", "preview"]:
                 return cls._collecting_result(current, next_step=current.step_key)
 

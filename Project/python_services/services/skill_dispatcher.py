@@ -541,6 +541,55 @@ class SkillDispatcher:
 
         skill_cls = SKILL_REGISTRY[session.skill_name]
 
+        # ── Persona-creator: Action aliases/state transitions ───────────────
+        if session.skill_name == "persona-creator":
+            if session.step_key == "confirm_dream" and action in {"confirm", "retry"}:
+                session.collected["dream_confirmed"] = action
+
+            if action == "ready":
+                action = "save"
+            elif action == "rebuild_avatar":
+                action = "regenerate"
+            elif action == "edit_appearance":
+                session.step_key = "collect_appearance"
+                session.control.status = SkillStatus.collecting
+                return await cls._save_or_clear(
+                    chat_id,
+                    SkillResult(
+                        success=True,
+                        next_step="collect_appearance",
+                        output={
+                            "message": "Send a new appearance description or upload a reference photo.",
+                        },
+                        session=session,
+                    ),
+                )
+            elif action == "edit_p_name":
+                session.step_key = "edit_p_name"
+                session.control.status = SkillStatus.collecting
+                return await cls._save_or_clear(
+                    chat_id,
+                    SkillResult(
+                        success=True,
+                        next_step="edit_p_name",
+                        output={
+                            "message": "Send the new persona name.",
+                        },
+                        session=session,
+                    ),
+                )
+            elif action == "choose_voice":
+                session.step_key = "choose_voice"
+                session.control.status = SkillStatus.collecting
+                return await cls._save_or_clear(
+                    chat_id,
+                    SkillResult(
+                        success=True,
+                        next_step="choose_voice",
+                        session=session,
+                    ),
+                )
+
         if session.skill_name == "image-scene":
             if action == "use_images":
                 result = skill_cls.enter_selection_mode(session)

@@ -320,3 +320,97 @@ async def test_save_persona_keeps_session_when_heygen_registration_fails(monkeyp
     assert "couldn't register this persona with HeyGen yet" in result.error
     update_persona.assert_not_awaited()
     assert await TelegramSkillSessionStore.get_session(chat_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_persona_ready_action_alias_maps_to_save(monkeypatch):
+    chat_id = 13579
+    await TelegramSkillSessionStore.clear_session(chat_id)
+    session = SkillSession(
+        skill_name="persona-creator",
+        step_key="preview",
+        collected={"persona_id": "hero-host"},
+        artifacts={
+            "telegram_chat_id": str(chat_id),
+            "persona_id": "hero-host",
+            "avatar_image_url": "https://cdn.example/hero-host.png",
+            "avatar_media_asset_id": "media-123",
+            "heygen_avatar_id": "heygen-999",
+            "persona_data": {"avatar_source_type": "generated"},
+        },
+        control=SkillControl(status=SkillStatus.preview_ready),
+    )
+    await TelegramSkillSessionStore.set_session(chat_id, session)
+
+    class FakeHeyGenService:
+        async def wait_for_avatar_ready(self, avatar_id: str, **_kwargs):
+            assert avatar_id == "heygen-999"
+            return {"data": {"id": avatar_id, "status": "ready"}}
+
+    monkeypatch.setattr(heygen_service_module, "HeyGenService", FakeHeyGenService)
+
+    with patch(
+        "services.persona_registry_service.PersonaRegistryService.update_persona",
+        AsyncMock(return_value={"persona_id": "hero-host", "status": "ready"}),
+    ) as update_persona:
+        result = await SkillDispatcher.handle_action(chat_id, "ready", app=object())
+
+    assert result.success is True
+    update_persona.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_persona_confirm_dream_action_sets_collected_flag(monkeypatch):
+    chat_id = 24680
+    await TelegramSkillSessionStore.clear_session(chat_id)
+    session = SkillSession(
+        skill_name="persona-creator",
+        step_key="confirm_dream",
+        collected={
+            "creation_mode": "dream",
+            "nationality": "Jamaican",
+            "voice": "female_warm",
+            "language": "English",
+            "dream_brief": "fitness coach in an urban gym",
+            "persona_id": "jamaican_creator",
+            "appearance_prompt_or_photo": "portrait in gym",
+        },
+        artifacts={"telegram_chat_id": str(chat_id), "dream_ready": True},
+        control=SkillControl(status=SkillStatus.collecting),
+    )
+    await TelegramSkillSessionStore.set_session(chat_id, session)
+
+    class _FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    class _FakeClient:
+        async def request(self, method, url, params=None, json=None, headers=None):
+            return _FakeResponse(
+                {
+                    "persona_id": "jamaican_creator",
+                    "status": "draft",
+                    "language": "English",
+                    "tts_voice": "en-US-Studio-O",
+                    "avatar_image_url": "https://cdn.example/a.png",
+                    "avatar_media_asset_id": "media-1",
+                    "heygen_avatar_id": "heygen-1",
+                }
+            )
+
+    monkeypatch.setattr(
+        SkillDispatcher,
+        "_transport_client",
+        lambda _app: _AsyncClientContext(_FakeClient()),
+    )
+
+    result = await SkillDispatcher.handle_action(chat_id, "confirm", app=object())
+
+    assert result.session is not None
+    assert result.session.collected.get("dream_confirmed") == "confirm"

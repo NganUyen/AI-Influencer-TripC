@@ -872,6 +872,82 @@ async def test_execute_handles_analysis_failure_gracefully():
         assert result.output.get("retryable") is True
 
 
+@pytest.mark.asyncio
+async def test_confirm_concept_regenerate_recorded_demo_reanalyzes_preview():
+    session = _demo_session_at_preview_confirm()
+    session.step_key = "confirm_concept"
+    session.artifacts["concept_brief"] = _recorded_demo_concept_contract().model_dump(
+        mode="json"
+    )
+    session.artifacts["concept_approved"] = False
+    session.artifacts["demo_preview_confirmed"] = True
+
+    with patch.object(
+        VideoAISkill,
+        "_run_demo_analysis_and_grounding",
+        new_callable=AsyncMock,
+    ) as mock_run_analysis:
+        mock_run_analysis.return_value = _sample_evidence()
+
+        result = await VideoAISkill.handle_preproduction_action(
+            session=session,
+            action="regenerate",
+            backend_url="http://backend",
+            http_client=AsyncMock(),
+        )
+
+    assert result.success is True
+    assert result.next_step == "demo_preview_confirm"
+    assert result.session.step_key == "demo_preview_confirm"
+    assert result.session.artifacts["concept_brief"] is None
+    assert result.session.artifacts["demo_preview_confirmed"] is False
+    assert result.session.artifacts.get("demo_evidence") is not None
+    mock_run_analysis.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_execute_recorded_demo_blocked_policy_returns_to_preview_step():
+    session = _demo_session_at_preview_confirm()
+    session.artifacts["demo_preview_confirmed"] = True
+
+    blocked_evidence = _sample_evidence()
+    blocked_evidence.extracted_features = []
+    blocked_evidence.confidence_signals = {
+        "ocr_available": False,
+        "ocr_useful": False,
+        "ocr_text_found": False,
+    }
+    session.artifacts["demo_evidence"] = blocked_evidence.model_dump(mode="json")
+
+    with patch.object(
+        VideoAISkill,
+        "_resolve_persona_snapshot",
+        new_callable=AsyncMock,
+    ) as mock_snapshot:
+        mock_snapshot.return_value = {
+            "persona_id": "minh_vn",
+            "tone_resolved": "confident",
+        }
+
+        with patch.object(
+            CreativeDirectorService,
+            "build_concept_from_demo_evidence",
+            new_callable=AsyncMock,
+        ) as mock_build_concept:
+            result = await VideoAISkill.execute(
+                session=session,
+                backend_url="http://backend",
+                http_client=AsyncMock(),
+            )
+
+    assert result.success is False
+    assert result.next_step == "demo_preview_confirm"
+    assert result.session.step_key == "demo_preview_confirm"
+    assert result.output.get("retryable") is True
+    assert "Could not analyze the video content" in (result.error or "")
+    mock_build_concept.assert_not_awaited()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase 7: Production Handoff and Top-Half Trimming Tests
 # ─────────────────────────────────────────────────────────────────────────────

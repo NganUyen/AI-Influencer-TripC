@@ -578,6 +578,14 @@ class VideoAISkill(BaseSkill):
                 current.artifacts["beat_sheet"] = None
                 current.artifacts["beat_sheet_approved"] = False
                 current.artifacts["approved_production_package"] = None
+
+                # For recorded-demo mode, regenerate should re-run demo analysis
+                # instead of repeatedly attempting concept generation from stale evidence.
+                if current.collected.get("creative_input_mode") == "recorded_demo_video":
+                    current.artifacts["demo_evidence"] = None
+                    current.artifacts["demo_preview_summary"] = None
+                    current.artifacts["demo_preview_confirmed"] = False
+                    current.artifacts["demo_preview_timeout_at"] = None
                 return await cls.execute(current, backend_url, http_client)
             if action == "edit":
                 return cls._restart_collection(
@@ -921,7 +929,20 @@ class VideoAISkill(BaseSkill):
                     # Blocks only when low confidence + weak evidence combined
                     block_message = should_block_before_concept(evidence)
                     if block_message:
-                        raise ValueError(block_message)
+                        return cls._retryable_error_result(
+                            current,
+                            step_key="demo_preview_confirm",
+                            error=(
+                                "Could not build the concept brief yet. "
+                                f"{block_message}"
+                            ),
+                            output={
+                                "demo_preview_summary": current.artifacts.get(
+                                    "demo_preview_summary"
+                                ),
+                                "demo_evidence": current.artifacts.get("demo_evidence"),
+                            },
+                        )
 
                     concept = (
                         await CreativeDirectorService.build_concept_from_demo_evidence(

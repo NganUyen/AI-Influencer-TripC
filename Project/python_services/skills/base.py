@@ -34,6 +34,7 @@ class SkillSession(BaseModel):
     collected: Dict[str, Any] = Field(default_factory=dict)
     artifacts: Dict[str, Any] = Field(default_factory=dict)
     control: SkillControl = Field(default_factory=SkillControl)
+    last_result: Optional["SkillResult"] = None
 
 
 class SkillResult(BaseModel):
@@ -185,3 +186,7 @@ class BaseSkill(ABC):
         http_client: Any,
     ) -> SkillResult:
         raise NotImplementedError
+
+
+# Update forward references after all models are defined
+SkillSession.model_rebuild()

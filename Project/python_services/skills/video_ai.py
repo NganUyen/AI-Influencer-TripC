@@ -72,9 +72,7 @@ class VideoAISkill(BaseSkill):
     def initial_session(cls) -> SkillSession:
         session = super().initial_session()
         session.collected["platform"] = session.collected.get("platform") or "tiktok"
-        session.collected["creative_input_mode"] = (
-            session.collected.get("creative_input_mode") or "idea_brief"
-        )
+        # Don't default creative_input_mode - let select_mode step handle it
         session.artifacts.setdefault("persona_snapshot", None)
         session.artifacts.setdefault("persona_readiness", None)
         session.artifacts.setdefault("workflow_id", None)
@@ -114,7 +112,7 @@ class VideoAISkill(BaseSkill):
     @classmethod
     def _missing_step(cls, session: SkillSession) -> Optional[str]:
         """Determine next required step based on creative_input_mode and missing params."""
-        creative_input_mode = session.collected.get("creative_input_mode", "idea_brief")
+        creative_input_mode = session.collected.get("creative_input_mode")
 
         # Mode selection is first if not set
         if not creative_input_mode:
@@ -750,9 +748,7 @@ class VideoAISkill(BaseSkill):
     ) -> SkillResult:
         current = cls._normalize_session(session)
         current.collected["platform"] = current.collected.get("platform") or "tiktok"
-        current.collected["creative_input_mode"] = (
-            current.collected.get("creative_input_mode") or "idea_brief"
-        )
+        # Don't default creative_input_mode here - it should be set via select_mode step
 
         active_workflow_id = cls._active_workflow_id(current)
         if active_workflow_id:

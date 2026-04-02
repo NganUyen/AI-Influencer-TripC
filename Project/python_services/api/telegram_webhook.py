@@ -1030,12 +1030,20 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
     text_cmd = text.strip().lower().split()[0] if text.strip() else ""
     text_lower = text.strip().lower()
 
-    # Check plain text shortcuts first
+    # Check plain text shortcuts first - route video creation through OpenClaw
     if text_lower in _TEXT_SKILL_MAP:
+        skill_name = _TEXT_SKILL_MAP[text_lower]
+        # Route video-ai through OpenClaw for proper orchestration
+        if skill_name == "video-ai":
+            await TelegramSkillSessionStore.clear_session(chat_id)
+            await send_chat_action(chat_id, action="typing")
+            await _handle_openclaw_message(chat_id, text.strip(), app)
+            return
+        # Other skills can start directly
         await TelegramSkillSessionStore.clear_session(chat_id)
         skill_result, pending_message_id = await _await_with_message_progress(
             chat_id,
-            SkillDispatcher.start_skill(chat_id, _TEXT_SKILL_MAP[text_lower], app),
+            SkillDispatcher.start_skill(chat_id, skill_name, app),
         )
         rendered = TelegramRenderer.render_skill_result(skill_result)
         await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)
@@ -1054,10 +1062,18 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         return
 
     if text_cmd in _SHORTCUT_SKILL_MAP:
+        skill_name = _SHORTCUT_SKILL_MAP[text_cmd]
+        # Route video-ai through OpenClaw for proper orchestration
+        if skill_name == "video-ai":
+            await TelegramSkillSessionStore.clear_session(chat_id)
+            await send_chat_action(chat_id, action="typing")
+            await _handle_openclaw_message(chat_id, text.strip(), app)
+            return
+        # Other skills can start directly
         await TelegramSkillSessionStore.clear_session(chat_id)
         skill_result, pending_message_id = await _await_with_message_progress(
             chat_id,
-            SkillDispatcher.start_skill(chat_id, _SHORTCUT_SKILL_MAP[text_cmd], app),
+            SkillDispatcher.start_skill(chat_id, skill_name, app),
         )
         rendered = TelegramRenderer.render_skill_result(skill_result)
         await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)

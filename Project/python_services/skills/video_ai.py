@@ -402,7 +402,10 @@ class VideoAISkill(BaseSkill):
         persona_id = session.collected.get("persona_id")
         telegram_chat_id = session.artifacts.get("telegram_chat_id")
         platform = session.collected.get("platform", "tiktok")
-        topic = session.collected.get("idea_brief", "")
+        # Ensure topic is always a string (could be None from session)
+        topic = session.collected.get("idea_brief") or ""
+        if not isinstance(topic, str):
+            topic = str(topic) if topic is not None else ""
         talking_head_optional = bool(session.artifacts.get("talking_head_optional"))
         production_note = cls._production_note(
             talking_head_optional=talking_head_optional
@@ -447,11 +450,45 @@ class VideoAISkill(BaseSkill):
             session.control.workflow_id = None
             session.control.error_message = str(exc)
             session.artifacts["workflow_id"] = None
+
+            # Extract more detailed error info for 422 validation errors
+            error_detail = str(exc)
+            error_message = "Pre-production package is ready, but I couldn't start the production workflow."
+
+            # Check for HTTP 422 validation errors
+            if "422" in error_detail:
+                try:
+                    # Try to extract validation details from httpx response
+                    import json
+                    if hasattr(exc, "response"):
+                        resp = exc.response
+                        if hasattr(resp, "json"):
+                            try:
+                                error_json = resp.json()
+                                if isinstance(error_json, dict):
+                                    detail = error_json.get("detail")
+                                    if isinstance(detail, list):
+                                        # Pydantic validation errors
+                                        validation_issues = []
+                                        for err in detail[:3]:  # Limit to first 3
+                                            loc = ".".join(str(x) for x in err.get("loc", []))
+                                            msg = err.get("msg", "validation error")
+                                            validation_issues.append(f"- {loc}: {msg}")
+                                        if validation_issues:
+                                            error_detail = "Validation errors:\n" + "\n".join(validation_issues)
+                                    elif isinstance(detail, str):
+                                        error_detail = detail
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                error_message = f"Production workflow validation failed.\n\n{error_detail}"
+
             return SkillResult(
                 success=False,
                 next_step="package_ready",
                 output={
-                    "message": "Pre-production package is ready, but I couldn't start the production workflow.",
+                    "message": error_message,
                     "approved_production_package": package.model_dump(mode="json"),
                     "talking_head_optional": talking_head_optional,
                     "production_mode": (
@@ -459,7 +496,7 @@ class VideoAISkill(BaseSkill):
                     ),
                     "production_note": production_note,
                 },
-                error=str(exc),
+                error=error_detail,
                 session=session,
             )
 
@@ -578,6 +615,14 @@ class VideoAISkill(BaseSkill):
                 current.artifacts["beat_sheet"] = None
                 current.artifacts["beat_sheet_approved"] = False
                 current.artifacts["approved_production_package"] = None
+
+                # For recorded-demo mode, regenerate should re-run demo analysis
+                # instead of repeatedly attempting concept generation from stale evidence.
+                if current.collected.get("creative_input_mode") == "recorded_demo_video":
+                    current.artifacts["demo_evidence"] = None
+                    current.artifacts["demo_preview_summary"] = None
+                    current.artifacts["demo_preview_confirmed"] = False
+                    current.artifacts["demo_preview_timeout_at"] = None
                 return await cls.execute(current, backend_url, http_client)
             if action == "edit":
                 return cls._restart_collection(
@@ -921,7 +966,20 @@ class VideoAISkill(BaseSkill):
                     # Blocks only when low confidence + weak evidence combined
                     block_message = should_block_before_concept(evidence)
                     if block_message:
-                        raise ValueError(block_message)
+                        return cls._retryable_error_result(
+                            current,
+                            step_key="demo_preview_confirm",
+                            error=(
+                                "Could not build the concept brief yet. "
+                                f"{block_message}"
+                            ),
+                            output={
+                                "demo_preview_summary": current.artifacts.get(
+                                    "demo_preview_summary"
+                                ),
+                                "demo_evidence": current.artifacts.get("demo_evidence"),
+                            },
+                        )
 
                     concept = (
                         await CreativeDirectorService.build_concept_from_demo_evidence(

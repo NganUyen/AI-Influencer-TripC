@@ -278,40 +278,87 @@ class AIService:
 
             elif "gemini" in model:
                 # Handles both "gemini-*" and "models/gemini-*"
-                gemini_model = genai.GenerativeModel(
-                    model_name=model,
-                    system_instruction=system_prompt if system_prompt else None
-                )
-                response = await asyncio.to_thread(
-                    gemini_model.generate_content,
-                    prompt
-                )
-                if not response or not response.text:
-                    raise ValueError(f"Gemini returned empty response for model {model}")
-                usage = getattr(response, "usage_metadata", None)
-                await self._record_quota_usage(
-                    provider=provider,
-                    model=model,
-                    usage={
-                        "tokens": _usage_value(
-                            usage,
-                            "total_token_count",
-                            "total_tokens",
-                        ),
-                        "input_tokens": _usage_value(
-                            usage,
-                            "prompt_token_count",
-                            "input_token_count",
-                        ),
-                        "output_tokens": _usage_value(
-                            usage,
-                            "candidates_token_count",
-                            "candidate_token_count",
-                            "output_token_count",
-                        ),
-                    },
-                )
-                return response.text
+                try:
+                    gemini_model = genai.GenerativeModel(
+                        model_name=model,
+                        system_instruction=system_prompt if system_prompt else None
+                    )
+                    response = await asyncio.to_thread(
+                        gemini_model.generate_content,
+                        prompt
+                    )
+                    if not response or not response.text:
+                        raise ValueError(f"Gemini returned empty response for model {model}")
+                    usage = getattr(response, "usage_metadata", None)
+                    await self._record_quota_usage(
+                        provider=provider,
+                        model=model,
+                        usage={
+                            "tokens": _usage_value(
+                                usage,
+                                "total_token_count",
+                                "total_tokens",
+                            ),
+                            "input_tokens": _usage_value(
+                                usage,
+                                "prompt_token_count",
+                                "input_token_count",
+                            ),
+                            "output_tokens": _usage_value(
+                                usage,
+                                "candidates_token_count",
+                                "candidate_token_count",
+                                "output_token_count",
+                            ),
+                        },
+                    )
+                    return response.text
+                except Exception as gemini_exc:
+                    # Check if this is a 403 SERVICE_DISABLED error
+                    error_str = str(gemini_exc).lower()
+                    is_service_disabled = (
+                        "403" in error_str
+                        or "service_disabled" in error_str
+                        or "api has not been used" in error_str
+                        or "is disabled" in error_str
+                    )
+
+                    if is_service_disabled:
+                        logger.warning(
+                            "Gemini API disabled/unavailable, falling back to Claude: %s",
+                            gemini_exc
+                        )
+                        # Fallback to Claude
+                        fallback_model = "claude-3-5-sonnet-20241022"
+                        provider = "anthropic"
+                        raw_response = await self.anthropic_client.messages.with_raw_response.create(
+                            model=fallback_model,
+                            system=system_prompt,
+                            messages=[{"role": "user", "content": prompt}],
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                        )
+                        response = raw_response.parse()
+                        usage = getattr(response, "usage", None)
+                        input_tokens = _usage_value(usage, "input_tokens")
+                        output_tokens = _usage_value(usage, "output_tokens")
+                        total_tokens = None
+                        if input_tokens is not None or output_tokens is not None:
+                            total_tokens = (input_tokens or 0) + (output_tokens or 0)
+                        await self._record_quota_usage(
+                            provider=provider,
+                            model=fallback_model,
+                            usage={
+                                "tokens": total_tokens,
+                                "input_tokens": input_tokens,
+                                "output_tokens": output_tokens,
+                            },
+                            quota=_anthropic_quota_from_headers(getattr(raw_response, "headers", None)),
+                        )
+                        return response.content[0].text
+                    else:
+                        # Re-raise other Gemini errors
+                        raise
 
             else:
                 raise ValueError(f"Unsupported model: {model}. Use gpt-*, claude-*, or models/gemini-*")

@@ -226,13 +226,28 @@ class PersonaCreatorSkill(BaseSkill):
         """
 
         try:
+            preferred_model = None
+            if getattr(settings, "GOOGLE_AI_API_KEY", ""):
+                preferred_model = "models/gemini-2.0-flash"
+
             try:
-                logger.info("Dream: attempting AI generation with default model")
-                response_text = await ai.generate_text(
-                    prompt=user_prompt,
-                    system_prompt=system_prompt,
-                    temperature=0.7,
-                )
+                if preferred_model:
+                    logger.info(
+                        "Dream: attempting AI generation with Gemini preferred model"
+                    )
+                    response_text = await ai.generate_text(
+                        prompt=user_prompt,
+                        system_prompt=system_prompt,
+                        model=preferred_model,
+                        temperature=0.7,
+                    )
+                else:
+                    logger.info("Dream: attempting AI generation with default model")
+                    response_text = await ai.generate_text(
+                        prompt=user_prompt,
+                        system_prompt=system_prompt,
+                        temperature=0.7,
+                    )
                 logger.info("Dream: AI generation successful, parsing response")
             except Exception as primary_exc:
                 logger.warning(
@@ -240,8 +255,19 @@ class PersonaCreatorSkill(BaseSkill):
                     type(primary_exc).__name__,
                     primary_exc,
                 )
-                # Fallback to Gemini when OpenAI credentials are invalid but Gemini is configured.
-                if cls._is_ai_auth_error(primary_exc) and getattr(settings, "GOOGLE_AI_API_KEY", ""):
+
+                # If Gemini was preferred and failed, fallback to configured default model.
+                if preferred_model:
+                    logger.warning(
+                        "Dream: Gemini preferred model failed, retrying with default model"
+                    )
+                    response_text = await ai.generate_text(
+                        prompt=user_prompt,
+                        system_prompt=system_prompt,
+                        temperature=0.7,
+                    )
+                # Fallback to Gemini when default auth fails and Gemini is configured.
+                elif cls._is_ai_auth_error(primary_exc) and getattr(settings, "GOOGLE_AI_API_KEY", ""):
                     logger.warning(
                         "Dream identity generation hit provider auth error; retrying with Gemini fallback"
                     )
@@ -419,6 +445,19 @@ class PersonaCreatorSkill(BaseSkill):
         }
         avatar_prompt = cls._build_avatar_prompt(appearance)
         fallback_avatar_prompt = cls._build_avatar_prompt(appearance, simplified=True)
+        retryable_status_codes = {400, 422, 500, 502, 503, 504}
+
+        def _avatar_http_error_message(exc: httpx.HTTPStatusError) -> str:
+            status_code = exc.response.status_code if exc.response is not None else None
+            detail = cls._extract_http_error_detail(exc)
+            if status_code is None:
+                return detail
+            if status_code >= 500 and detail.lower() == "internal server error":
+                return (
+                    f"Avatar generation request failed ({status_code}): "
+                    "upstream media service returned an internal error"
+                )
+            return f"Avatar generation request failed ({status_code}): {detail}"
 
         try:
             image_response = await cls._request_avatar_generation(
@@ -432,8 +471,8 @@ class PersonaCreatorSkill(BaseSkill):
             )
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code if exc.response is not None else None
-            if status_code not in {400, 422}:
-                raise RuntimeError(cls._extract_http_error_detail(exc)) from exc
+            if status_code not in retryable_status_codes:
+                raise RuntimeError(_avatar_http_error_message(exc)) from exc
 
             try:
                 image_response = await cls._request_avatar_generation(
@@ -450,7 +489,7 @@ class PersonaCreatorSkill(BaseSkill):
                     },
                 )
             except httpx.HTTPStatusError as retry_exc:
-                raise RuntimeError(cls._extract_http_error_detail(retry_exc)) from retry_exc
+                raise RuntimeError(_avatar_http_error_message(retry_exc)) from retry_exc
 
         avatar_url = image_response.get("url")
         if not avatar_url:

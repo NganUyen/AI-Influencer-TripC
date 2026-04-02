@@ -4,3 +4,8 @@
 selenium==4.17.2
 playwright==1.41.0
 camoufox==0.3.0
+
+# Video Analysis (OCR, blur detection)
+pytesseract==0.3.10
+opencv-python-headless==4.9.0.80
+numpy==1.26.4

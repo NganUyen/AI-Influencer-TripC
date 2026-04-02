@@ -6,7 +6,7 @@ Sinh danh sách scenes: mỗi scene = ảnh fal.ai + caption nội dung phối h
 
 import logging
 from typing import List, Dict, Any, Optional
-from services.ai_service import AIService
+from services.openclaw_service import OpenClawService
 from services.region_service import RegionService
 
 logger = logging.getLogger(__name__)
@@ -162,10 +162,10 @@ async def generate_content_scenes(
 
     if use_ai_captions:
         # Gọi AI sinh captions tùy chỉnh theo topic
-        async with AIService() as ai:
-            for template in DA_NANG_SCENE_TEMPLATES:
-                caption = await _ai_caption(ai, template["role"], topic, location)
-                scenes.append({**template, "caption": caption, "platform": platform})
+        openclaw = OpenClawService()
+        for template in DA_NANG_SCENE_TEMPLATES:
+            caption = await _ai_caption(openclaw, template["role"], topic, location)
+            scenes.append({**template, "caption": caption, "platform": platform})
     else:
         # Dùng template sẵn, thêm platform
         for template in DA_NANG_SCENE_TEMPLATES:
@@ -175,7 +175,7 @@ async def generate_content_scenes(
     return scenes
 
 
-async def _ai_caption(ai: AIService, role: str, topic: str, location: str) -> str:
+async def _ai_caption(openclaw: OpenClawService, role: str, topic: str, location: str) -> str:
     """Sinh caption ngắn (≤8 từ) phù hợp với role và topic."""
     role_guide = {
         "hook": "một câu hook bất ngờ, gây tò mò, ≤8 từ",
@@ -190,8 +190,14 @@ async def _ai_caption(ai: AIService, role: str, topic: str, location: str) -> st
         f"Chỉ trả về caption, không có gì thêm."
     )
     try:
-        caption = await ai.generate_text(prompt=prompt, max_tokens=30, temperature=0.8)
-        return caption.strip()
+        result = await openclaw.execute_task(
+            task_type="caption_generation",
+            prompt=prompt,
+            user_id="system",
+            context={"role": role, "topic": topic, "location": location},
+        )
+        caption = result.get("result", result) if isinstance(result, dict) else str(result)
+        return str(caption).strip() if caption else "Mời bạn trải nghiệm ngay!"
     except Exception:
         return "Mời bạn trải nghiệm ngay!"
 
@@ -215,34 +221,44 @@ async def generate_app_tutorial_scenes(
     scenes = []
     
     if use_ai_captions:
-        async with AIService() as ai:
-            for template in GLOBAL_APP_TUTORIAL_SCENES:
-                scene = template.copy()
-                scene["image_prompt"] = (
-                    f"High quality screenshot of {app_name} web application UI, "
-                    f"showing {scene['role']} feature. In foreground, hand of a person with "
-                    f"{persona['skin_color']} skin is interacting with the screen. "
-                    f"clean modern design, software demo style, professional, 9:16 vertical"
+        openclaw = OpenClawService()
+        for template in GLOBAL_APP_TUTORIAL_SCENES:
+            scene = template.copy()
+            scene["image_prompt"] = (
+                f"High quality screenshot of {app_name} web application UI, "
+                f"showing {scene['role']} feature. In foreground, hand of a person with "
+                f"{persona['skin_color']} skin is interacting with the screen. "
+                f"clean modern design, software demo style, professional, 9:16 vertical"
+            )
+            prompt = (
+                f"Viết 1 câu hướng dẫn ngắn (<8 từ) cho tính năng '{scene['role']}' "
+                f"của app '{app_name}'. Sử dụng ngôn ngữ '{persona['language_name']}'. "
+                f"Giữ giọng điệu chuyên nghiệp."
+            )
+            try:
+                result = await openclaw.execute_task(
+                    task_type="scene_caption_generation",
+                    prompt=prompt,
+                    user_id="system",
+                    context={
+                        "app_name": app_name,
+                        "scene_idx": scene.get("scene_idx"),
+                        "role": scene.get("role"),
+                    }
                 )
-                prompt = (
-                    f"Viết 1 câu hướng dẫn ngắn (<8 từ) cho tính năng '{scene['role']}' "
-                    f"của app '{app_name}'. Sử dụng ngôn ngữ '{persona['language_name']}'. "
-                    f"Giữ giọng điệu chuyên nghiệp."
+                scene["caption"] = result.get("result", str(result)) if isinstance(result, dict) else str(result)
+            except Exception:
+                logger.exception(
+                    "Caption generation failed",
+                    extra={
+                        "scene_idx": scene.get("scene_idx"),
+                        "role": scene.get("role"),
+                        "app_name": app_name,
+                    },
                 )
-                try:
-                    scene["caption"] = await ai.generate_text(prompt=prompt)
-                except Exception:
-                    logger.exception(
-                        "Caption generation failed",
-                        extra={
-                            "scene_idx": scene.get("scene_idx"),
-                            "role": scene.get("role"),
-                            "app_name": app_name,
-                        },
-                    )
-                    scene["caption"] = ""
-                scene["persona_config"] = persona
-                scenes.append(scene)
+                scene["caption"] = ""
+            scene["persona_config"] = persona
+            scenes.append(scene)
     else:
         for template in GLOBAL_APP_TUTORIAL_SCENES:
             scene = template.copy()

@@ -1,7 +1,7 @@
 """
 Smoke Test: Script Generation
 ================================
-Test ScriptService generates valid ScriptContract output using Gemini.
+Test ScriptService generates valid ScriptContract output using OpenClaw.
 
 Chạy: .\.venv\Scripts\python scripts/smoke_script.py
 """
@@ -20,13 +20,13 @@ from services.contracts import ScriptContract
 
 async def main():
     print("=" * 55)
-    print("  SMOKE TEST: Script Generation (Gemini)")
+    print("  SMOKE TEST: Script Generation (OpenClaw)")
     print("=" * 55)
 
     svc = ScriptService()
 
     print("\n▶ Generating script for TripC / Da Nang topic...")
-    print("▶ Model: models/gemini-2.0-flash")
+    print("▶ Using OpenClaw AI routing")
 
     try:
         contract: ScriptContract = await svc.generate_script(

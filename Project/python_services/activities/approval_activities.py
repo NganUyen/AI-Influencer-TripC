@@ -122,7 +122,7 @@ async def generate_and_send_script_for_approval(
     topic = config["topic"]
     persona = config.get("persona_config", {})
     chat_id = config["telegram_chat_id"]
-    model = config.get("model", "models/gemini-2.0-flash")
+    model = config.get("model", "claude-3-5-sonnet-20241022")
 
     logger.info(
         "Generating script | topic=%s | persona=%s",

@@ -11,7 +11,6 @@ import json
 import logging
 from config.settings import settings
 from services.google_tts_service import GoogleTTSService
-from services.ai_service import AIService
 from services.openclaw_service import OpenClawService
 
 logger = logging.getLogger(__name__)
@@ -196,8 +195,7 @@ class PersonaCreatorSkill(BaseSkill):
     async def _dream_persona_details_refined(
         cls, 
         nationality: str, 
-        brief: str, 
-        ai: Optional[AIService] = None
+        brief: str
     ) -> Dict[str, Any]:
         """AI-powered identity generation using OpenClaw."""
         openclaw = OpenClawService()
@@ -372,6 +370,50 @@ Response format:
             json=patch_payload,
         )
         return patched if isinstance(patched, dict) else persona
+
+    @classmethod
+    async def _persist_artifact_avatar(
+        cls,
+        current: SkillSession,
+        persona: Dict[str, Any],
+        backend_url: str,
+        http_client: Any,
+    ) -> Dict[str, Any]:
+        artifact_avatar_url = str(
+            current.artifacts.get("avatar_image_url")
+            or current.artifacts.get("preview_image_url")
+            or ""
+        ).strip()
+        artifact_media_asset_id = str(
+            current.artifacts.get("avatar_media_asset_id") or ""
+        ).strip()
+
+        if not artifact_avatar_url or not artifact_media_asset_id:
+            return persona
+        if persona.get("avatar_image_url") and persona.get("avatar_media_asset_id"):
+            return persona
+
+        telegram_chat_id = current.artifacts.get("telegram_chat_id")
+        owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
+        patch_params = {"owner_key": owner_key} if owner_key else None
+        patch_payload: Dict[str, Any] = {
+            "avatar_image_url": artifact_avatar_url,
+            "avatar_media_asset_id": artifact_media_asset_id,
+            "avatar_source_type": "generated",
+        }
+        appearance = str(current.collected.get("appearance_prompt_or_photo") or "").strip()
+        if appearance:
+            patch_payload["avatar_prompt"] = appearance
+
+        patched = await cls._request_json(
+            http_client,
+            "PATCH",
+            backend_url,
+            f"/api/personas/{current.collected['persona_id']}",
+            params=patch_params,
+            json=patch_payload,
+        )
+        return patched if isinstance(patched, dict) else {**persona, **patch_payload}
 
     @classmethod
     async def _ensure_avatar_image(
@@ -584,12 +626,10 @@ Response format:
 
                 # Step 4: Generate Results
                 if not current.artifacts.get("dream_ready"):
-                    from services.ai_service import AIService
                     try:
-                        async with AIService() as ai:
-                            dream = await cls._dream_persona_details_refined(
-                                nationality, dream_brief, ai
-                            )
+                        dream = await cls._dream_persona_details_refined(
+                            nationality, dream_brief
+                        )
                     except Exception as exc:
                         logger.error(
                             "Dream AI generation failed with error type=%s: %s",
@@ -632,6 +672,7 @@ Response format:
                         )
                         current.artifacts["avatar_image_url"] = persona_record.get("avatar_image_url")
                         current.artifacts["preview_image_url"] = persona_record.get("avatar_image_url")
+                        current.artifacts["avatar_media_asset_id"] = persona_record.get("avatar_media_asset_id")
                     except Exception as e:
                         logger.error(f"Early avatar generation failed: {e}")
                     
@@ -765,6 +806,13 @@ Response format:
                         current, persona, backend_url, http_client
                     )
                 else:
+                    if (
+                        creation_mode == "dream"
+                        and current.artifacts.get("dream_ready")
+                    ):
+                        persona = await cls._persist_artifact_avatar(
+                            current, persona, backend_url, http_client
+                        )
                     persona = await cls._ensure_avatar_image(
                         current,
                         persona,

@@ -404,7 +404,30 @@ async def _await_with_callback_progress(
             "Processing your request...",
             parse_mode=None,
         )
-        return await task
+        try:
+            return await task
+        except Exception as exc:
+            logger.exception(
+                "Skill callback processing failed for chat_id=%s: %s", chat_id, exc
+            )
+            await edit_message_text(
+                chat_id,
+                message_id,
+                "Something went wrong while processing this step. Please try again or send /cancel.",
+                parse_mode=None,
+            )
+            return None
+    except Exception as exc:
+        logger.exception(
+            "Skill callback processing failed for chat_id=%s: %s", chat_id, exc
+        )
+        await edit_message_text(
+            chat_id,
+            message_id,
+            "Something went wrong while processing this step. Please try again or send /cancel.",
+            parse_mode=None,
+        )
+        return None
 
 
 async def _await_with_message_progress(
@@ -428,8 +451,45 @@ async def _await_with_message_progress(
             waiting_message_id = waiting.get("result", {}).get("message_id")
         except Exception:
             logger.debug("Failed to send progress message for chat_id=%s", chat_id)
-        result = await task
-        return result, waiting_message_id
+        try:
+            result = await task
+            return result, waiting_message_id
+        except Exception as exc:
+            logger.exception(
+                "Skill text processing failed for chat_id=%s: %s", chat_id, exc
+            )
+            if waiting_message_id is not None:
+                try:
+                    await edit_message_text(
+                        chat_id,
+                        waiting_message_id,
+                        "Something went wrong while processing your request. Please try again or send /cancel.",
+                        parse_mode=None,
+                    )
+                except Exception:
+                    await send_message(
+                        chat_id,
+                        "Something went wrong while processing your request. Please try again or send /cancel.",
+                        parse_mode=None,
+                    )
+            else:
+                await send_message(
+                    chat_id,
+                    "Something went wrong while processing your request. Please try again or send /cancel.",
+                    parse_mode=None,
+                )
+            return None, waiting_message_id
+    except Exception as exc:
+        logger.exception("Skill text processing failed for chat_id=%s: %s", chat_id, exc)
+        try:
+            await send_message(
+                chat_id,
+                "Something went wrong while processing your request. Please try again or send /cancel.",
+                parse_mode=None,
+            )
+        except Exception:
+            logger.debug("Failed to send fallback error message for chat_id=%s", chat_id)
+        return None, None
 
 
 async def _start_video_ai_via_openclaw(chat_id: int, text: str, app: Any) -> None:
@@ -466,6 +526,8 @@ async def _handle_skill_callback(
             message_id,
             SkillDispatcher.start_skill(chat_id, skill_name, app),
         )
+        if result is None:
+            return True
         rendered = TelegramRenderer.render_skill_result(result)
         await _send_rendered_message(chat_id, rendered, message_id=message_id)
         return True
@@ -477,6 +539,8 @@ async def _handle_skill_callback(
             message_id,
             SkillDispatcher.handle_option(chat_id, value, app),
         )
+        if result is None:
+            return True
         rendered = TelegramRenderer.render_skill_result(result)
         await _send_rendered_message(chat_id, rendered, message_id=message_id)
         return True
@@ -488,6 +552,8 @@ async def _handle_skill_callback(
             message_id,
             SkillDispatcher.handle_action(chat_id, action, app),
         )
+        if result is None:
+            return True
         rendered = TelegramRenderer.render_skill_result(result)
         await _send_rendered_message(chat_id, rendered, message_id=message_id)
         return True
@@ -1059,6 +1125,8 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
             chat_id,
             SkillDispatcher.start_skill(chat_id, skill_name, app),
         )
+        if skill_result is None:
+            return
         rendered = TelegramRenderer.render_skill_result(skill_result)
         await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)
         return
@@ -1087,6 +1155,8 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
             chat_id,
             SkillDispatcher.start_skill(chat_id, skill_name, app),
         )
+        if skill_result is None:
+            return
         rendered = TelegramRenderer.render_skill_result(skill_result)
         await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)
         return
@@ -1111,6 +1181,9 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
     if skill_result is not None:
         rendered = TelegramRenderer.render_skill_result(skill_result)
         await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)
+        return
+    if await TelegramSkillSessionStore.get_session(chat_id) is not None:
+        # Error feedback was already sent; avoid routing this message to OpenClaw.
         return
 
     if text.startswith("http"):

@@ -34,6 +34,17 @@ class PersonaCreatorSkill(BaseSkill):
     session_shape = deepcopy(_DEFINITION.get("session_shape", BaseSkill.session_shape))
 
     @classmethod
+    def _is_ai_auth_error(cls, exc: Exception) -> bool:
+        message = str(exc).lower()
+        return (
+            "invalid_api_key" in message
+            or "incorrect api key provided" in message
+            or "authentication" in message
+            or "http 401" in message
+            or "status code: 401" in message
+        )
+
+    @classmethod
     def _display_name_from_persona_id(cls, persona_id: str) -> str:
         parts = [part for part in re.split(r"[_-]+", persona_id.strip()) if part]
         if not parts:
@@ -167,11 +178,26 @@ class PersonaCreatorSkill(BaseSkill):
         """
 
         try:
-            response_text = await ai.generate_text(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                temperature=0.7
-            )
+            try:
+                response_text = await ai.generate_text(
+                    prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    temperature=0.7,
+                )
+            except Exception as primary_exc:
+                # Fallback to Gemini when OpenAI credentials are invalid but Gemini is configured.
+                if cls._is_ai_auth_error(primary_exc) and getattr(settings, "GOOGLE_AI_API_KEY", ""):
+                    logger.warning(
+                        "Dream identity generation hit provider auth error; retrying with Gemini fallback"
+                    )
+                    response_text = await ai.generate_text(
+                        prompt=user_prompt,
+                        system_prompt=system_prompt,
+                        model="models/gemini-2.0-flash",
+                        temperature=0.7,
+                    )
+                else:
+                    raise
             
             # Robust JSON extraction for cases where AI adds markdown or preamble
             json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
@@ -508,8 +534,19 @@ class PersonaCreatorSkill(BaseSkill):
                 # Step 4: Generate Results
                 if not current.artifacts.get("dream_ready"):
                     from services.ai_service import AIService
-                    async with AIService() as ai:
-                        dream = await cls._dream_persona_details_refined(nationality, dream_brief, ai)
+                    try:
+                        async with AIService() as ai:
+                            dream = await cls._dream_persona_details_refined(
+                                nationality, dream_brief, ai
+                            )
+                    except Exception as exc:
+                        if cls._is_ai_auth_error(exc):
+                            return cls._error_result(
+                                current,
+                                "AI Dream is unavailable because the configured AI API key is invalid. "
+                                "Please update provider credentials (OPENAI_API_KEY or DEFAULT_AI_MODEL) and try again.",
+                            )
+                        raise
                     
                     current.artifacts["dream_ready"] = True
                     current.collected["persona_id"] = dream["persona_id"]
@@ -727,7 +764,5 @@ class PersonaCreatorSkill(BaseSkill):
             import traceback
             error_details = traceback.format_exc()
             logger.error(f"SKILL EXECUTION FAILED: {exc}\n{error_details}")
-            msg = f"🚫 Unexpected Error: {exc}"
-            if getattr(settings, "DEBUG", False):
-                msg += f"\n\nTraceback:\n{error_details[:800]}"
+            msg = "🚫 Unexpected error while creating persona. Please try again or send /cancel."
             return cls._error_result(current, msg)

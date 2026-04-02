@@ -98,7 +98,8 @@ async def edit_message_text(
     *,
     parse_mode: Optional[str] = "MarkdownV2",
     reply_markup: Optional[Dict[str, Any]] = None,
-) -> None:
+    fallback_to_new_message: bool = True,
+) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "chat_id": chat_id,
         "message_id": message_id,
@@ -108,7 +109,56 @@ async def edit_message_text(
         payload["parse_mode"] = parse_mode
     if reply_markup:
         payload["reply_markup"] = reply_markup
-    await _tg_call("editMessageText", payload)
+
+    result = await _tg_call("editMessageText", payload)
+
+    # Fallback: If parse failed, retry with plain text
+    if not result.get("ok") and parse_mode:
+        error_desc = result.get("description", "")
+        if "parse" in error_desc.lower() or "entities" in error_desc.lower():
+            logger.warning(
+                "Telegram parse error in editMessageText with parse_mode=%s, retrying plain: %s",
+                parse_mode,
+                error_desc,
+            )
+            payload_plain = payload.copy()
+            payload_plain.pop("parse_mode", None)
+            result = await _tg_call("editMessageText", payload_plain)
+
+    # Fallback: If message is a media message (no text to edit), try editMessageCaption or send new
+    if not result.get("ok") and fallback_to_new_message:
+        error_desc = result.get("description", "")
+        if "no text" in error_desc.lower() or "message to edit" in error_desc.lower():
+            logger.warning(
+                "Cannot edit media message text, trying editMessageCaption: %s",
+                error_desc,
+            )
+            # Try to edit caption instead
+            caption_payload: Dict[str, Any] = {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "caption": text[:1024],  # Telegram caption limit
+            }
+            if reply_markup:
+                caption_payload["reply_markup"] = reply_markup
+            caption_result = await _tg_call("editMessageCaption", caption_payload)
+
+            if caption_result.get("ok"):
+                return caption_result
+
+            # Last resort: send a new message
+            logger.warning(
+                "editMessageCaption also failed, sending new message: %s",
+                caption_result.get("description"),
+            )
+            return await send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=None,  # Use plain text for safety
+                reply_markup=reply_markup,
+            )
+
+    return result
 
 
 async def send_message(
@@ -126,7 +176,23 @@ async def send_message(
         payload["parse_mode"] = parse_mode
     if reply_markup:
         payload["reply_markup"] = reply_markup
-    return await _tg_call("sendMessage", payload)
+
+    result = await _tg_call("sendMessage", payload)
+
+    # Fallback: If parse failed and we were using a parse_mode, retry with plain text
+    if not result.get("ok") and parse_mode:
+        error_desc = result.get("description", "")
+        if "parse" in error_desc.lower() or "entities" in error_desc.lower():
+            logger.warning(
+                "Telegram parse error with parse_mode=%s, retrying with plain text: %s",
+                parse_mode,
+                error_desc,
+            )
+            payload_plain = payload.copy()
+            payload_plain.pop("parse_mode", None)
+            result = await _tg_call("sendMessage", payload_plain)
+
+    return result
 
 
 async def send_photo(

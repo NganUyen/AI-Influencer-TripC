@@ -327,7 +327,10 @@ def test_render_video_ai_done_state_reports_package_ready():
     assert "Video Generation Started" in rendered["text"]
     assert "video-minh_vn-abc123" in rendered["text"]
     assert "The final preview will arrive in this chat." in rendered["text"]
-    assert "Script review and the final preview will arrive in this chat." not in rendered["text"]
+    assert (
+        "Script review and the final preview will arrive in this chat."
+        not in rendered["text"]
+    )
     callback_values = {
         button["callback_data"]
         for row in rendered["reply_markup"]["inline_keyboard"]
@@ -377,7 +380,10 @@ def test_render_video_ai_done_state_mentions_voiceover_fallback():
 
     assert "voiceover instead" in rendered["text"]
     assert "video-minh_vn-voiceover" in rendered["text"]
-    assert "Script review and the final preview will arrive in this chat." not in rendered["text"]
+    assert (
+        "Script review and the final preview will arrive in this chat."
+        not in rendered["text"]
+    )
 
 
 def test_render_video_ai_done_state_shows_error_when_workflow_failed():
@@ -554,3 +560,97 @@ def test_render_video_ai_retryable_failure_keeps_retry_actions_without_approve_w
     assert "action::approve" not in callback_values
     assert "action::regenerate" in callback_values
     assert "action::edit" in callback_values
+
+
+def test_render_video_ai_demo_preview_uses_plain_text_no_markdown():
+    """Verify demo_preview_confirm uses plain text to handle OCR-derived content safely."""
+    session = SkillSession(
+        skill_name="video-ai",
+        step_key="demo_preview_confirm",
+        collected={
+            "persona_id": "minh_vn",
+            "creative_input_mode": "recorded_demo_video",
+            "video_goal": "feature_demo",
+            "audience": "tech enthusiasts",
+        },
+        artifacts={
+            "demo_preview_summary": {
+                "video_info": {
+                    "duration_sec": 45,
+                    "resolution": "1080x1920",
+                    "segment_count": 3,
+                },
+                "confidence": "high",
+                # OCR-derived content that may contain markdown-like characters
+                "grounded_features": [
+                    "AI Trip Planner - plans *your* itinerary",
+                    "Budget Calculator [real-time]",
+                ],
+                "ungrounded_features": [
+                    "_Offline_ mode detection",
+                ],
+                "timeline_narrative": "Demo shows feature_walkthrough with `code` examples",
+            },
+            "demo_preview_confirmed": False,
+        },
+        control=SkillControl(status=SkillStatus.collecting),
+    )
+    result = SkillResult(
+        success=True,
+        next_step="demo_preview_confirm",
+        output={
+            "demo_preview_summary": session.artifacts["demo_preview_summary"],
+        },
+        session=session,
+    )
+
+    rendered = TelegramRenderer.render_skill_result(result)
+
+    # Must use plain text (parse_mode=None) to safely handle OCR content with special chars
+    assert rendered.get("parse_mode") is None, (
+        "demo_preview_confirm must use parse_mode=None for OCR-derived content safety"
+    )
+    # Should contain the analysis header
+    assert "Demo Video Analysis" in rendered["text"]
+    # Special markdown chars in OCR text should appear literally, not break parsing
+    assert "*your*" in rendered["text"]
+    assert "[real-time]" in rendered["text"]
+    assert "_Offline_" in rendered["text"]
+    # Should have action buttons
+    rows = rendered["reply_markup"]["inline_keyboard"]
+    callback_values = {button["callback_data"] for row in rows for button in row}
+    assert "action::confirm" in callback_values or "action::reupload" in callback_values
+
+
+def test_render_video_ai_demo_preview_timeout_uses_plain_text():
+    """Verify demo_preview_confirm timeout state also uses plain text."""
+    session = SkillSession(
+        skill_name="video-ai",
+        step_key="demo_preview_confirm",
+        collected={
+            "persona_id": "minh_vn",
+            "creative_input_mode": "recorded_demo_video",
+        },
+        artifacts={
+            "demo_preview_summary": {},
+            "demo_preview_confirmed": False,
+        },
+        control=SkillControl(status=SkillStatus.collecting),
+    )
+    result = SkillResult(
+        success=False,
+        next_step="demo_preview_confirm",
+        output={
+            "timeout": True,
+            "message": "Preview confirmation timed out.",
+        },
+        session=session,
+    )
+
+    rendered = TelegramRenderer.render_skill_result(result)
+
+    # Timeout state should also use plain text
+    assert rendered.get("parse_mode") is None, (
+        "demo_preview_confirm timeout must use parse_mode=None"
+    )
+    assert "timed out" in rendered["text"].lower()

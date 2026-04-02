@@ -445,6 +445,16 @@ async def _handle_skill_callback(
 
     if data.startswith("skill_"):
         skill_name = data.split("skill_", 1)[1]
+        
+        # Route video-ai through OpenClaw for proper orchestration
+        if skill_name == "video-ai":
+            await TelegramSkillSessionStore.clear_session(chat_id)
+            await send_chat_action(chat_id, action="typing")
+            # Simulate user saying "create video" to trigger OpenClaw routing
+            await _handle_openclaw_message(chat_id, "create video", app)
+            return True
+        
+        # Other skills start directly
         result = await _await_with_callback_progress(
             chat_id,
             message_id,

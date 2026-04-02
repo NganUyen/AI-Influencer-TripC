@@ -227,12 +227,19 @@ class PersonaCreatorSkill(BaseSkill):
 
         try:
             try:
+                logger.info("Dream: attempting AI generation with default model")
                 response_text = await ai.generate_text(
                     prompt=user_prompt,
                     system_prompt=system_prompt,
                     temperature=0.7,
                 )
+                logger.info("Dream: AI generation successful, parsing response")
             except Exception as primary_exc:
+                logger.warning(
+                    "Dream: primary AI call failed with %s: %s",
+                    type(primary_exc).__name__,
+                    primary_exc,
+                )
                 # Fallback to Gemini when OpenAI credentials are invalid but Gemini is configured.
                 if cls._is_ai_auth_error(primary_exc) and getattr(settings, "GOOGLE_AI_API_KEY", ""):
                     logger.warning(
@@ -588,10 +595,17 @@ class PersonaCreatorSkill(BaseSkill):
                                 nationality, dream_brief, ai
                             )
                     except Exception as exc:
+                        logger.error(
+                            "Dream AI generation failed with error type=%s: %s",
+                            type(exc).__name__,
+                            exc,
+                            exc_info=True,
+                        )
                         if cls._is_ai_auth_error(exc) or cls._is_ai_service_unavailable_error(exc):
                             logger.warning(
-                                "Dream provider unavailable, switching to deterministic fallback: %s",
-                                exc,
+                                "Dream provider unavailable (auth=%s, service=%s), switching to deterministic fallback",
+                                cls._is_ai_auth_error(exc),
+                                cls._is_ai_service_unavailable_error(exc),
                             )
                             dream = cls._dream_persona_details_fallback(
                                 nationality,

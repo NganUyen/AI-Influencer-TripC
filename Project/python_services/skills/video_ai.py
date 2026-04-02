@@ -854,7 +854,7 @@ class VideoAISkill(BaseSkill):
                 return cls._retryable_error_result(
                     current,
                     step_key="demo_preview_confirm",
-                    error=f"Could not analyze demo video. Please try again or re-upload. ({exc})",
+                    error="Could not analyze demo video. Please try again or re-upload.",
                     output={"retryable": True},
                 )
 

@@ -281,14 +281,9 @@ class CreativeDirectorService:
             # Trust their input as-is (they may be correcting a miss)
             return clean_user_text
 
-        # No user input - try to find best match from existing features
-        matched = cls._best_feature_match(
-            "", evidence.grounded_features, fallback_names
-        )
-        if matched:
-            return matched
-
-        # Fall back to first detected feature name
+        # No user input - fall back to first detected feature name
+        # (Note: _best_feature_match requires non-empty text to do matching,
+        # so without user input we skip directly to the fallback)
         if fallback_names:
             return fallback_names[0]
         return "Recorded demo highlights"

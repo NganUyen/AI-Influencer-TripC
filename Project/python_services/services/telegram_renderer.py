@@ -270,8 +270,12 @@ def _video_ai_demo_preview_text(
     preview_summary: Dict[str, Any],
     session_collected: Dict[str, Any],
 ) -> str:
-    """Format the demo video preview confirmation message (Phase 5)."""
-    lines = ["📹 *Demo Video Analysis Complete*", ""]
+    """Format the demo video preview confirmation message (Phase 5).
+
+    Uses plain text (no markdown) to safely handle dynamic OCR-derived content
+    that may contain special characters like *, _, [, etc.
+    """
+    lines = ["📹 Demo Video Analysis Complete", ""]
 
     # Video info section
     video_info = preview_summary.get("video_info", {})
@@ -292,7 +296,7 @@ def _video_ai_demo_preview_text(
     # Phase 8: Warnings section (if any)
     warnings = preview_summary.get("warnings", [])
     if warnings:
-        lines.append("⚠️ *Warnings*:")
+        lines.append("⚠️ Warnings:")
         for warning in warnings[:4]:  # Max 4 warnings to keep message readable
             lines.append(f"  • {_truncate(warning, 120)}")
         lines.append("")
@@ -303,19 +307,19 @@ def _video_ai_demo_preview_text(
     feature_candidates = preview_summary.get("feature_candidates", [])
 
     if grounded_features:
-        lines.append("*Verified Features* (from official docs):")
+        lines.append("Verified Features (from official docs):")
         for feat in grounded_features[:5]:
             lines.append(f"  ✓ {feat}")
         lines.append("")
 
     if ungrounded_features:
-        lines.append("*Detected Features* (not verified):")
+        lines.append("Detected Features (not verified):")
         for feat in ungrounded_features[:3]:
             lines.append(f"  ? {feat}")
         lines.append("")
 
     if not grounded_features and not ungrounded_features and feature_candidates:
-        lines.append("*Feature Candidates*:")
+        lines.append("Feature Candidates:")
         for feat in feature_candidates[:5]:
             lines.append(f"  • {feat}")
         lines.append("")
@@ -323,7 +327,7 @@ def _video_ai_demo_preview_text(
     # Timeline narrative
     narrative = preview_summary.get("timeline_narrative", "")
     if narrative:
-        lines.append("*Video Flow*:")
+        lines.append("Video Flow:")
         lines.append(f"  {_truncate(narrative, 200)}")
         lines.append("")
 
@@ -338,10 +342,10 @@ def _video_ai_demo_preview_text(
     lines.append("")
     lines.append(
         "Please review the analysis above.\n"
-        "• *Confirm* to proceed with video generation\n"
-        "• *Correct* to fix any misunderstandings\n"
-        "• *Re-emphasize* to focus on specific features\n"
-        "• *Re-upload* to start with a different video"
+        "• Confirm to proceed with video generation\n"
+        "• Correct to fix any misunderstandings\n"
+        "• Re-emphasize to focus on specific features\n"
+        "• Re-upload to start with a different video"
     )
 
     return "\n".join(lines)
@@ -429,14 +433,14 @@ def _render_persona_inspector_result(
             ]
         )
 
-    # Add Edit Buttons
+    # Add Edit Buttons (must have action:: prefix to be routed by telegram_webhook)
     persona_actions = [
         [
-            ("✏️ Name", f"edit_p_name::{persona_id}"),
-            ("🎭 Appearance", f"edit_p_appearance::{persona_id}"),
+            ("✏️ Name", f"action::edit_p_name::{persona_id}"),
+            ("🎭 Appearance", f"action::edit_p_appearance::{persona_id}"),
         ],
-        [("🔄 Regenerate Image", f"edit_p_appearance::{persona_id}")],
-        [("Refresh", f"inspect_persona::{persona_id}")],
+        [("🔄 Regenerate Image", f"action::edit_p_appearance::{persona_id}")],
+        [("Refresh", f"action::inspect_persona::{persona_id}")],
     ]
 
     payload: Dict[str, Any] = {
@@ -712,7 +716,7 @@ class TelegramRenderer:
                     step.get("options", []),
                     prefix="action::",
                 ),
-                "parse_mode": "Markdown",
+                "parse_mode": None,  # Use None to safely handle dynamic OCR content
             }
 
         if session.skill_name == "video-ai" and session.step_key == "package_ready":

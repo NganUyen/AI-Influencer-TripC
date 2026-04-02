@@ -177,11 +177,6 @@ class ShortVideoWorkflow:
                 "error_summary": sanitize_for_user(raw_text, error_type),
             }
 
-            return {
-                "error_type": type(exc).__name__,
-                "error_summary": (str(exc).strip() or repr(exc))[:300],
-            }
-
         try:
             start_payload = VideoWorkflowStartPayloadContract.model_validate(payload)
             persona_id = start_payload.persona_id

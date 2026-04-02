@@ -10,13 +10,14 @@ Validates uploaded demo videos before analysis:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +33,8 @@ class VideoQualityReport(BaseModel):
     is_readable: bool = False
     blur_score: Optional[float] = None
 
-    warnings: list[str] = []
-    errors: list[str] = []
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
 
     @property
     def has_warnings(self) -> bool:
@@ -91,8 +92,9 @@ class VideoQualityGateService:
             report.errors.append("Video file is empty")
             return report
 
-        # Extract metadata with ffprobe
-        metadata = self._extract_metadata(video_path)
+        # Extract metadata with ffprobe (run in executor to avoid blocking)
+        loop = asyncio.get_event_loop()
+        metadata = await loop.run_in_executor(None, self._extract_metadata, video_path)
         if not metadata:
             report.errors.append(
                 "Could not read video file metadata. File may be corrupted."
@@ -136,8 +138,10 @@ class VideoQualityGateService:
                 f"of {self.RECOMMENDED_MIN_HEIGHT}p. Quality may be affected."
             )
 
-        # Basic blur check (lightweight - sample first frame only)
-        blur_score = self._check_blur_simple(video_path)
+        # Basic blur check (lightweight - run in executor to avoid blocking)
+        blur_score = await loop.run_in_executor(
+            None, self._check_blur_simple, video_path
+        )
         if blur_score is not None:
             report.blur_score = blur_score
             if blur_score < self.MIN_BLUR_SCORE:

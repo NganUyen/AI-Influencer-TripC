@@ -195,23 +195,36 @@ class DemoVideoAnalyzerService:
         segments = self._build_segments(scene_changes, metadata)
         logger.info("Built %d segments", len(segments))
 
-        # Step 4: Extract representative keyframes
-        keyframes = await self._extract_keyframes(video_path, segments, metadata)
-        logger.info("Extracted %d keyframes", len(keyframes))
+        # Create temp directory that persists through keyframe extraction and OCR
+        keyframe_dir = Path(tempfile.mkdtemp(prefix="demo_video_keyframes_"))
+        try:
+            # Step 4: Extract representative keyframes
+            keyframes = await self._extract_keyframes(
+                video_path, segments, metadata, keyframe_dir
+            )
+            logger.info("Extracted %d keyframes", len(keyframes))
 
-        # Step 5: Run OCR on keyframes
-        ocr_results = await self._run_ocr_on_keyframes(keyframes)
-        logger.info(
-            "OCR completed: %d frames with text",
-            sum(1 for texts in ocr_results.values() if texts),
-        )
+            # Step 5: Run OCR on keyframes (files exist because keyframe_dir persists)
+            ocr_results = await self._run_ocr_on_keyframes(keyframes)
+            logger.info(
+                "OCR completed: %d frames with text",
+                sum(1 for texts in ocr_results.values() if texts),
+            )
 
-        # Step 6: Update segments with OCR results
-        segments = self._attach_ocr_to_segments(segments, keyframes, ocr_results)
+            # Step 6: Update segments with OCR results
+            segments = self._attach_ocr_to_segments(segments, keyframes, ocr_results)
 
-        # Step 7: Extract feature candidates from OCR
-        features = self._extract_features_from_ocr(segments, keyframes, ocr_results)
-        logger.info("Extracted %d feature candidates", len(features))
+            # Step 7: Extract feature candidates from OCR
+            features = self._extract_features_from_ocr(segments, keyframes, ocr_results)
+            logger.info("Extracted %d feature candidates", len(features))
+        finally:
+            # Clean up keyframe temp directory after OCR is complete
+            import shutil
+
+            try:
+                shutil.rmtree(keyframe_dir, ignore_errors=True)
+            except Exception as exc:
+                logger.debug("Failed to clean up keyframe dir: %s", exc)
 
         # Step 8: Generate timeline narrative (human-readable summary)
         timeline_narrative = self._generate_timeline_narrative(segments, metadata)
@@ -489,12 +502,19 @@ class DemoVideoAnalyzerService:
         video_path: Path,
         segments: list[TimelineSegmentContract],
         metadata: VideoMetadata,
+        keyframe_dir: Path,
     ) -> list[KeyframeContract]:
         """
         Extract representative keyframes from video.
 
         Takes one frame per segment, up to MAX_KEYFRAMES total.
         Uses middle of each segment for best representation.
+
+        Args:
+            video_path: Path to video file
+            segments: Timeline segments to extract frames from
+            metadata: Video metadata
+            keyframe_dir: Directory to store extracted keyframes (must exist)
         """
         keyframes: list[KeyframeContract] = []
 
@@ -518,33 +538,30 @@ class DemoVideoAnalyzerService:
         timestamps = sorted(set(timestamps))[: self.MAX_KEYFRAMES]
 
         # Extract each keyframe
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
+        for i, timestamp in enumerate(timestamps):
+            frame_id = f"kf_{uuid4().hex[:8]}"
+            output_path = keyframe_dir / f"{frame_id}.jpg"
 
-            for i, timestamp in enumerate(timestamps):
-                frame_id = f"kf_{uuid4().hex[:8]}"
-                output_path = tmp_path / f"{frame_id}.jpg"
+            success = await self._extract_single_frame(
+                video_path, timestamp, output_path
+            )
 
-                success = await self._extract_single_frame(
-                    video_path, timestamp, output_path
+            if success:
+                keyframes.append(
+                    KeyframeContract(
+                        frame_id=frame_id,
+                        timestamp_sec=timestamp,
+                        image_path=str(output_path),
+                    )
                 )
 
-                if success:
-                    keyframes.append(
-                        KeyframeContract(
-                            frame_id=frame_id,
-                            timestamp_sec=timestamp,
-                            image_path=str(output_path),
-                        )
-                    )
+        # Link keyframes to segments
+        for segment in segments:
+            for kf in keyframes:
+                if segment.start_sec <= kf.timestamp_sec < segment.end_sec:
+                    segment.keyframe_ids.append(kf.frame_id)
 
-            # Link keyframes to segments
-            for segment in segments:
-                for kf in keyframes:
-                    if segment.start_sec <= kf.timestamp_sec < segment.end_sec:
-                        segment.keyframe_ids.append(kf.frame_id)
-
-            return keyframes
+        return keyframes
 
     async def _extract_single_frame(
         self, video_path: Path, timestamp: float, output_path: Path

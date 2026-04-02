@@ -50,7 +50,7 @@ The pipeline uses the **user's actual recorded demo** as the top-half visual sou
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ Phase 5: Grounding                                               │
-│  DemoFeatureGroundingService.enrich_with_official_names()       │
+│  DemoFeatureGroundingService.ground_features()                  │
 │  → OpenClaw lookup against reference URL                        │
 │  → grounded_features[], official_name, value_proposition        │
 └─────────────────────────────────────────────────────────────────┘
@@ -73,7 +73,7 @@ The pipeline uses the **user's actual recorded demo** as the top-half visual sou
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ Phase 6b: Beats                                                  │
-│  CreativeDirectorService.build_beat_sheet_from_demo_evidence()  │
+│  CreativeDirectorService.build_beats_from_demo_evidence()       │
 │  → BeatSheetContract with timestamp ranges + trim_confidence    │
 │  → top_half_source_type = "uploaded_demo_video"                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -218,11 +218,11 @@ Technical errors are sanitized before Telegram notification:
 ### Test Coverage
 | Test File | Tests | Status |
 |-----------|-------|--------|
-| `test_recorded_demo_failure_policy.py` | 11 | Pass |
-| `test_video_ai_demo_preview.py` | 28 | Pass |
+| `test_recorded_demo_failure_policy.py` | 12 | Pass |
+| `test_video_ai_demo_preview.py` | 29 | Pass |
 | `test_telegram_renderer.py` | 16 | Pass |
 | `test_pipeline_robustness.py` (recorded_demo) | 1 | Pass |
-| **Total Phase 8 focused** | **56** | **Pass** |
+| **Total Phase 8 focused** | **58** | **Pass** |
 
 ### Verified Behaviors
 - Low confidence warns when usable, blocks only on combined weakness

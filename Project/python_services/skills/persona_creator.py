@@ -139,24 +139,57 @@ class PersonaCreatorSkill(BaseSkill):
         brief: str, 
         ai: Optional[AIService] = None
     ) -> Dict[str, Any]:
-        """Deterministic identity generation that mimics the reliability of manual creation."""
-        # Sanitize nationality for ID
-        nat_id = re.sub(r"[^a-z0-9]", "", nationality.lower().strip())
+        """AI-powered identity generation for any country in the world."""
+        if not ai:
+            raise RuntimeError("AI Service is not initialized. Please check your configuration.")
+
+        system_prompt = (
+            "You are a master of global identities and cultural nuances. "
+            "Your task is to suggest a realistic, culturally accurate persona identity based on a nationality and a brief description."
+        )
         
-        # Clean brief keywords for ID (take first 3 words)
-        words = re.sub(r"[^a-z0-9\s]", "", brief.lower()).split()
-        brief_id = "_".join(words[:2]) if words else "persona"
-        
-        persona_id = f"{nat_id}_{brief_id}"
-        display_name = f"{nationality.strip().title()} {' '.join(words[:2]).title()}"
-        
-        # Return summary
-        return {
-            "persona_id": persona_id,
-            "display_name": display_name,
-            "appearance": f"A {nationality.strip()} {brief.strip()}",
-            "success": True
-        }
+        user_prompt = f"""
+        Suggest a persona with the following details:
+        Nationality: {nationality}
+        Brief: {brief}
+
+        You MUST return valid JSON with these keys:
+        - persona_id: A unique URL-safe slug (e.g., 'kaito_tanaka')
+        - display_name: A realistic, localized full name (e.g., 'Kaito Tanaka')
+        - appearance: A detailed visual description for an image generator (e.g., 'A portrait of an elderly man with silver hair wearing a kimono...')
+
+        Response format:
+        {{
+          "persona_id": "...",
+          "display_name": "...",
+          "appearance": "..."
+        }}
+        """
+
+        try:
+            response_text = await ai.generate_text(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                temperature=0.7
+            )
+            
+            # Robust JSON extraction for cases where AI adds markdown or preamble
+            json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group(0))
+                # Validate required keys
+                if not all(k in data for k in ["persona_id", "display_name", "appearance"]):
+                    raise ValueError("AI response missing required JSON keys")
+                return {**data, "success": True}
+            
+            logger.error(f"Raw AI response (failed parse): {response_text}")
+            raise ValueError("The AI suggested an identity but the response was formatted incorrectly. Please try again.")
+            
+        except Exception as e:
+            logger.error(f"AI Dream execution failed: {e}")
+            # Re-raising ensures the user sees the original error (e.g., 403, 429) 
+            # if the service is disabled or over quota.
+            raise
 
     @classmethod
     def _build_readiness_report(
@@ -460,6 +493,12 @@ class PersonaCreatorSkill(BaseSkill):
                     current.step_key = "choose_voice"
                     return cls._collecting_result(current, next_step="choose_voice")
 
+                # Step 2.5: Language (Required for persistence)
+                language = current.collected.get("language")
+                if not language:
+                    current.step_key = "choose_language"
+                    return cls._collecting_result(current, next_step="choose_language")
+
                 # Step 3: Brief/Description
                 dream_brief = current.collected.get("dream_brief")
                 if not dream_brief:
@@ -554,11 +593,13 @@ class PersonaCreatorSkill(BaseSkill):
 
             # NOTE: We explicitly construct the payload with ONLY valid DB columns.
             # Transient inputs like 'nationality' are filtered out here.
+            display_name = current.collected.get("display_name") or cls._display_name_from_persona_id(
+                current.collected["persona_id"]
+            )
             payload = {
                 "persona_id": current.collected["persona_id"],
-                "display_name": cls._display_name_from_persona_id(
-                    current.collected["persona_id"]
-                ),
+                "display_name": display_name,
+                "name": display_name, # Critical: 'name' is NOT NULL in schema.sql
                 "language": current.collected["language"],
                 "tts_voice": GoogleTTSService.resolve_voice_name(
                     current.collected["voice"],

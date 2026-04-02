@@ -480,7 +480,9 @@ async def _await_with_message_progress(
                 )
             return None, waiting_message_id
     except Exception as exc:
-        logger.exception("Skill text processing failed for chat_id=%s: %s", chat_id, exc)
+        logger.exception(
+            "Skill text processing failed for chat_id=%s: %s", chat_id, exc
+        )
         try:
             await send_message(
                 chat_id,
@@ -488,16 +490,10 @@ async def _await_with_message_progress(
                 parse_mode=None,
             )
         except Exception:
-            logger.debug("Failed to send fallback error message for chat_id=%s", chat_id)
+            logger.debug(
+                "Failed to send fallback error message for chat_id=%s", chat_id
+            )
         return None, None
-
-
-async def _start_video_ai_via_openclaw(chat_id: int, text: str, app: Any) -> None:
-    # Send an immediate confirmation so button presses feel responsive.
-    await TelegramSkillSessionStore.clear_session(chat_id)
-    await send_message(chat_id, "Starting video creation now...", parse_mode=None)
-    await send_chat_action(chat_id, action="typing")
-    await _handle_openclaw_message(chat_id, text, app)
 
 
 async def _handle_skill_callback(
@@ -514,13 +510,9 @@ async def _handle_skill_callback(
     if data.startswith("skill_"):
         skill_name = data.split("skill_", 1)[1]
 
-        # Route video-ai through OpenClaw for proper orchestration
-        if skill_name == "video-ai":
-            # Simulate user saying "create video" to trigger OpenClaw routing
-            await _start_video_ai_via_openclaw(chat_id, "create video", app)
-            return True
-        
-        # Other skills start directly
+        # All skills (including video-ai) start directly for deterministic UI actions.
+        # OpenClaw routing is reserved for free-text conversational input only.
+        await TelegramSkillSessionStore.clear_session(chat_id)
         result = await _await_with_callback_progress(
             chat_id,
             message_id,
@@ -592,12 +584,14 @@ def _help_text() -> str:
         "TripC Bot Help\n\n"
         "Use /media to open the studio menu.\n"
         "Or send a normal message to chat with OpenClaw AI.\n\n"
-        "Quick shortcuts:\n"
-        "  /create_image — Image creation modes (Poster or Scene)\n"
-        "  /create_video — Start AI Influencer video\n"
-        "  /create_persona — Build a new persona\n"
-        "  /inspect_persona — View & inspect personas\n"
-        "  /quota — Check usage quota\n\n"
+        "Commands:\n"
+        "  /start — Welcome / onboarding\n"
+        "  /media — Open studio\n"
+        "  /create_video — Start AI video creation\n"
+        "  /create_image — Create marketing images\n"
+        "  /personas — Inspect your personas\n"
+        "  /quota — Check usage quota\n"
+        "  /cancel — Cancel active flow\n\n"
         "Telegram also stays active for workflow approvals and daily story actions."
     )
 
@@ -1077,22 +1071,33 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         return
 
     # ── Shortcut slash commands ───────────────────────────────────────────
+    # Canonical commands (exposed in Telegram Menu via setMyCommands):
+    #   /start, /media, /create_video, /create_image, /personas, /quota, /cancel
+    # Legacy aliases (parser-only, not in Telegram UI):
+    #   /create-video, /create-image, /create_persona, /create-persona,
+    #   /inspect_persona, /inspect-persona
     _SHORTCUT_MENU_MAP = {
         "/create_image": "menu_image",
         "/create-image": "menu_image",
     }
     _SHORTCUT_SKILL_MAP = {
+        # Canonical video command - starts video-ai directly (deterministic)
         "/create_video": "video-ai",
+        # Legacy aliases for video
         "/create-video": "video-ai",
-        "/start": "video-ai",
+        # Canonical persona inspection command
+        "/personas": "persona-inspector",
+        # Legacy aliases for persona
         "/create_persona": "persona-creator",
         "/create-persona": "persona-creator",
         "/inspect_persona": "persona-inspector",
         "/inspect-persona": "persona-inspector",
+        # Quota inspector
         "/quota": "quota-inspector",
     }
 
     # ── Plain text shortcuts (case-insensitive) ────────────────────────────
+    # These are deterministic triggers that bypass OpenClaw routing
     _TEXT_SKILL_MAP = {
         "create video": "video-ai",
         "make video": "video-ai",
@@ -1112,14 +1117,9 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
     text_cmd = text.strip().lower().split()[0] if text.strip() else ""
     text_lower = text.strip().lower()
 
-    # Check plain text shortcuts first - route video creation through OpenClaw
+    # Check plain text shortcuts - all deterministic, bypass OpenClaw
     if text_lower in _TEXT_SKILL_MAP:
         skill_name = _TEXT_SKILL_MAP[text_lower]
-        # Route video-ai through OpenClaw for proper orchestration
-        if skill_name == "video-ai":
-            await _start_video_ai_via_openclaw(chat_id, text.strip(), app)
-            return
-        # Other skills can start directly
         await TelegramSkillSessionStore.clear_session(chat_id)
         skill_result, pending_message_id = await _await_with_message_progress(
             chat_id,
@@ -1143,13 +1143,9 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         await _send_rendered_message(chat_id, rendered)
         return
 
+    # Slash command shortcuts - all deterministic, bypass OpenClaw
     if text_cmd in _SHORTCUT_SKILL_MAP:
         skill_name = _SHORTCUT_SKILL_MAP[text_cmd]
-        # Route video-ai through OpenClaw for proper orchestration
-        if skill_name == "video-ai":
-            await _start_video_ai_via_openclaw(chat_id, text.strip(), app)
-            return
-        # Other skills can start directly
         await TelegramSkillSessionStore.clear_session(chat_id)
         skill_result, pending_message_id = await _await_with_message_progress(
             chat_id,

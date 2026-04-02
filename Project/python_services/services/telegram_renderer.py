@@ -18,6 +18,12 @@ _STATUS_LABELS = {
     "deferred": "Planned later",
 }
 
+_VIDEO_GOAL_LABELS = {
+    "feature_demo": "📱 Feature Spotlight",
+    "walkthrough": "📚 Step-by-Step Guide",
+    "conversion": "🚀 Drive Action",
+}
+
 _INFO_BACK_MENU_BY_SKILL = {
     "image-avatar": "menu_image",
     "video-tutorial": "menu_video",
@@ -184,10 +190,15 @@ def _truncate(text: str, max_length: int = 30) -> str:
     return f"{value[: max_length - 3]}..."
 
 
-def _humanize_token(value: Any) -> str:
+def _humanize_token(value: Any, *, is_video_goal: bool = False) -> str:
     text = str(value or "").strip()
     if not text:
         return "-"
+
+    # Special handling for video_goal to show friendly labels with emojis
+    if is_video_goal and text in _VIDEO_GOAL_LABELS:
+        return _VIDEO_GOAL_LABELS[text]
+
     return text.replace("_", " ").strip().title()
 
 
@@ -205,7 +216,7 @@ def _video_ai_concept_text(
         "",
         f"Persona: {persona_label}",
         f"Feature Focus: {concept.get('feature_focus') or '-'}",
-        f"Goal: {_humanize_token(concept.get('video_goal'))}",
+        f"Type: {_humanize_token(concept.get('video_goal'), is_video_goal=True)}",
         f"Audience: {concept.get('audience') or '-'}",
         f"CTA: {concept.get('cta') or '-'}",
         f"Source URL: {concept.get('reference_url') or '-'}",
@@ -224,7 +235,7 @@ def _video_ai_beats_text(beat_sheet: Dict[str, Any], concept: Dict[str, Any]) ->
         "Beat Plan Ready",
         "",
         f"Feature Focus: {concept.get('feature_focus') or '-'}",
-        f"Goal: {_humanize_token(concept.get('video_goal'))}",
+        f"Type: {_humanize_token(concept.get('video_goal'), is_video_goal=True)}",
         "",
     ]
     for beat in beat_sheet.get("beats") or []:
@@ -335,7 +346,7 @@ def _video_ai_demo_preview_text(
     video_goal = session_collected.get("video_goal", "")
     audience = session_collected.get("audience", "")
     if video_goal:
-        lines.append(f"Video goal: {_humanize_token(video_goal)}")
+        lines.append(f"Video type: {_humanize_token(video_goal, is_video_goal=True)}")
     if audience:
         lines.append(f"Target audience: {_truncate(audience, 60)}")
 
@@ -611,9 +622,9 @@ class TelegramRenderer:
     def render_skill_prompt(
         cls, session: SkillSession, prefix: str = ""
     ) -> Dict[str, Any]:
-        if (
-            session.skill_name == "persona-creator"
-            and session.step_key in ("preview", "confirm_dream")
+        if session.skill_name == "persona-creator" and session.step_key in (
+            "preview",
+            "confirm_dream",
         ):
             step = get_step_definition(session.skill_name, session.step_key)
             persona_id = session.artifacts.get("persona_id") or session.collected.get(
@@ -641,7 +652,11 @@ class TelegramRenderer:
             )
 
             prompt_text = step.get("prompt_text") or "✨ *Persona Profile Ready\\!*"
-            dynamic_message = session.last_result.output.get("message") if session.last_result else None
+            dynamic_message = (
+                session.last_result.output.get("message")
+                if session.last_result
+                else None
+            )
             if dynamic_message:
                 prompt_text = f"{prompt_text}\n\n{dynamic_message}"
 
@@ -829,10 +844,12 @@ class TelegramRenderer:
         prompt_text = (
             step.get("prompt_text") or f"{session.skill_name}: {session.step_key}"
         )
-        dynamic_message = session.last_result.output.get("message") if session.last_result else None
+        dynamic_message = (
+            session.last_result.output.get("message") if session.last_result else None
+        )
         if dynamic_message:
             prompt_text = f"{prompt_text}\n\n{dynamic_message}"
-        
+
         input_type = step.get("input_type")
 
         if input_type in {"persona_picker", "persona_selector"}:
@@ -943,7 +960,7 @@ class TelegramRenderer:
                     "",
                     f"Persona: {concept.get('persona_id') or '-'}",
                     f"Feature Focus: {concept.get('feature_focus') or '-'}",
-                    f"Goal: {_humanize_token(concept.get('video_goal'))}",
+                    f"Type: {_humanize_token(concept.get('video_goal'), is_video_goal=True)}",
                     f"Beats: {beat_count}",
                 ]
                 if production_note:
@@ -1400,7 +1417,7 @@ class TelegramRenderer:
                         "",
                         f"Persona: {concept.get('persona_id') or '-'}",
                         f"Feature Focus: {concept.get('feature_focus') or '-'}",
-                        f"Goal: {_humanize_token(concept.get('video_goal'))}",
+                        f"Type: {_humanize_token(concept.get('video_goal'), is_video_goal=True)}",
                         f"Beats: {beat_count}",
                     ]
                     if production_note:
@@ -1418,7 +1435,7 @@ class TelegramRenderer:
                         "",
                         f"Persona: {concept.get('persona_id') or '-'}",
                         f"Feature Focus: {concept.get('feature_focus') or '-'}",
-                        f"Goal: {_humanize_token(concept.get('video_goal'))}",
+                        f"Type: {_humanize_token(concept.get('video_goal'), is_video_goal=True)}",
                         f"Beats: {beat_count}",
                     ]
                     if production_note:

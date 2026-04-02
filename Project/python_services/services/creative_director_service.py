@@ -47,8 +47,8 @@ class CreativeDirectorService:
     _DEMO_ANGLE_BY_GOAL = {
         "feature_demo": "grounded_feature_demo",
         "conversion": "grounded_benefit_proof",
-        "awareness": "grounded_product_intro",
         "walkthrough": "step_by_step_demo",
+        # Deprecated: "awareness" auto-migrates to "feature_demo" via contract validator
     }
     _DEMO_BEAT_TARGET_SECONDS = {
         "hook": 5,
@@ -764,7 +764,7 @@ class CreativeDirectorService:
             "- Output JSON only.\n"
             "- creative_input_mode must be 'idea_brief'.\n"
             "- Keep platform as the provided platform.\n"
-            "- Keep video_goal exactly within: feature_demo, conversion, awareness, walkthrough.\n"
+            "- Keep video_goal exactly within: feature_demo, conversion, walkthrough.\n"
             "- Infer a short angle that matches the goal and idea.\n"
             "- source_summary must be conservative and avoid claiming product details that are not explicitly visible from the provided source context.\n"
             "- tone_resolved must prefer the provided persona tone_default, otherwise 'natural'.\n"
@@ -774,7 +774,7 @@ class CreativeDirectorService:
             '  "persona_id": "...",\n'
             '  "creative_input_mode": "idea_brief",\n'
             '  "feature_focus": "...",\n'
-            '  "video_goal": "feature_demo|conversion|awareness|walkthrough",\n'
+            '  "video_goal": "feature_demo|conversion|walkthrough",\n'
             '  "audience": "...",\n'
             '  "angle": "...",\n'
             '  "platform": "tiktok",\n'

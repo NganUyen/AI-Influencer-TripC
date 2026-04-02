@@ -51,7 +51,10 @@ SUBMENUS: Dict[str, Dict[str, Any]] = {
         "rows": [
             [("➕ Create Persona", "skill_persona-creator")],
             [("📋 Inspect Personas", "skill_persona-inspector")],
-            [("📊 Quota", "skill_quota-inspector"), ("📅 Weekly Plan", "skill_weekly-planner")],
+            [
+                ("📊 Quota", "skill_quota-inspector"),
+                ("📅 Weekly Plan", "skill_weekly-planner"),
+            ],
             [("🔙 Back", "menu_main")],
         ],
     },
@@ -262,12 +265,16 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "choose_video_goal": {
             "input_type": "inline_keyboard",
             "field": "video_goal",
-            "prompt_text": "What is the main goal of this video?",
+            "prompt_text": (
+                "🎬 What type of video do you want to create?\n\n"
+                "📱 Feature Spotlight — Highlight one key feature in detail\n"
+                "📚 Step-by-Step Guide — Explain how to use something from start to finish\n"
+                "🚀 Drive Action — Push viewers to sign up, try, or buy now"
+            ),
             "options": _options(
-                ("Feature Demo", "feature_demo"),
-                ("Conversion", "conversion"),
-                ("Awareness", "awareness"),
-                ("Walkthrough", "walkthrough"),
+                ("📱 Feature Spotlight", "feature_demo"),
+                ("📚 Step-by-Step Guide", "walkthrough"),
+                ("🚀 Drive Action", "conversion"),
             ),
         },
         "collect_audience": {

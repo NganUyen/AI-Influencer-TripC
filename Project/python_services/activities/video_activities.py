@@ -30,6 +30,7 @@ FULL_FRAME_WIDTH = 1080
 FULL_FRAME_HEIGHT = 1920
 BOTTOM_SOURCE_WIDTH = 1080
 BOTTOM_SOURCE_HEIGHT = 1080
+TOP_SCENE_SKIP_SECONDS = 8.0
 SUBTITLE_FONT_NAME = "Tahoma"
 SUBTITLE_FONT_SIZE = 64
 SUBTITLE_CENTER_X = FULL_FRAME_WIDTH // 2
@@ -568,10 +569,26 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                     f"Top-half asset {idx + 1} is not a video file after download"
                 )
 
+            source_duration = _probe_media_duration(p)
+            trim_start = TOP_SCENE_SKIP_SECONDS
+            # Keep a small tail for short clips so ffmpeg still emits a valid segment.
+            if source_duration is not None and source_duration <= TOP_SCENE_SKIP_SECONDS + 0.25:
+                trim_start = max(0.0, source_duration - 0.25)
+
+            logger.info(
+                "Assembly scene %s trimming | requested_skip=%.2fs | effective_skip=%.2fs | source_duration=%s",
+                idx,
+                TOP_SCENE_SKIP_SECONDS,
+                trim_start,
+                f"{source_duration:.2f}s" if source_duration is not None else "unknown",
+            )
+
             _run_ffmpeg(
                 [
                     "ffmpeg",
                     "-y",
+                    "-ss",
+                    f"{trim_start:.3f}",
                     "-i",
                     p,
                     "-vf",

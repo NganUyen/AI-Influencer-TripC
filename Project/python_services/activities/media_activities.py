@@ -679,21 +679,207 @@ _ALL_SOURCE_TYPES = VALID_TOP_HALF_SOURCE_TYPES  # Use unified definition
 _MIN_VIDEO_FILE_SIZE = 2000
 _MIN_IMAGE_FILE_SIZE = 1000
 
+# Default duration for AI visual videos (seconds)
+_AI_VISUAL_VIDEO_DURATION_SEC = 5
+
+
+async def _convert_image_to_video(
+    image_url: str,
+    scene_id: str,
+    scene_metadata: Dict[str, Any],
+    duration_sec: float = _AI_VISUAL_VIDEO_DURATION_SEC,
+) -> Dict[str, Any]:
+    """
+    Convert a static image to a looping video for top-half compatibility.
+
+    This ensures AI-generated images can be used in the video assembly pipeline
+    which requires all top-half assets to be videos.
+
+    Args:
+        image_url: URL of the source image
+        scene_id: Scene identifier for logging
+        scene_metadata: Metadata for storage (campaign_id, user_id, etc.)
+        duration_sec: Duration of the output video in seconds
+
+    Returns:
+        Dict with url, storage_url, storage_key, is_video=True, generation_method
+    """
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    logger.info(
+        "Converting AI image to video | scene=%s | url=%s | duration=%ss",
+        scene_id,
+        image_url[:80] if image_url else "NONE",
+        duration_sec,
+    )
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="ai_visual_video_"))
+    image_path = tmp_dir / "input_image.png"
+    video_output_path = tmp_dir / f"ai_visual_{scene_id}.mp4"
+
+    try:
+        # Download the AI-generated image
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(image_url)
+            response.raise_for_status()
+            image_path.write_bytes(response.content)
+
+        logger.debug(
+            "Downloaded AI image | scene=%s | size_kb=%.1f",
+            scene_id,
+            image_path.stat().st_size / 1024,
+        )
+
+        # Convert image to video using ffmpeg
+        # -loop 1: loop the input image
+        # -i INPUT: input image
+        # -t DURATION: output duration
+        # -vf scale=...: scale to 1080x960 (top-half standard dimensions)
+        # -c:v libx264: encode with h264
+        # -pix_fmt yuv420p: pixel format for compatibility
+        # -preset fast: encoding speed
+        # -crf 23: quality (default)
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-y",  # Overwrite output
+            "-loop", "1",  # Loop the input image
+            "-i", str(image_path),
+            "-t", str(duration_sec),  # Duration in seconds
+            "-vf", "scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2",
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",  # Required for compatibility with most players
+            "-preset", "fast",
+            "-crf", "23",
+            "-an",  # No audio (top-half is silent)
+            str(video_output_path),
+        ]
+
+        logger.debug(
+            "Running ffmpeg for AI visual video | scene=%s | cmd=%s",
+            scene_id,
+            " ".join(ffmpeg_cmd),
+        )
+
+        result = subprocess.run(
+            ffmpeg_cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+        if result.returncode != 0:
+            error_output = result.stderr[-500:] if result.stderr else "no stderr"
+            logger.error(
+                "ffmpeg image-to-video failed | scene=%s | returncode=%s | stderr=%s",
+                scene_id,
+                result.returncode,
+                error_output,
+            )
+            raise ApplicationError(
+                f"Scene {scene_id}: ffmpeg failed to convert image to video (rc={result.returncode})",
+                non_retryable=False,
+            )
+
+        if (
+            not video_output_path.exists()
+            or video_output_path.stat().st_size < _MIN_VIDEO_FILE_SIZE
+        ):
+            raise ApplicationError(
+                f"Scene {scene_id}: converted video is too small or missing",
+                non_retryable=False,
+            )
+
+        video_bytes = video_output_path.read_bytes()
+        logger.info(
+            "AI visual converted to video | scene=%s | size_mb=%.2f",
+            scene_id,
+            len(video_bytes) / (1024 * 1024),
+        )
+
+        # Upload to storage
+        media_storage = MediaStorageService()
+        campaign_id = scene_metadata.get("campaign_id")
+        user_id = scene_metadata.get("user_id")
+        owner_key = scene_metadata.get("owner_key")
+        persona_id = scene_metadata.get("persona_id")
+
+        storage_result = await media_storage.upload_bytes(
+            data=video_bytes,
+            content_type="video/mp4",
+            asset_kind="video",
+            asset_type="VIDEO",
+            metadata={
+                "source_type": "ai_visual_video",
+                "scene_id": scene_id,
+                "original_image_url": image_url[:500],  # Truncate long URLs
+                "duration_sec": duration_sec,
+                **scene_metadata,
+            },
+            campaign_id=str(campaign_id) if campaign_id else None,
+            user_id=user_id,
+            owner_key=owner_key,
+            persona_id=persona_id,
+            file_name_hint=f"ai_visual_video_{scene_id}",
+        )
+
+        if storage_result is None:
+            raise ApplicationError(
+                f"Scene {scene_id}: failed to upload AI visual video",
+                non_retryable=False,
+            )
+
+        logger.info(
+            "AI visual video uploaded | scene=%s | storage_url=%s | media_asset_id=%s",
+            scene_id,
+            storage_result.get("url", "")[:80],
+            storage_result.get("media_asset_id"),
+        )
+
+        return {
+            "url": storage_result.get("url"),
+            "storage_url": storage_result.get("storage_url")
+            or storage_result.get("access_url")
+            or storage_result.get("url"),
+            "storage_key": storage_result.get("storage_key")
+            or storage_result.get("storage_path")
+            or storage_result.get("key"),
+            "media_asset_id": storage_result.get("media_asset_id"),
+            "is_video": True,  # Now it's a video!
+            "generation_method": "ai_visual_video",
+        }
+
+    finally:
+        # Cleanup temp files
+        try:
+            import shutil
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception as cleanup_exc:
+            logger.warning(
+                "Failed to cleanup temp dir for AI visual video scene %s: %s",
+                scene_id,
+                cleanup_exc,
+            )
+
 
 async def _generate_ai_visual(
     scene: Dict[str, Any],
     scene_metadata: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Generate an AI visual for a scene using fal.ai.
+    Generate an AI visual for a scene using fal.ai and convert to video.
 
     Uses top_half_target and top_half_capture_hint to build a contextual prompt.
-    Returns storage result dict with url, storage_key, etc.
+    The generated image is converted to a short video for top-half compatibility.
+    Returns storage result dict with url, storage_key, is_video=True, etc.
     """
     scene_id = scene.get("id", "unknown")
     top_half_target = scene.get("top_half_target", "")
     capture_hint = scene.get("top_half_capture_hint", "")
     image_prompt = scene.get("image_prompt") or scene.get("prompt", "")
+    # Get duration from scene for video length, default to 5 seconds
+    duration_sec = float(scene.get("duration_sec") or scene.get("duration") or _AI_VISUAL_VIDEO_DURATION_SEC)
 
     # Build an enriched prompt from available context
     prompt_parts = []
@@ -740,27 +926,41 @@ async def _generate_ai_visual(
             )
 
         image_data = result["images"][0]
-        final_url = image_data.get("url") or image_data.get("storage_url")
+        image_url = image_data.get("url") or image_data.get("storage_url")
 
-        if not final_url:
+        if not image_url:
             raise RuntimeError(
                 f"AI image generation returned no URL for scene {scene_id}"
             )
 
         logger.info(
-            "AI visual generated | scene=%s | url=%s",
+            "AI image generated, converting to video | scene=%s | image_url=%s",
             scene_id,
-            final_url[:80],
+            image_url[:80],
         )
 
-        return {
-            "url": final_url,
-            "storage_url": image_data.get("storage_url"),
-            "storage_key": image_data.get("storage_key"),
-            "media_asset_id": image_data.get("media_asset_id"),
-            "is_video": False,
-            "generation_method": "ai_visual",
-        }
+        # Convert static image to video for top-half compatibility
+        video_result = await _convert_image_to_video(
+            image_url=image_url,
+            scene_id=scene_id,
+            scene_metadata=scene_metadata,
+            duration_sec=duration_sec,
+        )
+
+        # Preserve original image info in result
+        video_result["original_image_url"] = image_url
+        video_result["original_image_storage_key"] = image_data.get("storage_key")
+        video_result["original_image_media_asset_id"] = image_data.get("media_asset_id")
+
+        logger.info(
+            "AI visual video ready | scene=%s | video_url=%s | is_video=%s",
+            scene_id,
+            video_result.get("url", "")[:80],
+            video_result.get("is_video"),
+        )
+
+        return video_result
+
     except Exception as e:
         logger.error(
             "AI visual generation FAILED | scene=%s | error=%s",
@@ -1554,6 +1754,12 @@ async def _extract_uploaded_demo_segment(
             file_name_hint=f"demo_segment_{scene_id}",
         )
 
+        if storage_result is None:
+            raise ApplicationError(
+                f"Scene {scene_id}: failed to upload extracted demo segment",
+                non_retryable=False,
+            )
+
         logger.info(
             "Segment uploaded | scene=%s | storage_url=%s | media_asset_id=%s",
             scene_id,
@@ -1563,8 +1769,12 @@ async def _extract_uploaded_demo_segment(
 
         return {
             "url": storage_result.get("url"),
-            "storage_url": storage_result.get("url"),
-            "storage_key": storage_result.get("key"),
+            "storage_url": storage_result.get("storage_url")
+            or storage_result.get("access_url")
+            or storage_result.get("url"),
+            "storage_key": storage_result.get("storage_key")
+            or storage_result.get("storage_path")
+            or storage_result.get("key"),
             "media_asset_id": storage_result.get("media_asset_id"),
             "is_video": True,
             "generation_method": "uploaded_demo_segment",

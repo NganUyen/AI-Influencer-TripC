@@ -5,6 +5,7 @@ Short video workflow for persona-driven vertical video generation.
 from __future__ import annotations
 import asyncio
 import re
+from urllib.parse import urlparse
 from datetime import timedelta
 from typing import Any, Dict, List
 
@@ -43,6 +44,44 @@ MEDIA_RETRY_POLICY = RetryPolicy(
         "PersonaConfigurationError",
     ],
 )
+
+
+_VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi"}
+_KNOWN_VIDEO_GENERATION_METHODS = {
+    "browser_capture",
+    "uploaded_demo_segment",
+    "ai_visual_video",
+}
+
+
+def _scene_has_video_asset(scene: Dict[str, Any]) -> bool:
+    """Best-effort video detection for mixed worker versions and partial metadata."""
+    raw_flag = scene.get("is_video")
+    if isinstance(raw_flag, bool):
+        return raw_flag
+    if isinstance(raw_flag, str):
+        normalized = raw_flag.strip().lower()
+        if normalized in {"true", "1", "yes"}:
+            return True
+        if normalized in {"false", "0", "no"}:
+            return False
+
+    generation_method = str(scene.get("generation_method") or "").strip().lower()
+    if generation_method in _KNOWN_VIDEO_GENERATION_METHODS:
+        return True
+
+    asset_url = str(scene.get("image_url") or "").strip()
+    if not asset_url:
+        return False
+
+    parsed = urlparse(asset_url)
+    path = (parsed.path or "").lower()
+    return any(path.endswith(ext) for ext in _VIDEO_EXTENSIONS)
+
+
+def _has_nonempty_asset_url(scene: Dict[str, Any]) -> bool:
+    asset_url = scene.get("image_url")
+    return isinstance(asset_url, str) and bool(asset_url.strip())
 
 
 @workflow.defn
@@ -430,7 +469,9 @@ class ShortVideoWorkflow:
             # Detect failed scenes before assembly
             image_urls_raw = [scene.get("image_url") for scene in scenes_result]
             failed_scene_indices = [
-                i for i, url in enumerate(image_urls_raw) if url is None
+                i
+                for i, url in enumerate(image_urls_raw)
+                if not (isinstance(url, str) and url.strip())
             ]
 
             if failed_scene_indices:
@@ -446,22 +487,42 @@ class ShortVideoWorkflow:
             valid_scenes_with_index = [
                 (i, scene)
                 for i, scene in enumerate(scenes_result)
-                if scene.get("image_url")
+                if _has_nonempty_asset_url(scene)
             ]
             image_urls = [
                 scene.get("image_url") for _, scene in valid_scenes_with_index
             ]
-            # [SAFETY-4] Extract is_video flags from scene metadata
+            # [SAFETY-4] Extract video flags with metadata + URL fallback detection.
             is_video_flags = [
-                bool(scene.get("is_video")) for _, scene in valid_scenes_with_index
+                _scene_has_video_asset(scene) for _, scene in valid_scenes_with_index
             ]
             if not all(is_video_flags):
+                invalid_video_indices = [
+                    i
+                    for (i, _scene), is_video in zip(
+                        valid_scenes_with_index, is_video_flags
+                    )
+                    if not is_video
+                ]
+                invalid_video_diagnostics = [
+                    {
+                        "scene_index": i,
+                        "url": str(scene.get("image_url") or "")[:120],
+                        "is_video": scene.get("is_video"),
+                        "generation_method": scene.get("generation_method"),
+                    }
+                    for i, scene in valid_scenes_with_index
+                    if i in invalid_video_indices
+                ]
                 workflow.logger.error(
-                    "Top-half validation failed: non-video asset detected | flags=%s",
+                    "Top-half validation failed: non-video asset detected | flags=%s | invalid_indices=%s | diagnostics=%s",
                     is_video_flags,
+                    invalid_video_indices,
+                    invalid_video_diagnostics,
                 )
                 raise SceneAssetMismatchError(
-                    "Top-half assets must be Playwright browser recordings (video only)."
+                    "Top-half assets must be Playwright browser recordings (video only). "
+                    f"Invalid scene indices: {invalid_video_indices}"
                 )
             aligned_durations = [
                 scene_durations[i] if i < len(scene_durations) else 4.0

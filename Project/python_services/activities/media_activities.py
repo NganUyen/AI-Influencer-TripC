@@ -1336,10 +1336,10 @@ async def _capture_browser_video(
         # ADAPTIVE CAPTURE DURATION
         # ═══════════════════════════════════════════════════════════════════════════
         # Use scene timestamps to calculate exact needed duration with buffer.
-        # CRITICAL: Assembly skips the first 15 seconds (TOP_SCENE_SKIP_SECONDS) to
+        # CRITICAL: Assembly skips the first 8 seconds (TOP_SCENE_SKIP_SECONDS) to
         # exclude blank page loading frames. We must capture enough footage so that
-        # scene_duration remains AFTER the 15-second skip.
-        ASSEMBLY_SKIP_SECONDS = 15.0
+        # scene_duration remains AFTER the 8-second skip.
+        ASSEMBLY_SKIP_SECONDS = 8.0
         scene_duration_sec = None
         ts_start = scene.get("timestamp_start")
         ts_end = scene.get("timestamp_end")
@@ -1347,7 +1347,7 @@ async def _capture_browser_video(
             scene_duration_sec = float(ts_end) - float(ts_start)
         
         # Calculate adaptive max_capture_seconds
-        # Formula: 15s (skip) + scene_duration + 2s (buffer)
+        # Formula: 8s (skip) + scene_duration + 2s (buffer)
         if scene_duration_sec and scene_duration_sec > 0:
             adaptive_duration = ASSEMBLY_SKIP_SECONDS + scene_duration_sec + 2.0
             # Don't exceed base max

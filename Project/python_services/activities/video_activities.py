@@ -30,7 +30,7 @@ FULL_FRAME_WIDTH = 1080
 FULL_FRAME_HEIGHT = 1920
 BOTTOM_SOURCE_WIDTH = 1080
 BOTTOM_SOURCE_HEIGHT = 1080
-TOP_SCENE_SKIP_SECONDS = 15.0  # Skip first 15 seconds to ensure page is fully loaded
+TOP_SCENE_SKIP_SECONDS = 8.0
 SUBTITLE_FONT_NAME = "Tahoma"
 SUBTITLE_FONT_SIZE = 64
 SUBTITLE_CENTER_X = FULL_FRAME_WIDTH // 2
@@ -578,10 +578,10 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                 available_after_skip = source_duration - TOP_SCENE_SKIP_SECONDS
                 
                 if available_after_skip >= min_content_needed:
-                    # Ideal case: enough content after the skip
+                    # Ideal case: enough content after the 8s skip
                     trim_start = TOP_SCENE_SKIP_SECONDS
                 elif source_duration >= min_content_needed:
-                    # Source is long enough but not after skip - reduce skip to preserve content
+                    # Source is long enough but not after 8s skip - reduce skip to preserve content
                     # Start from (source_duration - min_content_needed) to ensure we have enough
                     trim_start = max(0.0, source_duration - min_content_needed)
                 else:
@@ -593,15 +593,6 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                         source_duration,
                         min_content_needed,
                     )
-            else:
-                # source_duration is None - ffprobe failed
-                # Use a conservative approach: start from 0 to avoid empty output
-                trim_start = 0.0
-                logger.warning(
-                    "Could not probe video duration | scene=%s | file=%s | starting from 0",
-                    idx,
-                    p[-50:],
-                )
 
             logger.info(
                 "Assembly scene %s trimming | requested_skip=%.2fs | effective_skip=%.2fs | source_duration=%s | scene_duration=%.2fs",

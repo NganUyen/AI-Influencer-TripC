@@ -529,11 +529,11 @@ class BrowserAutomationService:
             max_links_to_visit = max(0, min(int(max_links_to_visit or 0), 5))
             
             # If scene_duration_sec is provided, use it to constrain capture budget.
-            # CRITICAL: Assembly skips the first 15 seconds (TOP_SCENE_SKIP_SECONDS) to
+            # CRITICAL: Assembly skips the first 8 seconds (TOP_SCENE_SKIP_SECONDS) to
             # exclude blank page loading frames. We must capture enough footage so that
-            # scene_duration remains AFTER the 15-second skip.
-            # Formula: 15s (skip) + scene_duration + 2s (buffer for transitions)
-            ASSEMBLY_SKIP_SECONDS = 15.0
+            # scene_duration remains AFTER the 8-second skip.
+            # Formula: 8s (skip) + scene_duration + 2s (buffer for transitions)
+            ASSEMBLY_SKIP_SECONDS = 8.0
             if scene_duration_sec and scene_duration_sec > 0:
                 target_duration = ASSEMBLY_SKIP_SECONDS + float(scene_duration_sec) + 2.0
                 # Don't exceed the hard cap

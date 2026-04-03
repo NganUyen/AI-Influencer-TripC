@@ -497,6 +497,8 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
     avatar_id: str = config.get("avatar_id", "")
     audio_url: str = config.get("audio_url", "")
     background: str = config.get("background", "blur")
+    platform: str = str(config.get("platform", "tiktok")).lower().strip()
+    requested_ratio: str = str(config.get("aspect_ratio") or "").strip()
     day: int = config.get("day", 1)
     topic: str = config.get("topic", "episode")
     persona_id: str = config.get("persona_id", "legacy")
@@ -514,14 +516,24 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
 
     logger.info(f"Creating talking head | avatar: {avatar_id} | day: {day}")
 
+    # HeyGen currently supports only 9:16 and 16:9 for create_video.
+    if requested_ratio in {"9:16", "16:9"}:
+        aspect_ratio = requested_ratio
+    elif platform in {"youtube", "linkedin", "x", "twitter"}:
+        aspect_ratio = "16:9"
+    else:
+        aspect_ratio = "9:16"
+
+    width, height = (1920, 1080) if aspect_ratio == "16:9" else (1080, 1920)
+
     video_job = await heygen.create_video(
         avatar_id=avatar_id,
         audio_url=audio_url,
         background=background,
-        aspect_ratio="1:1",
-        width=1080,
-        height=1080,
-        allow_aspect_ratio_fallback=False,
+        aspect_ratio=aspect_ratio,
+        width=width,
+        height=height,
+        allow_aspect_ratio_fallback=True,
     )
 
     video_id = video_job.get("video_id")

@@ -37,7 +37,7 @@ class TestTalkingHeadGeneration:
     @pytest.mark.asyncio
     @patch("activities.media_activities.StorageService")
     @patch("activities.media_activities.HeyGenService")
-    async def test_create_talking_head_video_requests_square_output(
+    async def test_create_talking_head_video_requests_supported_portrait_output(
         self, MockHeyGen, MockStorage
     ):
         from activities.media_activities import create_talking_head_video
@@ -85,10 +85,10 @@ class TestTalkingHeadGeneration:
             avatar_id="avatar-123",
             audio_url="https://cdn.example/audio.mp3",
             background="blur",
-            aspect_ratio="1:1",
+            aspect_ratio="9:16",
             width=1080,
-            height=1080,
-            allow_aspect_ratio_fallback=False,
+            height=1920,
+            allow_aspect_ratio_fallback=True,
         )
         assert result["url"] == "https://storage.example/talking-head.mp4"
 

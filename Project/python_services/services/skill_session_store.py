@@ -17,7 +17,7 @@ from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-SESSION_TTL_SECONDS = 600
+SESSION_TTL_SECONDS = 3600
 
 
 class TelegramSkillSessionStore:
@@ -76,20 +76,42 @@ class TelegramSkillSessionStore:
                     payload = json.loads(raw)
                     # Keep memory cache in sync for this worker
                     cls._memory_sessions[key] = payload
-                    return SkillSession.model_validate(payload)
-                # Redis returned None - check memory before giving up
-                # (session might exist in memory if previous write to Redis failed)
+                    session = SkillSession.model_validate(payload)
+                    
+                    # Refresh TTL on access to keep active sessions alive
+                    try:
+                        await cls._redis_client.expire(key, SESSION_TTL_SECONDS)
+                    except Exception as refresh_exc:
+                        logger.warning(
+                            "Failed to refresh session TTL for chat_id=%s: %s",
+                            chat_id,
+                            refresh_exc,
+                        )
+                    
+                    return session
+                # Redis returned None - session not found
+                return None
             except Exception as exc:  # pragma: no cover - depends on external Redis
                 logger.error(
-                    "Redis read failed for skill session store: %s. Falling back to memory.",
+                    "Redis read failed for skill session store: %s",
                     exc,
                 )
-                # Don't disable Redis on transient errors; try again next request
+                # In production, fail fast - don't silently fall back to memory
+                if settings.is_production_like:
+                    raise RuntimeError(
+                        "Session store unavailable in production. Redis is required."
+                    ) from exc
+                # In development, warn and fall back to memory
+                logger.warning(
+                    "Falling back to in-memory session store (development only)"
+                )
 
-        # Fallback to memory if:
-        # - Redis is not enabled at all
-        # - Redis read failed
-        # - Redis returned None but we might have it in memory from a failed write
+        # Fallback to memory only in development or when Redis is not configured
+        if settings.is_production_like and not cls._redis_enabled:
+            raise RuntimeError(
+                "Session store requires Redis in production, but Redis is not configured."
+            )
+        
         payload = cls._memory_sessions.get(key)
         return SkillSession.model_validate(payload) if payload else None
 
@@ -98,6 +120,30 @@ class TelegramSkillSessionStore:
         cls._init_redis()
         key = cls._session_key(chat_id)
         payload = session.model_dump(mode="json")
+        
+        # In production, only use Redis (no memory fallback)
+        if settings.is_production_like:
+            if not cls._redis_enabled or cls._redis_client is None:
+                raise RuntimeError(
+                    "Session store requires Redis in production, but Redis is not configured."
+                )
+            try:
+                await cls._redis_client.setex(
+                    key,
+                    SESSION_TTL_SECONDS,
+                    json.dumps(payload),
+                )
+            except Exception as exc:
+                logger.error(
+                    "Redis write failed for skill session store: %s",
+                    exc,
+                )
+                raise RuntimeError(
+                    "Failed to save session to Redis in production"
+                ) from exc
+            return
+        
+        # Development mode: try Redis first, fall back to memory
         # Always keep memory cache in sync for this worker
         cls._memory_sessions[key] = payload
 
@@ -113,8 +159,9 @@ class TelegramSkillSessionStore:
                     "Redis write failed for skill session store: %s. Session saved to memory only.",
                     exc,
                 )
-                # Don't disable Redis on transient errors; try again next request
-                # cls._redis_enabled = False
+                logger.warning(
+                    "Falling back to in-memory session store (development only)"
+                )
 
     @classmethod
     async def clear_session(cls, chat_id: int | str) -> None:

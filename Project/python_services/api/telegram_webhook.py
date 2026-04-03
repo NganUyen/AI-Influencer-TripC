@@ -308,6 +308,9 @@ async def _download_telegram_video(
 
     Returns:
         tuple of (file_content, content_type, filename) or None if no video found
+    
+    Raises:
+        ValueError: If file size exceeds Telegram's download limit
     """
     video = message.get("video")
     document = message.get("document")
@@ -315,9 +318,11 @@ async def _download_telegram_video(
     file_id: Optional[str] = None
     filename = "telegram-video.mp4"
     content_type = "video/mp4"
+    file_size: Optional[int] = None
 
     if isinstance(video, dict):
         file_id = video.get("file_id")
+        file_size = video.get("file_size")
         unique_id = video.get("file_unique_id") or video.get("file_id") or "upload"
         filename = f"telegram-video-{unique_id}.mp4"
         content_type = video.get("mime_type") or "video/mp4"
@@ -326,6 +331,7 @@ async def _download_telegram_video(
         if not document_mime.startswith("video/"):
             return None
         file_id = document.get("file_id")
+        file_size = document.get("file_size")
         filename = document.get("file_name") or "telegram-video"
         content_type = document_mime or "video/mp4"
     else:
@@ -333,6 +339,16 @@ async def _download_telegram_video(
 
     if not file_id:
         return None
+
+    # Check file size before attempting download (Telegram limit is 20MB for getFile)
+    TELEGRAM_FILE_LIMIT = 20 * 1024 * 1024  # 20MB in bytes
+    if file_size and file_size > TELEGRAM_FILE_LIMIT:
+        size_mb = file_size / (1024 * 1024)
+        raise ValueError(
+            f"Video file is too large ({size_mb:.1f}MB). "
+            f"Telegram's file download limit is 20MB. "
+            f"Please compress your video first."
+        )
 
     file_response = await _tg_call("getFile", {"file_id": file_id})
     file_path = file_response.get("result", {}).get("file_path")
@@ -977,15 +993,48 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                 and active_session.step_key == "upload_demo_video"
             ):
                 await send_chat_action(chat_id, action="upload_video")
+                telegram_video = None
+                error_message = None
+                
                 try:
                     telegram_video = await _download_telegram_video(message)
+                except ValueError as exc:
+                    # File size validation error - provide specific feedback
+                    logger.info(
+                        "Video file size validation failed for chat_id=%s: %s",
+                        chat_id,
+                        exc,
+                    )
+                    error_message = f"❌ {str(exc)}"
                 except Exception as exc:
                     logger.warning(
                         "Telegram video download failed for chat_id=%s: %s",
                         chat_id,
                         exc,
                     )
-                    telegram_video = None
+                    # Check if it's an HTTP error with specific status codes
+                    import httpx
+                    if isinstance(exc, httpx.HTTPStatusError):
+                        if exc.response.status_code in (400, 413):
+                            error_message = (
+                                "❌ Video file is too large for Telegram's download API.\n\n"
+                                "Please compress your video to under 20MB and try again."
+                            )
+                        else:
+                            error_message = (
+                                "❌ Failed to download video from Telegram.\n\n"
+                                "Please try uploading again or send /cancel to restart."
+                            )
+                    else:
+                        error_message = (
+                            "❌ Video download failed.\n\n"
+                            "Please try uploading again or send /cancel to restart."
+                        )
+                
+                # Send error message if download failed
+                if error_message:
+                    await send_message(chat_id, error_message, parse_mode=None)
+                    return
 
                 if telegram_video is not None:
                     video_bytes, content_type, filename = telegram_video
@@ -1019,13 +1068,19 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                         rendered = TelegramRenderer.render_skill_result(skill_result)
                         await _send_rendered_message(chat_id, rendered)
                         return
-
-                await send_message(
-                    chat_id,
-                    "Video download failed. Please try uploading again or send /cancel to restart.",
-                    parse_mode=None,
-                )
-                return
+            
+            # Video detected but no active video-ai session - provide recovery hint
+            await send_message(
+                chat_id,
+                "⏱️ Your video generation session has expired.\n\n"
+                "To start a new recorded demo video generation:\n"
+                "• Send /start to access the main menu\n"
+                "• Select 'Video AI' from the options\n"
+                "• Choose 'Recorded Demo Video'\n"
+                "• Then upload your video",
+                parse_mode=None,
+            )
+            return
 
         # Handle image uploads
         await send_chat_action(chat_id, action="upload_photo")

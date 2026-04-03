@@ -63,6 +63,17 @@ class ShortVideoWorkflow:
         fallback_topic = payload_dict.get("topic", "")
         telegram_chat_id = payload_dict.get("telegram_chat_id")
 
+        def log_step_change(new_step: str, details: str = "") -> None:
+            """Log workflow step transitions for debugging and monitoring."""
+            workflow.logger.info(
+                "Workflow step change | workflow_id=%s | persona_id=%s | topic=%s | step=%s | details=%s",
+                workflow_id,
+                fallback_persona_id,
+                fallback_topic,
+                new_step,
+                details or "none",
+            )
+
         async def notify_progress(stage_label: str, details: str = "") -> None:
             if not progress_notify_enabled:
                 return
@@ -201,6 +212,7 @@ class ShortVideoWorkflow:
             if approved_package:
                 self.workflow_status = "generating_script_from_package"
                 self.current_step = "generating_script"
+                log_step_change("generating_script", "from approved package")
                 await notify_progress(
                     "Generating script from approved plan",
                     "Converting the approved concept and beat plan into the production script.",
@@ -257,6 +269,7 @@ class ShortVideoWorkflow:
                 if not approval.get("approved"):
                     self.workflow_status = "discarded"
                     self.current_step = "script_rejected"
+                    log_step_change("script_rejected", "user rejected script")
                     return {
                         "type": "video",
                         "status": "discarded",
@@ -270,6 +283,7 @@ class ShortVideoWorkflow:
 
             self.workflow_status = "generating_assets"
             self.current_step = "generating_top_half_and_audio"
+            log_step_change("generating_top_half_and_audio", "parallel generation started")
             await notify_progress(
                 "Starting top-half and bottom-half generation",
                 "Top-half visuals and bottom-half audio are now running in parallel.",
@@ -398,6 +412,7 @@ class ShortVideoWorkflow:
 
             self.workflow_status = "assembling"
             self.current_step = "assembling"
+            log_step_change("assembling", "combining top and bottom half")
             await notify_progress(
                 "Top-half assets ready",
                 "Combining top half and bottom half with ffmpeg now.",
@@ -535,6 +550,7 @@ class ShortVideoWorkflow:
             if self.decision == "discard":
                 self.workflow_status = "discarded"
                 self.current_step = "discarded"
+                log_step_change("discarded", "user discarded video")
                 return {
                     "type": "video",
                     "status": "discarded",
@@ -548,6 +564,7 @@ class ShortVideoWorkflow:
 
             self.workflow_status = "completed"
             self.current_step = "completed"
+            log_step_change("completed", "workflow successful")
             return {
                 **final_video,
                 "status": "completed",
@@ -595,6 +612,8 @@ class ShortVideoWorkflow:
                 error_details["error_type"],
                 error_details["error_summary"],
             )
+            
+            # Send error notification to user if enabled, but don't let notification failure block the raise
             if telegram_chat_id and error_notify_enabled:
                 try:
                     await workflow.execute_activity(
@@ -616,21 +635,10 @@ class ShortVideoWorkflow:
                         "Failed to send error notification to Telegram: %s",
                         notify_exc,
                     )
-
-            return {
-                "type": "video",
-                "status": "failed",
-                "workflow_id": workflow_id,
-                "persona_id": fallback_persona_id,
-                "topic": fallback_topic,
-                "video_url": None,
-                "storage_key": None,
-                "metadata": {
-                    "reason": error_details["error_summary"],
-                    "error_type": error_details["error_type"],
-                    "failed_step": getattr(self, "current_step", "failed"),
-                },
-            }
+            
+            # Re-raise the exception so Temporal properly tracks this as a workflow failure
+            # This enables automatic retries and proper failure monitoring
+            raise
 
     @workflow.query
     def get_workflow_status(self) -> Dict[str, Any]:

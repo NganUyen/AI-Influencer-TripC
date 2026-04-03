@@ -237,10 +237,18 @@ class HeyGenService:
         """
         logger.info(f"Tạo HeyGen video | avatar: {avatar_id} | ratio: {aspect_ratio}")
 
-        candidate_ratios = [aspect_ratio]
-        if aspect_ratio == "1:1" and allow_aspect_ratio_fallback:
-            # HeyGen v2 may reject square aspect ratio for some accounts/avatar types.
-            candidate_ratios.append("9:16")
+        requested_ratio = (aspect_ratio or "").strip()
+        if requested_ratio not in {"9:16", "16:9"}:
+            logger.warning(
+                "Unsupported HeyGen aspect ratio requested (%s); defaulting to 9:16",
+                requested_ratio or "<empty>",
+            )
+            requested_ratio = "9:16"
+
+        candidate_ratios = [requested_ratio]
+        if allow_aspect_ratio_fallback:
+            fallback_ratio = "16:9" if requested_ratio == "9:16" else "9:16"
+            candidate_ratios.append(fallback_ratio)
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             data = None
@@ -281,15 +289,12 @@ class HeyGenService:
                     )
 
                     # Only attempt fallback on request-validation errors.
-                    if (
-                        resp.status_code != 400
-                        or candidate_ratio != "1:1"
-                        or "9:16" not in candidate_ratios
-                    ):
+                    if resp.status_code != 400 or len(candidate_ratios) <= 1:
                         raise last_exc
 
                     logger.warning(
-                        "Retrying HeyGen create_video with fallback aspect_ratio=9:16"
+                        "Retrying HeyGen create_video with fallback aspect_ratio=%s",
+                        candidate_ratios[-1],
                     )
 
                 if data is None and last_exc is not None:

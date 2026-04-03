@@ -180,22 +180,42 @@ _BEAT_PURPOSES = {
 }
 # Single source of truth for valid top_half_source_type values
 # Used across: script_service, creative_director_service, media_activities
+#
+# Source Type Behavior Matrix:
+# ┌─────────────────────────────┬──────────────┬───────────────────────────────────────────┐
+# │ source_type                 │ has_source_ref │ Behavior                                │
+# ├─────────────────────────────┼──────────────┼───────────────────────────────────────────┤
+# │ public_page_capture         │ Yes          │ Browser capture, ERROR on fail           │
+# │ public_page_capture         │ No           │ ERROR (non-retryable)                    │
+# │ hybrid_candidate            │ Yes          │ Browser capture, AI FALLBACK on fail     │
+# │ hybrid_candidate            │ No           │ AI visual directly (no browser attempt)  │
+# │ ai_visual_fallback          │ *            │ AI visual directly                       │
+# │ uploaded_demo_video         │ Yes          │ Extract segment from demo video          │
+# │ uploaded_demo_video         │ No           │ ERROR (non-retryable)                    │
+# │ authenticated_capture_later │ Yes          │ Browser capture, ERROR on fail           │
+# │ authenticated_capture_later │ No           │ ERROR (non-retryable)                    │
+# └─────────────────────────────┴──────────────┴───────────────────────────────────────────┘
 VALID_TOP_HALF_SOURCE_TYPES = {
-    "public_page_capture",
-    "authenticated_capture_later",
-    "ai_visual_fallback",
-    "hybrid_candidate",
-    "uploaded_demo_video",
+    "public_page_capture",         # Browser capture required, no fallback
+    "authenticated_capture_later", # Browser capture required (with auth), no fallback  
+    "ai_visual_fallback",          # Pure AI generation
+    "hybrid_candidate",            # Browser capture with AI fallback on failure
+    "uploaded_demo_video",         # Extract from uploaded video file
 }
 
 # Backward compatibility alias
 _TOP_HALF_SOURCE_TYPES = VALID_TOP_HALF_SOURCE_TYPES
 _VALID_TOP_HALF_SOURCE_TYPES = VALID_TOP_HALF_SOURCE_TYPES
 
-# Source types that require URL to function
+# Source types that REQUIRE a URL but support fallback if it fails
 URL_REQUIRED_SOURCE_TYPES = {
-    "public_page_capture",
-    "hybrid_candidate",
+    "public_page_capture",         # Strict: must have URL, fails if capture fails
+    "authenticated_capture_later", # Strict: must have URL, fails if capture fails
+}
+
+# Source types that benefit from URL but can fall back to AI
+URL_OPTIONAL_WITH_FALLBACK_TYPES = {
+    "hybrid_candidate",  # Uses URL if present, falls back to AI on failure or missing URL
 }
 
 

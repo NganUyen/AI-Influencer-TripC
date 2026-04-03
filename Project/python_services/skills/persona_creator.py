@@ -578,6 +578,25 @@ Response format:
             force_regenerate_avatar = bool(
                 current.artifacts.pop("force_regenerate_avatar", False)
             )
+
+            # ── Action Dispatcher (Handle Preview Buttons) ──────────────────
+            # We catch commands from the preview screen (e.g., 'edit_p_name') 
+            # and jump to the correct step immediately.
+            command = current.collected.pop("preview_command", None)
+            if command:
+                if command == "ready":
+                    current.step_key = "save"
+                elif command == "cancel":
+                    current.control.status = SkillStatus.done
+                    return SkillResult(success=True, next_step="cancel", session=current)
+                elif command == "rebuild_avatar":
+                    current.artifacts["force_regenerate_avatar"] = True
+                    current.step_key = "generate_preview"
+                else:
+                    # 'edit_p_name', 'edit_appearance', 'choose_voice', etc.
+                    current.step_key = command
+                    return cls._collecting_result(current, next_step=command)
+
             # ── Step 0: Dream Logic (Discovery Layer) ──────────────────────────
             # We skip this if we are editing an existing persona
             if current.artifacts.get("is_editing"):
@@ -726,15 +745,17 @@ Response format:
                 )
 
             # ── Step 2: Persistence Guard ──────────────────────────────────────
-            # IMPORTANT: We only proceed to the heavy POST block if we are actually
-            # on the final preview or save steps. This prevents "Stuck" issues 
-            # on intermediate steps like 'confirm_dream'.
-            # Handle edit_p_name: after collecting the name, go back to preview
-            if current.step_key == "edit_p_name":
-                current.step_key = "preview"
-                return cls._collecting_result(current, next_step="preview")
-            if current.step_key not in ["save", "generate_preview", "preview"]:
+            # Logic: If we are on a final action step (save, preview, generate_preview),
+            # OR we just finished an edit step, proceed to the database POST block.
+            is_final_step = current.step_key in ["save", "generate_preview", "preview"]
+            is_post_edit = current.step_key in ["edit_p_name", "edit_appearance", "choose_voice", "choose_language"]
+            
+            if not (is_final_step or is_post_edit):
                 return cls._collecting_result(current, next_step=current.step_key)
+
+            # If we just finished an edit, force a preview generation after saving
+            if is_post_edit:
+                current.step_key = "generate_preview"
 
             # NOTE: We explicitly construct the payload with ONLY valid DB columns.
             # Transient inputs like 'nationality' are filtered out here.

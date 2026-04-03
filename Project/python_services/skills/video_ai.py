@@ -14,12 +14,17 @@ from services.contracts import (
     ConceptBriefContract,
     RecordedDemoEvidenceContract,
 )
+from services.ai_service import AIService
 from services.creative_director_service import CreativeDirectorService
 from services.demo_feature_grounding_service import (
     DemoFeatureGroundingService,
     build_preview_summary,
 )
 from services.demo_video_analyzer_service import DemoVideoAnalyzerService
+from services.frame_understanding_service import FrameUnderstandingService
+from services.idea_resolver_service import IdeaResolverService
+from services.official_feature_catalog_service import OfficialFeatureCatalogService
+from services.official_source_resolver_service import OfficialSourceResolverService
 from services.recorded_demo_failure_policy import (
     build_preview_warnings,
     should_block_before_concept,
@@ -272,13 +277,24 @@ class VideoAISkill(BaseSkill):
 
         # Phase 4: Run video analysis
         logger.info("Running Phase 4 demo video analysis for %s", demo_video_url)
-        analyzer = DemoVideoAnalyzerService()
+
+        # V3.1: Wire services with dependencies
+        ai_service = AIService()
+        frame_understanding_service = FrameUnderstandingService(ai_service=ai_service)
+        analyzer = DemoVideoAnalyzerService(
+            frame_understanding_service=frame_understanding_service
+        )
+
+        # Get user_video_thesis if available (V3.1)
+        user_video_thesis = session.collected.get("user_video_thesis", "")
+
         evidence = await analyzer.analyze_demo_video(
             video_url=demo_video_url,
             reference_url=reference_url,
             video_goal=video_goal,
             audience=audience,
             cta=cta,
+            user_video_thesis=user_video_thesis,
         )
 
         # Store quality report from Phase 3 if available
@@ -292,7 +308,17 @@ class VideoAISkill(BaseSkill):
                 "Running Phase 5 feature grounding against %s",
                 reference_url,
             )
-            grounding_service = DemoFeatureGroundingService()
+
+            # V3.1: Wire grounding services with catalog support
+            official_source_resolver = OfficialSourceResolverService()
+            official_catalog_service = OfficialFeatureCatalogService(
+                ai_service=ai_service
+            )
+            grounding_service = DemoFeatureGroundingService(
+                official_source_resolver=official_source_resolver,
+                official_catalog_service=official_catalog_service,
+            )
+
             evidence = await grounding_service.ground_features(
                 evidence=evidence,
                 reference_url=reference_url,
@@ -460,6 +486,7 @@ class VideoAISkill(BaseSkill):
                 try:
                     # Try to extract validation details from httpx response
                     import json
+
                     if hasattr(exc, "response"):
                         resp = exc.response
                         if hasattr(resp, "json"):
@@ -471,18 +498,25 @@ class VideoAISkill(BaseSkill):
                                         # Pydantic validation errors
                                         validation_issues = []
                                         for err in detail[:3]:  # Limit to first 3
-                                            loc = ".".join(str(x) for x in err.get("loc", []))
+                                            loc = ".".join(
+                                                str(x) for x in err.get("loc", [])
+                                            )
                                             msg = err.get("msg", "validation error")
                                             validation_issues.append(f"- {loc}: {msg}")
                                         if validation_issues:
-                                            error_detail = "Validation errors:\n" + "\n".join(validation_issues)
+                                            error_detail = (
+                                                "Validation errors:\n"
+                                                + "\n".join(validation_issues)
+                                            )
                                     elif isinstance(detail, str):
                                         error_detail = detail
                             except Exception:
                                 pass
                 except Exception:
                     pass
-                error_message = f"Production workflow validation failed.\n\n{error_detail}"
+                error_message = (
+                    f"Production workflow validation failed.\n\n{error_detail}"
+                )
 
             return SkillResult(
                 success=False,
@@ -618,7 +652,10 @@ class VideoAISkill(BaseSkill):
 
                 # For recorded-demo mode, regenerate should re-run demo analysis
                 # instead of repeatedly attempting concept generation from stale evidence.
-                if current.collected.get("creative_input_mode") == "recorded_demo_video":
+                if (
+                    current.collected.get("creative_input_mode")
+                    == "recorded_demo_video"
+                ):
                     current.artifacts["demo_evidence"] = None
                     current.artifacts["demo_preview_summary"] = None
                     current.artifacts["demo_preview_confirmed"] = False
@@ -659,12 +696,15 @@ class VideoAISkill(BaseSkill):
         reemphasis_text: Optional[str] = None,
     ) -> SkillResult:
         """
-        Handle demo preview confirmation actions (Phase 5).
+        Handle demo preview confirmation actions (Phase 5 / V3.1).
 
         Actions:
-        - confirm: User confirms the analysis, proceed to ConceptBrief generation
-        - correct: User wants to correct feature misunderstandings
-        - reemphasize: User wants to focus on specific features
+        - confirm: User confirms the analysis, proceed to ConceptBrief generation (legacy)
+        - approve: V3.1 - User approves the proposed main idea
+        - pick_alternate: V3.1 - User wants to pick a different feature as main idea
+        - rewrite: V3.1 - User wants to provide custom main idea text
+        - correct: User wants to correct feature misunderstandings (legacy)
+        - reemphasize: User wants to focus on specific features (legacy)
         - reupload: User wants to re-upload a different demo video
         - timeout: System-triggered timeout (abort, not auto-confirm)
         """
@@ -683,6 +723,29 @@ class VideoAISkill(BaseSkill):
             current.artifacts["demo_preview_timeout_at"] = None
             logger.info("Demo preview confirmed by user, proceeding to ConceptBrief")
             return await cls.execute(current, backend_url, http_client)
+
+        # V3.1 Fix 4: New actions for main idea approval flow
+        if action == "approve":
+            # User approves the proposed main idea from IdeaResolver
+            current.artifacts["demo_preview_confirmed"] = True
+            current.artifacts["demo_preview_timeout_at"] = None
+            logger.info("V3.1: Main idea approved by user, proceeding to ConceptBrief")
+            return await cls.execute(current, backend_url, http_client)
+
+        if action == "pick_alternate":
+            # User wants to pick a different feature as the main idea
+            # Navigate to demo_pick_alternate_focus step to show ranked feature options
+            current.step_key = "demo_pick_alternate_focus"
+            logger.info("V3.1: User choosing alternate main idea")
+            return cls._collecting_result(
+                current, next_step="demo_pick_alternate_focus"
+            )
+
+        if action == "rewrite":
+            # User wants to provide custom main idea text
+            current.step_key = "demo_rewrite_main_idea"
+            logger.info("V3.1: User rewriting main idea")
+            return cls._collecting_result(current, next_step="demo_rewrite_main_idea")
 
         if action == "correct":
             if correction_text:
@@ -866,6 +929,79 @@ class VideoAISkill(BaseSkill):
                 # Clear the step_key to allow normal flow
                 current.step_key = None
 
+        # V3.1: Handle alternate focus selection
+        if current.step_key == "demo_pick_alternate_focus" and current.collected.get(
+            "alternate_feature_focus"
+        ):
+            alternate_name = current.collected.get(
+                "alternate_feature_focus", ""
+            ).strip()
+            if alternate_name:
+                # Update resolved_idea with user's alternate choice
+                evidence_payload = current.artifacts.get("demo_evidence")
+                if evidence_payload:
+                    try:
+                        evidence = RecordedDemoEvidenceContract.model_validate(
+                            evidence_payload
+                        )
+                        if evidence.resolved_idea:
+                            # Override main idea with user selection
+                            evidence.resolved_idea.resolved_main_idea = (
+                                f"This video demonstrates {alternate_name}"
+                            )
+                            evidence.resolved_idea.canonical_feature_focus = (
+                                alternate_name
+                            )
+                            evidence.resolved_idea.idea_confidence = (
+                                "high"  # User choice = max confidence
+                            )
+                            current.artifacts["demo_evidence"] = evidence.model_dump(
+                                mode="json"
+                            )
+                            logger.info(
+                                "V3.1: User selected alternate main idea: %s",
+                                alternate_name,
+                            )
+                    except ValidationError:
+                        pass
+                # Mark as confirmed and proceed
+                current.artifacts["demo_preview_confirmed"] = True
+                current.artifacts["demo_preview_timeout_at"] = None
+                current.step_key = None
+
+        # V3.1: Handle custom main idea rewrite
+        if current.step_key == "demo_rewrite_main_idea" and current.collected.get(
+            "rewritten_main_idea"
+        ):
+            custom_idea = current.collected.get("rewritten_main_idea", "").strip()
+            if custom_idea:
+                # Update resolved_idea with user's custom text
+                evidence_payload = current.artifacts.get("demo_evidence")
+                if evidence_payload:
+                    try:
+                        evidence = RecordedDemoEvidenceContract.model_validate(
+                            evidence_payload
+                        )
+                        if evidence.resolved_idea:
+                            # Override main idea with custom text
+                            evidence.resolved_idea.resolved_main_idea = custom_idea
+                            evidence.resolved_idea.idea_confidence = (
+                                "high"  # User choice = max confidence
+                            )
+                            current.artifacts["demo_evidence"] = evidence.model_dump(
+                                mode="json"
+                            )
+                            logger.info(
+                                "V3.1: User rewrote main idea to: %s",
+                                custom_idea,
+                            )
+                    except ValidationError:
+                        pass
+                # Mark as confirmed and proceed
+                current.artifacts["demo_preview_confirmed"] = True
+                current.artifacts["demo_preview_timeout_at"] = None
+                current.step_key = None
+
         next_step = cls._missing_step(current)
 
         # Phase 5: For recorded_demo_video mode, run analysis and grounding before preview
@@ -881,10 +1017,31 @@ class VideoAISkill(BaseSkill):
                 )
                 current.artifacts["demo_evidence"] = evidence.model_dump(mode="json")
 
+                # V3.1 Fix 3: Run IdeaResolver after grounding, before preview
+                logger.info("Running V3.1 IdeaResolver to determine main idea")
+                ai_service = AIService()
+                idea_resolver = IdeaResolverService(ai_service)
+                resolved_idea = await idea_resolver.resolve(
+                    evidence=evidence,
+                    user_video_thesis=current.collected.get("user_video_thesis", ""),
+                    content_scope=current.collected.get("content_scope"),
+                )
+
+                # Store resolved_idea in evidence
+                evidence.resolved_idea = resolved_idea
+                current.artifacts["demo_evidence"] = evidence.model_dump(mode="json")
+
+                logger.info(
+                    "IdeaResolver complete: main_idea=%s, idea_confidence=%s",
+                    resolved_idea.resolved_main_idea,
+                    resolved_idea.idea_confidence,
+                )
+
                 # Build preview summary for Telegram rendering
                 preview_summary = build_preview_summary(
                     evidence,
                     video_goal=current.collected.get("video_goal"),
+                    resolved_idea=resolved_idea,  # V3.1: Pass resolved_idea
                 )
 
                 # Phase 8: Add warnings from failure policy
@@ -923,6 +1080,50 @@ class VideoAISkill(BaseSkill):
                     },
                     session=current,
                 )
+
+            # V3.1: For demo_pick_alternate_focus, populate dynamic options from grounded_features
+            if next_step == "demo_pick_alternate_focus":
+                evidence_payload = current.artifacts.get("demo_evidence")
+                options = []
+
+                if evidence_payload:
+                    try:
+                        evidence = RecordedDemoEvidenceContract.model_validate(
+                            evidence_payload
+                        )
+                        # Rank grounded features by grounding_confidence (high > medium > low)
+                        confidence_order = {"high": 3, "medium": 2, "low": 1}
+                        ranked_features = sorted(
+                            [f for f in evidence.grounded_features if f.grounded],
+                            key=lambda f: confidence_order.get(
+                                f.grounding_confidence, 0
+                            ),
+                            reverse=True,
+                        )
+                        # Build options list (max 10)
+                        options = [
+                            {
+                                "label": f.official_name or f.original_name,
+                                "value": f.official_name or f.original_name,
+                                "confidence": f.grounding_confidence,
+                            }
+                            for f in ranked_features[:10]
+                        ]
+                    except ValidationError:
+                        pass
+
+                current.step_key = "demo_pick_alternate_focus"
+                current.control.status = SkillStatus.collecting
+                return SkillResult(
+                    success=True,
+                    next_step="demo_pick_alternate_focus",
+                    output={
+                        "message": "Choose an alternate main idea from the features detected in your video:",
+                        "alternate_focus_options": options,
+                    },
+                    session=current,
+                )
+
             return cls._collecting_result(current, next_step=next_step)
 
         try:

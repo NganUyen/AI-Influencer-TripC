@@ -26,7 +26,10 @@ from uuid import uuid4
 from services.contracts import (
     ExtractedFeatureContract,
     GroundedFeatureContract,
+    GroundingAuditContract,
+    OfficialFeatureCatalogContract,
     RecordedDemoEvidenceContract,
+    ResolvedIdeaContract,
     TimelineSegmentContract,
 )
 from services.openclaw_service import OpenClawService
@@ -56,6 +59,7 @@ class DemoFeatureGroundingService:
         evidence: RecordedDemoEvidenceContract,
         reference_url: str,
         *,
+        official_catalog: Optional[OfficialFeatureCatalogContract] = None,
         project_name: Optional[str] = None,
         video_goal: Optional[str] = None,
         audience: Optional[str] = None,
@@ -63,11 +67,16 @@ class DemoFeatureGroundingService:
         user_id: str = "system",
     ) -> RecordedDemoEvidenceContract:
         """
-        Ground extracted features against official website.
+        Ground extracted features against official sources.
+
+        Phase 2c (V3.1): Grounding authority precedence:
+        1. Primary: OfficialFeatureCatalogContract (Jina + GPT-4o mini)
+        2. Fallback: OpenClaw browser fetch (only if catalog empty)
 
         Args:
             evidence: RecordedDemoEvidence from Phase 4 analysis
             reference_url: Official website URL for grounding
+            official_catalog: Pre-extracted feature catalog (primary source)
             project_name: Project/product name if known
             video_goal: Goal of the video (feature_demo, conversion, etc.)
             audience: Target audience description
@@ -75,7 +84,7 @@ class DemoFeatureGroundingService:
             user_id: User ID for OpenClaw requests
 
         Returns:
-            Updated evidence with grounded_features populated
+            Updated evidence with grounded_features and grounding_audit populated
         """
         logger.info(
             "Starting feature grounding: %d features against %s",
@@ -92,26 +101,53 @@ class DemoFeatureGroundingService:
             evidence.grounding_completed = True
             return evidence
 
+        # Initialize grounding audit
+        browser_used = False
+        visited_urls = []
+        primary_source_url = reference_url
+        source_snippets = []
+
         try:
-            # Build grounding context
-            grounding_context = self._build_grounding_context(
-                evidence=evidence,
-                reference_url=reference_url,
-                project_name=project_name,
-                video_goal=video_goal,
-                audience=audience,
-                cta=cta,
-            )
+            # Primary: Use official catalog if available
+            if official_catalog and official_catalog.features:
+                logger.info(
+                    f"Using official catalog with {len(official_catalog.features)} features"
+                )
+                grounded_features = self._map_to_official_catalog(
+                    evidence.extracted_features,
+                    official_catalog,
+                )
+                visited_urls = official_catalog.visited_urls
+                primary_source_url = official_catalog.primary_source_url
+                browser_used = False  # Jina-only
 
-            # Call OpenClaw to ground features
-            grounded_result = await self._call_openclaw_grounding(
-                grounding_context, user_id
-            )
+            # Fallback: Use OpenClaw if catalog empty
+            else:
+                logger.info("Official catalog empty, falling back to OpenClaw")
+                grounding_context = self._build_grounding_context(
+                    evidence=evidence,
+                    reference_url=reference_url,
+                    project_name=project_name,
+                    video_goal=video_goal,
+                    audience=audience,
+                    cta=cta,
+                )
 
-            # Parse and validate grounding results
-            grounded_features = self._parse_grounding_result(
-                grounded_result, evidence.extracted_features
-            )
+                grounded_result = await self._call_openclaw_grounding(
+                    grounding_context, user_id
+                )
+
+                grounded_features = self._parse_grounding_result(
+                    grounded_result, evidence.extracted_features
+                )
+
+                # Extract audit info from OpenClaw result
+                browser_used = True
+                visited_urls = grounded_result.get("visited_urls", [reference_url])
+                primary_source_url = grounded_result.get(
+                    "primary_source_url", reference_url
+                )
+                source_snippets = grounded_result.get("source_snippets", [])
 
             evidence.grounded_features = grounded_features
 
@@ -123,11 +159,20 @@ class DemoFeatureGroundingService:
             # Update confidence based on grounding success
             evidence = self._update_confidence_after_grounding(evidence)
 
+            # Store grounding audit
+            evidence.grounding_audit = GroundingAuditContract(
+                browser_used=browser_used,
+                visited_urls=visited_urls,
+                primary_source_url=primary_source_url,
+                source_snippets=source_snippets,
+            )
+
             evidence.grounding_completed = True
             logger.info(
-                "Grounding complete: %d/%d features grounded",
+                "Grounding complete: %d/%d features grounded (browser_used=%s)",
                 sum(1 for f in grounded_features if f.grounded),
                 len(grounded_features),
+                browser_used,
             )
 
         except Exception as exc:
@@ -143,10 +188,83 @@ class DemoFeatureGroundingService:
                 )
                 for f in evidence.extracted_features
             ]
+            evidence.grounding_audit = GroundingAuditContract(
+                browser_used=False,
+                visited_urls=[],
+                primary_source_url=reference_url,
+                source_snippets=[],
+            )
             evidence.grounding_completed = True
-            # Don't update feature_candidates - keep OCR-derived names but mark as ungrounded
 
         return evidence
+
+    def _map_to_official_catalog(
+        self,
+        extracted_features: list[ExtractedFeatureContract],
+        official_catalog: OfficialFeatureCatalogContract,
+    ) -> list[GroundedFeatureContract]:
+        """
+        Map video evidence to official catalog features (Phase 2c - V3.1).
+
+        Maps extracted features from OCR/analysis to official catalog features.
+        Uses fuzzy matching and terminology mapping.
+        """
+        grounded_features: list[GroundedFeatureContract] = []
+
+        # Build lookup for official features (case-insensitive)
+        official_by_name = {
+            feat.name.lower(): feat for feat in official_catalog.features
+        }
+
+        # Build terminology lookup
+        terminology = official_catalog.official_terminology or {}
+
+        for extracted in extracted_features:
+            name_lower = extracted.name.lower()
+
+            # Try exact match
+            official_match = official_by_name.get(name_lower)
+
+            # Try terminology mapping
+            if not official_match and name_lower in terminology:
+                mapped_name = terminology[name_lower]
+                official_match = official_by_name.get(mapped_name.lower())
+
+            # Try fuzzy substring match
+            if not official_match:
+                for official_name, official_feat in official_by_name.items():
+                    if name_lower in official_name or official_name in name_lower:
+                        official_match = official_feat
+                        break
+
+            if official_match:
+                # Grounded to official catalog
+                grounded_features.append(
+                    GroundedFeatureContract(
+                        feature_id=extracted.feature_id,
+                        original_name=extracted.name,
+                        grounded=True,
+                        official_name=official_match.name,
+                        official_description=official_match.description,
+                        value_proposition=official_match.description,  # Use description as value prop
+                        source_url=official_match.source_url,
+                        grounding_confidence="high",
+                        grounding_note=f"Matched to official catalog feature: {official_match.name}",
+                    )
+                )
+            else:
+                # Not matched to catalog
+                grounded_features.append(
+                    GroundedFeatureContract(
+                        feature_id=extracted.feature_id,
+                        original_name=extracted.name,
+                        grounded=False,
+                        grounding_confidence="low",
+                        grounding_note="Not found in official catalog",
+                    )
+                )
+
+        return grounded_features
 
     def _build_grounding_context(
         self,
@@ -385,9 +503,12 @@ Return JSON with this structure:
 def build_preview_summary(
     evidence: RecordedDemoEvidenceContract,
     video_goal: Optional[str] = None,
+    resolved_idea: Optional[ResolvedIdeaContract] = None,
 ) -> dict[str, Any]:
     """
     Build a preview summary for user confirmation (Phase 5).
+
+    V3.1: Now includes resolved_idea (main idea) as primary UI element.
 
     Returns structured data for Telegram rendering.
     """
@@ -426,7 +547,7 @@ def build_preview_summary(
     conf_emoji = {"high": "🟢", "medium": "🟡", "low": "🔴"}.get(conf, "⚪")
     summary_lines.append(f"Analysis confidence: {conf_emoji} {conf}")
 
-    return {
+    result = {
         "video_info": {
             "duration_sec": evidence.duration_sec,
             "resolution": f"{evidence.width}x{evidence.height}",
@@ -441,3 +562,9 @@ def build_preview_summary(
         "grounding_completed": evidence.grounding_completed,
         "suggested_video_goal": video_goal or "feature_demo",
     }
+
+    # V3.1: Include resolved_idea if available
+    if resolved_idea:
+        result["resolved_idea"] = resolved_idea.model_dump(mode="json")
+
+    return result

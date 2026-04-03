@@ -8,7 +8,6 @@ import asyncio
 from typing import Dict, Any, List
 from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
-import google.generativeai as genai
 from config.settings import settings
 from services.quota_monitor_service import QuotaMonitorService
 
@@ -17,17 +16,20 @@ logger = logging.getLogger(__name__)
 _shared_openai_client: AsyncOpenAI | None = None
 _shared_anthropic_client: AsyncAnthropic | None = None
 
+
 def _get_shared_openai() -> AsyncOpenAI:
     global _shared_openai_client
     if _shared_openai_client is None:
         _shared_openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
     return _shared_openai_client
 
+
 def _get_shared_anthropic() -> AsyncAnthropic:
     global _shared_anthropic_client
     if _shared_anthropic_client is None:
         _shared_anthropic_client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
     return _shared_anthropic_client
+
 
 def _usage_value(usage: Any, *keys: str) -> Any:
     if usage is None:
@@ -92,7 +94,11 @@ def _openai_quota_from_headers(headers: Any) -> Dict[str, Any]:
     if requests_reset_after:
         quota["requests_reset_after"] = requests_reset_after
 
-    if "limit" not in quota and "remaining" not in quota and "requests_limit" not in quota:
+    if (
+        "limit" not in quota
+        and "remaining" not in quota
+        and "requests_limit" not in quota
+    ):
         return {}
     return quota
 
@@ -123,7 +129,11 @@ def _anthropic_quota_from_headers(headers: Any) -> Dict[str, Any]:
     if requests_reset_at:
         quota["requests_reset_at"] = requests_reset_at
 
-    if "limit" not in quota and "remaining" not in quota and "requests_limit" not in quota:
+    if (
+        "limit" not in quota
+        and "remaining" not in quota
+        and "requests_limit" not in quota
+    ):
         return {}
     return quota
 
@@ -137,17 +147,14 @@ class AIService:
     def __init__(self):
         self.openai_client = _get_shared_openai()
         self.anthropic_client = _get_shared_anthropic()
-        
-        if settings.GOOGLE_AI_API_KEY:
-            genai.configure(api_key=settings.GOOGLE_AI_API_KEY)
-            
-        self.default_model = settings.DEFAULT_AI_MODEL or "models/gemini-2.0-flash"
+
+        self.default_model = settings.DEFAULT_AI_MODEL or "claude-3-5-sonnet-20241022"
 
     async def close(self) -> None:
         """Shared clients are managed globally, no-op here."""
         pass
 
-    async def __aenter__(self) -> 'AIService':
+    async def __aenter__(self) -> "AIService":
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -159,8 +166,6 @@ class AIService:
             return "openai"
         if model.startswith("claude"):
             return "anthropic"
-        if "gemini" in model:
-            return "gemini"
         return "unknown"
 
     async def _record_quota_usage(
@@ -184,11 +189,7 @@ class AIService:
         normalized_usage: Dict[str, Any] = {"requests": 1}
         if usage:
             normalized_usage.update(
-                {
-                    key: value
-                    for key, value in usage.items()
-                    if value is not None
-                }
+                {key: value for key, value in usage.items() if value is not None}
             )
 
         await QuotaMonitorService.record_runtime_usage(
@@ -227,11 +228,13 @@ class AIService:
                     messages.append({"role": "system", "content": system_prompt})
                 messages.append({"role": "user", "content": prompt})
 
-                raw_response = await self.openai_client.chat.completions.with_raw_response.create(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
+                raw_response = (
+                    await self.openai_client.chat.completions.with_raw_response.create(
+                        model=model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    )
                 )
                 response = raw_response.parse()
                 usage = getattr(response, "usage", None)
@@ -243,18 +246,22 @@ class AIService:
                         "input_tokens": _usage_value(usage, "prompt_tokens"),
                         "output_tokens": _usage_value(usage, "completion_tokens"),
                     },
-                    quota=_openai_quota_from_headers(getattr(raw_response, "headers", None)),
+                    quota=_openai_quota_from_headers(
+                        getattr(raw_response, "headers", None)
+                    ),
                 )
 
                 return response.choices[0].message.content
 
             elif model.startswith("claude"):
-                raw_response = await self.anthropic_client.messages.with_raw_response.create(
-                    model=model,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
+                raw_response = (
+                    await self.anthropic_client.messages.with_raw_response.create(
+                        model=model,
+                        system=system_prompt,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    )
                 )
                 response = raw_response.parse()
                 usage = getattr(response, "usage", None)
@@ -271,97 +278,15 @@ class AIService:
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
                     },
-                    quota=_anthropic_quota_from_headers(getattr(raw_response, "headers", None)),
+                    quota=_anthropic_quota_from_headers(
+                        getattr(raw_response, "headers", None)
+                    ),
                 )
 
                 return response.content[0].text
 
-            elif "gemini" in model:
-                # Handles both "gemini-*" and "models/gemini-*"
-                try:
-                    gemini_model = genai.GenerativeModel(
-                        model_name=model,
-                        system_instruction=system_prompt if system_prompt else None
-                    )
-                    response = await asyncio.to_thread(
-                        gemini_model.generate_content,
-                        prompt
-                    )
-                    if not response or not response.text:
-                        raise ValueError(f"Gemini returned empty response for model {model}")
-                    usage = getattr(response, "usage_metadata", None)
-                    await self._record_quota_usage(
-                        provider=provider,
-                        model=model,
-                        usage={
-                            "tokens": _usage_value(
-                                usage,
-                                "total_token_count",
-                                "total_tokens",
-                            ),
-                            "input_tokens": _usage_value(
-                                usage,
-                                "prompt_token_count",
-                                "input_token_count",
-                            ),
-                            "output_tokens": _usage_value(
-                                usage,
-                                "candidates_token_count",
-                                "candidate_token_count",
-                                "output_token_count",
-                            ),
-                        },
-                    )
-                    return response.text
-                except Exception as gemini_exc:
-                    # Check if this is a 403 SERVICE_DISABLED error
-                    error_str = str(gemini_exc).lower()
-                    is_service_disabled = (
-                        "403" in error_str
-                        or "service_disabled" in error_str
-                        or "api has not been used" in error_str
-                        or "is disabled" in error_str
-                    )
-
-                    if is_service_disabled:
-                        logger.warning(
-                            "Gemini API disabled/unavailable, falling back to Claude: %s",
-                            gemini_exc
-                        )
-                        # Fallback to Claude
-                        fallback_model = "claude-3-5-sonnet-20241022"
-                        provider = "anthropic"
-                        raw_response = await self.anthropic_client.messages.with_raw_response.create(
-                            model=fallback_model,
-                            system=system_prompt,
-                            messages=[{"role": "user", "content": prompt}],
-                            temperature=temperature,
-                            max_tokens=max_tokens,
-                        )
-                        response = raw_response.parse()
-                        usage = getattr(response, "usage", None)
-                        input_tokens = _usage_value(usage, "input_tokens")
-                        output_tokens = _usage_value(usage, "output_tokens")
-                        total_tokens = None
-                        if input_tokens is not None or output_tokens is not None:
-                            total_tokens = (input_tokens or 0) + (output_tokens or 0)
-                        await self._record_quota_usage(
-                            provider=provider,
-                            model=fallback_model,
-                            usage={
-                                "tokens": total_tokens,
-                                "input_tokens": input_tokens,
-                                "output_tokens": output_tokens,
-                            },
-                            quota=_anthropic_quota_from_headers(getattr(raw_response, "headers", None)),
-                        )
-                        return response.content[0].text
-                    else:
-                        # Re-raise other Gemini errors
-                        raise
-
             else:
-                raise ValueError(f"Unsupported model: {model}. Use gpt-*, claude-*, or models/gemini-*")
+                raise ValueError(f"Unsupported model: {model}. Use gpt-* or claude-*")
 
         except Exception as e:
             await self._record_quota_usage(provider=provider, model=model, error=e)
@@ -446,3 +371,188 @@ class AIService:
             copies[f"{platform}_copy"] = copy
 
         return copies
+
+    async def analyze_image_structured(
+        self,
+        image_base64: str,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> dict:
+        """
+        Analyze image using GPT-4o mini vision model (Phase 3a - V3.1).
+
+        Args:
+            image_base64: Base64-encoded image data
+            system_prompt: System instructions
+            user_prompt: User query/task
+
+        Returns:
+            Parsed dict from JSON response
+
+        Raises:
+            ValueError: If response cannot be parsed as JSON
+        """
+        model = "gpt-4o-mini"
+        logger.info(f"Analyzing image with {model} vision")
+
+        try:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_base64}"
+                            },
+                        },
+                    ],
+                },
+            ]
+
+            raw_response = (
+                await self.openai_client.chat.completions.with_raw_response.create(
+                    model=model,
+                    messages=messages,
+                    temperature=0.0,
+                    max_tokens=1000,
+                )
+            )
+            response = raw_response.parse()
+            usage = getattr(response, "usage", None)
+
+            await self._record_quota_usage(
+                provider="openai",
+                model=model,
+                usage={
+                    "tokens": _usage_value(usage, "total_tokens"),
+                    "input_tokens": _usage_value(usage, "prompt_tokens"),
+                    "output_tokens": _usage_value(usage, "completion_tokens"),
+                },
+                quota=_openai_quota_from_headers(
+                    getattr(raw_response, "headers", None)
+                ),
+            )
+
+            content = response.choices[0].message.content
+
+            # Remove markdown code fences if present
+            if content.startswith("```"):
+                lines = content.split("\n")
+                content = "\n".join(lines[1:-1]) if len(lines) > 2 else content
+
+            # Parse JSON
+            import json
+
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON from vision response: {content}")
+                raise ValueError(f"Vision model returned invalid JSON: {e}")
+
+        except Exception as e:
+            await self._record_quota_usage(
+                provider="openai",
+                model=model,
+                error=e,
+            )
+            raise
+
+    async def chat_completion(
+        self,
+        model: str,
+        system_message: str,
+        user_message: str,
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+    ) -> dict:
+        """
+        Chat completion using AI model (Phase 4a - V3.1).
+
+        Args:
+            model: Model to use (gpt-4o-mini, etc.)
+            system_message: System prompt
+            user_message: User prompt
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+
+        Returns:
+            dict with "content" key containing the response text
+        """
+        model = model or self.default_model
+        logger.info(f"Chat completion with {model}")
+        provider = self._provider_for_model(model)
+
+        try:
+            if model.startswith("gpt"):
+                messages = []
+                if system_message:
+                    messages.append({"role": "system", "content": system_message})
+                messages.append({"role": "user", "content": user_message})
+
+                raw_response = (
+                    await self.openai_client.chat.completions.with_raw_response.create(
+                        model=model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    )
+                )
+                response = raw_response.parse()
+                usage = getattr(response, "usage", None)
+                await self._record_quota_usage(
+                    provider=provider,
+                    model=model,
+                    usage={
+                        "tokens": _usage_value(usage, "total_tokens"),
+                        "input_tokens": _usage_value(usage, "prompt_tokens"),
+                        "output_tokens": _usage_value(usage, "completion_tokens"),
+                    },
+                    quota=_openai_quota_from_headers(
+                        getattr(raw_response, "headers", None)
+                    ),
+                )
+
+                return {"content": response.choices[0].message.content}
+
+            elif model.startswith("claude"):
+                raw_response = (
+                    await self.anthropic_client.messages.with_raw_response.create(
+                        model=model,
+                        system=system_message,
+                        messages=[{"role": "user", "content": user_message}],
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    )
+                )
+                response = raw_response.parse()
+                usage = getattr(response, "usage", None)
+                input_tokens = _usage_value(usage, "input_tokens")
+                output_tokens = _usage_value(usage, "output_tokens")
+                total_tokens = None
+                if input_tokens is not None or output_tokens is not None:
+                    total_tokens = (input_tokens or 0) + (output_tokens or 0)
+                await self._record_quota_usage(
+                    provider=provider,
+                    model=model,
+                    usage={
+                        "tokens": total_tokens,
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                    },
+                    quota=_anthropic_quota_from_headers(
+                        getattr(raw_response, "headers", None)
+                    ),
+                )
+
+                return {"content": response.content[0].text}
+
+            else:
+                raise ValueError(f"Unsupported model: {model}. Use gpt-* or claude-*")
+
+        except Exception as e:
+            await self._record_quota_usage(provider=provider, model=model, error=e)
+            logger.error(f"Chat completion failed: {str(e)}")
+            raise

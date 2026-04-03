@@ -1,8 +1,8 @@
 """
 Script Generation Service (TripC v2 Standard)
 ===============================================
-Wrapper trên AIService để sinh ScriptContract theo đúng schema.
-Output phải vượt qua Pydantic validation trước khi vào pipeline.
+Wrapper using OpenClaw to generate ScriptContract.
+Output must pass Pydantic validation before entering pipeline.
 """
 
 import json
@@ -10,7 +10,7 @@ import logging
 import asyncio
 from typing import Optional, Set
 
-from services.ai_service import AIService
+from services.openclaw_service import OpenClawService
 from services.contracts import (
     ScriptContract,
     SceneContract,
@@ -20,6 +20,7 @@ from services.contracts import (
 )
 from services.errors import ScriptGenerationError, ScriptContractError
 from utils.beat_normalization import normalize_beats
+from utils.json_helpers import extract_json_from_llm_response
 
 logger = logging.getLogger(__name__)
 
@@ -76,10 +77,9 @@ class ScriptService:
         language: str = "Vietnamese",
         voice_style: str = "friendly and energetic",
         market: str = "Vietnam",
-        model: str = "models/gemini-2.0-flash",
     ) -> ScriptContract:
         """
-        Generate a validated ScriptContract.
+        Generate a validated ScriptContract using OpenClaw.
 
         Args:
             app_name: Name of the app being promoted.
@@ -87,7 +87,6 @@ class ScriptService:
             language: Output language for the script narration.
             voice_style: Tone description for persona style.
             market: Target market for context.
-            model: AI model to use.
 
         Returns:
             ScriptContract (Pydantic-validated).
@@ -109,31 +108,21 @@ class ScriptService:
         )
 
         try:
-            async with AIService() as ai:
-                raw = await ai.generate_text(
-                    prompt=user_prompt,
-                    system_prompt=SYSTEM_PROMPT,
-                    model=model,
-                    temperature=0.7,
-                    max_tokens=2000,
-                )
+            openclaw = OpenClawService()
+            full_prompt = f"{SYSTEM_PROMPT}\n\n{user_prompt}"
+            result = await openclaw.execute_task(
+                task_type="script_generation",
+                prompt=full_prompt,
+                user_id="system",
+                context={"app_name": app_name, "topic": topic, "language": language},
+            )
+            
+            # Extract JSON from OpenClaw result
+            data = result if isinstance(result.get("script"), str) else result.get("result", result)
+            if isinstance(data, str):
+                data = extract_json_from_llm_response(data)
         except Exception as e:
             raise ScriptGenerationError(f"AI call failed: {e}") from e
-
-        # Strip markdown code fences if present
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            lines = cleaned.splitlines()
-            cleaned = "\n".join(
-                lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
-            )
-
-        # Parse JSON
-        try:
-            data = json.loads(cleaned)
-        except json.JSONDecodeError as e:
-            logger.error(f"AI returned non-JSON:\n{cleaned[:500]}")
-            raise ScriptGenerationError(f"AI response is not valid JSON: {e}") from e
 
         # Validate contract
         try:
@@ -154,7 +143,6 @@ class ScriptService:
         app_name: str,
         topic: str,
         persona_config: dict,
-        model: str = "models/gemini-2.0-flash",
     ) -> ScriptContract:
         """
         Convenience method: generate script using persona config directly.
@@ -167,7 +155,6 @@ class ScriptService:
             language=persona_config.get("language_name", "English"),
             voice_style=f"natural, conversational, targeting {persona_config.get('language_name', 'global')} audience",
             market=persona_config.get("language_name", "Global"),
-            model=model,
         )
 
     async def generate_script_from_package(
@@ -175,7 +162,6 @@ class ScriptService:
         app_name: str,
         package: dict,
         persona_config: dict,
-        model: str = "models/gemini-2.0-flash",
     ) -> ScriptContract:
         """
         Generates a ScriptContract directly from an ApprovedProductionPackage.

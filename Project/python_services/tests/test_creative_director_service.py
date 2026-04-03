@@ -77,12 +77,14 @@ async def test_build_concept_brief_accepts_valid_structured_output(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_build_concept_brief_rejects_feature_focus_goal_audience_or_cta_drift(monkeypatch):
+async def test_build_concept_brief_rejects_feature_focus_goal_audience_or_cta_drift(
+    monkeypatch,
+):
     _StubOpenClawService.response = {
         "persona_id": "minh_vn",
         "creative_input_mode": "idea_brief",
         "feature_focus": "restaurant finder",
-        "video_goal": "awareness",
+        "video_goal": "conversion",  # Changed from "awareness" (no longer supported)
         "audience": "general audience",
         "angle": "problem_solution",
         "platform": "tiktok",
@@ -515,8 +517,12 @@ async def test_build_beat_sheet_changes_when_brief_changes_direction(monkeypatch
         _sample_persona(),
     )
 
-    itinerary_text = " ".join(beat.bottom_half_message for beat in itinerary_beats.beats).lower()
-    discovery_text = " ".join(beat.bottom_half_message for beat in discovery_beats.beats).lower()
+    itinerary_text = " ".join(
+        beat.bottom_half_message for beat in itinerary_beats.beats
+    ).lower()
+    discovery_text = " ".join(
+        beat.bottom_half_message for beat in discovery_beats.beats
+    ).lower()
 
     assert "itinerary" in itinerary_text
     assert "restaurant" not in itinerary_text

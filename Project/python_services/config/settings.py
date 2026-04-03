@@ -163,7 +163,7 @@ class Settings(BaseSettings):
     APP_ADMIN_TOKEN: Optional[str] = None
 
     # Additional Settings
-    DEFAULT_AI_MODEL: str = "gpt-4"
+    DEFAULT_AI_MODEL: str = "claude-3-5-sonnet-20241022"
     LOG_LEVEL: str = "INFO"
     JWT_SECRET_KEY: str = "change-this-in-production"
     WEEKLY_WORKFLOW_ENABLED: bool = True

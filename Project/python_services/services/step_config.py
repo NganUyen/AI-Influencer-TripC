@@ -51,7 +51,10 @@ SUBMENUS: Dict[str, Dict[str, Any]] = {
         "rows": [
             [("➕ Create Persona", "skill_persona-creator")],
             [("📋 Inspect Personas", "skill_persona-inspector")],
-            [("📊 Quota", "skill_quota-inspector"), ("📅 Weekly Plan", "skill_weekly-planner")],
+            [
+                ("📊 Quota", "skill_quota-inspector"),
+                ("📅 Weekly Plan", "skill_weekly-planner"),
+            ],
             [("🔙 Back", "menu_main")],
         ],
     },
@@ -243,6 +246,30 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
             "• Resolution: 720p or higher recommended\n"
             "• Format: MP4, MOV, or WebM",
         },
+        "collect_reference_url": {
+            "input_type": "free_text",
+            "field": "reference_url",
+            "prompt_text": "🔗 Send the product or app URL this video should be grounded on.\n\n"
+            "Example: https://tripc.ai or https://yourapp.com",
+        },
+        # V3.1 new steps
+        "collect_user_video_thesis": {
+            "input_type": "free_text",
+            "field": "user_video_thesis",
+            "prompt_text": "📝 In one sentence, what does this video demonstrate?\n\n"
+            "Example: 'Shows how to create and share a group trip itinerary'",
+        },
+        "choose_content_scope": {
+            "input_type": "inline_keyboard",
+            "field": "content_scope",
+            "prompt_text": "🎯 What type of content is this video?\n\n"
+            "This helps me understand what to focus on:",
+            "options": _options(
+                ("🔍 Single Feature", "single_feature"),
+                ("📋 Single Flow/Journey", "single_flow"),
+                ("🌐 Product Overview", "product_overview"),
+            ),
+        },
         "collect_idea_brief": {
             "input_type": "free_text",
             "field": "idea_brief",
@@ -262,12 +289,16 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "choose_video_goal": {
             "input_type": "inline_keyboard",
             "field": "video_goal",
-            "prompt_text": "What is the main goal of this video?",
+            "prompt_text": (
+                "🎬 What type of video do you want to create?\n\n"
+                "📱 Feature Spotlight — Highlight one key feature in detail\n"
+                "📚 Step-by-Step Guide — Explain how to use something from start to finish\n"
+                "🚀 Drive Action — Push viewers to sign up, try, or buy now"
+            ),
             "options": _options(
-                ("Feature Demo", "feature_demo"),
-                ("Conversion", "conversion"),
-                ("Awareness", "awareness"),
-                ("Walkthrough", "walkthrough"),
+                ("📱 Feature Spotlight", "feature_demo"),
+                ("📚 Step-by-Step Guide", "walkthrough"),
+                ("🚀 Drive Action", "conversion"),
             ),
         },
         "collect_audience": {
@@ -280,10 +311,17 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
             "field": "cta",
             "prompt_text": '📣 What call-to-action should the video end with?\n\nExample: "Book your trip at tripc.vn" or "Download the app now"',
         },
-        "collect_reference_url": {
+        "collect_official_name_hint": {
             "input_type": "free_text",
-            "field": "reference_url",
-            "prompt_text": "Send the product or app URL this video should be grounded on.",
+            "field": "official_name_hint",
+            "prompt_text": "🏷️ (Optional) Official feature name if different from what appears on screen.\n\n"
+            "Send /skip if the detected name is correct.",
+        },
+        "collect_must_not_say": {
+            "input_type": "free_text",
+            "field": "must_not_say",
+            "prompt_text": "🚫 (Optional) Any terms or claims to avoid in the video?\n\n"
+            "Send /skip if no restrictions.",
         },
         "choose_access_level": {
             "input_type": "inline_keyboard",
@@ -296,25 +334,44 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
                 ("Not Sure", "unknown"),
             ),
         },
-        # Phase 5: Demo video preview confirmation step
-        # Only shown for recorded_demo_video mode after grounding
+        # Phase 5: Demo video preview confirmation step (V3.1 updated)
+        # Analysis + Grounding + IdeaResolver runs before this step
         "demo_preview_confirm": {
             "input_type": "inline_keyboard",
             "field": "demo_preview_action",
-            "prompt_text": "📋 *Analysis Complete*\n\n"
-            "Please review what I detected from your demo video.\n"
-            "You can confirm to proceed, correct any misunderstandings, "
-            "or re-emphasize specific features.",
+            "prompt_text": "📋 *Proposed Main Idea*\n\n"
+            "Please review what I've resolved from your demo video.\n"
+            "You can approve to proceed, pick another focus, rewrite the idea, or re-upload.",
             "options": _options(
-                ("✅ Confirm", "confirm"),
-                ("✏️ Correct", "correct"),
-                ("🎯 Re-emphasize", "reemphasize"),
-                ("🔄 Re-upload", "reupload"),
+                ("✅ Approve", "approve"),
+                ("🔄 Pick another focus", "pick_alternate"),
+                ("✏️ Rewrite", "rewrite"),
+                ("📹 Re-upload", "reupload"),
             ),
             "timeout_sec": 900,  # 15 minutes
             "timeout_action": "abort",  # Abort on timeout, don't auto-confirm
         },
-        # Phase 5: Feature correction step (if user chooses "correct")
+        # V3.1 new steps for preview actions
+        "demo_pick_alternate_focus": {
+            "input_type": "inline_keyboard",
+            "field": "alternate_feature_focus",
+            "prompt_text": "🔄 Choose an alternate feature to focus on:\n\n"
+            "These are other features detected in your video, ranked by relevance.",
+            "options": [],  # Dynamically populated from grounded_features
+        },
+        "demo_rewrite_main_idea": {
+            "input_type": "free_text",
+            "field": "rewritten_main_idea",
+            "prompt_text": "✏️ Rewrite the main idea you want this video to convey:\n\n"
+            "Describe in one clear sentence what viewers should understand.",
+        },
+        "collect_desired_takeaway": {
+            "input_type": "free_text",
+            "field": "desired_takeaway",
+            "prompt_text": "💡 (Optional) What should viewers remember after watching?\n\n"
+            "Send /skip to let me determine this from the analysis.",
+        },
+        # Phase 5: Feature correction step (if user chooses "correct") - kept for compatibility
         "demo_correct_features": {
             "input_type": "free_text",
             "field": "feature_correction",

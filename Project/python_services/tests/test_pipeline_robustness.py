@@ -29,6 +29,7 @@ from activities.video_activities import (
 )
 from services.script_service import ScriptService
 from services.contracts import VALID_TOP_HALF_SOURCE_TYPES
+from workflows.short_video_workflow import _scene_has_video_asset
 
 
 class TestTalkingHeadGeneration:
@@ -37,7 +38,7 @@ class TestTalkingHeadGeneration:
     @pytest.mark.asyncio
     @patch("activities.media_activities.StorageService")
     @patch("activities.media_activities.HeyGenService")
-    async def test_create_talking_head_video_requests_square_output(
+    async def test_create_talking_head_video_requests_supported_portrait_output(
         self, MockHeyGen, MockStorage
     ):
         from activities.media_activities import create_talking_head_video
@@ -85,10 +86,10 @@ class TestTalkingHeadGeneration:
             avatar_id="avatar-123",
             audio_url="https://cdn.example/audio.mp3",
             background="blur",
-            aspect_ratio="1:1",
+            aspect_ratio="9:16",
             width=1080,
-            height=1080,
-            allow_aspect_ratio_fallback=False,
+            height=1920,
+            allow_aspect_ratio_fallback=True,
         )
         assert result["url"] == "https://storage.example/talking-head.mp4"
 
@@ -137,6 +138,24 @@ class TestDurationMismatchDetection:
 
         assert "failed" in str(exc_info.value).lower()
         assert "1" in str(exc_info.value)  # Contains the index
+
+    @pytest.mark.asyncio
+    async def test_empty_image_url_is_treated_as_failed_scene(self):
+        """Empty/whitespace image URLs must be treated as failed generations."""
+        scenes_result = [
+            {"id": 1, "image_url": "https://example.com/scene1.webm"},
+            {"id": 2, "image_url": "   "},
+            {"id": 3, "image_url": ""},
+        ]
+
+        image_urls_raw = [scene.get("image_url") for scene in scenes_result]
+        failed_scene_indices = [
+            i
+            for i, url in enumerate(image_urls_raw)
+            if not (isinstance(url, str) and url.strip())
+        ]
+
+        assert failed_scene_indices == [1, 2]
 
     @pytest.mark.asyncio
     async def test_aligned_arrays_match_length(self):
@@ -293,6 +312,32 @@ class TestVideoUrlDetection:
         assert _get_extension_for_url(mp4_url) == ".mp4"
         assert _get_extension_for_url(jpg_url) == ".jpg"
         assert _get_extension_for_url(no_ext) == ".jpg"  # Default
+
+
+class TestWorkflowVideoAssetDetection:
+    """Regression tests for workflow-side video detection fallback."""
+
+    def test_scene_with_webm_url_and_missing_flag_is_video(self):
+        scene = {
+            "image_url": "https://bucket.s3.amazonaws.com/captures/scene-1.webm?X-Amz-Signature=abc",
+            "is_video": None,
+        }
+        assert _scene_has_video_asset(scene) is True
+
+    def test_scene_with_generation_method_browser_capture_is_video(self):
+        scene = {
+            "image_url": "https://cdn.example.com/opaque-signed-url",
+            "generation_method": "browser_capture",
+            "is_video": None,
+        }
+        assert _scene_has_video_asset(scene) is True
+
+    def test_scene_with_explicit_false_flag_is_not_video(self):
+        scene = {
+            "image_url": "https://cdn.example.com/videos/scene.mp4",
+            "is_video": "false",
+        }
+        assert _scene_has_video_asset(scene) is False
 
 
 class TestSplitScreenFilters:

@@ -208,7 +208,7 @@ class CarouselService:
             "freeform_brief": payload.get("freeform_brief"),
             "creative_notes": payload.get("creative_notes"),
             "persona_config": persona_config,
-            "model": payload.get("planning_model", "models/gemini-2.0-flash"),
+            "model": payload.get("planning_model", "claude-3-5-sonnet-20241022"),
         }
         plan = await generate_carousel_strategy(planning_input)
         slides = list(plan.get("slides") or [])

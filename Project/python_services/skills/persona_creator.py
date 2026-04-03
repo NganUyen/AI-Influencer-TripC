@@ -11,7 +11,7 @@ import json
 import logging
 from config.settings import settings
 from services.google_tts_service import GoogleTTSService
-from services.ai_service import AIService
+from services.openclaw_service import OpenClawService
 
 logger = logging.getLogger(__name__)
 
@@ -195,74 +195,62 @@ class PersonaCreatorSkill(BaseSkill):
     async def _dream_persona_details_refined(
         cls, 
         nationality: str, 
-        brief: str, 
-        ai: Optional[AIService] = None
+        brief: str
     ) -> Dict[str, Any]:
-        """AI-powered identity generation for any country in the world."""
-        if not ai:
-            raise RuntimeError("AI Service is not initialized. Please check your configuration.")
-
-        system_prompt = (
-            "You are a master of global identities and cultural nuances. "
-            "Your task is to suggest a realistic, culturally accurate persona identity based on a nationality and a brief description."
-        )
+        """AI-powered identity generation using OpenClaw."""
+        openclaw = OpenClawService()
         
-        user_prompt = f"""
-        Suggest a persona with the following details:
-        Nationality: {nationality}
-        Brief: {brief}
+        prompt = f"""You are a master of global identities and cultural nuances.
+Suggest a realistic, culturally accurate persona identity.
 
-        You MUST return valid JSON with these keys:
-        - persona_id: A unique URL-safe slug (e.g., 'kaito_tanaka')
-        - display_name: A realistic, localized full name (e.g., 'Kaito Tanaka')
-        - appearance: A detailed visual description for an image generator (e.g., 'A portrait of an elderly man with silver hair wearing a kimono...')
+Nationality: {nationality}
+Brief: {brief}
 
-        Response format:
-        {{
-          "persona_id": "...",
-          "display_name": "...",
-          "appearance": "..."
-        }}
-        """
+You MUST return valid JSON with these keys:
+- persona_id: A unique URL-safe slug (e.g., 'kaito_tanaka')
+- display_name: A realistic, localized full name (e.g., 'Kaito Tanaka')
+- appearance: A detailed visual description for an image generator (e.g., 'A portrait of an elderly man with silver hair wearing a kimono...')
+
+Response format:
+{{
+  "persona_id": "...",
+  "display_name": "...",
+  "appearance": "..."
+}}"""
 
         try:
-            try:
-                response_text = await ai.generate_text(
-                    prompt=user_prompt,
-                    system_prompt=system_prompt,
-                    temperature=0.7,
-                )
-            except Exception as primary_exc:
-                # Fallback to Gemini when OpenAI credentials are invalid but Gemini is configured.
-                if cls._is_ai_auth_error(primary_exc) and getattr(settings, "GOOGLE_AI_API_KEY", ""):
-                    logger.warning(
-                        "Dream identity generation hit provider auth error; retrying with Gemini fallback"
-                    )
-                    response_text = await ai.generate_text(
-                        prompt=user_prompt,
-                        system_prompt=system_prompt,
-                        model="models/gemini-2.0-flash",
-                        temperature=0.7,
-                    )
-                else:
-                    raise
+            logger.info("Dream: generating persona identity via OpenClaw")
+            result = await openclaw.execute_task(
+                task_type="dream_persona",
+                prompt=prompt,
+                user_id="system",
+                context={"nationality": nationality, "brief": brief},
+            )
             
-            # Robust JSON extraction for cases where AI adds markdown or preamble
-            json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group(0))
-                # Validate required keys
-                if not all(k in data for k in ["persona_id", "display_name", "appearance"]):
-                    raise ValueError("AI response missing required JSON keys")
-                return {**data, "success": True}
+            # Result may already be parsed JSON or contain a 'result' key
+            data = result if isinstance(result.get("persona_id"), str) else result.get("result", result)
             
-            logger.error(f"Raw AI response (failed parse): {response_text}")
-            raise ValueError("The AI suggested an identity but the response was formatted incorrectly. Please try again.")
+            # If data is still a string, try to parse it
+            if isinstance(data, str):
+                json_match = re.search(r"\{.*\}", data, re.DOTALL)
+                if json_match:
+                    data = json.loads(json_match.group(0))
+            
+            # Validate required keys
+            if not isinstance(data, dict) or not all(k in data for k in ["persona_id", "display_name", "appearance"]):
+                logger.error(f"OpenClaw response missing required keys: {result}")
+                raise ValueError("AI response missing required JSON keys")
+            
+            logger.info("Dream: OpenClaw generation successful")
+            return {
+                "persona_id": data["persona_id"],
+                "display_name": data["display_name"],
+                "appearance": data["appearance"],
+                "success": True,
+            }
             
         except Exception as e:
-            logger.error(f"AI Dream execution failed: {e}")
-            # Re-raising ensures the user sees the original error (e.g., 403, 429) 
-            # if the service is disabled or over quota.
+            logger.error(f"Dream via OpenClaw failed: {e}")
             raise
 
     @classmethod
@@ -384,6 +372,50 @@ class PersonaCreatorSkill(BaseSkill):
         return patched if isinstance(patched, dict) else persona
 
     @classmethod
+    async def _persist_artifact_avatar(
+        cls,
+        current: SkillSession,
+        persona: Dict[str, Any],
+        backend_url: str,
+        http_client: Any,
+    ) -> Dict[str, Any]:
+        artifact_avatar_url = str(
+            current.artifacts.get("avatar_image_url")
+            or current.artifacts.get("preview_image_url")
+            or ""
+        ).strip()
+        artifact_media_asset_id = str(
+            current.artifacts.get("avatar_media_asset_id") or ""
+        ).strip()
+
+        if not artifact_avatar_url or not artifact_media_asset_id:
+            return persona
+        if persona.get("avatar_image_url") and persona.get("avatar_media_asset_id"):
+            return persona
+
+        telegram_chat_id = current.artifacts.get("telegram_chat_id")
+        owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
+        patch_params = {"owner_key": owner_key} if owner_key else None
+        patch_payload: Dict[str, Any] = {
+            "avatar_image_url": artifact_avatar_url,
+            "avatar_media_asset_id": artifact_media_asset_id,
+            "avatar_source_type": "generated",
+        }
+        appearance = str(current.collected.get("appearance_prompt_or_photo") or "").strip()
+        if appearance:
+            patch_payload["avatar_prompt"] = appearance
+
+        patched = await cls._request_json(
+            http_client,
+            "PATCH",
+            backend_url,
+            f"/api/personas/{current.collected['persona_id']}",
+            params=patch_params,
+            json=patch_payload,
+        )
+        return patched if isinstance(patched, dict) else {**persona, **patch_payload}
+
+    @classmethod
     async def _ensure_avatar_image(
         cls,
         current: SkillSession,
@@ -412,6 +444,19 @@ class PersonaCreatorSkill(BaseSkill):
         }
         avatar_prompt = cls._build_avatar_prompt(appearance)
         fallback_avatar_prompt = cls._build_avatar_prompt(appearance, simplified=True)
+        retryable_status_codes = {400, 422, 500, 502, 503, 504}
+
+        def _avatar_http_error_message(exc: httpx.HTTPStatusError) -> str:
+            status_code = exc.response.status_code if exc.response is not None else None
+            detail = cls._extract_http_error_detail(exc)
+            if status_code is None:
+                return detail
+            if status_code >= 500 and detail.lower() == "internal server error":
+                return (
+                    f"Avatar generation request failed ({status_code}): "
+                    "upstream media service returned an internal error"
+                )
+            return f"Avatar generation request failed ({status_code}): {detail}"
 
         try:
             image_response = await cls._request_avatar_generation(
@@ -425,8 +470,8 @@ class PersonaCreatorSkill(BaseSkill):
             )
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code if exc.response is not None else None
-            if status_code not in {400, 422}:
-                raise RuntimeError(cls._extract_http_error_detail(exc)) from exc
+            if status_code not in retryable_status_codes:
+                raise RuntimeError(_avatar_http_error_message(exc)) from exc
 
             try:
                 image_response = await cls._request_avatar_generation(
@@ -443,7 +488,7 @@ class PersonaCreatorSkill(BaseSkill):
                     },
                 )
             except httpx.HTTPStatusError as retry_exc:
-                raise RuntimeError(cls._extract_http_error_detail(retry_exc)) from retry_exc
+                raise RuntimeError(_avatar_http_error_message(retry_exc)) from retry_exc
 
         avatar_url = image_response.get("url")
         if not avatar_url:
@@ -581,17 +626,22 @@ class PersonaCreatorSkill(BaseSkill):
 
                 # Step 4: Generate Results
                 if not current.artifacts.get("dream_ready"):
-                    from services.ai_service import AIService
                     try:
-                        async with AIService() as ai:
-                            dream = await cls._dream_persona_details_refined(
-                                nationality, dream_brief, ai
-                            )
+                        dream = await cls._dream_persona_details_refined(
+                            nationality, dream_brief
+                        )
                     except Exception as exc:
+                        logger.error(
+                            "Dream AI generation failed with error type=%s: %s",
+                            type(exc).__name__,
+                            exc,
+                            exc_info=True,
+                        )
                         if cls._is_ai_auth_error(exc) or cls._is_ai_service_unavailable_error(exc):
                             logger.warning(
-                                "Dream provider unavailable, switching to deterministic fallback: %s",
-                                exc,
+                                "Dream provider unavailable (auth=%s, service=%s), switching to deterministic fallback",
+                                cls._is_ai_auth_error(exc),
+                                cls._is_ai_service_unavailable_error(exc),
                             )
                             dream = cls._dream_persona_details_fallback(
                                 nationality,
@@ -622,6 +672,7 @@ class PersonaCreatorSkill(BaseSkill):
                         )
                         current.artifacts["avatar_image_url"] = persona_record.get("avatar_image_url")
                         current.artifacts["preview_image_url"] = persona_record.get("avatar_image_url")
+                        current.artifacts["avatar_media_asset_id"] = persona_record.get("avatar_media_asset_id")
                     except Exception as e:
                         logger.error(f"Early avatar generation failed: {e}")
                     
@@ -755,6 +806,13 @@ class PersonaCreatorSkill(BaseSkill):
                         current, persona, backend_url, http_client
                     )
                 else:
+                    if (
+                        creation_mode == "dream"
+                        and current.artifacts.get("dream_ready")
+                    ):
+                        persona = await cls._persist_artifact_avatar(
+                            current, persona, backend_url, http_client
+                        )
                     persona = await cls._ensure_avatar_image(
                         current,
                         persona,

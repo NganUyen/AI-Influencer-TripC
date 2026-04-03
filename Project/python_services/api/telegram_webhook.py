@@ -98,7 +98,8 @@ async def edit_message_text(
     *,
     parse_mode: Optional[str] = "MarkdownV2",
     reply_markup: Optional[Dict[str, Any]] = None,
-) -> None:
+    fallback_to_new_message: bool = True,
+) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "chat_id": chat_id,
         "message_id": message_id,
@@ -108,7 +109,56 @@ async def edit_message_text(
         payload["parse_mode"] = parse_mode
     if reply_markup:
         payload["reply_markup"] = reply_markup
-    await _tg_call("editMessageText", payload)
+
+    result = await _tg_call("editMessageText", payload)
+
+    # Fallback: If parse failed, retry with plain text
+    if not result.get("ok") and parse_mode:
+        error_desc = result.get("description", "")
+        if "parse" in error_desc.lower() or "entities" in error_desc.lower():
+            logger.warning(
+                "Telegram parse error in editMessageText with parse_mode=%s, retrying plain: %s",
+                parse_mode,
+                error_desc,
+            )
+            payload_plain = payload.copy()
+            payload_plain.pop("parse_mode", None)
+            result = await _tg_call("editMessageText", payload_plain)
+
+    # Fallback: If message is a media message (no text to edit), try editMessageCaption or send new
+    if not result.get("ok") and fallback_to_new_message:
+        error_desc = result.get("description", "")
+        if "no text" in error_desc.lower() or "message to edit" in error_desc.lower():
+            logger.warning(
+                "Cannot edit media message text, trying editMessageCaption: %s",
+                error_desc,
+            )
+            # Try to edit caption instead
+            caption_payload: Dict[str, Any] = {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "caption": text[:1024],  # Telegram caption limit
+            }
+            if reply_markup:
+                caption_payload["reply_markup"] = reply_markup
+            caption_result = await _tg_call("editMessageCaption", caption_payload)
+
+            if caption_result.get("ok"):
+                return caption_result
+
+            # Last resort: send a new message
+            logger.warning(
+                "editMessageCaption also failed, sending new message: %s",
+                caption_result.get("description"),
+            )
+            return await send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=None,  # Use plain text for safety
+                reply_markup=reply_markup,
+            )
+
+    return result
 
 
 async def send_message(
@@ -126,7 +176,23 @@ async def send_message(
         payload["parse_mode"] = parse_mode
     if reply_markup:
         payload["reply_markup"] = reply_markup
-    return await _tg_call("sendMessage", payload)
+
+    result = await _tg_call("sendMessage", payload)
+
+    # Fallback: If parse failed and we were using a parse_mode, retry with plain text
+    if not result.get("ok") and parse_mode:
+        error_desc = result.get("description", "")
+        if "parse" in error_desc.lower() or "entities" in error_desc.lower():
+            logger.warning(
+                "Telegram parse error with parse_mode=%s, retrying with plain text: %s",
+                parse_mode,
+                error_desc,
+            )
+            payload_plain = payload.copy()
+            payload_plain.pop("parse_mode", None)
+            result = await _tg_call("sendMessage", payload_plain)
+
+    return result
 
 
 async def send_photo(
@@ -242,6 +308,9 @@ async def _download_telegram_video(
 
     Returns:
         tuple of (file_content, content_type, filename) or None if no video found
+    
+    Raises:
+        ValueError: If file size exceeds Telegram's download limit
     """
     video = message.get("video")
     document = message.get("document")
@@ -249,9 +318,11 @@ async def _download_telegram_video(
     file_id: Optional[str] = None
     filename = "telegram-video.mp4"
     content_type = "video/mp4"
+    file_size: Optional[int] = None
 
     if isinstance(video, dict):
         file_id = video.get("file_id")
+        file_size = video.get("file_size")
         unique_id = video.get("file_unique_id") or video.get("file_id") or "upload"
         filename = f"telegram-video-{unique_id}.mp4"
         content_type = video.get("mime_type") or "video/mp4"
@@ -260,6 +331,7 @@ async def _download_telegram_video(
         if not document_mime.startswith("video/"):
             return None
         file_id = document.get("file_id")
+        file_size = document.get("file_size")
         filename = document.get("file_name") or "telegram-video"
         content_type = document_mime or "video/mp4"
     else:
@@ -267,6 +339,16 @@ async def _download_telegram_video(
 
     if not file_id:
         return None
+
+    # Check file size before attempting download (Telegram limit is 20MB for getFile)
+    TELEGRAM_FILE_LIMIT = 20 * 1024 * 1024  # 20MB in bytes
+    if file_size and file_size > TELEGRAM_FILE_LIMIT:
+        size_mb = file_size / (1024 * 1024)
+        raise ValueError(
+            f"Video file is too large ({size_mb:.1f}MB). "
+            f"Telegram's file download limit is 20MB. "
+            f"Please compress your video first."
+        )
 
     file_response = await _tg_call("getFile", {"file_id": file_id})
     file_path = file_response.get("result", {}).get("file_path")
@@ -480,7 +562,9 @@ async def _await_with_message_progress(
                 )
             return None, waiting_message_id
     except Exception as exc:
-        logger.exception("Skill text processing failed for chat_id=%s: %s", chat_id, exc)
+        logger.exception(
+            "Skill text processing failed for chat_id=%s: %s", chat_id, exc
+        )
         try:
             await send_message(
                 chat_id,
@@ -488,16 +572,10 @@ async def _await_with_message_progress(
                 parse_mode=None,
             )
         except Exception:
-            logger.debug("Failed to send fallback error message for chat_id=%s", chat_id)
+            logger.debug(
+                "Failed to send fallback error message for chat_id=%s", chat_id
+            )
         return None, None
-
-
-async def _start_video_ai_via_openclaw(chat_id: int, text: str, app: Any) -> None:
-    # Send an immediate confirmation so button presses feel responsive.
-    await TelegramSkillSessionStore.clear_session(chat_id)
-    await send_message(chat_id, "Starting video creation now...", parse_mode=None)
-    await send_chat_action(chat_id, action="typing")
-    await _handle_openclaw_message(chat_id, text, app)
 
 
 async def _handle_skill_callback(
@@ -514,13 +592,9 @@ async def _handle_skill_callback(
     if data.startswith("skill_"):
         skill_name = data.split("skill_", 1)[1]
 
-        # Route video-ai through OpenClaw for proper orchestration
-        if skill_name == "video-ai":
-            # Simulate user saying "create video" to trigger OpenClaw routing
-            await _start_video_ai_via_openclaw(chat_id, "create video", app)
-            return True
-        
-        # Other skills start directly
+        # All skills (including video-ai) start directly for deterministic UI actions.
+        # OpenClaw routing is reserved for free-text conversational input only.
+        await TelegramSkillSessionStore.clear_session(chat_id)
         result = await _await_with_callback_progress(
             chat_id,
             message_id,
@@ -592,12 +666,14 @@ def _help_text() -> str:
         "TripC Bot Help\n\n"
         "Use /media to open the studio menu.\n"
         "Or send a normal message to chat with OpenClaw AI.\n\n"
-        "Quick shortcuts:\n"
-        "  /create_image — Image creation modes (Poster or Scene)\n"
-        "  /create_video — Start AI Influencer video\n"
-        "  /create_persona — Build a new persona\n"
-        "  /inspect_persona — View & inspect personas\n"
-        "  /quota — Check usage quota\n\n"
+        "Commands:\n"
+        "  /start — Welcome / onboarding\n"
+        "  /media — Open studio\n"
+        "  /create_video — Start AI video creation\n"
+        "  /create_image — Create marketing images\n"
+        "  /personas — Inspect your personas\n"
+        "  /quota — Check usage quota\n"
+        "  /cancel — Cancel active flow\n\n"
         "Telegram also stays active for workflow approvals and daily story actions."
     )
 
@@ -917,15 +993,48 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                 and active_session.step_key == "upload_demo_video"
             ):
                 await send_chat_action(chat_id, action="upload_video")
+                telegram_video = None
+                error_message = None
+                
                 try:
                     telegram_video = await _download_telegram_video(message)
+                except ValueError as exc:
+                    # File size validation error - provide specific feedback
+                    logger.info(
+                        "Video file size validation failed for chat_id=%s: %s",
+                        chat_id,
+                        exc,
+                    )
+                    error_message = f"❌ {str(exc)}"
                 except Exception as exc:
                     logger.warning(
                         "Telegram video download failed for chat_id=%s: %s",
                         chat_id,
                         exc,
                     )
-                    telegram_video = None
+                    # Check if it's an HTTP error with specific status codes
+                    import httpx
+                    if isinstance(exc, httpx.HTTPStatusError):
+                        if exc.response.status_code in (400, 413):
+                            error_message = (
+                                "❌ Video file is too large for Telegram's download API.\n\n"
+                                "Please compress your video to under 20MB and try again."
+                            )
+                        else:
+                            error_message = (
+                                "❌ Failed to download video from Telegram.\n\n"
+                                "Please try uploading again or send /cancel to restart."
+                            )
+                    else:
+                        error_message = (
+                            "❌ Video download failed.\n\n"
+                            "Please try uploading again or send /cancel to restart."
+                        )
+                
+                # Send error message if download failed
+                if error_message:
+                    await send_message(chat_id, error_message, parse_mode=None)
+                    return
 
                 if telegram_video is not None:
                     video_bytes, content_type, filename = telegram_video
@@ -959,13 +1068,19 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                         rendered = TelegramRenderer.render_skill_result(skill_result)
                         await _send_rendered_message(chat_id, rendered)
                         return
-
-                await send_message(
-                    chat_id,
-                    "Video download failed. Please try uploading again or send /cancel to restart.",
-                    parse_mode=None,
-                )
-                return
+            
+            # Video detected but no active video-ai session - provide recovery hint
+            await send_message(
+                chat_id,
+                "⏱️ Your video generation session has expired.\n\n"
+                "To start a new recorded demo video generation:\n"
+                "• Send /start to access the main menu\n"
+                "• Select 'Video AI' from the options\n"
+                "• Choose 'Recorded Demo Video'\n"
+                "• Then upload your video",
+                parse_mode=None,
+            )
+            return
 
         # Handle image uploads
         await send_chat_action(chat_id, action="upload_photo")
@@ -1077,22 +1192,33 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         return
 
     # ── Shortcut slash commands ───────────────────────────────────────────
+    # Canonical commands (exposed in Telegram Menu via setMyCommands):
+    #   /start, /media, /create_video, /create_image, /personas, /quota, /cancel
+    # Legacy aliases (parser-only, not in Telegram UI):
+    #   /create-video, /create-image, /create_persona, /create-persona,
+    #   /inspect_persona, /inspect-persona
     _SHORTCUT_MENU_MAP = {
         "/create_image": "menu_image",
         "/create-image": "menu_image",
     }
     _SHORTCUT_SKILL_MAP = {
+        # Canonical video command - starts video-ai directly (deterministic)
         "/create_video": "video-ai",
+        # Legacy aliases for video
         "/create-video": "video-ai",
-        "/start": "video-ai",
+        # Canonical persona inspection command
+        "/personas": "persona-inspector",
+        # Legacy aliases for persona
         "/create_persona": "persona-creator",
         "/create-persona": "persona-creator",
         "/inspect_persona": "persona-inspector",
         "/inspect-persona": "persona-inspector",
+        # Quota inspector
         "/quota": "quota-inspector",
     }
 
     # ── Plain text shortcuts (case-insensitive) ────────────────────────────
+    # These are deterministic triggers that bypass OpenClaw routing
     _TEXT_SKILL_MAP = {
         "create video": "video-ai",
         "make video": "video-ai",
@@ -1112,14 +1238,9 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
     text_cmd = text.strip().lower().split()[0] if text.strip() else ""
     text_lower = text.strip().lower()
 
-    # Check plain text shortcuts first - route video creation through OpenClaw
+    # Check plain text shortcuts - all deterministic, bypass OpenClaw
     if text_lower in _TEXT_SKILL_MAP:
         skill_name = _TEXT_SKILL_MAP[text_lower]
-        # Route video-ai through OpenClaw for proper orchestration
-        if skill_name == "video-ai":
-            await _start_video_ai_via_openclaw(chat_id, text.strip(), app)
-            return
-        # Other skills can start directly
         await TelegramSkillSessionStore.clear_session(chat_id)
         skill_result, pending_message_id = await _await_with_message_progress(
             chat_id,
@@ -1143,13 +1264,9 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         await _send_rendered_message(chat_id, rendered)
         return
 
+    # Slash command shortcuts - all deterministic, bypass OpenClaw
     if text_cmd in _SHORTCUT_SKILL_MAP:
         skill_name = _SHORTCUT_SKILL_MAP[text_cmd]
-        # Route video-ai through OpenClaw for proper orchestration
-        if skill_name == "video-ai":
-            await _start_video_ai_via_openclaw(chat_id, text.strip(), app)
-            return
-        # Other skills can start directly
         await TelegramSkillSessionStore.clear_session(chat_id)
         skill_result, pending_message_id = await _await_with_message_progress(
             chat_id,

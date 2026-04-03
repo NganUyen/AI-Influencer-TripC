@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
+import secrets
 from temporalio.client import Client
 from urllib.parse import urlparse
 
@@ -18,6 +19,25 @@ logger = logging.getLogger(__name__)
 
 # Global Temporal client
 temporal_client = None
+
+
+def _is_authenticated_internal_request(request: Request) -> bool:
+    configured_token = (settings.INTERNAL_API_TOKEN or "").strip()
+    if not configured_token:
+        return False
+
+    presented_token = (request.headers.get("x-internal-api-token") or "").strip()
+    if not presented_token:
+        authorization = (request.headers.get("authorization") or "").strip()
+        if authorization.lower().startswith("bearer "):
+            presented_token = authorization.split(" ", 1)[1].strip()
+        else:
+            presented_token = authorization
+
+    return bool(presented_token) and secrets.compare_digest(
+        presented_token,
+        configured_token,
+    )
 
 
 def _root_path_from_public_url(value: str | None) -> str:
@@ -102,8 +122,8 @@ async def add_security_headers(request: Request, call_next):
 
 
 @app.exception_handler(HTTPException)
-async def sanitize_http_exception(_request: Request, exc: HTTPException):
-    if exc.status_code >= 500:
+async def sanitize_http_exception(request: Request, exc: HTTPException):
+    if exc.status_code >= 500 and not _is_authenticated_internal_request(request):
         logger.warning("Sanitizing backend %s response: %s", exc.status_code, exc.detail)
         detail = "Service unavailable" if exc.status_code == 503 else "Internal server error"
         return JSONResponse(
@@ -171,6 +191,7 @@ from api import (
     personas,
     customer,
     telegram_auth,
+    health,
 )
 
 app.include_router(workflows.router, prefix="/api/workflows", tags=["Workflows"])
@@ -188,6 +209,7 @@ app.include_router(
 app.include_router(personas.router, prefix="/api/personas", tags=["Personas"])
 app.include_router(customer.router, prefix="/api/customer", tags=["Customer"])
 app.include_router(telegram_auth.router, prefix="/api/auth/telegram", tags=["Auth"])
+app.include_router(health.router, prefix="/api/health", tags=["Health"])
 
 
 if __name__ == "__main__":

@@ -418,3 +418,68 @@ async def test_persona_creator_force_regenerates_existing_avatar(monkeypatch):
     assert result.session.artifacts.get("force_regenerate_avatar") is None
     patch_payload = PersonaCreatorSkill._request_json.await_args_list[2].kwargs["json"]
     assert patch_payload["avatar_media_asset_id"] == "asset-new"
+
+
+@pytest.mark.asyncio
+async def test_persona_creator_dream_confirm_reuses_early_avatar(monkeypatch):
+    session = PersonaCreatorSkill.initial_session()
+    session.artifacts["telegram_chat_id"] = "123456"
+    session.artifacts["dream_ready"] = True
+    session.artifacts["avatar_image_url"] = "https://cdn.example/early-avatar.png"
+    session.artifacts["preview_image_url"] = "https://cdn.example/early-avatar.png"
+    session.artifacts["avatar_media_asset_id"] = "asset-early"
+    session.step_key = "confirm_dream"
+    session.collected.update(
+        {
+            "creation_mode": "dream",
+            "dream_confirmed": "confirm",
+            "nationality": "Chinese",
+            "dream_brief": "A vet with his dog",
+            "persona_id": "li_wei_vet",
+            "display_name": "Li Wei",
+            "language": "English",
+            "voice": "male_friendly",
+            "appearance_prompt_or_photo": "A realistic Chinese male veterinarian standing with his dog.",
+        }
+    )
+
+    monkeypatch.setattr(
+        PersonaCreatorSkill,
+        "_request_json",
+        AsyncMock(
+            side_effect=[
+                {
+                    "persona_id": "li_wei_vet",
+                    "display_name": "Li Wei",
+                    "status": "draft",
+                    "language": "English",
+                    "tts_voice": "en-US-Studio-O",
+                    "avatar_image_url": None,
+                    "avatar_media_asset_id": None,
+                    "avatar_prompt": "A realistic Chinese male veterinarian standing with his dog.",
+                    "heygen_avatar_id": None,
+                },
+                {
+                    "persona_id": "li_wei_vet",
+                    "display_name": "Li Wei",
+                    "status": "draft",
+                    "language": "English",
+                    "tts_voice": "en-US-Studio-O",
+                    "avatar_image_url": "https://cdn.example/early-avatar.png",
+                    "avatar_media_asset_id": "asset-early",
+                    "avatar_source_type": "generated",
+                    "avatar_prompt": "A realistic Chinese male veterinarian standing with his dog.",
+                    "heygen_avatar_id": None,
+                },
+            ]
+        ),
+    )
+
+    result = await PersonaCreatorSkill.execute(session, "http://backend", AsyncMock())
+
+    assert result.success is True
+    assert result.session is not None
+    assert result.session.artifacts.get("avatar_image_url") == "https://cdn.example/early-avatar.png"
+    assert result.session.artifacts.get("avatar_media_asset_id") == "asset-early"
+    request_paths = [call.args[3] for call in PersonaCreatorSkill._request_json.await_args_list]
+    assert "/api/media/generate/image" not in request_paths

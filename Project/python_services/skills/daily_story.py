@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
-from services.ai_service import AIService
+from services.openclaw_service import OpenClawService
 from utils.json_helpers import extract_json_from_llm_response
 from .base import BaseSkill, SkillResult, SkillSession, SkillStatus
 from .definitions import get_skill_definition
@@ -125,15 +125,19 @@ class DailyStorySkill(BaseSkill):
         
         try:
             logger.info(f"Generating daily story draft for topic: {topic}")
-            async with AIService() as ai:
-                raw = await ai.generate_text(
-                    prompt=user_prompt,
-                    model="models/gemini-2.0-flash",
-                    temperature=0.75,
-                    max_tokens=800,
-                )
+            openclaw = OpenClawService()
+            result = await openclaw.execute_task(
+                task_type="daily_story",
+                prompt=user_prompt,
+                user_id="system",
+                context={"topic": topic, "language": language, "app_name": app_name},
+            )
+            
+            # Extract JSON from OpenClaw result
+            data = result if isinstance(result.get("title"), str) else result.get("result", result)
+            if isinstance(data, str):
+                data = extract_json_from_llm_response(data)
                 
-            data = extract_json_from_llm_response(raw)
             current.artifacts["story_draft"] = data
             current.artifacts["story_body"] = data.get("body", topic)
             

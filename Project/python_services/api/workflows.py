@@ -270,12 +270,23 @@ async def start_video_workflow(request: Request, payload: StartVideoRequest):
         logger.info("Started short-video workflow: %s", workflow_id)
         return {"workflow_id": workflow_id, "run_id": handle.id, "status": "started"}
     except TemporalUnavailableError as exc:
+        logger.error(
+            "Temporal unavailable for workflow start | persona_id=%s | topic=%s | error=%s",
+            payload.persona_id,
+            payload.topic,
+            exc,
+        )
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to start short-video workflow: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(
+            "Failed to start short-video workflow | persona_id=%s | topic=%s | error=%s",
+            payload.persona_id,
+            payload.topic,
+            e,
+        )
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/approve/{workflow_id}")

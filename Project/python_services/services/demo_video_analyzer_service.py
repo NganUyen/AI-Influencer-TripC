@@ -34,9 +34,11 @@ from pydantic import BaseModel
 
 from services.contracts import (
     ExtractedFeatureContract,
+    FrameUnderstandingContract,
     KeyframeContract,
     RecordedDemoEvidenceContract,
     TimelineSegmentContract,
+    TimelineStepContract,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,9 +81,22 @@ class DemoVideoAnalyzerService:
     OCR_CONFIDENCE_THRESHOLD = 40  # Minimum tesseract confidence
     OCR_CONFIDENCE_THRESHOLD_VIE = 30  # Lower threshold for Vietnamese-heavy text
 
-    def __init__(self):
-        """Initialize the analyzer service."""
+    def __init__(
+        self,
+        *,
+        ai_service=None,
+        frame_understanding_service=None,
+    ):
+        """
+        Initialize the analyzer service.
+
+        Args:
+            ai_service: AIService instance (for frame understanding)
+            frame_understanding_service: FrameUnderstandingService instance
+        """
         self._ocr_available: Optional[bool] = None
+        self._ai_service = ai_service
+        self._frame_understanding_service = frame_understanding_service
 
     async def analyze_demo_video(
         self,
@@ -90,6 +105,7 @@ class DemoVideoAnalyzerService:
         video_goal: str = "feature_demo",
         audience: str = "",
         cta: str = "",
+        user_video_thesis: Optional[str] = None,
     ) -> RecordedDemoEvidenceContract:
         """
         Download and analyze a demo video from a storage URL.
@@ -103,6 +119,7 @@ class DemoVideoAnalyzerService:
             video_goal: Video goal/intent (stored in evidence)
             audience: Target audience (stored in evidence)
             cta: Call-to-action (stored in evidence)
+            user_video_thesis: User's description of what the video demonstrates
 
         Returns:
             RecordedDemoEvidenceContract with analysis results
@@ -136,6 +153,7 @@ class DemoVideoAnalyzerService:
                 video_path=temp_video_path,
                 video_url=video_url,
                 original_filename="",
+                user_video_thesis=user_video_thesis,
             )
 
             # Store contextual metadata in confidence_signals for downstream use
@@ -161,6 +179,7 @@ class DemoVideoAnalyzerService:
         video_path: str | Path,
         video_url: str,
         original_filename: str = "",
+        user_video_thesis: Optional[str] = None,
     ) -> RecordedDemoEvidenceContract:
         """
         Run full analysis pipeline on a demo video.
@@ -169,6 +188,7 @@ class DemoVideoAnalyzerService:
             video_path: Local path to video file
             video_url: Storage URL for the video (for evidence contract)
             original_filename: Original uploaded filename
+            user_video_thesis: User's description of what video demonstrates (Phase 3c - V3.1)
 
         Returns:
             RecordedDemoEvidenceContract with analysis results
@@ -219,6 +239,62 @@ class DemoVideoAnalyzerService:
             # Step 7: Extract feature candidates from OCR
             features = self._extract_features_from_ocr(segments, keyframes, ocr_results)
             logger.info("Extracted %d feature candidates", len(features))
+
+            # Step 7b (V3.1): Frame understanding via vision model
+            frame_understandings = []
+            if self._frame_understanding_service and self._ai_service:
+                try:
+                    frame_understandings = (
+                        await self._frame_understanding_service.analyze_frames(
+                            keyframes=keyframes,
+                            segments=segments,
+                            user_video_thesis=user_video_thesis,
+                        )
+                    )
+                    logger.info(
+                        "Analyzed %d frames via vision model", len(frame_understandings)
+                    )
+
+                    # Extract additional features from frame understanding (high confidence)
+                    for fu in frame_understandings:
+                        if fu.confidence >= 0.6 and fu.feature_demonstrated:
+                            # Check if not already in features
+                            if not any(
+                                f.name.lower() == fu.feature_demonstrated.lower()
+                                for f in features
+                            ):
+                                features.append(
+                                    ExtractedFeatureContract(
+                                        feature_id=f"feat_vision_{uuid4().hex[:8]}",
+                                        name=fu.feature_demonstrated,
+                                        confidence="high"
+                                        if fu.confidence >= 0.8
+                                        else "medium",
+                                        timestamp_start_sec=segments[
+                                            fu.segment_idx
+                                        ].start_sec
+                                        if fu.segment_idx < len(segments)
+                                        else 0.0,
+                                        timestamp_end_sec=segments[
+                                            fu.segment_idx
+                                        ].end_sec
+                                        if fu.segment_idx < len(segments)
+                                        else 0.0,
+                                        ocr_evidence=fu.key_ui_text,
+                                    )
+                                )
+                except Exception as e:
+                    logger.warning(
+                        f"Frame understanding failed: {e}, falling back to OCR only"
+                    )
+
+            # Step 7c (V3.1): Build timeline_steps
+            timeline_steps = self._build_timeline_steps(
+                segments=segments,
+                frame_understandings=frame_understandings,
+            )
+            logger.info("Built %d timeline steps", len(timeline_steps))
+
         finally:
             # Clean up keyframe temp directory after OCR is complete
             import shutil
@@ -255,7 +331,11 @@ class DemoVideoAnalyzerService:
             confidence_signals=confidence_signals,
             analysis_version="1.0",
             ocr_enabled=self._check_ocr_available(),
-            vision_model_used=None,  # OCR-only in Phase 4
+            vision_model_used="gpt-4o-mini" if frame_understandings else None,
+            # V3.1 additions
+            user_video_thesis=user_video_thesis,
+            timeline_steps=timeline_steps if timeline_steps else None,
+            frame_understandings=frame_understandings if frame_understandings else None,
         )
 
         logger.info(
@@ -606,9 +686,7 @@ class DemoVideoAnalyzerService:
             pytesseract.get_tesseract_version()
             self._ocr_available = True
         except Exception as exc:
-            logger.warning(
-                "OCR unavailable: pytesseract/tesseract not ready (%s)", exc
-            )
+            logger.warning("OCR unavailable: pytesseract/tesseract not ready (%s)", exc)
             self._ocr_available = False
 
         return self._ocr_available
@@ -634,7 +712,9 @@ class DemoVideoAnalyzerService:
 
             def is_vietnamese_text(text: str) -> bool:
                 """Check if text contains Vietnamese diacritics."""
-                vietnamese_chars = set("àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ")
+                vietnamese_chars = set(
+                    "àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ"
+                )
                 return any(c in vietnamese_chars for c in text)
 
             def normalize_vietnamese(text: str) -> str:
@@ -650,7 +730,7 @@ class DemoVideoAnalyzerService:
                     # Use eng+vie for mixed English/Vietnamese text support
                     image = Image.open(kf.image_path)
                     ocr_data = pytesseract.image_to_data(
-                        image, lang='eng+vie', output_type=pytesseract.Output.DICT
+                        image, lang="eng+vie", output_type=pytesseract.Output.DICT
                     )
 
                     # Extract text with adaptive confidence threshold
@@ -1003,3 +1083,51 @@ class DemoVideoAnalyzerService:
             confidence = "low"
 
         return confidence, signals
+
+    def _build_timeline_steps(
+        self,
+        segments: list[TimelineSegmentContract],
+        frame_understandings: list[FrameUnderstandingContract],
+    ) -> list[TimelineStepContract]:
+        """
+        Build timeline steps from segments and frame understandings (Phase 3c - V3.1).
+
+        Args:
+            segments: Timeline segments
+            frame_understandings: Frame understanding results
+
+        Returns:
+            List of TimelineStepContract
+        """
+        # Map frame_understandings by segment_idx
+        fu_by_segment = {}
+        for fu in frame_understandings:
+            fu_by_segment[fu.segment_idx] = fu
+
+        timeline_steps = []
+        for idx, segment in enumerate(segments):
+            fu = fu_by_segment.get(idx)
+
+            # Determine summary
+            if fu and fu.confidence >= 0.6:
+                summary = fu.primary_action
+            else:
+                # Fallback to OCR text join
+                summary = (
+                    " ".join(segment.ocr_texts[:3])
+                    if segment.ocr_texts
+                    else segment.segment_type
+                )
+
+            timeline_steps.append(
+                TimelineStepContract(
+                    segment_idx=idx,
+                    start_sec=segment.start_sec,
+                    end_sec=segment.end_sec,
+                    summary=summary,
+                    ocr_text=segment.ocr_texts,
+                    frame_understanding=fu,
+                )
+            )
+
+        return timeline_steps

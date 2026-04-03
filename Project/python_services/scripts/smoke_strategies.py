@@ -2,7 +2,7 @@
 Smoke Test: Carousel + Long Post Strategy
 ==========================================
 Validates generate_carousel_strategy and generate_long_post_strategy
-using Gemini AI (no external provider calls needed).
+using OpenClaw AI.
 
 Chạy: .\.venv\Scripts\python scripts/smoke_strategies.py
 """

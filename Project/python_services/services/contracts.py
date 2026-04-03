@@ -158,8 +158,8 @@ class CarouselArtifact(BaseModel):
 _VIDEO_GOALS = {
     "feature_demo",
     "conversion",
-    "awareness",
     "walkthrough",
+    # Deprecated: "awareness" - auto-migrated to "feature_demo" for backward compatibility
 }
 _ACCESS_LEVELS = {
     "public_page_only",
@@ -180,22 +180,42 @@ _BEAT_PURPOSES = {
 }
 # Single source of truth for valid top_half_source_type values
 # Used across: script_service, creative_director_service, media_activities
+#
+# Source Type Behavior Matrix:
+# ┌─────────────────────────────┬──────────────┬───────────────────────────────────────────┐
+# │ source_type                 │ has_source_ref │ Behavior                                │
+# ├─────────────────────────────┼──────────────┼───────────────────────────────────────────┤
+# │ public_page_capture         │ Yes          │ Browser capture, ERROR on fail           │
+# │ public_page_capture         │ No           │ ERROR (non-retryable)                    │
+# │ hybrid_candidate            │ Yes          │ Browser capture, AI FALLBACK on fail     │
+# │ hybrid_candidate            │ No           │ AI visual directly (no browser attempt)  │
+# │ ai_visual_fallback          │ *            │ AI visual directly                       │
+# │ uploaded_demo_video         │ Yes          │ Extract segment from demo video          │
+# │ uploaded_demo_video         │ No           │ ERROR (non-retryable)                    │
+# │ authenticated_capture_later │ Yes          │ Browser capture, ERROR on fail           │
+# │ authenticated_capture_later │ No           │ ERROR (non-retryable)                    │
+# └─────────────────────────────┴──────────────┴───────────────────────────────────────────┘
 VALID_TOP_HALF_SOURCE_TYPES = {
-    "public_page_capture",
-    "authenticated_capture_later",
-    "ai_visual_fallback",
-    "hybrid_candidate",
-    "uploaded_demo_video",
+    "public_page_capture",         # Browser capture required, no fallback
+    "authenticated_capture_later", # Browser capture required (with auth), no fallback  
+    "ai_visual_fallback",          # Pure AI generation
+    "hybrid_candidate",            # Browser capture with AI fallback on failure
+    "uploaded_demo_video",         # Extract from uploaded video file
 }
 
 # Backward compatibility alias
 _TOP_HALF_SOURCE_TYPES = VALID_TOP_HALF_SOURCE_TYPES
 _VALID_TOP_HALF_SOURCE_TYPES = VALID_TOP_HALF_SOURCE_TYPES
 
-# Source types that require URL to function
+# Source types that REQUIRE a URL but support fallback if it fails
 URL_REQUIRED_SOURCE_TYPES = {
-    "public_page_capture",
-    "hybrid_candidate",
+    "public_page_capture",         # Strict: must have URL, fails if capture fails
+    "authenticated_capture_later", # Strict: must have URL, fails if capture fails
+}
+
+# Source types that benefit from URL but can fall back to AI
+URL_OPTIONAL_WITH_FALLBACK_TYPES = {
+    "hybrid_candidate",  # Uses URL if present, falls back to AI on failure or missing URL
 }
 
 
@@ -262,6 +282,68 @@ class GroundedFeatureContract(BaseModel):
     grounding_note: str = ""  # Explanation of grounding result
 
 
+class FrameUnderstandingContract(BaseModel):
+    """Understanding of a single video frame via vision model (Phase 3b)."""
+
+    segment_idx: int
+    screen_type: str  # dashboard|form|modal|confirmation|onboarding|list|other
+    primary_action: str
+    feature_demonstrated: Optional[str] = None  # null if not clear
+    journey_stage: str  # discover|configure|confirm|complete|unclear
+    key_ui_text: List[str] = Field(default_factory=list)
+    confidence: float
+
+
+class TimelineStepContract(BaseModel):
+    """Typed timeline step for IdeaResolver input (Phase 3c)."""
+
+    segment_idx: int
+    start_sec: float
+    end_sec: float
+    summary: str  # What this step is doing
+    ocr_text: List[str] = Field(default_factory=list)  # Raw OCR text
+    frame_understanding: Optional[FrameUnderstandingContract] = None
+
+
+class OfficialFeatureContract(BaseModel):
+    """A feature extracted from official documentation (Phase 2b)."""
+
+    name: str
+    description: str
+    source_url: str  # Required, not empty
+
+
+class OfficialFeatureCatalogContract(BaseModel):
+    """Catalog of features from official sources (Phase 2b)."""
+
+    features: List[OfficialFeatureContract] = Field(default_factory=list)
+    official_terminology: Dict[str, str] = Field(default_factory=dict)  # Catalog-level
+    visited_urls: List[str] = Field(default_factory=list)
+    primary_source_url: str = ""
+
+
+class GroundingAuditContract(BaseModel):
+    """Audit trail for grounding process (Phase 2c)."""
+
+    browser_used: bool = False  # Audit signal, not block condition
+    visited_urls: List[str] = Field(default_factory=list)
+    primary_source_url: str = ""
+    source_snippets: List[str] = Field(default_factory=list)
+
+
+class ResolvedIdeaContract(BaseModel):
+    """Resolved main idea from evidence synthesis (Phase 4a)."""
+
+    resolved_main_idea: str
+    canonical_feature_focus: str
+    top_half_flow: List[str] = Field(default_factory=list)
+    bottom_half_claim: str
+    supporting_evidence: List[str] = Field(default_factory=list)
+    consistency_score: float  # 0.0 - 1.0
+    open_questions: List[str] = Field(default_factory=list)  # Empty = proceed
+    idea_confidence: Literal["high", "medium", "low"] = "low"
+
+
 class RecordedDemoEvidenceContract(BaseModel):
     """
     Evidence extracted from uploaded demo video (Phase 4-5).
@@ -305,6 +387,21 @@ class RecordedDemoEvidenceContract(BaseModel):
     grounding_project_name: Optional[str] = None  # Project name if provided
     grounding_completed: bool = False  # Whether grounding step has run
 
+    # User input anchors (Phase 5 - V3.1)
+    content_scope: Optional[str] = (
+        None  # "single_feature"|"single_flow"|"product_overview"
+    )
+    user_video_thesis: Optional[str] = None
+    desired_takeaway: Optional[str] = None  # Collected AFTER preview, not before
+
+    # New typed sub-contracts (Phase 2-4 - V3.1)
+    timeline_steps: Optional[List[TimelineStepContract]] = None
+    frame_understandings: Optional[List[FrameUnderstandingContract]] = None
+    official_catalog: Optional[OfficialFeatureCatalogContract] = None
+    grounding_audit: Optional[GroundingAuditContract] = None
+    resolved_idea: Optional[ResolvedIdeaContract] = None
+    idea_confidence: Optional[str] = None  # "high"|"medium"|"low" - Gate 2
+
     # Confidence scoring
     analysis_confidence_overall: Literal["high", "medium", "low"] = "low"
     confidence_signals: Dict[str, Any] = Field(default_factory=dict)  # Debug/audit info
@@ -345,6 +442,17 @@ class ConceptBriefContract(BaseModel):
     @classmethod
     def validate_video_goal(cls, value: str) -> str:
         normalized = str(value).strip().lower()
+
+        # Backward compatibility: auto-migrate "awareness" to "feature_demo"
+        if normalized == "awareness":
+            import logging
+
+            logging.warning(
+                "video_goal='awareness' is deprecated and auto-migrated to 'feature_demo'. "
+                "Please update to use one of: feature_demo, walkthrough, conversion"
+            )
+            return "feature_demo"
+
         if normalized not in _VIDEO_GOALS:
             raise ValueError(f"Unsupported video_goal: {value}")
         return normalized

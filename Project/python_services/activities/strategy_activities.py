@@ -10,7 +10,6 @@ import json
 from datetime import datetime, timedelta
 
 from services.openclaw_service import OpenClawService
-from services.ai_service import AIService
 from services.script_service import ScriptService
 from utils.json_helpers import extract_json_from_llm_response
 
@@ -91,13 +90,33 @@ async def generate_media_prompts(strategy: Dict[str, Any]) -> List[Dict[str, Any
             media_type = media.get("type")
 
             if media_type in ["image", "video"]:
-                # Generate prompt for fal.ai
-                async with AIService() as ai_service:
-                    prompt = await ai_service.generate_visual_prompt(
-                        content_description=day_content.get("theme"),
-                        style=media.get("style", "modern"),
-                        platform=media.get("platform"),
-                    )
+                # Generate prompt for fal.ai using OpenClaw
+                openclaw = OpenClawService()
+                visual_prompt = f"""You are an expert at creating prompts for AI image and video generation.
+Create detailed, vivid prompts that will produce high-quality visuals optimized for social media.
+
+Create an image generation prompt for:
+
+Content: {day_content.get("theme")}
+Visual Style: {media.get("style", "modern")}
+Platform: {media.get("platform")}
+
+The prompt should be detailed, specific, and optimized for modern AI image models.
+Include details about composition, lighting, colors, and mood.
+Keep it under 200 words."""
+                
+                prompt = await openclaw.execute_task(
+                    task_type="visual_prompt_generation",
+                    prompt=visual_prompt,
+                    user_id="system",
+                    context={
+                        "theme": day_content.get("theme"),
+                        "style": media.get("style", "modern"),
+                        "platform": media.get("platform"),
+                    }
+                )
+                if isinstance(prompt, dict):
+                    prompt = prompt.get("result", str(prompt))
 
                 prompts.append(
                     {
@@ -112,12 +131,30 @@ async def generate_media_prompts(strategy: Dict[str, Any]) -> List[Dict[str, Any
                 )
 
             elif media_type == "audio":
-                # Generate script for PlayHT
-                async with AIService() as ai_service:
-                    script = await ai_service.generate_audio_script(
-                        content=day_content.get("message"),
-                        voice_persona=media.get("voice_persona", "professional"),
-                    )
+                # Generate script for PlayHT using OpenClaw
+                voice_persona = media.get("voice_persona", "professional")
+                content = day_content.get("message")
+                audio_prompt = f"""You are a scriptwriter creating content for {voice_persona} voice synthesis.
+Optimize the text for natural speech patterns, including appropriate pauses and intonation guidance.
+
+Convert this content into a natural-sounding speech script:
+
+{content}
+
+Ensure it sounds conversational and engaging when spoken aloud."""
+                
+                openclaw = OpenClawService()
+                script = await openclaw.execute_task(
+                    task_type="audio_script_generation",
+                    prompt=audio_prompt,
+                    user_id="system",
+                    context={
+                        "content": content,
+                        "voice_persona": voice_persona,
+                    }
+                )
+                if isinstance(script, dict):
+                    script = script.get("result", str(script))
 
                 prompts.append(
                     {
@@ -152,13 +189,40 @@ async def generate_daily_content(
 
     daily_strategy = strategy["strategy"]["daily_content"][day_number - 1]
 
-    # Generate platform-specific copy
-    async with AIService() as ai_service:
-        content = await ai_service.generate_platform_copy(
-            theme=daily_strategy.get("theme"),
-            platforms=strategy.get("platforms"),
-            brand_voice=strategy.get("brand_config", {}).get("voice"),
+    # Generate platform-specific copy using OpenClaw
+    theme = daily_strategy.get("theme")
+    platforms = strategy.get("platforms")
+    brand_voice = strategy.get("brand_config", {}).get("voice")
+    
+    openclaw = OpenClawService()
+    content = {}
+    
+    for platform in platforms:
+        platform_prompt = f"""You are a {brand_voice} social media copywriter.
+Create engaging content optimized for {platform}'s audience and format.
+
+Create a post about: {theme}
+
+Platform: {platform}
+Format requirements:
+- Twitter: 280 characters max, hashtag-friendly
+- LinkedIn: Professional, longer-form (500-1000 chars)
+- Instagram: Visual-first, emoji-friendly, hashtags at end
+- TikTok: Short, punchy, trend-aware
+
+Return only the post text, no explanations."""
+        
+        result = await openclaw.execute_task(
+            task_type="platform_copy_generation",
+            prompt=platform_prompt,
+            user_id="system",
+            context={
+                "theme": theme,
+                "platform": platform,
+                "brand_voice": brand_voice,
+            }
         )
+        content[platform] = result.get("result", str(result)) if isinstance(result, dict) else str(result)
 
     return {
         "day": day_number,
@@ -194,7 +258,7 @@ async def generate_carousel_strategy(config: Dict[str, Any]) -> Dict[str, Any]:
     persona = config.get("persona_config", {})
     platform = config.get("platform", "tiktok")
     num_slides = config.get("num_slides", 8)
-    model = config.get("model", "models/gemini-2.0-flash")
+    model = config.get("model", "claude-3-5-sonnet-20241022")
     tone = config.get("tone", "clear and persuasive")
     style = config.get("style", "modern social carousel")
     freeform_brief = config.get("freeform_brief")
@@ -231,8 +295,20 @@ Return ONLY valid JSON:
     Keep each slide visually distinct and suitable for text overlay on top of the image.
     """
 
-    async with AIService() as ai:
-        raw = await ai.generate_text(prompt=CAROUSEL_PROMPT, model=model, temperature=0.7, max_tokens=3000)
+    openclaw = OpenClawService()
+    raw = await openclaw.execute_task(
+        task_type="carousel_strategy",
+        prompt=CAROUSEL_PROMPT,
+        user_id="system",
+        context={
+            "app_name": app_name,
+            "topic": topic,
+            "platform": platform,
+            "num_slides": num_slides,
+        }
+    )
+    if isinstance(raw, dict) and "result" in raw:
+        raw = raw["result"]
 
     data = extract_json_from_llm_response(raw)
     logger.info(f"Carousel generated: {len(data.get('slides', []))} slides")
@@ -267,7 +343,7 @@ async def generate_long_post_strategy(config: Dict[str, Any]) -> Dict[str, Any]:
     persona = config.get("persona_config", {})
     platform = config.get("platform", "facebook")
     word_count = config.get("target_word_count", 500)
-    model = config.get("model", "models/gemini-2.0-flash")
+    model = config.get("model", "claude-3-5-sonnet-20241022")
     language = persona.get("language_name", "English")
     skin_color = persona.get("skin_color", "diverse")
 
@@ -290,8 +366,20 @@ Return ONLY valid JSON:
 Structure: intro hook → problem → solution (features) → social proof → CTA to download {app_name}.
 """
 
-    async with AIService() as ai:
-        raw = await ai.generate_text(prompt=LONG_POST_PROMPT, model=model, temperature=0.7, max_tokens=4000)
+    openclaw = OpenClawService()
+    raw = await openclaw.execute_task(
+        task_type="long_post_strategy",
+        prompt=LONG_POST_PROMPT,
+        user_id="system",
+        context={
+            "app_name": app_name,
+            "topic": topic,
+            "platform": platform,
+            "word_count": word_count,
+        }
+    )
+    if isinstance(raw, dict) and "result" in raw:
+        raw = raw["result"]
 
     data = extract_json_from_llm_response(raw)
     logger.info(f"Long post generated: title='{data.get('title', '')[:50]}'")

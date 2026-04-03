@@ -5,12 +5,13 @@ Short video workflow for persona-driven vertical video generation.
 from __future__ import annotations
 import asyncio
 import re
+from urllib.parse import urlparse
 from datetime import timedelta
 from typing import Any, Dict, List
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, TimeoutError
 
 with workflow.unsafe.imports_passed_through():
     from activities.approval_activities import (
@@ -45,6 +46,44 @@ MEDIA_RETRY_POLICY = RetryPolicy(
 )
 
 
+_VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi"}
+_KNOWN_VIDEO_GENERATION_METHODS = {
+    "browser_capture",
+    "uploaded_demo_segment",
+    "ai_visual_video",
+}
+
+
+def _scene_has_video_asset(scene: Dict[str, Any]) -> bool:
+    """Best-effort video detection for mixed worker versions and partial metadata."""
+    raw_flag = scene.get("is_video")
+    if isinstance(raw_flag, bool):
+        return raw_flag
+    if isinstance(raw_flag, str):
+        normalized = raw_flag.strip().lower()
+        if normalized in {"true", "1", "yes"}:
+            return True
+        if normalized in {"false", "0", "no"}:
+            return False
+
+    generation_method = str(scene.get("generation_method") or "").strip().lower()
+    if generation_method in _KNOWN_VIDEO_GENERATION_METHODS:
+        return True
+
+    asset_url = str(scene.get("image_url") or "").strip()
+    if not asset_url:
+        return False
+
+    parsed = urlparse(asset_url)
+    path = (parsed.path or "").lower()
+    return any(path.endswith(ext) for ext in _VIDEO_EXTENSIONS)
+
+
+def _has_nonempty_asset_url(scene: Dict[str, Any]) -> bool:
+    asset_url = scene.get("image_url")
+    return isinstance(asset_url, str) and bool(asset_url.strip())
+
+
 @workflow.defn
 class ShortVideoWorkflow:
     @workflow.run
@@ -62,6 +101,17 @@ class ShortVideoWorkflow:
         fallback_persona_id = payload_dict.get("persona_id", "")
         fallback_topic = payload_dict.get("topic", "")
         telegram_chat_id = payload_dict.get("telegram_chat_id")
+
+        def log_step_change(new_step: str, details: str = "") -> None:
+            """Log workflow step transitions for debugging and monitoring."""
+            workflow.logger.info(
+                "Workflow step change | workflow_id=%s | persona_id=%s | topic=%s | step=%s | details=%s",
+                workflow_id,
+                fallback_persona_id,
+                fallback_topic,
+                new_step,
+                details or "none",
+            )
 
         async def notify_progress(stage_label: str, details: str = "") -> None:
             if not progress_notify_enabled:
@@ -201,6 +251,7 @@ class ShortVideoWorkflow:
             if approved_package:
                 self.workflow_status = "generating_script_from_package"
                 self.current_step = "generating_script"
+                log_step_change("generating_script", "from approved package")
                 await notify_progress(
                     "Generating script from approved plan",
                     "Converting the approved concept and beat plan into the production script.",
@@ -257,6 +308,7 @@ class ShortVideoWorkflow:
                 if not approval.get("approved"):
                     self.workflow_status = "discarded"
                     self.current_step = "script_rejected"
+                    log_step_change("script_rejected", "user rejected script")
                     return {
                         "type": "video",
                         "status": "discarded",
@@ -270,6 +322,7 @@ class ShortVideoWorkflow:
 
             self.workflow_status = "generating_assets"
             self.current_step = "generating_top_half_and_audio"
+            log_step_change("generating_top_half_and_audio", "parallel generation started")
             await notify_progress(
                 "Starting top-half and bottom-half generation",
                 "Top-half visuals and bottom-half audio are now running in parallel.",
@@ -367,6 +420,7 @@ class ShortVideoWorkflow:
                         {
                             "avatar_id": heygen_avatar_id,
                             "audio_url": audio_result["url"],
+                            "platform": platform,
                             "day": 1,
                             "topic": topic,
                             "persona_id": persona_id,
@@ -398,6 +452,7 @@ class ShortVideoWorkflow:
 
             self.workflow_status = "assembling"
             self.current_step = "assembling"
+            log_step_change("assembling", "combining top and bottom half")
             await notify_progress(
                 "Top-half assets ready",
                 "Combining top half and bottom half with ffmpeg now.",
@@ -414,7 +469,9 @@ class ShortVideoWorkflow:
             # Detect failed scenes before assembly
             image_urls_raw = [scene.get("image_url") for scene in scenes_result]
             failed_scene_indices = [
-                i for i, url in enumerate(image_urls_raw) if url is None
+                i
+                for i, url in enumerate(image_urls_raw)
+                if not (isinstance(url, str) and url.strip())
             ]
 
             if failed_scene_indices:
@@ -430,22 +487,42 @@ class ShortVideoWorkflow:
             valid_scenes_with_index = [
                 (i, scene)
                 for i, scene in enumerate(scenes_result)
-                if scene.get("image_url")
+                if _has_nonempty_asset_url(scene)
             ]
             image_urls = [
                 scene.get("image_url") for _, scene in valid_scenes_with_index
             ]
-            # [SAFETY-4] Extract is_video flags from scene metadata
+            # [SAFETY-4] Extract video flags with metadata + URL fallback detection.
             is_video_flags = [
-                bool(scene.get("is_video")) for _, scene in valid_scenes_with_index
+                _scene_has_video_asset(scene) for _, scene in valid_scenes_with_index
             ]
             if not all(is_video_flags):
+                invalid_video_indices = [
+                    i
+                    for (i, _scene), is_video in zip(
+                        valid_scenes_with_index, is_video_flags
+                    )
+                    if not is_video
+                ]
+                invalid_video_diagnostics = [
+                    {
+                        "scene_index": i,
+                        "url": str(scene.get("image_url") or "")[:120],
+                        "is_video": scene.get("is_video"),
+                        "generation_method": scene.get("generation_method"),
+                    }
+                    for i, scene in valid_scenes_with_index
+                    if i in invalid_video_indices
+                ]
                 workflow.logger.error(
-                    "Top-half validation failed: non-video asset detected | flags=%s",
+                    "Top-half validation failed: non-video asset detected | flags=%s | invalid_indices=%s | diagnostics=%s",
                     is_video_flags,
+                    invalid_video_indices,
+                    invalid_video_diagnostics,
                 )
                 raise SceneAssetMismatchError(
-                    "Top-half assets must be Playwright browser recordings (video only)."
+                    "Top-half assets must be Playwright browser recordings (video only). "
+                    f"Invalid scene indices: {invalid_video_indices}"
                 )
             aligned_durations = [
                 scene_durations[i] if i < len(scene_durations) else 4.0
@@ -524,17 +601,51 @@ class ShortVideoWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
 
-            decision = await workflow.execute_activity(
-                wait_for_publish_decision,
-                args=[preview["request_id"], telegram_chat_id],
-                start_to_close_timeout=timedelta(minutes=31),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
+            try:
+                decision = await workflow.execute_activity(
+                    wait_for_publish_decision,
+                    args=[preview["request_id"], telegram_chat_id],
+                    start_to_close_timeout=timedelta(minutes=31),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except ActivityError as exc:
+                cause = getattr(exc, "cause", None)
+                is_timeout = isinstance(cause, TimeoutError) or (
+                    "timed out" in str(exc).lower()
+                )
+                if not is_timeout:
+                    raise
+
+                self.decision = "timeout"
+                self.workflow_status = "expired"
+                self.current_step = "decision_timeout"
+                log_step_change(
+                    "decision_timeout",
+                    "no publish decision within 31 minutes",
+                )
+                workflow.logger.warning(
+                    "Publish decision timed out | workflow_id=%s | request_id=%s",
+                    workflow_id,
+                    preview.get("request_id"),
+                )
+                return {
+                    **final_video,
+                    "status": "expired",
+                    "workflow_id": workflow_id,
+                    "persona_id": persona_id,
+                    "topic": topic,
+                    "metadata": {
+                        **(final_video.get("metadata") or {}),
+                        "final_decision": "timeout",
+                        "reason": "publish_decision_timeout",
+                    },
+                }
 
             self.decision = decision.get("action")
             if self.decision == "discard":
                 self.workflow_status = "discarded"
                 self.current_step = "discarded"
+                log_step_change("discarded", "user discarded video")
                 return {
                     "type": "video",
                     "status": "discarded",
@@ -548,6 +659,7 @@ class ShortVideoWorkflow:
 
             self.workflow_status = "completed"
             self.current_step = "completed"
+            log_step_change("completed", "workflow successful")
             return {
                 **final_video,
                 "status": "completed",
@@ -595,6 +707,8 @@ class ShortVideoWorkflow:
                 error_details["error_type"],
                 error_details["error_summary"],
             )
+            
+            # Send error notification to user if enabled, but don't let notification failure block the raise
             if telegram_chat_id and error_notify_enabled:
                 try:
                     await workflow.execute_activity(
@@ -616,21 +730,10 @@ class ShortVideoWorkflow:
                         "Failed to send error notification to Telegram: %s",
                         notify_exc,
                     )
-
-            return {
-                "type": "video",
-                "status": "failed",
-                "workflow_id": workflow_id,
-                "persona_id": fallback_persona_id,
-                "topic": fallback_topic,
-                "video_url": None,
-                "storage_key": None,
-                "metadata": {
-                    "reason": error_details["error_summary"],
-                    "error_type": error_details["error_type"],
-                    "failed_step": getattr(self, "current_step", "failed"),
-                },
-            }
+            
+            # Re-raise the exception so Temporal properly tracks this as a workflow failure
+            # This enables automatic retries and proper failure monitoring
+            raise
 
     @workflow.query
     def get_workflow_status(self) -> Dict[str, Any]:

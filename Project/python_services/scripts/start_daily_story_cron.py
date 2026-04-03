@@ -45,7 +45,7 @@ DEFAULT_CONFIG = {
     "language": "Vietnamese",
     "voice_style": "warm, inspiring, and authentic",
     "audience": "young Vietnamese travellers aged 22-35",
-    "model": "models/gemini-2.0-flash",
+    "model": "claude-3-5-sonnet-20241022",
 }
 
 

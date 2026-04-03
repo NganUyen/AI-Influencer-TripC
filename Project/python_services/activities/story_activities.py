@@ -4,7 +4,7 @@ Story Activities (TripC Daily Bot)
 Temporal activities for the daily story pipeline.
 
 Activities:
-    generate_daily_story(config)        — Calls Gemini to write today's story
+    generate_daily_story(config)        — Uses OpenClaw AI to write today's story
     send_story_for_approval(config)     — Sends story to all active subscribers
 
 Design:
@@ -24,9 +24,10 @@ from typing import Any, Dict, List, Optional
 
 from temporalio import activity
 
-from services.ai_service import AIService
+from services.openclaw_service import OpenClawService
 from services.telegram_subscriber_service import TelegramSubscriberService
 from api.telegram_webhook import _tg_call, _escape_md
+from utils.json_helpers import extract_json_from_llm_response
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ def _validate_story_draft(data: Dict[str, Any]) -> Dict[str, Any]:
 @activity.defn
 async def generate_daily_story(config: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Generate today's story using Gemini.
+    Generate today's story using OpenClaw.
 
     Input config:
         topic       str   — destination or theme (e.g. "Ha Giang Loop")
@@ -85,7 +86,6 @@ async def generate_daily_story(config: Dict[str, Any]) -> Dict[str, Any]:
         voice_style str   — persona tone (default: "warm and inspiring")
         audience    str   — target audience (default: "young Vietnamese travellers")
         date        str   — ISO date string (default: today, provided by workflow)
-        model       str   — Gemini model slug (default: "models/gemini-2.0-flash")
 
     Returns:
         StoryDraft dict:
@@ -96,7 +96,6 @@ async def generate_daily_story(config: Dict[str, Any]) -> Dict[str, Any]:
     voice_style: str = config.get("voice_style", "warm and inspiring")
     audience: str = config.get("audience", "young Vietnamese travellers")
     date: str = config.get("date", "today")
-    model: str = config.get("model", "models/gemini-2.0-flash")
 
     logger.info("Generating daily story | topic=%s | lang=%s", topic, language)
 
@@ -108,27 +107,20 @@ async def generate_daily_story(config: Dict[str, Any]) -> Dict[str, Any]:
         audience=audience,
     )
 
-    async with AIService() as ai:
-        raw = await ai.generate_text(
-            prompt=user_prompt,
-            system_prompt=_STORY_SYSTEM_PROMPT,
-            model=model,
-            temperature=0.75,
-            max_tokens=800,
-        )
+    full_prompt = f"{_STORY_SYSTEM_PROMPT}\n\n{user_prompt}"
 
-    # Strip markdown fences if Gemini wraps JSON in ```
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.splitlines()
-        cleaned = "\n".join(
-            lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
-        )
+    openclaw = OpenClawService()
+    result = await openclaw.execute_task(
+        task_type="daily_story",
+        prompt=full_prompt,
+        user_id="system",
+        context={"topic": topic, "language": language, "date": date},
+    )
 
-    try:
-        data = json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Gemini returned non-JSON story: {e}\n---\n{cleaned[:400]}") from e
+    # Extract JSON from result
+    data = result if isinstance(result.get("title"), str) else result.get("result", result)
+    if isinstance(data, str):
+        data = extract_json_from_llm_response(data)
 
     story = _validate_story_draft(data)
 

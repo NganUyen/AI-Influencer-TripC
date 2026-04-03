@@ -50,7 +50,7 @@ class CarouselGenerateRequest(BaseModel):
     num_slides: int = Field(default=8, ge=2, le=12)
     aspect_ratio: str = "4:5"
     image_model: str = "fal-ai/nano-banana-2"
-    planning_model: str = "models/gemini-2.0-flash"
+    planning_model: str = "claude-3-5-sonnet-20241022"
     safety_tolerance: int = Field(default=2, ge=1, le=6)
     freeform_brief: Optional[str] = None
     creative_notes: Optional[str] = None

@@ -30,6 +30,7 @@ FULL_FRAME_WIDTH = 1080
 FULL_FRAME_HEIGHT = 1920
 BOTTOM_SOURCE_WIDTH = 1080
 BOTTOM_SOURCE_HEIGHT = 1080
+TOP_SCENE_SKIP_SECONDS = 15.0  # Skip first 15 seconds to ensure page is fully loaded
 SUBTITLE_FONT_NAME = "Tahoma"
 SUBTITLE_FONT_SIZE = 64
 SUBTITLE_CENTER_X = FULL_FRAME_WIDTH // 2
@@ -568,12 +569,49 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                     f"Top-half asset {idx + 1} is not a video file after download"
                 )
 
+            source_duration = _probe_media_duration(p)
+            trim_start = TOP_SCENE_SKIP_SECONDS
+            
+            if source_duration is not None:
+                # Calculate the minimum content needed after trimming
+                min_content_needed = scene_duration + 0.5  # scene + small buffer
+                available_after_skip = source_duration - TOP_SCENE_SKIP_SECONDS
+                
+                if available_after_skip >= min_content_needed:
+                    # Ideal case: enough content after the 8s skip
+                    trim_start = TOP_SCENE_SKIP_SECONDS
+                elif source_duration >= min_content_needed:
+                    # Source is long enough but not after 8s skip - reduce skip to preserve content
+                    # Start from (source_duration - min_content_needed) to ensure we have enough
+                    trim_start = max(0.0, source_duration - min_content_needed)
+                else:
+                    # Source is shorter than needed - start from beginning
+                    trim_start = 0.0
+                    logger.warning(
+                        "Source video too short for full scene | scene=%s | source=%.2fs | needed=%.2fs | starting from 0",
+                        idx,
+                        source_duration,
+                        min_content_needed,
+                    )
+
+            logger.info(
+                "Assembly scene %s trimming | requested_skip=%.2fs | effective_skip=%.2fs | source_duration=%s | scene_duration=%.2fs",
+                idx,
+                TOP_SCENE_SKIP_SECONDS,
+                trim_start,
+                f"{source_duration:.2f}s" if source_duration is not None else "unknown",
+                scene_duration,
+            )
+
             _run_ffmpeg(
                 [
                     "ffmpeg",
                     "-y",
                     "-i",
                     p,
+                    # Place -ss after input for accurate frame seek (avoids keyframe snap-back).
+                    "-ss",
+                    f"{trim_start:.3f}",
                     "-vf",
                     _half_frame_filter(),
                     "-t",
@@ -589,6 +627,13 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                 ],
                 f"std_vid_{idx}",
             )
+            
+            # Validate the output file has content
+            if not os.path.exists(std_p) or os.path.getsize(std_p) < 1000:
+                raise AssemblyError(
+                    f"Scene {idx} produced an empty or invalid video file after trimming "
+                    f"(source_duration={source_duration}, trim_start={trim_start}, scene_duration={scene_duration})"
+                )
 
         with open(concat_file, "w", encoding="utf-8") as file_obj:
             for sp in standard_paths:

@@ -18,6 +18,12 @@ _STATUS_LABELS = {
     "deferred": "Planned later",
 }
 
+_VIDEO_GOAL_LABELS = {
+    "feature_demo": "📱 Feature Spotlight",
+    "walkthrough": "📚 Step-by-Step Guide",
+    "conversion": "🚀 Drive Action",
+}
+
 _INFO_BACK_MENU_BY_SKILL = {
     "image-avatar": "menu_image",
     "video-tutorial": "menu_video",
@@ -184,10 +190,15 @@ def _truncate(text: str, max_length: int = 30) -> str:
     return f"{value[: max_length - 3]}..."
 
 
-def _humanize_token(value: Any) -> str:
+def _humanize_token(value: Any, *, is_video_goal: bool = False) -> str:
     text = str(value or "").strip()
     if not text:
         return "-"
+
+    # Special handling for video_goal to show friendly labels with emojis
+    if is_video_goal and text in _VIDEO_GOAL_LABELS:
+        return _VIDEO_GOAL_LABELS[text]
+
     return text.replace("_", " ").strip().title()
 
 
@@ -205,7 +216,7 @@ def _video_ai_concept_text(
         "",
         f"Persona: {persona_label}",
         f"Feature Focus: {concept.get('feature_focus') or '-'}",
-        f"Goal: {_humanize_token(concept.get('video_goal'))}",
+        f"Type: {_humanize_token(concept.get('video_goal'), is_video_goal=True)}",
         f"Audience: {concept.get('audience') or '-'}",
         f"CTA: {concept.get('cta') or '-'}",
         f"Source URL: {concept.get('reference_url') or '-'}",
@@ -224,7 +235,7 @@ def _video_ai_beats_text(beat_sheet: Dict[str, Any], concept: Dict[str, Any]) ->
         "Beat Plan Ready",
         "",
         f"Feature Focus: {concept.get('feature_focus') or '-'}",
-        f"Goal: {_humanize_token(concept.get('video_goal'))}",
+        f"Type: {_humanize_token(concept.get('video_goal'), is_video_goal=True)}",
         "",
     ]
     for beat in beat_sheet.get("beats") or []:
@@ -272,9 +283,20 @@ def _video_ai_demo_preview_text(
 ) -> str:
     """Format the demo video preview confirmation message (Phase 5).
 
+    V3.1: If resolved_idea is present, render Proposed Main Idea card.
+    Otherwise, fall back to original feature list format.
+
     Uses plain text (no markdown) to safely handle dynamic OCR-derived content
     that may contain special characters like *, _, [, etc.
     """
+    # V3.1: Check for resolved_idea (new format)
+    resolved_idea = preview_summary.get("resolved_idea")
+    if resolved_idea:
+        return _render_proposed_main_idea_card(
+            resolved_idea, preview_summary, session_collected
+        )
+
+    # Fallback to original format
     lines = ["📹 Demo Video Analysis Complete", ""]
 
     # Video info section
@@ -335,7 +357,7 @@ def _video_ai_demo_preview_text(
     video_goal = session_collected.get("video_goal", "")
     audience = session_collected.get("audience", "")
     if video_goal:
-        lines.append(f"Video goal: {_humanize_token(video_goal)}")
+        lines.append(f"Video type: {_humanize_token(video_goal, is_video_goal=True)}")
     if audience:
         lines.append(f"Target audience: {_truncate(audience, 60)}")
 
@@ -346,6 +368,70 @@ def _video_ai_demo_preview_text(
         "• Correct to fix any misunderstandings\n"
         "• Re-emphasize to focus on specific features\n"
         "• Re-upload to start with a different video"
+    )
+
+    return "\n".join(lines)
+
+
+def _render_proposed_main_idea_card(
+    resolved_idea: Dict[str, Any],
+    preview_summary: Dict[str, Any],
+    session_collected: Dict[str, Any],
+) -> str:
+    """
+    Render Proposed Main Idea card (V3.1 - Phase 5c).
+
+    Replaces raw feature list with synthesized main idea.
+    """
+    lines = ["📌 Proposed Main Idea", ""]
+
+    # Main idea
+    main_idea = resolved_idea.get("resolved_main_idea", "")
+    if main_idea:
+        lines.append(f"{main_idea}")
+        lines.append("")
+
+    # Why (supporting evidence)
+    supporting_evidence = resolved_idea.get("supporting_evidence", [])
+    if supporting_evidence:
+        lines.append("Why:")
+        evidence_text = " ".join(supporting_evidence[:2])  # Max 2 pieces of evidence
+        lines.append(f"  {_truncate(evidence_text, 150)}")
+        lines.append("")
+
+    # Top half flow
+    top_half_flow = resolved_idea.get("top_half_flow", [])
+    if top_half_flow:
+        lines.append("Top half flow:")
+        for step in top_half_flow[:3]:  # Max 3 steps
+            lines.append(f"  • {_truncate(step, 80)}")
+        lines.append("")
+
+    # Bottom half claim
+    bottom_half_claim = resolved_idea.get("bottom_half_claim", "")
+    if bottom_half_claim:
+        lines.append("Bottom half:")
+        lines.append(f"  {_truncate(bottom_half_claim, 120)}")
+        lines.append("")
+
+    # Confidence indicator
+    idea_confidence = resolved_idea.get("idea_confidence", "medium")
+    conf_emoji = {"high": "🟢", "medium": "🟡", "low": "🔴"}.get(idea_confidence, "⚪")
+    lines.append(f"Idea confidence: {conf_emoji} {idea_confidence}")
+    lines.append("")
+
+    # Warnings if medium/low confidence
+    if idea_confidence in ["medium", "low"]:
+        lines.append("⚠️ Please confirm this matches your intent before proceeding.")
+        lines.append("")
+
+    # Actions
+    lines.append(
+        "Choose an action:\n"
+        "• Approve — Proceed with this main idea\n"
+        "• Pick another focus — Choose a different feature\n"
+        "• Rewrite — Provide your own main idea\n"
+        "• Re-upload — Start with a different video"
     )
 
     return "\n".join(lines)
@@ -611,9 +697,9 @@ class TelegramRenderer:
     def render_skill_prompt(
         cls, session: SkillSession, prefix: str = ""
     ) -> Dict[str, Any]:
-        if (
-            session.skill_name == "persona-creator"
-            and session.step_key in ("preview", "confirm_dream")
+        if session.skill_name == "persona-creator" and session.step_key in (
+            "preview",
+            "confirm_dream",
         ):
             step = get_step_definition(session.skill_name, session.step_key)
             persona_id = session.artifacts.get("persona_id") or session.collected.get(
@@ -641,7 +727,11 @@ class TelegramRenderer:
             )
 
             prompt_text = step.get("prompt_text") or "✨ *Persona Profile Ready\\!*"
-            dynamic_message = session.last_result.output.get("message") if session.last_result else None
+            dynamic_message = (
+                session.last_result.output.get("message")
+                if session.last_result
+                else None
+            )
             if dynamic_message:
                 prompt_text = f"{prompt_text}\n\n{dynamic_message}"
 
@@ -692,8 +782,8 @@ class TelegramRenderer:
 
         if session.skill_name == "video-ai" and session.step_key == "confirm_beats":
             step = get_step_definition(session.skill_name, session.step_key)
-            beat_sheet = session.artifacts.get("beat_sheet") or {}
             concept = session.artifacts.get("concept_brief") or {}
+            beat_sheet = session.artifacts.get("beat_sheet") or {}
             return {
                 "text": _video_ai_beats_text(beat_sheet, concept),
                 "reply_markup": _inline_keyboard_from_options(
@@ -829,10 +919,12 @@ class TelegramRenderer:
         prompt_text = (
             step.get("prompt_text") or f"{session.skill_name}: {session.step_key}"
         )
-        dynamic_message = session.last_result.output.get("message") if session.last_result else None
+        dynamic_message = (
+            session.last_result.output.get("message") if session.last_result else None
+        )
         if dynamic_message:
             prompt_text = f"{prompt_text}\n\n{dynamic_message}"
-        
+
         input_type = step.get("input_type")
 
         if input_type in {"persona_picker", "persona_selector"}:
@@ -943,7 +1035,7 @@ class TelegramRenderer:
                     "",
                     f"Persona: {concept.get('persona_id') or '-'}",
                     f"Feature Focus: {concept.get('feature_focus') or '-'}",
-                    f"Goal: {_humanize_token(concept.get('video_goal'))}",
+                    f"Type: {_humanize_token(concept.get('video_goal'), is_video_goal=True)}",
                     f"Beats: {beat_count}",
                 ]
                 if production_note:
@@ -999,6 +1091,47 @@ class TelegramRenderer:
                             step.get("options", []),
                             allow_approve=allow_approve,
                         ),
+                        prefix="action::",
+                    ),
+                    "parse_mode": None,
+                }
+            # Phase 5: Demo preview confirmation failure/timeout
+            if (
+                session.skill_name == "video-ai"
+                and session.step_key == "demo_preview_confirm"
+            ):
+                output = result.output or {}
+                # Check for timeout
+                if output.get("timeout"):
+                    return {
+                        "text": output.get(
+                            "message", "Preview confirmation timed out."
+                        ),
+                        "reply_markup": _inline_keyboard_from_options(
+                            [
+                                {"label": "Re-upload", "value": "reupload"},
+                                {"label": "Cancel", "value": "cancel"},
+                            ],
+                            prefix="action::",
+                        ),
+                        "parse_mode": None,
+                    }
+                # Generic demo preview failure
+                preview_summary = (
+                    output.get("demo_preview_summary")
+                    or session.artifacts.get("demo_preview_summary")
+                    or {}
+                )
+                return {
+                    "text": _video_ai_demo_preview_text(
+                        preview_summary, session.collected
+                    )
+                    + f"\n\n⚠️ {result.error or 'Preview step failed.'}",
+                    "reply_markup": _inline_keyboard_from_options(
+                        [
+                            {"label": "Re-upload", "value": "reupload"},
+                            {"label": "Cancel", "value": "cancel"},
+                        ],
                         prefix="action::",
                     ),
                     "parse_mode": None,
@@ -1085,7 +1218,7 @@ class TelegramRenderer:
                     step.get("options", []),
                     prefix="action::",
                 ),
-                "parse_mode": "Markdown",
+                "parse_mode": None,  # Use plain text to safely handle OCR-derived content
             }
 
         if (
@@ -1400,7 +1533,7 @@ class TelegramRenderer:
                         "",
                         f"Persona: {concept.get('persona_id') or '-'}",
                         f"Feature Focus: {concept.get('feature_focus') or '-'}",
-                        f"Goal: {_humanize_token(concept.get('video_goal'))}",
+                        f"Type: {_humanize_token(concept.get('video_goal'), is_video_goal=True)}",
                         f"Beats: {beat_count}",
                     ]
                     if production_note:
@@ -1418,7 +1551,7 @@ class TelegramRenderer:
                         "",
                         f"Persona: {concept.get('persona_id') or '-'}",
                         f"Feature Focus: {concept.get('feature_focus') or '-'}",
-                        f"Goal: {_humanize_token(concept.get('video_goal'))}",
+                        f"Type: {_humanize_token(concept.get('video_goal'), is_video_goal=True)}",
                         f"Beats: {beat_count}",
                     ]
                     if production_note:

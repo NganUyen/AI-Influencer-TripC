@@ -572,10 +572,10 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
             source_duration = _probe_media_duration(p)
             trim_start = TOP_SCENE_SKIP_SECONDS
             if source_duration is not None:
-                # Keep enough source material for the requested scene duration.
-                # If the clip is short (e.g. AI fallback clips), skip less or zero.
-                max_safe_skip = max(0.0, source_duration - float(scene_duration) - 0.1)
-                trim_start = min(TOP_SCENE_SKIP_SECONDS, max_safe_skip)
+                # Honor the requested 8s anchor whenever possible.
+                # Only reduce skip when the clip is truly shorter than the anchor point.
+                if source_duration <= TOP_SCENE_SKIP_SECONDS:
+                    trim_start = max(0.0, source_duration - 0.1)
 
             logger.info(
                 "Assembly scene %s trimming | requested_skip=%.2fs | effective_skip=%.2fs | source_duration=%s | scene_duration=%.2fs",

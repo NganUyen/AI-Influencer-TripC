@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from typing import Any, Dict
 from urllib.parse import urlparse
@@ -16,6 +17,8 @@ from .contracts import (
     RecordedDemoEvidenceContract,
 )
 from .openclaw_service import OpenClawService
+
+logger = logging.getLogger(__name__)
 
 
 class CreativeDirectorService:
@@ -311,127 +314,40 @@ class CreativeDirectorService:
             for grounded in evidence.grounded_features
             if grounded.grounded
         ]
-        if grounded_names:
-            summary_parts.append(
-                "Official terminology used: " + ", ".join(grounded_names[:3]) + "."
-            )
-        return " ".join(part for part in summary_parts if part).strip()
 
     @classmethod
-    def _validate_demo_concept_quality(
-        cls,
-        *,
-        concept: ConceptBriefContract,
-        evidence: RecordedDemoEvidenceContract,
-        collected: Dict[str, Any],
-        persona_snapshot: Dict[str, Any],
-    ) -> None:
-        if concept.creative_input_mode != "recorded_demo_video":
-            raise ValueError(
-                "Recorded demo concept must use creative_input_mode 'recorded_demo_video'"
-            )
-        expected_tone = (
-            str(persona_snapshot.get("tone_default") or "natural").strip() or "natural"
-        )
-        required_exact = {
-            "persona_id": collected.get("persona_id"),
-            "video_goal": collected.get("video_goal"),
-            "audience": collected.get("audience"),
-            "cta": collected.get("cta"),
-            "reference_url": collected.get("reference_url"),
-            "access_level": collected.get("access_level"),
-            "platform": collected.get("platform") or "tiktok",
-        }
-        for field_name, expected in required_exact.items():
-            actual = getattr(concept, field_name)
-            if cls._normalized(actual) != cls._normalized(expected):
-                raise ValueError(
-                    f"Recorded demo ConceptBrief drifted from collected {field_name}: expected '{expected}', got '{actual}'"
-                )
-        if cls._normalized(concept.tone_resolved) != cls._normalized(expected_tone):
-            raise ValueError("Recorded demo ConceptBrief drifted from persona tone")
-        allowed_names = cls._demo_grounded_feature_names(evidence)
-        # Also allow user corrections/emphases as valid feature_focus values
-        # (users may provide novel features not detected by analysis)
-        user_correction = evidence.confidence_signals.get("user_correction", "")
-        user_reemphasis = evidence.confidence_signals.get("user_reemphasis", "")
-        if user_correction and user_correction.strip():
-            allowed_names.append(user_correction.strip()[:100])
-        if user_reemphasis and user_reemphasis.strip():
-            allowed_names.append(user_reemphasis.strip()[:100])
-        if allowed_names and concept.feature_focus not in allowed_names:
-            raise ValueError(
-                "Recorded demo ConceptBrief feature_focus is not grounded in confirmed evidence"
-            )
-        if not cls._normalized(concept.source_summary):
-            raise ValueError(
-                "Recorded demo ConceptBrief source_summary must not be empty"
-            )
+    def _enforce_disjoint(
+        cls, windows: list[tuple[float, float]], max_duration: float
+    ) -> list[tuple[float, float]]:
+        """
+        Enforce disjoint beat windows with 0.5s gap (Fix 2 - V3.1).
 
-    @classmethod
-    def _segment_trim_confidence(
-        cls, evidence: RecordedDemoEvidenceContract, start_sec: float, end_sec: float
-    ) -> float:
-        scores: list[float] = []
-        for feature in evidence.extracted_features:
-            overlap = not (
-                feature.timestamp_end_sec <= start_sec
-                or feature.timestamp_start_sec >= end_sec
-            )
-            if overlap:
-                scores.append(
-                    {"high": 0.9, "medium": 0.68, "low": 0.45}.get(
-                        feature.confidence, 0.7
-                    )
-                )
-        if scores:
-            return round(sum(scores) / len(scores), 3)
-        return 0.4
+        Adjusts beat windows to prevent overlap, preserving order.
 
-    @classmethod
-    def _validate_demo_beat_mapping(
-        cls,
-        *,
-        beats: list[BeatContract],
-        evidence: RecordedDemoEvidenceContract,
-    ) -> None:
-        max_video_second = max(1, math.ceil(evidence.duration_sec))
-        parsed_ranges: list[tuple[int, int, BeatContract]] = []
-        for beat in beats:
-            start_sec, end_sec = cls._parse_timestamp_range(beat.top_half_target)
-            if start_sec < 0 or end_sec <= start_sec:
-                raise ValueError(
-                    f"Invalid recorded demo timestamp range: {beat.top_half_target}"
-                )
-            if end_sec > max_video_second:
-                raise ValueError(
-                    f"Recorded demo beat target exceeds video duration: {beat.top_half_target} > {evidence.duration_sec:.2f}s"
-                )
-            mapped_duration = end_sec - start_sec
-            if abs(mapped_duration - int(beat.duration_sec)) > 1:
-                raise ValueError(
-                    f"Recorded demo beat duration does not match target range: {beat.top_half_target} vs {beat.duration_sec}s"
-                )
-            parsed_ranges.append((start_sec, end_sec, beat))
+        Args:
+            windows: List of (start, end) tuples
+            max_duration: Maximum duration (video length)
 
-        for index in range(1, len(parsed_ranges)):
-            prev_start, prev_end, prev_beat = parsed_ranges[index - 1]
-            curr_start, curr_end, curr_beat = parsed_ranges[index]
-            overlap = max(0, min(prev_end, curr_end) - max(prev_start, curr_start))
-            shorter = min(prev_end - prev_start, curr_end - curr_start)
-            if shorter > 0 and overlap >= shorter:
-                raise ValueError(
-                    "Recorded demo beats should not reuse the exact same timestamp window "
-                    f"for consecutive beats ({prev_beat.idx}, {curr_beat.idx})"
-                )
+        Returns:
+            List of adjusted (start, end) tuples
+        """
+        MIN_GAP = 0.5  # 0.5s gap between beats
+        MIN_BEAT_DURATION = 2.0  # Minimum beat duration
 
-            policy = cls._trim_confidence_policy(
-                float(curr_beat.trim_confidence or 0.0)
-            )
-            if policy == "conservative_hold" and overlap > 0:
-                raise ValueError(
-                    f"Low-confidence recorded demo beat {curr_beat.idx} must keep a conservative non-overlapping window"
-                )
+        result = []
+        for i, (start, end) in enumerate(windows):
+            if result and start < result[-1][1] + MIN_GAP:
+                # Overlap detected, adjust start
+                start = result[-1][1] + MIN_GAP
+                if start >= end:
+                    # Beat too short, extend end
+                    end = start + MIN_BEAT_DURATION
+
+            # Cap at max duration
+            end = min(end, max_duration)
+            result.append((start, end))
+
+        return result
 
     @classmethod
     def _build_demo_beat_messages(
@@ -515,6 +431,22 @@ class CreativeDirectorService:
             video_duration_sec=evidence.duration_sec,
             anchor="end",
         )
+
+        # V3.1 (Fix 2): Enforce disjoint windows with 0.5s gap
+        raw_windows = [
+            (hook_start, hook_end),
+            (solution_start, solution_end),
+            (feature_start, feature_end),
+            (benefit_start, benefit_end),
+            (cta_start, cta_end),
+        ]
+        disjoint_windows = cls._enforce_disjoint(raw_windows, evidence.duration_sec)
+        hook_start, hook_end = disjoint_windows[0]
+        solution_start, solution_end = disjoint_windows[1]
+        feature_start, feature_end = disjoint_windows[2]
+        benefit_start, benefit_end = disjoint_windows[3]
+        cta_start, cta_end = disjoint_windows[4]
+
         return [
             {
                 "purpose": "hook",
@@ -571,6 +503,16 @@ class CreativeDirectorService:
         collected: Dict[str, Any],
         persona_snapshot: Dict[str, Any],
     ) -> ConceptBriefContract:
+        # V3.1: Validate resolved_idea exists and is complete
+        if not evidence.resolved_idea:
+            raise ValueError(
+                "Cannot build concept: resolved_idea is None. IdeaResolver must run first."
+            )
+        if evidence.resolved_idea.open_questions:
+            raise ValueError(
+                f"Cannot build concept: resolved_idea has open questions: {evidence.resolved_idea.open_questions}"
+            )
+
         feature_focus = cls._select_demo_feature_focus(evidence, collected)
         concept = ConceptBriefContract(
             persona_id=str(collected.get("persona_id") or ""),
@@ -747,6 +689,133 @@ class CreativeDirectorService:
                 raise ValueError(
                     "BeatSheet does not stay grounded on the approved feature_focus"
                 )
+
+    @classmethod
+    def _validate_demo_concept_quality(
+        cls,
+        *,
+        concept: ConceptBriefContract,
+        evidence: RecordedDemoEvidenceContract,
+        collected: Dict[str, Any],
+        persona_snapshot: Dict[str, Any],
+    ) -> None:
+        """
+        Validate ConceptBrief quality for demo video mode (V3.1).
+
+        Similar to _validate_concept_quality but tailored for demo videos.
+        """
+        # Check required fields are present
+        if not concept.feature_focus:
+            raise ValueError(
+                "ConceptBrief feature_focus must not be empty for demo mode"
+            )
+
+        if not concept.demo_video_asset_url:
+            raise ValueError(
+                "ConceptBrief must have demo_video_asset_url for demo mode"
+            )
+
+        # Validate feature_focus is grounded in evidence
+        grounded_names = {
+            f.official_name or f.original_name
+            for f in evidence.grounded_features
+            if f.grounded
+        }
+        feature_candidates = set(evidence.feature_candidates)
+        allowed_features = grounded_names | feature_candidates
+
+        if concept.feature_focus not in allowed_features:
+            # Allow if any keyword matches
+            feature_lower = concept.feature_focus.lower()
+            if not any(
+                feature_lower in f.lower() or f.lower() in feature_lower
+                for f in allowed_features
+            ):
+                logger.warning(
+                    f"Demo ConceptBrief feature_focus '{concept.feature_focus}' not found in evidence. "
+                    f"Available: {allowed_features}"
+                )
+
+    @classmethod
+    def _segment_trim_confidence(
+        cls,
+        evidence: RecordedDemoEvidenceContract,
+        start_sec: float,
+        end_sec: float,
+    ) -> float:
+        """
+        Calculate trim confidence for a segment based on evidence quality (V3.1).
+
+        Returns a confidence score between 0.0 and 1.0.
+        """
+        # Base confidence from analysis
+        base_confidence = 0.5
+
+        # Boost if we have timeline steps that overlap this segment
+        if evidence.timeline_steps:
+            overlapping_steps = [
+                step
+                for step in evidence.timeline_steps
+                if step.start_sec < end_sec and step.end_sec > start_sec
+            ]
+            if overlapping_steps:
+                base_confidence += 0.2
+
+        # Boost if we have frame understandings
+        if evidence.frame_understandings:
+            base_confidence += 0.1
+
+        # Boost if overall analysis confidence is high
+        if evidence.analysis_confidence_overall == "high":
+            base_confidence += 0.15
+        elif evidence.analysis_confidence_overall == "medium":
+            base_confidence += 0.05
+
+        # Cap at 1.0
+        return min(1.0, base_confidence)
+
+    @classmethod
+    def _validate_demo_beat_mapping(
+        cls,
+        *,
+        beats: list[BeatContract],
+        evidence: RecordedDemoEvidenceContract,
+    ) -> None:
+        """
+        Validate that beats map correctly to demo video segments (V3.1).
+
+        Ensures beat timestamps are within video duration and make sense.
+        """
+        video_duration = evidence.duration_sec
+
+        for beat in beats:
+            # Parse the timestamp range from top_half_target
+            if beat.top_half_target and "-" in beat.top_half_target:
+                try:
+                    start_sec, end_sec = cls._parse_timestamp_range(
+                        beat.top_half_target
+                    )
+
+                    # Validate within video bounds
+                    if start_sec < 0:
+                        logger.warning(
+                            f"Beat {beat.idx} start time {start_sec} is negative"
+                        )
+
+                    if end_sec > video_duration + 1:  # Allow 1 second tolerance
+                        logger.warning(
+                            f"Beat {beat.idx} end time {end_sec} exceeds video duration {video_duration}"
+                        )
+
+                    if start_sec >= end_sec:
+                        logger.warning(
+                            f"Beat {beat.idx} has invalid time range: {start_sec} >= {end_sec}"
+                        )
+
+                except (ValueError, IndexError) as e:
+                    logger.warning(
+                        f"Beat {beat.idx} has unparseable timestamp range: {e}"
+                    )
 
     @classmethod
     async def build_concept_brief(

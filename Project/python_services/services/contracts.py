@@ -262,6 +262,68 @@ class GroundedFeatureContract(BaseModel):
     grounding_note: str = ""  # Explanation of grounding result
 
 
+class FrameUnderstandingContract(BaseModel):
+    """Understanding of a single video frame via vision model (Phase 3b)."""
+
+    segment_idx: int
+    screen_type: str  # dashboard|form|modal|confirmation|onboarding|list|other
+    primary_action: str
+    feature_demonstrated: Optional[str] = None  # null if not clear
+    journey_stage: str  # discover|configure|confirm|complete|unclear
+    key_ui_text: List[str] = Field(default_factory=list)
+    confidence: float
+
+
+class TimelineStepContract(BaseModel):
+    """Typed timeline step for IdeaResolver input (Phase 3c)."""
+
+    segment_idx: int
+    start_sec: float
+    end_sec: float
+    summary: str  # What this step is doing
+    ocr_text: List[str] = Field(default_factory=list)  # Raw OCR text
+    frame_understanding: Optional[FrameUnderstandingContract] = None
+
+
+class OfficialFeatureContract(BaseModel):
+    """A feature extracted from official documentation (Phase 2b)."""
+
+    name: str
+    description: str
+    source_url: str  # Required, not empty
+
+
+class OfficialFeatureCatalogContract(BaseModel):
+    """Catalog of features from official sources (Phase 2b)."""
+
+    features: List[OfficialFeatureContract] = Field(default_factory=list)
+    official_terminology: Dict[str, str] = Field(default_factory=dict)  # Catalog-level
+    visited_urls: List[str] = Field(default_factory=list)
+    primary_source_url: str = ""
+
+
+class GroundingAuditContract(BaseModel):
+    """Audit trail for grounding process (Phase 2c)."""
+
+    browser_used: bool = False  # Audit signal, not block condition
+    visited_urls: List[str] = Field(default_factory=list)
+    primary_source_url: str = ""
+    source_snippets: List[str] = Field(default_factory=list)
+
+
+class ResolvedIdeaContract(BaseModel):
+    """Resolved main idea from evidence synthesis (Phase 4a)."""
+
+    resolved_main_idea: str
+    canonical_feature_focus: str
+    top_half_flow: List[str] = Field(default_factory=list)
+    bottom_half_claim: str
+    supporting_evidence: List[str] = Field(default_factory=list)
+    consistency_score: float  # 0.0 - 1.0
+    open_questions: List[str] = Field(default_factory=list)  # Empty = proceed
+    idea_confidence: Literal["high", "medium", "low"] = "low"
+
+
 class RecordedDemoEvidenceContract(BaseModel):
     """
     Evidence extracted from uploaded demo video (Phase 4-5).
@@ -304,6 +366,21 @@ class RecordedDemoEvidenceContract(BaseModel):
     grounding_reference_url: Optional[str] = None  # URL used for grounding
     grounding_project_name: Optional[str] = None  # Project name if provided
     grounding_completed: bool = False  # Whether grounding step has run
+
+    # User input anchors (Phase 5 - V3.1)
+    content_scope: Optional[str] = (
+        None  # "single_feature"|"single_flow"|"product_overview"
+    )
+    user_video_thesis: Optional[str] = None
+    desired_takeaway: Optional[str] = None  # Collected AFTER preview, not before
+
+    # New typed sub-contracts (Phase 2-4 - V3.1)
+    timeline_steps: Optional[List[TimelineStepContract]] = None
+    frame_understandings: Optional[List[FrameUnderstandingContract]] = None
+    official_catalog: Optional[OfficialFeatureCatalogContract] = None
+    grounding_audit: Optional[GroundingAuditContract] = None
+    resolved_idea: Optional[ResolvedIdeaContract] = None
+    idea_confidence: Optional[str] = None  # "high"|"medium"|"low" - Gate 2
 
     # Confidence scoring
     analysis_confidence_overall: Literal["high", "medium", "low"] = "low"

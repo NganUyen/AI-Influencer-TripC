@@ -11,7 +11,7 @@ from typing import Any, Dict, List
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, TimeoutError
 
 with workflow.unsafe.imports_passed_through():
     from activities.approval_activities import (
@@ -601,12 +601,45 @@ class ShortVideoWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
 
-            decision = await workflow.execute_activity(
-                wait_for_publish_decision,
-                args=[preview["request_id"], telegram_chat_id],
-                start_to_close_timeout=timedelta(minutes=31),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
+            try:
+                decision = await workflow.execute_activity(
+                    wait_for_publish_decision,
+                    args=[preview["request_id"], telegram_chat_id],
+                    start_to_close_timeout=timedelta(minutes=31),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except ActivityError as exc:
+                cause = getattr(exc, "cause", None)
+                is_timeout = isinstance(cause, TimeoutError) or (
+                    "timed out" in str(exc).lower()
+                )
+                if not is_timeout:
+                    raise
+
+                self.decision = "timeout"
+                self.workflow_status = "expired"
+                self.current_step = "decision_timeout"
+                log_step_change(
+                    "decision_timeout",
+                    "no publish decision within 31 minutes",
+                )
+                workflow.logger.warning(
+                    "Publish decision timed out | workflow_id=%s | request_id=%s",
+                    workflow_id,
+                    preview.get("request_id"),
+                )
+                return {
+                    **final_video,
+                    "status": "expired",
+                    "workflow_id": workflow_id,
+                    "persona_id": persona_id,
+                    "topic": topic,
+                    "metadata": {
+                        **(final_video.get("metadata") or {}),
+                        "final_decision": "timeout",
+                        "reason": "publish_decision_timeout",
+                    },
+                }
 
             self.decision = decision.get("action")
             if self.decision == "discard":

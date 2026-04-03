@@ -1335,7 +1335,11 @@ async def _capture_browser_video(
         # ═══════════════════════════════════════════════════════════════════════════
         # ADAPTIVE CAPTURE DURATION
         # ═══════════════════════════════════════════════════════════════════════════
-        # Use scene timestamps to calculate exact needed duration with buffer
+        # Use scene timestamps to calculate exact needed duration with buffer.
+        # CRITICAL: Assembly skips the first 8 seconds (TOP_SCENE_SKIP_SECONDS) to
+        # exclude blank page loading frames. We must capture enough footage so that
+        # scene_duration remains AFTER the 8-second skip.
+        ASSEMBLY_SKIP_SECONDS = 8.0
         scene_duration_sec = None
         ts_start = scene.get("timestamp_start")
         ts_end = scene.get("timestamp_end")
@@ -1343,15 +1347,18 @@ async def _capture_browser_video(
             scene_duration_sec = float(ts_end) - float(ts_start)
         
         # Calculate adaptive max_capture_seconds
+        # Formula: 8s (skip) + scene_duration + 2s (buffer)
         if scene_duration_sec and scene_duration_sec > 0:
-            # Add 2s buffer for transitions, but don't exceed base max
-            adaptive_duration = min(scene_duration_sec + 2.0, float(base_max_capture_seconds))
-            max_capture_seconds = max(8, int(adaptive_duration))  # Minimum 8s
+            adaptive_duration = ASSEMBLY_SKIP_SECONDS + scene_duration_sec + 2.0
+            # Don't exceed base max
+            adaptive_duration = min(adaptive_duration, float(base_max_capture_seconds))
+            max_capture_seconds = max(8, int(adaptive_duration))
             logger.info(
-                "Adaptive capture duration | scene=%s | scene_duration=%.1f | capture_budget=%d",
+                "Adaptive capture duration | scene=%s | scene_duration=%.1f | capture_budget=%d (includes %ds skip buffer)",
                 scene_id,
                 scene_duration_sec,
                 max_capture_seconds,
+                int(ASSEMBLY_SKIP_SECONDS),
             )
         else:
             max_capture_seconds = int(base_max_capture_seconds)

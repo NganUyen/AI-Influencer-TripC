@@ -571,26 +571,30 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
 
             source_duration = _probe_media_duration(p)
             trim_start = TOP_SCENE_SKIP_SECONDS
-            # Keep a small tail for short clips so ffmpeg still emits a valid segment.
-            if source_duration is not None and source_duration <= TOP_SCENE_SKIP_SECONDS + 0.25:
-                trim_start = max(0.0, source_duration - 0.25)
+            if source_duration is not None:
+                # Keep enough source material for the requested scene duration.
+                # If the clip is short (e.g. AI fallback clips), skip less or zero.
+                max_safe_skip = max(0.0, source_duration - float(scene_duration) - 0.1)
+                trim_start = min(TOP_SCENE_SKIP_SECONDS, max_safe_skip)
 
             logger.info(
-                "Assembly scene %s trimming | requested_skip=%.2fs | effective_skip=%.2fs | source_duration=%s",
+                "Assembly scene %s trimming | requested_skip=%.2fs | effective_skip=%.2fs | source_duration=%s | scene_duration=%.2fs",
                 idx,
                 TOP_SCENE_SKIP_SECONDS,
                 trim_start,
                 f"{source_duration:.2f}s" if source_duration is not None else "unknown",
+                scene_duration,
             )
 
             _run_ffmpeg(
                 [
                     "ffmpeg",
                     "-y",
-                    "-ss",
-                    f"{trim_start:.3f}",
                     "-i",
                     p,
+                    # Place -ss after input for accurate frame seek (avoids keyframe snap-back).
+                    "-ss",
+                    f"{trim_start:.3f}",
                     "-vf",
                     _half_frame_filter(),
                     "-t",

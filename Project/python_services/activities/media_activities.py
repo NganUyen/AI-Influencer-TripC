@@ -957,18 +957,17 @@ async def _capture_with_retry(
                 capture_metrics = None
             
             if video_path and os.path.exists(video_path):
+                # Do not gate on file size here: Playwright may finalize bytes only
+                # after the browser context is closed by the caller.
                 file_size = os.path.getsize(video_path)
-                if file_size >= _MIN_VIDEO_FILE_SIZE:
-                    if attempt > 1:
-                        logger.info(
-                            "Capture succeeded on attempt %d | scene=%s | size=%d",
-                            attempt,
-                            scene_id,
-                            file_size,
-                        )
-                    return video_path, capture_metrics
-                else:
-                    raise RuntimeError(f"Capture produced tiny file ({file_size} bytes)")
+                if attempt > 1:
+                    logger.info(
+                        "Capture succeeded on attempt %d | scene=%s | pre-close_size=%d",
+                        attempt,
+                        scene_id,
+                        file_size,
+                    )
+                return video_path, capture_metrics
             else:
                 raise RuntimeError("Capture did not produce a video file")
                 

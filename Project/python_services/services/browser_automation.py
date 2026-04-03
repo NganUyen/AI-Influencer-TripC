@@ -115,11 +115,19 @@ class BrowserAutomationService:
         self, proxy_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         launch_options: Dict[str, Any] = {
+            # Base Playwright headless config (new-mode preference is applied
+            # at launch time with fallback for compatibility).
             "headless": True,
             "args": [
                 "--no-sandbox",
                 "--disable-blink-features=AutomationControlled",
                 "--disable-dev-shm-usage",
+                # Enable GPU for better video encoding
+                "--enable-gpu",
+                # Use software rendering as fallback in containers
+                "--use-gl=swiftshader",
+                # Disable shared memory for containers
+                "--disable-gpu-sandbox",
             ],
         }
 
@@ -209,9 +217,30 @@ class BrowserAutomationService:
         self.storage_state_path = session_config.get("storage_state_path")
         self.profile_name = session_config.get("profile_name")
 
-        self.browser = await playwright.chromium.launch(
-            **session_config["launch_options"]
-        )
+        base_launch_options = dict(session_config["launch_options"])
+        preferred_launch_options = dict(base_launch_options)
+        preferred_args = list(preferred_launch_options.get("args", []))
+
+        # Prefer Chromium's newer headless mode for recording reliability.
+        # Some environments may not support it, so we fall back automatically.
+        if preferred_launch_options.get("headless", True):
+            preferred_launch_options["headless"] = False
+            if "--headless=new" not in preferred_args:
+                preferred_args.insert(0, "--headless=new")
+            preferred_launch_options["args"] = preferred_args
+
+        headless_mode = "default"
+        try:
+            self.browser = await playwright.chromium.launch(**preferred_launch_options)
+            if "--headless=new" in preferred_args:
+                headless_mode = "new"
+        except Exception as launch_err:
+            logger.warning(
+                "Chromium launch with headless=new failed; falling back to default headless | err=%s",
+                str(launch_err)[:200],
+            )
+            self.browser = await playwright.chromium.launch(**base_launch_options)
+            headless_mode = "default_fallback"
 
         # Create context with region-aware settings
         context_options = dict(session_config["context_options"])
@@ -265,12 +294,13 @@ class BrowserAutomationService:
         
         # CP-BR1: Browser init complete
         logger.info(
-            "CP-BR1: Browser init complete | duration_ms=%d | proxy=%s | region=%s | viewport=%s | record_video=%s",
+            "CP-BR1: Browser init complete | duration_ms=%d | proxy=%s | region=%s | viewport=%s | record_video=%s | headless_mode=%s",
             init_duration_ms,
             bool(proxy_config),
             (region_info or {}).get("country", "default"),
             record_video_size or {"width": 1080, "height": 960},
             bool(record_video_dir),
+            headless_mode,
         )
 
     async def publish(
@@ -661,8 +691,58 @@ class BrowserAutomationService:
                 metrics.failure_reason = f"Video file not found: {path}"
                 raise RuntimeError(f"Playwright video file path not found: {path}")
             
-            # Get initial file size
-            initial_size = os.path.getsize(path) if path_exists else 0
+            # ═══════════════════════════════════════════════════════════════════════════
+            # CRITICAL: Wait for video file to be finalized by ffmpeg
+            # ═══════════════════════════════════════════════════════════════════════════
+            # Playwright/ffmpeg may still be encoding the video after page.close().
+            # We need to wait for the file to have actual content and stabilize.
+            MIN_VALID_SIZE = 2000  # Minimum valid video size in bytes
+            MAX_FINALIZE_WAIT = 30.0  # Maximum wait for video finalization
+            finalize_start = _time.monotonic()
+            finalize_iterations = 0
+            last_size = 0
+            stable_count = 0
+            
+            while (_time.monotonic() - finalize_start) < MAX_FINALIZE_WAIT:
+                finalize_iterations += 1
+                
+                if not os.path.exists(path):
+                    await asyncio.sleep(0.3)
+                    continue
+                
+                current_size = os.path.getsize(path)
+                
+                # Check if file has grown to valid size
+                if current_size >= MIN_VALID_SIZE:
+                    # Wait for size to stabilize (same size 2 times in a row)
+                    if current_size == last_size:
+                        stable_count += 1
+                        if stable_count >= 2:
+                            logger.info(
+                                "Video file finalized | path=%s | size=%d | iterations=%d | wait_ms=%d",
+                                path,
+                                current_size,
+                                finalize_iterations,
+                                int((_time.monotonic() - finalize_start) * 1000),
+                            )
+                            break
+                    else:
+                        stable_count = 0
+                
+                last_size = current_size
+                await asyncio.sleep(0.5)
+            else:
+                # Timeout reached
+                final_size = os.path.getsize(path) if os.path.exists(path) else 0
+                logger.warning(
+                    "Video finalization timeout | path=%s | final_size=%d | wait_sec=%.1f",
+                    path,
+                    final_size,
+                    MAX_FINALIZE_WAIT,
+                )
+            
+            # Get final file size after stabilization
+            initial_size = os.path.getsize(path) if os.path.exists(path) else 0
             metrics.video_path = path
             metrics.file_size_bytes = initial_size
             

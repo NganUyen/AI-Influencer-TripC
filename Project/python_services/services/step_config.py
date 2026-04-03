@@ -510,6 +510,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "preview": {
             "input_type": "preview_actions",
+            "field": "preview_command",
             "prompt_text": "✨ *Persona Profile Ready\\!*",
             "options": _options(
                 ("✏️ Edit Name", "edit_p_name"),

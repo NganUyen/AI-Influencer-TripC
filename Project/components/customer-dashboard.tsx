@@ -16,6 +16,11 @@ import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
+import { Panel } from "@/components/Panel";
+import { PanelHeader } from "@/components/PanelHeader";
+import { StatCard } from "@/components/StatCard";
+import { DataCard } from "@/components/DataCard";
+
 
 type BrandProfile = {
   product_name: string | null;
@@ -833,33 +838,41 @@ async function loadWorkspace() {
 
         {activeTab === "overview" && (
           <div className="space-y-6">
-            <Panel title="Quick Stats" subtitle="Current workflow pulse">
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Panel variant="elevated">
+              <PanelHeader 
+                title="Quick Stats" 
+                subtitle="Current workflow pulse"
+              />
+              <div className="grid grid-cols-2 gap-4">
                 <StatCard
-                  label="Active Workflows"
-                  value={String(systemWorkflows.length)}
+                  title="Active Campaigns"
+                  value={campaigns.filter(c => c.status === 'active').length.toString()}
                   tone="emerald"
                 />
                 <StatCard
-                  label="Pending Approvals"
-                  value={String(approvals.length)}
+                  title="Pending Approvals"
+                  value={approvals.length.toString()}
                   tone="amber"
                 />
                 <StatCard
-                  label="Connected Platforms"
-                  value={String(accounts.filter((account) => account.connection_status === "connected").length)}
+                  title="Published Content"
+                  value={content.filter(c => c.status === 'published').length.toString()}
                   tone="sky"
                 />
                 <StatCard
-                  label="Active Personas"
-                  value={String(personas.length)}
-                  tone="stone"
+                  title="AI Personas"
+                  value={personas?.length.toString() || "0"}
+                  tone="emerald"
                 />
               </div>
             </Panel>
 
             <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-              <Panel title="System Health" subtitle="Service status and runtime availability.">
+              <Panel variant="elevated">
+                <PanelHeader 
+                  title="System Health" 
+                  subtitle="Service status and runtime availability."
+                />
                 <div className="space-y-3">
                   {(systemSummary?.services || []).length === 0 && (
                     <p className="text-sm text-stone-400">No system service data available yet.</p>
@@ -881,7 +894,11 @@ async function loadWorkspace() {
                 </div>
               </Panel>
 
-              <Panel title="AI Backbone" subtitle="Current model access mode and readiness.">
+              <Panel variant="elevated">
+                <PanelHeader 
+                  title="AI Backbone" 
+                  subtitle="Current model access mode and readiness."
+                />
                 <div className="space-y-4">
                   <div className="rounded-[16px] border border-emerald-500/15 bg-emerald-500/5 backdrop-blur-xl p-4">
                     <p className="text-[10px] font-semibold uppercase tracking-widest text-emerald-300">
@@ -918,11 +935,19 @@ async function loadWorkspace() {
             </div>
 
             <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-              <Panel title="Recent Activity" subtitle="Latest events across campaigns, content, and workflow state.">
+              <Panel variant="elevated">
+                <PanelHeader 
+                  title="Recent Activity" 
+                  subtitle="Latest events across campaigns, content, and workflow state."
+                />
                 <ActivityFeed items={activityItems} />
               </Panel>
 
-              <Panel title="Quota Snapshot" subtitle="Current provider usage pulled from system summary.">
+              <Panel variant="elevated">
+                <PanelHeader 
+                  title="Quota Snapshot" 
+                  subtitle="Current provider usage pulled from system summary."
+                />
                 <div className="space-y-3">
                   {(systemSummary?.quota || []).length === 0 && (
                     <p className="text-sm text-stone-400">No quota data available yet.</p>
@@ -960,7 +985,11 @@ async function loadWorkspace() {
         {activeTab === "ops" && (
           <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
             <section className="space-y-6">
-              <Panel title="In-App OpenClaw Assistant" subtitle="Refine positioning and content plans.">
+              <Panel variant="elevated">
+                <PanelHeader 
+                  title="In-App OpenClaw Assistant" 
+                  subtitle="Refine positioning and content plans."
+                />
                 <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
                   <div className="space-y-3 rounded-[24px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
                     <div className="flex items-center justify-between">
@@ -994,8 +1023,11 @@ async function loadWorkspace() {
                   </div>
                 </div>
               </Panel>
-
-              <Panel title="Campaign Control" subtitle="Manage workflow drafts.">
+              <Panel variant="elevated">
+                <PanelHeader 
+                  title="Campaign Control" 
+                  subtitle="Manage workflow drafts."
+                />          
                 <div className="space-y-4">
                   {campaigns.map(c => (
                     <div key={c.id} className="p-4 bg-white/[0.02] border border-white/[0.08] rounded-[16px] backdrop-blur-xl transition-colors duration-200 ease-out hover:bg-white/[0.04]">
@@ -1016,7 +1048,9 @@ async function loadWorkspace() {
             </section>
 
             <section className="space-y-6">
-              <Panel title="Pending Approvals" subtitle="Action items.">
+              <Panel variant="elevated">
+                <PanelHeader 
+                  title="Pending Approvals" subtitle="Action items."/>
                 <div className="space-y-3">
                   {approvals.map(a => (
                     <div key={a.id} className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-[16px] backdrop-blur-xl">
@@ -1030,8 +1064,11 @@ async function loadWorkspace() {
                   {approvals.length === 0 && <p className="text-sm text-zinc-500 italic">System clear.</p>}
                 </div>
               </Panel>
-
-              <Panel title="Output Stream" subtitle="Recently published.">
+              <Panel variant="elevated">
+                <PanelHeader 
+                  title="Output Stream" 
+                  subtitle="Recently published."
+                />        
                 <div className="space-y-2">
                   {content.slice(0, 5).map(item => (
                     <div key={item.id} className="p-3 bg-white/[0.02] border border-white/[0.08] rounded-[14px] backdrop-blur-xl text-xs flex justify-between items-center transition-colors duration-200 ease-out hover:bg-white/[0.04]">
@@ -1047,7 +1084,12 @@ async function loadWorkspace() {
 
         {activeTab === "skills" && (
           <div className="space-y-6">
-            <Panel title="AI Influencer Personas" subtitle="Your account-linked characters.">
+            <Panel variant="elevated">
+              <PanelHeader 
+                title="AI Influencer Personas" 
+                subtitle="Your account-linked characters."
+              />
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {personas.map(p => (
                   <div key={p.persona_id} className="bg-white/[0.02] border border-white/[0.08] rounded-[16px] backdrop-blur-xl p-4 flex items-center gap-4 transition-colors duration-200 ease-out hover:bg-white/[0.04] group">
@@ -1074,7 +1116,9 @@ async function loadWorkspace() {
 
         {activeTab === "memory" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Panel title="Brand Context" subtitle="Knowledge assets.">
+            <Panel variant="elevated">
+              <PanelHeader 
+                title="Brand Context" subtitle="Knowledge assets."/>
               <form className="space-y-4" onSubmit={handleBrandSave}>
                 <Field label="Brand Name" value={brandForm.product_name || ""} onChange={v => setBrandForm(c => ({ ...c, product_name: v }))} />
                 <TextAreaField label="Audience" value={brandForm.audience || ""} onChange={v => setBrandForm(c => ({ ...c, audience: v }))} />
@@ -1084,7 +1128,9 @@ async function loadWorkspace() {
             </Panel>
 
             <div className="space-y-6">
-              <Panel title="Intelligence Settings" subtitle="AI configurations.">
+              <Panel variant="elevated">
+                <PanelHeader 
+                  title="Intelligence Settings" subtitle="AI configurations."/>
                 <div className="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-[16px] backdrop-blur-xl">
                   <p className="text-[10px] font-semibold text-emerald-400 uppercase tracking-widest">Access Mode</p>
                   <p className="text-lg font-semibold text-white mt-1 uppercase">{aiBackbone?.access_mode.replace(/_/g, " ")}</p>
@@ -1092,7 +1138,9 @@ async function loadWorkspace() {
                 </div>
               </Panel>
 
-              <Panel title="System Bridge" subtitle="Telegram sync.">
+              <Panel variant="elevated">
+                <PanelHeader 
+                  title="System Bridge" subtitle="Telegram sync."/>
                 {telegramLink?.linked ? (
                   <div className="flex justify-between items-center p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-[16px] backdrop-blur-xl">
                     <div>
@@ -1120,7 +1168,9 @@ async function loadWorkspace() {
                 )}
               </Panel>
 
-              <Panel title="Social Grid" subtitle="Publishing targets.">
+              <Panel variant="elevated">
+                <PanelHeader 
+                  title="Social Grid" subtitle="Publishing targets."/>
                 <div className="grid grid-cols-2 gap-3">
                   {SUPPORTED_PLATFORMS.map(p => {
                     const acc = accounts.find(a => a.platform === p);
@@ -1141,14 +1191,18 @@ async function loadWorkspace() {
 
         {activeTab === "live_feed" && (
           <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-            <Panel title="Activity Feed" subtitle="Recent customer-facing events and workflow changes.">
+            <Panel variant="elevated">
+              <PanelHeader 
+                title="Activity Feed" subtitle="Recent customer-facing events and workflow changes."/>
               <ActivityFeed
                 items={activityItems}
                 emptyMessage="Activity will appear here once workflows, approvals, or content updates arrive."
               />
             </Panel>
 
-            <Panel title="Workflow Monitor" subtitle="Current workflow queue and publishing output.">
+            <Panel variant="elevated">
+              <PanelHeader 
+                title="Workflow Monitor" subtitle="Current workflow queue and publishing output."/>
               <div className="space-y-4">
                 <div className="space-y-3">
                   <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
@@ -1214,7 +1268,7 @@ async function loadWorkspace() {
   );
 }
 
-function Panel({
+/* function Panel({
   title,
   subtitle,
   children,
@@ -1260,7 +1314,7 @@ function StatCard({
       <p className={`mt-3 text-3xl font-semibold ${toneClasses}`}>{value}</p>
     </div>
   );
-}
+} */
 
 function ActivityFeed({
   items,
@@ -1276,22 +1330,21 @@ function ActivityFeed({
   return (
     <div className="space-y-3">
       {items.map((item) => {
-        const borderColor = item.tone === "success" 
-          ? "border-l-emerald-400" 
+        const tone = item.tone === "success" 
+          ? "emerald" 
           : item.tone === "warning" 
-            ? "border-l-amber-400" 
-            : "border-l-sky-400";
+            ? "amber" 
+            : "sky";
         
         return (
-          <div
-            key={item.id}
-            className={`flex items-start justify-between gap-4 rounded-[16px] border border-white/[0.08] ${borderColor} border-l-2 bg-white/[0.02] backdrop-blur-xl p-4`}
-          >
-            <div>
-              <p className="font-medium text-white">{item.title}</p>
-              <p className="mt-1 text-sm text-zinc-400">{item.detail}</p>
+          <DataCard key={item.id} tone={tone}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-medium text-white">{item.title}</p>
+                <p className="mt-1 text-sm text-zinc-400">{item.detail}</p>
+              </div>
             </div>
-          </div>
+          </DataCard>
         );
       })}
     </div>

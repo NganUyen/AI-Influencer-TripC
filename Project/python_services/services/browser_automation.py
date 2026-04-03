@@ -1,10 +1,23 @@
 """
 Browser Automation Service
 Handles stealth browser operations using Camoufox
+
+Checkpoint Logging (CP-BR*):
+- CP-BR1: Browser init complete (proxy, region, viewport)
+- CP-BR2: Warm-up navigation started (url, timeout)
+- CP-BR3: Warm-up result (success/fail, duration_ms)
+- CP-BR4: Main capture started (url, hint, max_seconds)
+- CP-BR5: Page rendered (DOM metrics, blank_check)
+- CP-BR6: Scroll complete (scroll_steps, pages_visited)
+- CP-BR7: Page closed (video_path exists)
+- CP-BR8: File validated (size, path)
 """
 
 import logging
 import os
+import time as _time
+from dataclasses import dataclass, field
+from enum import Enum
 from urllib.parse import urljoin, urlparse
 from typing import Dict, Any, Optional, List
 
@@ -19,6 +32,60 @@ from services.region_service import RegionService
 logger = logging.getLogger(__name__)
 
 
+class CaptureHint(Enum):
+    """Capture hint with associated timeout multiplier."""
+    STATIC = ("static", 0.5)
+    SCROLL = ("scroll", 1.0)
+    MEDIUM = ("medium", 1.0)
+    INTERACTIVE = ("interactive", 1.2)
+    DEEP = ("deep", 1.5)
+    LONG = ("long", 1.5)
+    ORCHESTRATED = ("orchestrated", 1.5)
+    NONE = ("none", 0.5)
+
+    def __init__(self, hint_name: str, timeout_multiplier: float):
+        self.hint_name = hint_name
+        self.timeout_multiplier = timeout_multiplier
+
+    @classmethod
+    def from_string(cls, hint: str) -> "CaptureHint":
+        """Convert string hint to CaptureHint enum."""
+        hint_lower = (hint or "scroll").lower().strip()
+        for member in cls:
+            if member.hint_name == hint_lower:
+                return member
+        return cls.SCROLL  # Default
+
+
+@dataclass
+class CaptureMetrics:
+    """Structured metrics from a browser capture operation."""
+    capture_duration_ms: int = 0
+    warmup_ok: bool = False
+    warmup_duration_ms: int = 0
+    pages_visited: int = 0
+    scroll_steps: int = 0
+    file_size_bytes: int = 0
+    stabilization_wait_ms: int = 0
+    video_path: Optional[str] = None
+    failure_reason: Optional[str] = None
+    checkpoints: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "capture_duration_ms": self.capture_duration_ms,
+            "warmup_ok": self.warmup_ok,
+            "warmup_duration_ms": self.warmup_duration_ms,
+            "pages_visited": self.pages_visited,
+            "scroll_steps": self.scroll_steps,
+            "file_size_bytes": self.file_size_bytes,
+            "stabilization_wait_ms": self.stabilization_wait_ms,
+            "video_path": self.video_path,
+            "failure_reason": self.failure_reason,
+            "checkpoints": self.checkpoints,
+        }
+
+
 class BrowserAutomationService:
     """
     Browser automation service using Camoufox for stealth
@@ -31,6 +98,11 @@ class BrowserAutomationService:
         self.context: Optional[BrowserContext] = None
         self.storage_state_path: Optional[str] = None
         self.profile_name: Optional[str] = None
+        # State tracking for cleanup guards
+        self._browser_initialized: bool = False
+        self._page_created: bool = False
+        self._capture_started: bool = False
+        self._current_metrics: Optional[CaptureMetrics] = None
 
     @staticmethod
     def _ensure_playwright_available() -> None:
@@ -123,6 +195,7 @@ class BrowserAutomationService:
             proxy_config: Proxy configuration (server, username, password)
             record_video_dir: Directory to save recorded videos into
         """
+        init_start = _time.monotonic()
         logger.info("Initializing Camoufox browser")
         self._ensure_playwright_available()
 
@@ -187,7 +260,18 @@ class BrowserAutomationService:
             """
         )
 
-        logger.info("Browser initialized successfully")
+        self._browser_initialized = True
+        init_duration_ms = int((_time.monotonic() - init_start) * 1000)
+        
+        # CP-BR1: Browser init complete
+        logger.info(
+            "CP-BR1: Browser init complete | duration_ms=%d | proxy=%s | region=%s | viewport=%s | record_video=%s",
+            init_duration_ms,
+            bool(proxy_config),
+            (region_info or {}).get("country", "default"),
+            record_video_size or {"width": 1080, "height": 960},
+            bool(record_video_dir),
+        )
 
     async def publish(
         self,
@@ -331,7 +415,7 @@ class BrowserAutomationService:
         follow_relevant_links: bool = True,
         max_links_to_visit: int = 3,
         scene_duration_sec: Optional[float] = None,
-    ) -> str:
+    ) -> tuple[str, CaptureMetrics]:
         """
         Record a video of a website for the top-half of a split-screen video.
         
@@ -347,29 +431,56 @@ class BrowserAutomationService:
             scene_duration_sec: Target scene duration to sync capture pacing
             
         Returns:
-            Path to the recorded video file.
+            Tuple of (path to recorded video file, CaptureMetrics).
         """
-        import time as _time
         capture_start = _time.monotonic()
+        metrics = CaptureMetrics()
+        self._current_metrics = metrics
+        self._capture_started = True
+        page = None
+        video = None
         
         if not self.context:
+            metrics.failure_reason = "Browser context not initialized"
             raise Exception("Browser context not fully initialized for video recording!")
 
-        # Warm up navigation first so the returned recording starts on rendered content,
-        # not on initial browser/network loading. Use reduced timeout.
+        # Parse capture hint for timeout multiplier
+        hint_enum = CaptureHint.from_string(capture_hint)
+        
+        # CP-BR2: Warm-up navigation started
+        warmup_start = _time.monotonic()
+        logger.info(
+            "CP-BR2: Warm-up navigation started | url=%s | timeout=12s",
+            url[:80],
+        )
+        
         warmup_ok = await self._warm_up_capture_navigation(url=url, timeout_seconds=12)
-
-        page = await self.context.new_page()
-        video = page.video
+        warmup_duration_ms = int((_time.monotonic() - warmup_start) * 1000)
+        metrics.warmup_ok = warmup_ok
+        metrics.warmup_duration_ms = warmup_duration_ms
+        
+        # CP-BR3: Warm-up result
+        logger.info(
+            "CP-BR3: Warm-up result | success=%s | duration_ms=%d | url=%s",
+            warmup_ok,
+            warmup_duration_ms,
+            url[:80],
+        )
 
         try:
+            page = await self.context.new_page()
+            self._page_created = True
+            video = page.video
+            
+            # CP-BR4: Main capture started
             logger.info(
-                "Recording website | url=%s | hint=%s | target=%s | scene_duration=%s | warmup_ok=%s",
+                "CP-BR4: Main capture started | url=%s | hint=%s | hint_multiplier=%.1f | target=%s | scene_duration=%s | max_capture_seconds=%s",
                 url[:60],
                 capture_hint,
+                hint_enum.timeout_multiplier,
                 target_selector,
                 scene_duration_sec,
-                warmup_ok,
+                max_capture_seconds,
             )
 
             # Hard cap recording time so a single orchestration run cannot overrun worker budgets.
@@ -391,6 +502,25 @@ class BrowserAutomationService:
             )
 
             await self._ensure_page_has_rendered_content(page=page, url=url)
+            
+            # CP-BR5: Page rendered
+            dom_metrics = await page.evaluate("""
+                () => ({
+                    bodyChildCount: document.body ? document.body.childElementCount : 0,
+                    documentHeight: document.documentElement.scrollHeight,
+                    hasImages: document.images.length,
+                    title: document.title || ''
+                })
+            """)
+            logger.info(
+                "CP-BR5: Page rendered | url=%s | body_children=%d | doc_height=%d | images=%d | title=%s",
+                url[:60],
+                dom_metrics.get("bodyChildCount", 0),
+                dom_metrics.get("documentHeight", 0),
+                dom_metrics.get("hasImages", 0),
+                dom_metrics.get("title", "")[:50],
+            )
+            metrics.checkpoints["CP-BR5"] = dom_metrics
 
             # Short settle to let CSS/hero transitions finish before motion capture starts.
             import asyncio
@@ -469,11 +599,19 @@ class BrowserAutomationService:
                     await asyncio.sleep(min(2.8, remaining))
                     continue
 
-                scroll_plan = await self._build_scroll_plan(
+                # SMART SCROLLING: Get scroll plan with page analysis
+                scroll_plan, page_analysis = await self._build_scroll_plan(
                     page=page,
                     target_selector=target_selector if idx == 0 else None,
                     capture_hint=capture_hint,
+                    scene_duration_sec=scene_duration_sec,
                 )
+                
+                # Store page analysis in metrics
+                if idx == 0:
+                    metrics.checkpoints["page_analysis"] = page_analysis
+                
+                scroll_step_count = 0
                 for y_target in scroll_plan:
                     if loop.time() >= deadline:
                         break
@@ -482,45 +620,99 @@ class BrowserAutomationService:
                     base_duration_ms = 800 if scene_duration_sec and scene_duration_sec > 6 else 600
                     duration_ms = max(380, min(1400, min(remaining_ms - 100, base_duration_ms)))
                     await self._smooth_scroll_to(page=page, target_y=int(y_target), duration_ms=duration_ms)
+                    scroll_step_count += 1
 
                     if loop.time() >= deadline:
                         break
                     # Slightly longer pause between scrolls for visual settling
                     await asyncio.sleep(min(0.35, max(0.1, deadline - loop.time())))
+                
+                metrics.scroll_steps += scroll_step_count
+            
+            metrics.pages_visited = len(visit_urls)
+            
+            # CP-BR6: Scroll complete
+            logger.info(
+                "CP-BR6: Scroll complete | pages_visited=%d | total_scroll_steps=%d | remaining_budget=%.2fs",
+                metrics.pages_visited,
+                metrics.scroll_steps,
+                max(0.0, deadline - loop.time()),
+            )
 
             # Page must be closed before resolving the recording path.
             await page.close()
+            self._page_created = False
+            
             if video is None:
+                metrics.failure_reason = "Playwright did not attach a video recorder"
                 raise RuntimeError("Playwright did not attach a video recorder to the page")
+            
             path = await video.path()
+            
+            # CP-BR7: Page closed
+            path_exists = os.path.exists(path)
+            logger.info(
+                "CP-BR7: Page closed | video_path=%s | path_exists=%s",
+                path,
+                path_exists,
+            )
 
-            # Caller may finalize context/browser before strict size validation.
-            if not os.path.exists(path):
+            if not path_exists:
+                metrics.failure_reason = f"Video file not found: {path}"
                 raise RuntimeError(f"Playwright video file path not found: {path}")
             
+            # Get initial file size
+            initial_size = os.path.getsize(path) if path_exists else 0
+            metrics.video_path = path
+            metrics.file_size_bytes = initial_size
+            
             capture_duration = _time.monotonic() - capture_start
+            metrics.capture_duration_ms = int(capture_duration * 1000)
+            
+            # CP-BR8: File validated
             logger.info(
-                "Browser capture completed | url=%s | path=%s | duration=%.2fs | target_duration=%s | pages_visited=%d",
+                "CP-BR8: File validated | path=%s | size_bytes=%d | capture_duration_ms=%d | pages_visited=%d | scroll_steps=%d",
+                path,
+                initial_size,
+                metrics.capture_duration_ms,
+                metrics.pages_visited,
+                metrics.scroll_steps,
+            )
+            
+            logger.info(
+                "Browser capture completed | url=%s | path=%s | duration=%.2fs | target_duration=%s | pages_visited=%d | metrics=%s",
                 url[:60],
                 path,
                 capture_duration,
                 scene_duration_sec,
                 len(visit_urls),
+                metrics.to_dict(),
             )
-            return path
+            return path, metrics
         except Exception as e:
             capture_duration = _time.monotonic() - capture_start
+            metrics.capture_duration_ms = int(capture_duration * 1000)
+            metrics.failure_reason = str(e)[:300]
+            
             logger.error(
-                "Browser capture FAILED | url=%s | error=%s | duration=%.2fs | warmup_ok=%s",
+                "Browser capture FAILED | url=%s | error=%s | duration=%.2fs | warmup_ok=%s | metrics=%s",
                 url[:60],
                 str(e)[:200],
                 capture_duration,
-                warmup_ok,
+                metrics.warmup_ok,
+                metrics.to_dict(),
             )
-            try:
-                await page.close()
-            except:
-                pass
+            
+            # Cleanup: try to close page with timeout guard
+            if page is not None and self._page_created:
+                try:
+                    import asyncio
+                    await asyncio.wait_for(page.close(), timeout=10.0)
+                except Exception as close_err:
+                    logger.warning("Failed to close page after error: %s", close_err)
+                finally:
+                    self._page_created = False
+            
             raise
 
     async def _warm_up_capture_navigation(self, url: str, timeout_seconds: int = 15) -> bool:
@@ -630,35 +822,59 @@ class BrowserAutomationService:
         page: Any,
         target_selector: Optional[str],
         capture_hint: str,
-    ) -> List[int]:
-        """Compute content-aware scroll anchors from key sections and layout depth."""
+        scene_duration_sec: Optional[float] = None,
+    ) -> tuple[List[int], Dict[str, Any]]:
+        """
+        Compute content-aware scroll anchors from key sections and layout depth.
+        
+        SMART SCROLLING FEATURES:
+        - Detects if page fits in viewport (skip scrolling)
+        - Calculates scroll speed based on page height and capture duration
+        - Uses content-aware anchors (sections, features, etc.)
+        - Returns scroll plan and page analysis metadata
+        
+        Returns:
+            Tuple of (scroll_anchors: List[int], page_analysis: Dict)
+        """
         analysis = await page.evaluate(
             """
             (selector) => {
                 const doc = document.documentElement;
                 const viewportHeight = window.innerHeight || 960;
+                const viewportWidth = window.innerWidth || 1080;
                 const pageHeight = Math.max(doc.scrollHeight || 0, document.body?.scrollHeight || 0);
+                const pageWidth = Math.max(doc.scrollWidth || 0, document.body?.scrollWidth || 0);
+                
+                // Check if page fits in viewport (no scroll needed)
+                const fitsInViewport = pageHeight <= viewportHeight + 50;
+                const maxScroll = Math.max(0, pageHeight - viewportHeight);
 
                 const preferredSelectors = [
                     "header", "main", "section", "article", "[role='main']",
-                    "[data-testid]", "[class*='hero']", "[class*='feature']", "[class*='content']"
+                    "[data-testid]", "[class*='hero']", "[class*='feature']", 
+                    "[class*='content']", "[class*='benefits']", "[class*='pricing']",
+                    "[class*='testimonial']", "[class*='cta']", "footer"
                 ];
 
                 const candidates = [];
-                const pushRect = (el) => {
+                const sectionInfo = [];
+                
+                const pushRect = (el, sectionType) => {
                     if (!el) return;
                     const rect = el.getBoundingClientRect();
                     const top = Math.round(window.scrollY + rect.top);
-                    const area = Math.round(Math.max(0, rect.width) * Math.max(0, rect.height));
+                    const height = Math.round(Math.max(0, rect.height));
+                    const area = Math.round(Math.max(0, rect.width) * height);
                     if (top >= 0 && area > 12000) {
                         candidates.push(top);
+                        sectionInfo.push({ type: sectionType, top, height });
                     }
                 };
 
                 if (selector) {
                     try {
                         const direct = document.querySelector(selector);
-                        pushRect(direct);
+                        pushRect(direct, 'target');
                     } catch (_) {
                         // Non-CSS target handled by text fallback in Python.
                     }
@@ -667,50 +883,101 @@ class BrowserAutomationService:
                 for (const sel of preferredSelectors) {
                     const nodes = document.querySelectorAll(sel);
                     for (let i = 0; i < Math.min(nodes.length, 8); i += 1) {
-                        pushRect(nodes[i]);
+                        pushRect(nodes[i], sel);
                     }
                 }
 
-                // Fallback anchors by page depth.
-                const maxScroll = Math.max(0, pageHeight - viewportHeight);
-                const depthAnchors = [0, 0.2, 0.4, 0.6, 0.8, 1.0].map((f) => Math.round(maxScroll * f));
+                // Fallback anchors by page depth (more granular for long pages)
+                const numDepthAnchors = Math.min(10, Math.max(3, Math.ceil(pageHeight / viewportHeight)));
+                const depthAnchors = [];
+                for (let i = 0; i <= numDepthAnchors; i++) {
+                    depthAnchors.push(Math.round(maxScroll * (i / numDepthAnchors)));
+                }
 
                 const merged = [...candidates, ...depthAnchors]
                     .filter((v) => Number.isFinite(v) && v >= 0)
                     .sort((a, b) => a - b);
 
+                // Dedupe with larger gap for smooth scrolling
                 const deduped = [];
                 for (const v of merged) {
-                    if (deduped.length === 0 || Math.abs(v - deduped[deduped.length - 1]) > 140) {
+                    if (deduped.length === 0 || Math.abs(v - deduped[deduped.length - 1]) > 180) {
                         deduped.push(v);
                     }
                 }
 
                 return {
                     viewportHeight,
+                    viewportWidth,
                     pageHeight,
+                    pageWidth,
+                    maxScroll,
+                    fitsInViewport,
+                    sectionsFound: sectionInfo.length,
                     anchors: deduped,
                 };
             }
             """,
             target_selector or "",
         )
-
-        anchors = list((analysis or {}).get("anchors") or [])
+        
+        page_analysis = analysis or {}
+        viewport_height = page_analysis.get("viewportHeight", 960)
+        page_height = page_analysis.get("pageHeight", 960)
+        fits_in_viewport = page_analysis.get("fitsInViewport", False)
+        anchors = list(page_analysis.get("anchors") or [])
+        
+        # SMART SCROLLING: Skip if page fits in viewport
+        if fits_in_viewport:
+            logger.info(
+                "Page fits in viewport, skipping scroll | page_height=%d | viewport=%d",
+                page_height,
+                viewport_height,
+            )
+            return [0], page_analysis  # Single anchor at top, no scroll needed
+        
         if not anchors:
-            return [0, 260, 520, 780]
+            anchors = [0, 260, 520, 780]
 
         hint = str(capture_hint or "").lower()
-        if hint in {"scroll", "medium", "scroll hero section"}:
+        hint_enum = CaptureHint.from_string(hint)
+        
+        # Determine anchor limit based on hint
+        if hint in {"static", "none"}:
+            limit = 1
+        elif hint in {"scroll", "medium", "scroll hero section"}:
             limit = 6
         elif hint in {"interactive", "deep", "long"}:
             limit = 9
-        elif hint == "static":
-            limit = 1
         else:
             limit = 5
-
-        return anchors[:limit]
+        
+        # SMART SCROLLING: Adjust anchor count based on scene duration
+        if scene_duration_sec and scene_duration_sec > 0:
+            # Calculate how many scroll steps fit in the duration
+            # Assume ~1.5s per scroll step (scroll + pause)
+            max_steps_for_duration = max(1, int(scene_duration_sec / 1.5))
+            limit = min(limit, max_steps_for_duration)
+            logger.info(
+                "Adjusted scroll anchors for scene duration | duration=%.1f | max_steps=%d | limit=%d",
+                scene_duration_sec,
+                max_steps_for_duration,
+                limit,
+            )
+        
+        selected_anchors = anchors[:limit]
+        
+        logger.info(
+            "Scroll plan built | hint=%s | page_height=%d | fits_viewport=%s | sections=%d | anchors=%d/%d",
+            hint,
+            page_height,
+            fits_in_viewport,
+            page_analysis.get("sectionsFound", 0),
+            len(selected_anchors),
+            len(anchors),
+        )
+        
+        return selected_anchors, page_analysis
 
     async def _discover_relevant_links(
         self,
@@ -851,12 +1118,49 @@ class BrowserAutomationService:
             await page.close()
 
     async def close(self):
-        """Close browser and context"""
-        if self.context:
-            if self.storage_state_path:
-                os.makedirs(os.path.dirname(self.storage_state_path), exist_ok=True)
-                await self.context.storage_state(path=self.storage_state_path)
-            await self.context.close()
-        if self.browser:
-            await self.browser.close()
-        logger.info("Browser closed")
+        """Close browser and context with timeout guards."""
+        import asyncio
+        close_start = _time.monotonic()
+        
+        try:
+            if self.context:
+                if self.storage_state_path:
+                    os.makedirs(os.path.dirname(self.storage_state_path), exist_ok=True)
+                    try:
+                        await asyncio.wait_for(
+                            self.context.storage_state(path=self.storage_state_path),
+                            timeout=5.0
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning("Timeout saving storage state, continuing with close")
+                
+                try:
+                    await asyncio.wait_for(self.context.close(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    logger.warning("Timeout closing browser context")
+                finally:
+                    self.context = None
+            
+            if self.browser:
+                try:
+                    await asyncio.wait_for(self.browser.close(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    logger.warning("Timeout closing browser")
+                finally:
+                    self.browser = None
+            
+            close_duration_ms = int((_time.monotonic() - close_start) * 1000)
+            self._browser_initialized = False
+            self._page_created = False
+            self._capture_started = False
+            
+            logger.info("Browser closed | duration_ms=%d", close_duration_ms)
+        except Exception as e:
+            logger.error("Error during browser close: %s", e)
+            # Reset state even on error
+            self.context = None
+            self.browser = None
+            self._browser_initialized = False
+            self._page_created = False
+            self._capture_started = False
+            raise

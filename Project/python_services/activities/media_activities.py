@@ -38,6 +38,15 @@ from services.content_scenes_service import (
     generate_app_tutorial_scenes as get_app_scenes,
 )
 
+# Import metrics module (optional - gracefully degrades if not available)
+try:
+    from services.browser_capture_metrics import capture_metrics, domain_tracker
+    _METRICS_AVAILABLE = True
+except ImportError:
+    capture_metrics = None
+    domain_tracker = None
+    _METRICS_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 SAFE_FALLBACK_SOURCE_TYPE = "ai_visual_fallback"
@@ -622,12 +631,36 @@ async def generate_web_tutorial_activity(
 # Scene Images Generation (Multi-source: Browser capture + AI fallback)
 # ─────────────────────────────────────────────────────────────────────────────
 
-_BROWSER_CAPTURE_TYPES = {
+# Source Type Decision Matrix:
+# ┌─────────────────────────────┬──────────────┬─────────────────────────────────────────┐
+# │ source_type                 │ has_source_ref │ Behavior                              │
+# ├─────────────────────────────┼──────────────┼─────────────────────────────────────────┤
+# │ public_page_capture         │ Yes          │ Browser capture, ERROR on fail         │
+# │ public_page_capture         │ No           │ ERROR (non-retryable)                  │
+# │ hybrid_candidate            │ Yes          │ Browser capture, AI FALLBACK on fail   │
+# │ hybrid_candidate            │ No           │ AI visual directly                     │
+# │ ai_visual_fallback          │ *            │ AI visual directly                     │
+# │ uploaded_demo_video         │ Yes          │ Extract segment from video             │
+# │ uploaded_demo_video         │ No           │ ERROR (non-retryable)                  │
+# │ authenticated_capture_later │ Yes          │ Browser capture, ERROR on fail         │
+# │ authenticated_capture_later │ No           │ ERROR (non-retryable)                  │
+# └─────────────────────────────┴──────────────┴─────────────────────────────────────────┘
+
+# Browser capture types that REQUIRE source_ref and have NO fallback
+_STRICT_BROWSER_CAPTURE_TYPES = {
     "public_page_capture",
-    "hybrid_candidate",
     "authenticated_capture_later",
 }
+
+# Hybrid type: tries browser first, falls back to AI on failure
+_HYBRID_CAPTURE_TYPE = "hybrid_candidate"
+
+# Pure AI generation types
 _AI_FALLBACK_TYPES = {"ai_visual_fallback"}
+
+# All browser-capable types (for error message grouping)
+_BROWSER_CAPTURE_TYPES = _STRICT_BROWSER_CAPTURE_TYPES | {_HYBRID_CAPTURE_TYPE}
+
 _ALL_SOURCE_TYPES = VALID_TOP_HALF_SOURCE_TYPES  # Use unified definition
 
 # Minimum valid video file size (bytes)
@@ -725,6 +758,239 @@ async def _generate_ai_visual(
         raise
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Pre-Capture URL Validation
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Known domains with aggressive bot detection
+_BOT_DETECTION_DOMAINS = {
+    "linkedin.com",
+    "facebook.com", 
+    "instagram.com",
+    "twitter.com",
+    "x.com",
+    "cloudflare.com",
+}
+
+# Patterns in URL that suggest auth is required
+_AUTH_PATTERNS = {
+    "/login",
+    "/signin",
+    "/auth",
+    "/account",
+    "/dashboard",
+    "/admin",
+    "/my-",
+    "/private",
+}
+
+
+async def _pre_validate_url(url: str, timeout_seconds: float = 10.0) -> Dict[str, Any]:
+    """
+    Pre-capture URL validation to detect potential issues before browser capture.
+    
+    Checks:
+    - URL is accessible (HEAD request)
+    - Known bot-detection domains
+    - Auth-required URL patterns
+    - robots.txt blocking
+    
+    Returns:
+        Dict with validation results: accessible, has_bot_detection, requires_auth, robots_blocked
+    """
+    from urllib.parse import urlparse
+    
+    result = {
+        "url": url,
+        "accessible": False,
+        "status_code": None,
+        "has_bot_detection": False,
+        "requires_auth": False,
+        "robots_blocked": False,
+        "validation_error": None,
+    }
+    
+    try:
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+        path = parsed.path.lower()
+        
+        # Check for known bot-detection domains
+        for bot_domain in _BOT_DETECTION_DOMAINS:
+            if bot_domain in domain:
+                result["has_bot_detection"] = True
+                logger.warning(
+                    "URL may have bot detection | url=%s | domain=%s",
+                    url[:60],
+                    bot_domain,
+                )
+                break
+        
+        # Check for auth-required patterns
+        for auth_pattern in _AUTH_PATTERNS:
+            if auth_pattern in path:
+                result["requires_auth"] = True
+                logger.warning(
+                    "URL may require authentication | url=%s | pattern=%s",
+                    url[:60],
+                    auth_pattern,
+                )
+                break
+        
+        # HEAD request to check accessibility
+        async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
+            try:
+                response = await client.head(url)
+                result["status_code"] = response.status_code
+                result["accessible"] = 200 <= response.status_code < 400
+                
+                if not result["accessible"]:
+                    logger.warning(
+                        "URL returned non-success status | url=%s | status=%d",
+                        url[:60],
+                        response.status_code,
+                    )
+            except httpx.HTTPError as http_err:
+                result["validation_error"] = f"HTTP error: {str(http_err)[:100]}"
+                logger.warning(
+                    "URL validation HTTP error | url=%s | error=%s",
+                    url[:60],
+                    result["validation_error"],
+                )
+        
+        # Quick robots.txt check (non-blocking)
+        try:
+            robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                robots_resp = await client.get(robots_url)
+                if robots_resp.status_code == 200:
+                    robots_text = robots_resp.text.lower()
+                    # Check if user-agent * is disallowed for the path
+                    if "disallow: /" in robots_text and path != "/":
+                        result["robots_blocked"] = True
+                        logger.info(
+                            "URL may be blocked by robots.txt | url=%s",
+                            url[:60],
+                        )
+        except Exception:
+            pass  # robots.txt check is best-effort
+            
+    except Exception as e:
+        result["validation_error"] = str(e)[:200]
+        logger.warning(
+            "URL pre-validation failed | url=%s | error=%s",
+            url[:60],
+            result["validation_error"],
+        )
+    
+    return result
+
+
+async def _capture_with_retry(
+    browser,
+    source_ref: str,
+    capture_hint: str,
+    target_selector: str,
+    max_capture_seconds: int,
+    follow_relevant_links: bool,
+    scene_duration_sec: float,
+    scene_id: str,
+    max_attempts: int = 3,
+) -> tuple:
+    """
+    Multi-attempt capture with progressive fallback strategy.
+    
+    Attempt 1: Normal capture with all features
+    Attempt 2: 1.5x timeout, disable warmup, reduce link following
+    Attempt 3: Static mode only, minimal features
+    
+    Returns:
+        Tuple of (video_path, capture_metrics)
+    """
+    last_error = None
+    
+    for attempt in range(1, max_attempts + 1):
+        try:
+            # Adjust parameters based on attempt number
+            if attempt == 1:
+                # Normal capture
+                attempt_hint = capture_hint
+                attempt_max_seconds = max_capture_seconds
+                attempt_follow_links = follow_relevant_links
+            elif attempt == 2:
+                # Extended timeout, reduced features
+                attempt_hint = capture_hint if capture_hint != "deep" else "scroll"
+                attempt_max_seconds = min(60, int(max_capture_seconds * 1.5))
+                attempt_follow_links = False
+                logger.info(
+                    "Retry attempt 2 | scene=%s | extended_timeout=%d | no_link_follow",
+                    scene_id,
+                    attempt_max_seconds,
+                )
+            else:
+                # Static mode fallback
+                attempt_hint = "static"
+                attempt_max_seconds = min(60, max(10, max_capture_seconds))
+                attempt_follow_links = False
+                logger.info(
+                    "Retry attempt 3 | scene=%s | static_mode | timeout=%d",
+                    scene_id,
+                    attempt_max_seconds,
+                )
+            
+            result = await browser.record_video_for_tutorial(
+                source_ref,
+                capture_hint=attempt_hint,
+                target_selector=target_selector,
+                viewport_width=1080,
+                viewport_height=960,
+                max_capture_seconds=attempt_max_seconds,
+                follow_relevant_links=attempt_follow_links,
+                scene_duration_sec=scene_duration_sec,
+            )
+            
+            # Handle both old (string) and new (tuple) return types
+            if isinstance(result, tuple):
+                video_path, capture_metrics = result
+            else:
+                video_path = result
+                capture_metrics = None
+            
+            if video_path and os.path.exists(video_path):
+                file_size = os.path.getsize(video_path)
+                if file_size >= _MIN_VIDEO_FILE_SIZE:
+                    if attempt > 1:
+                        logger.info(
+                            "Capture succeeded on attempt %d | scene=%s | size=%d",
+                            attempt,
+                            scene_id,
+                            file_size,
+                        )
+                    return video_path, capture_metrics
+                else:
+                    raise RuntimeError(f"Capture produced tiny file ({file_size} bytes)")
+            else:
+                raise RuntimeError("Capture did not produce a video file")
+                
+        except Exception as e:
+            last_error = e
+            logger.warning(
+                "Capture attempt %d failed | scene=%s | error=%s",
+                attempt,
+                scene_id,
+                str(e)[:200],
+            )
+            
+            if attempt < max_attempts:
+                # Brief pause before retry
+                await asyncio.sleep(1.0)
+    
+    # All attempts failed
+    raise RuntimeError(
+        f"All {max_attempts} capture attempts failed for scene {scene_id}. Last error: {last_error}"
+    )
+
+
 async def _capture_browser_video(
     scene: Dict[str, Any],
     scene_metadata: Dict[str, Any],
@@ -733,11 +999,28 @@ async def _capture_browser_video(
     """
     Capture a browser recording for a scene using Playwright.
 
-    Returns storage result dict with url, storage_key, etc.
+    Includes:
+    - Pre-capture URL validation (accessibility, bot detection, auth patterns)
+    - Multi-attempt capture with progressive fallback
+    - Adaptive capture duration based on scene timestamps
+
+    Returns storage result dict with url, storage_key, capture_metrics, etc.
     Raises on failure (caller handles fallback).
     """
+    import time as _time
+    from urllib.parse import urlparse as _urlparse
+    
     scene_id = scene.get("id", "unknown")
     browser = None
+    local_capture_metrics = None
+    url_validation = None
+    capture_start_time = _time.monotonic()
+    
+    # Extract domain for metrics tracking
+    try:
+        domain = _urlparse(source_ref).netloc.lower()
+    except Exception:
+        domain = "unknown"
 
     browser_service_class = BrowserAutomationService
     if browser_service_class is None and browser_automation_module is not None:
@@ -746,6 +1029,35 @@ async def _capture_browser_video(
         raise RuntimeError(
             "Browser automation dependencies are not installed in this runtime image."
         )
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PRE-CAPTURE URL VALIDATION
+    # ═══════════════════════════════════════════════════════════════════════════
+    try:
+        url_validation = await _pre_validate_url(source_ref, timeout_seconds=10.0)
+        logger.info(
+            "URL pre-validation | scene=%s | accessible=%s | bot_detection=%s | requires_auth=%s | robots_blocked=%s",
+            scene_id,
+            url_validation.get("accessible"),
+            url_validation.get("has_bot_detection"),
+            url_validation.get("requires_auth"),
+            url_validation.get("robots_blocked"),
+        )
+        
+        # Warn but don't fail - let capture attempt proceed
+        if url_validation.get("has_bot_detection"):
+            logger.warning(
+                "URL has known bot detection; capture may fail | scene=%s | url=%s",
+                scene_id,
+                source_ref[:60],
+            )
+    except Exception as val_err:
+        logger.warning(
+            "URL pre-validation error (non-fatal) | scene=%s | error=%s",
+            scene_id,
+            str(val_err)[:100],
+        )
+        url_validation = {"validation_error": str(val_err)[:100]}
 
     browser = browser_service_class()
     os.makedirs("/tmp/tutorials_videos", exist_ok=True)
@@ -798,7 +1110,7 @@ async def _capture_browser_video(
 
         capture_hint = scene.get("top_half_capture_hint", "scroll")
         target_selector = scene.get("top_half_target")
-        max_capture_seconds = (
+        base_max_capture_seconds = (
             scene.get("top_half_max_capture_seconds")
             or scene_metadata.get("top_half_max_capture_seconds")
             or 60
@@ -809,15 +1121,32 @@ async def _capture_browser_video(
         if follow_relevant_links is None:
             follow_relevant_links = True
 
-        # Calculate scene duration for capture sync
+        # ═══════════════════════════════════════════════════════════════════════════
+        # ADAPTIVE CAPTURE DURATION
+        # ═══════════════════════════════════════════════════════════════════════════
+        # Use scene timestamps to calculate exact needed duration with buffer
         scene_duration_sec = None
         ts_start = scene.get("timestamp_start")
         ts_end = scene.get("timestamp_end")
         if ts_start is not None and ts_end is not None:
             scene_duration_sec = float(ts_end) - float(ts_start)
+        
+        # Calculate adaptive max_capture_seconds
+        if scene_duration_sec and scene_duration_sec > 0:
+            # Add 2s buffer for transitions, but don't exceed base max
+            adaptive_duration = min(scene_duration_sec + 2.0, float(base_max_capture_seconds))
+            max_capture_seconds = max(8, int(adaptive_duration))  # Minimum 8s
+            logger.info(
+                "Adaptive capture duration | scene=%s | scene_duration=%.1f | capture_budget=%d",
+                scene_id,
+                scene_duration_sec,
+                max_capture_seconds,
+            )
+        else:
+            max_capture_seconds = int(base_max_capture_seconds)
 
         logger.info(
-            "Starting browser capture | scene=%s | url=%s | hint=%s | target=%s | platform=%s | max_seconds=%s | scene_duration=%s",
+            "Starting browser capture | scene=%s | url=%s | hint=%s | target=%s | platform=%s | max_seconds=%s | scene_duration=%s | url_validation=%s",
             scene_id,
             source_ref[:60],
             capture_hint,
@@ -825,17 +1154,22 @@ async def _capture_browser_video(
             platform_hint,
             max_capture_seconds,
             scene_duration_sec,
+            url_validation.get("accessible") if url_validation else "skipped",
         )
 
-        video_path = await browser.record_video_for_tutorial(
-            source_ref,
+        # ═══════════════════════════════════════════════════════════════════════════
+        # MULTI-ATTEMPT CAPTURE WITH RETRY
+        # ═══════════════════════════════════════════════════════════════════════════
+        video_path, local_capture_metrics = await _capture_with_retry(
+            browser=browser,
+            source_ref=source_ref,
             capture_hint=capture_hint,
             target_selector=target_selector,
-            viewport_width=1080,
-            viewport_height=960,
-            max_capture_seconds=int(max_capture_seconds),
-            follow_relevant_links=bool(follow_relevant_links),
+            max_capture_seconds=max_capture_seconds,
+            follow_relevant_links=follow_relevant_links,
             scene_duration_sec=scene_duration_sec,
+            scene_id=scene_id,
+            max_attempts=3,
         )
 
         # CRITICAL: Close browser BEFORE reading the file to ensure Playwright finalizes the .webm
@@ -847,17 +1181,52 @@ async def _capture_browser_video(
                 f"Playwright recording did not produce a video file for scene {scene_id}"
             )
 
-        # Wait for file to be fully written
-        for _ in range(120):
-            if os.path.exists(video_path) and os.path.getsize(video_path) >= 1024:
-                break
-            await asyncio.sleep(0.25)
+        # IMPROVED FILE STABILIZATION: Exponential backoff + size stability check
+        # Wait until file size stops growing for 2 consecutive checks
+        stabilization_start = _time.monotonic()
+        max_stabilization_wait = 60.0  # Max 60 seconds (up from 30s)
+        check_interval = 0.5  # Start with 0.5s checks
+        max_interval = 2.0  # Max 2s between checks
+        consecutive_stable = 0
+        required_stable_checks = 2
+        last_size = 0
+        iteration = 0
+        
+        while (_time.monotonic() - stabilization_start) < max_stabilization_wait:
+            iteration += 1
+            if not os.path.exists(video_path):
+                await asyncio.sleep(check_interval)
+                continue
+            
+            current_size = os.path.getsize(video_path)
+            
+            if current_size >= _MIN_VIDEO_FILE_SIZE:
+                if current_size == last_size:
+                    consecutive_stable += 1
+                    if consecutive_stable >= required_stable_checks:
+                        logger.info(
+                            "File stabilized | scene=%s | size=%d | iterations=%d | wait_ms=%d",
+                            scene_id,
+                            current_size,
+                            iteration,
+                            int((_time.monotonic() - stabilization_start) * 1000),
+                        )
+                        break
+                else:
+                    consecutive_stable = 0
+            
+            last_size = current_size
+            await asyncio.sleep(check_interval)
+            # Exponential backoff: increase interval up to max
+            check_interval = min(check_interval * 1.5, max_interval)
+        
+        stabilization_wait_ms = int((_time.monotonic() - stabilization_start) * 1000)
 
         # Validate file size
         file_size = os.path.getsize(video_path)
         if file_size < _MIN_VIDEO_FILE_SIZE:
             raise RuntimeError(
-                f"Browser capture produced an invalid/tiny file ({file_size} bytes) for scene {scene_id}"
+                f"Browser capture produced an invalid/tiny file ({file_size} bytes) for scene {scene_id} after {stabilization_wait_ms}ms wait"
             )
 
         with open(video_path, "rb") as f:
@@ -904,11 +1273,39 @@ async def _capture_browser_video(
                 f"Playwright recording uploaded but URL is missing for scene {scene_id}"
             )
 
+        # Build metrics dict for logging
+        metrics_dict = local_capture_metrics.to_dict() if local_capture_metrics else {}
+        metrics_dict["stabilization_wait_ms"] = stabilization_wait_ms
+        metrics_dict["final_file_size_bytes"] = file_size
+        
+        # Calculate total capture duration
+        capture_duration_sec = _time.monotonic() - capture_start_time
+
+        # ═══════════════════════════════════════════════════════════════════════════
+        # RECORD METRICS (SUCCESS)
+        # ═══════════════════════════════════════════════════════════════════════════
+        if _METRICS_AVAILABLE and capture_metrics is not None:
+            capture_metrics.record_capture(
+                success=True,
+                domain=domain,
+                duration_sec=capture_duration_sec,
+                file_size_bytes=file_size,
+                fallback_used=False,
+            )
+        if _METRICS_AVAILABLE and domain_tracker is not None:
+            try:
+                await domain_tracker.record_attempt(source_ref, success=True)
+            except Exception as track_err:
+                logger.debug("Domain tracking failed (non-fatal): %s", track_err)
+
         logger.info(
-            "Browser capture completed | scene=%s | url=%s | file_size=%d",
+            "Browser capture completed | scene=%s | url=%s | file_size=%d | stabilization_ms=%d | duration_sec=%.1f | metrics=%s",
             scene_id,
             final_url[:80],
             file_size,
+            stabilization_wait_ms,
+            capture_duration_sec,
+            metrics_dict,
         )
 
         return {
@@ -918,7 +1315,33 @@ async def _capture_browser_video(
             "media_asset_id": storage_result.get("media_asset_id"),
             "is_video": True,
             "generation_method": "browser_capture",
+            "capture_metrics": metrics_dict,
+            "url_validation": url_validation,
         }
+    except Exception as capture_exc:
+        # ═══════════════════════════════════════════════════════════════════════════
+        # RECORD METRICS (FAILURE)
+        # ═══════════════════════════════════════════════════════════════════════════
+        capture_duration_sec = _time.monotonic() - capture_start_time
+        error_type = type(capture_exc).__name__
+        
+        if _METRICS_AVAILABLE and capture_metrics is not None:
+            capture_metrics.record_capture(
+                success=False,
+                domain=domain,
+                duration_sec=capture_duration_sec,
+                file_size_bytes=0,
+                fallback_used=False,
+                error_type=error_type,
+            )
+        if _METRICS_AVAILABLE and domain_tracker is not None:
+            try:
+                await domain_tracker.record_attempt(source_ref, success=False)
+            except Exception as track_err:
+                logger.debug("Domain tracking failed (non-fatal): %s", track_err)
+        
+        # Re-raise the original exception
+        raise
     finally:
         if browser is not None:
             try:
@@ -1195,10 +1618,19 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                 bool(source_ref),
             )
 
-            # Route to appropriate generation method
+            # Route to appropriate generation method using decision matrix
+            result = None
+            fallback_triggered = False
+            browser_error = None
+            
             try:
+                # ═══════════════════════════════════════════════════════════════
+                # SOURCE TYPE DECISION MATRIX
+                # ═══════════════════════════════════════════════════════════════
+                
                 if top_half_type == "uploaded_demo_video":
-                    # Phase 7: Extract segment from uploaded demo video
+                    # uploaded_demo_video: Extract segment from uploaded demo video
+                    # Requires source_ref (demo video URL)
                     if not source_ref:
                         raise ApplicationError(
                             f"Scene {scene_id} requires source_ref (demo video URL) for uploaded_demo_video type",
@@ -1209,27 +1641,48 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                     )
 
                 elif top_half_type in _AI_FALLBACK_TYPES:
-                    # Pure AI generation
+                    # ai_visual_fallback: Pure AI generation (no browser attempt)
                     result = await _generate_ai_visual(normalized_scene, scene_metadata)
 
-                elif top_half_type == "hybrid_candidate":
-                    # Try browser first, fall back to AI
+                elif top_half_type == _HYBRID_CAPTURE_TYPE:
+                    # hybrid_candidate: Browser capture WITH AI fallback on failure
                     if not source_ref:
+                        # No URL → use AI directly (not an error)
                         logger.info(
-                            "hybrid_candidate scene %s has no source_ref, using AI fallback directly",
+                            "hybrid_candidate scene %s has no source_ref, using AI visual directly",
                             scene_id,
                         )
                         result = await _generate_ai_visual(
                             normalized_scene, scene_metadata
                         )
                     else:
-                        # hybrid_candidate with source_ref - use browser capture, no fallback
-                        result = await _capture_browser_video(
-                            normalized_scene, scene_metadata, source_ref
-                        )
+                        # Has URL → try browser, fall back to AI on any failure
+                        try:
+                            result = await _capture_browser_video(
+                                normalized_scene, scene_metadata, source_ref
+                            )
+                        except Exception as capture_err:
+                            browser_error = str(capture_err)[:300]
+                            fallback_triggered = True
+                            logger.warning(
+                                "hybrid_candidate browser capture failed, falling back to AI | scene=%s | error=%s",
+                                scene_id,
+                                browser_error,
+                            )
+                            # Record fallback in metrics
+                            if _METRICS_AVAILABLE and capture_metrics is not None:
+                                # Note: The failure itself was already recorded in _capture_browser_video
+                                # Here we just note that this triggered a fallback (can be useful for tracking)
+                                capture_metrics.fallback_used += 1
+                            result = await _generate_ai_visual(
+                                normalized_scene, scene_metadata
+                            )
+                            result["fallback_triggered"] = True
+                            result["browser_error"] = browser_error
 
-                elif top_half_type in _BROWSER_CAPTURE_TYPES:
-                    # Browser capture required
+                elif top_half_type in _STRICT_BROWSER_CAPTURE_TYPES:
+                    # public_page_capture / authenticated_capture_later:
+                    # Browser capture REQUIRED, NO fallback (error on fail)
                     if not source_ref:
                         raise ApplicationError(
                             f"Scene {scene_id} requires source_ref for browser capture (type={top_half_type})",
@@ -1255,12 +1708,13 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                 final_url = result.get("url") or result.get("storage_url")
 
                 logger.info(
-                    "Scene asset resolved | scene=%s | type=%s | method=%s | url=%s | is_video=%s",
+                    "Scene asset resolved | scene=%s | type=%s | method=%s | url=%s | is_video=%s | fallback_triggered=%s",
                     scene_id,
                     top_half_type,
                     result.get("generation_method"),
                     final_url[:80] if final_url else "NONE",
                     result.get("is_video", False),
+                    fallback_triggered,
                 )
 
                 return {
@@ -1273,6 +1727,9 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                     "status": "completed",
                     "is_video": result.get("is_video", False),
                     "generation_method": result.get("generation_method"),
+                    "fallback_triggered": fallback_triggered,
+                    "browser_error": browser_error,
+                    "capture_metrics": result.get("capture_metrics"),
                 }
 
             except ApplicationError:
@@ -1285,7 +1742,8 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                     type(e).__name__,
                     str(e)[:300],
                 )
-                if top_half_type in _BROWSER_CAPTURE_TYPES:
+                # Only strict browser types should raise as browser failures
+                if top_half_type in _STRICT_BROWSER_CAPTURE_TYPES:
                     raise ApplicationError(
                         f"Playwright top-half recording failed for scene {scene_id}: {e}",
                         non_retryable=False,

@@ -191,6 +191,7 @@ from api import (
     personas,
     customer,
     telegram_auth,
+    health,
 )
 
 app.include_router(workflows.router, prefix="/api/workflows", tags=["Workflows"])
@@ -208,6 +209,7 @@ app.include_router(
 app.include_router(personas.router, prefix="/api/personas", tags=["Personas"])
 app.include_router(customer.router, prefix="/api/customer", tags=["Customer"])
 app.include_router(telegram_auth.router, prefix="/api/auth/telegram", tags=["Auth"])
+app.include_router(health.router, prefix="/api/health", tags=["Health"])
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ from services.contracts import (
     ExtractedFeatureContract,
     GroundedFeatureContract,
     RecordedDemoEvidenceContract,
+    ResolvedIdeaContract,
     TimelineSegmentContract,
 )
 from services.creative_director_service import CreativeDirectorService
@@ -1176,3 +1177,238 @@ class TestPhase7BeatToSceneIntegration:
             assert beat.source_ref == demo_video_url, (
                 f"Beat source_ref should be demo video URL, got: {beat.source_ref}"
             )
+
+
+# ==================== V3.1 Tests: Proposed Main Idea UI ====================
+
+
+class TestV31ProposedMainIdeaUI:
+    """V3.1 tests for new Proposed Main Idea card and user actions."""
+
+    def test_build_preview_summary_includes_resolved_idea(self):
+        """build_preview_summary should include resolved_idea when provided."""
+        evidence = _sample_evidence()
+        evidence.grounded_features = [
+            GroundedFeatureContract(
+                feature_id="feat_1",
+                original_name="AI Planner",
+                official_name="Smart Trip Planner",
+                grounded=True,
+                source="official_catalog",
+                consistency_score=0.9,
+                explanation="Grounded to official catalog",
+            )
+        ]
+
+        resolved_idea = ResolvedIdeaContract(
+            main_idea_name="Smart Trip Planner",
+            idea_source="official_catalog_prominence",
+            idea_confidence=0.92,
+            explanation="Highest-prominence feature from official catalog",
+            alternate_candidates=["Budget Tracker", "Collaborative Planning"],
+        )
+
+        summary = build_preview_summary(
+            evidence=evidence,
+            video_goal="feature_demo",
+            resolved_idea=resolved_idea,
+        )
+
+        assert "resolved_idea" in summary
+        assert summary["resolved_idea"]["main_idea_name"] == "Smart Trip Planner"
+        assert summary["resolved_idea"]["idea_source"] == "official_catalog_prominence"
+        assert summary["resolved_idea"]["idea_confidence"] == 0.92
+
+    def test_build_preview_summary_without_resolved_idea(self):
+        """build_preview_summary should work without resolved_idea (backward compat)."""
+        evidence = _sample_evidence()
+        evidence.grounded_features = []
+
+        summary = build_preview_summary(
+            evidence=evidence,
+            video_goal="feature_demo",
+            resolved_idea=None,  # V3.1: No resolved_idea
+        )
+
+        # Should not have resolved_idea key when None is passed
+        assert "resolved_idea" not in summary
+        # Original fields should still be present
+        assert "grounded_features" in summary
+        assert "timeline_narrative" in summary
+
+    @pytest.mark.asyncio
+    async def test_approve_action_confirms_main_idea(self):
+        """V3.1: 'approve' action should mark demo as confirmed."""
+        session = VideoAISkill.initial_session()
+        session.collected["creative_input_mode"] = "recorded_demo_video"
+        session.collected["persona_id"] = "persona_123"
+        session.step_key = "demo_preview_confirm"
+
+        evidence = _sample_evidence()
+        evidence.resolved_idea = ResolvedIdeaContract(
+            main_idea_name="Smart Trip Planner",
+            idea_source="official_catalog_prominence",
+            idea_confidence=0.9,
+            explanation="Test",
+            alternate_candidates=[],
+        )
+        session.artifacts["demo_evidence"] = evidence.model_dump(mode="json")
+        session.artifacts["demo_preview_summary"] = {"test": "data"}
+
+        with patch(
+            "skills.video_ai.VideoAISkill.execute", new_callable=AsyncMock
+        ) as mock_execute:
+            mock_execute.return_value = MagicMock(success=True)
+
+            result = await VideoAISkill.handle_demo_preview_action(
+                session=session,
+                action="approve",
+                backend_url="http://backend",
+                http_client=MagicMock(),
+            )
+
+        # Should mark as confirmed and proceed
+        assert session.artifacts["demo_preview_confirmed"] is True
+        assert session.artifacts["demo_preview_timeout_at"] is None
+        mock_execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_pick_alternate_action_navigates_to_selection(self):
+        """V3.1: 'pick_alternate' action should navigate to alternate focus step."""
+        session = VideoAISkill.initial_session()
+        session.collected["creative_input_mode"] = "recorded_demo_video"
+        session.step_key = "demo_preview_confirm"
+
+        evidence = _sample_evidence()
+        evidence.resolved_idea = ResolvedIdeaContract(
+            main_idea_name="Smart Trip Planner",
+            idea_source="official_catalog_prominence",
+            idea_confidence=0.9,
+            explanation="Test",
+            alternate_candidates=["Budget Tracker", "Collaborative Planning"],
+        )
+        session.artifacts["demo_evidence"] = evidence.model_dump(mode="json")
+
+        result = await VideoAISkill.handle_demo_preview_action(
+            session=session,
+            action="pick_alternate",
+            backend_url="http://backend",
+            http_client=MagicMock(),
+        )
+
+        assert result.success is True
+        assert result.next_step == "demo_pick_alternate_focus"
+        assert session.step_key == "demo_pick_alternate_focus"
+
+    @pytest.mark.asyncio
+    async def test_rewrite_action_navigates_to_custom_input(self):
+        """V3.1: 'rewrite' action should navigate to custom main idea input."""
+        session = VideoAISkill.initial_session()
+        session.collected["creative_input_mode"] = "recorded_demo_video"
+        session.step_key = "demo_preview_confirm"
+
+        result = await VideoAISkill.handle_demo_preview_action(
+            session=session,
+            action="rewrite",
+            backend_url="http://backend",
+            http_client=MagicMock(),
+        )
+
+        assert result.success is True
+        assert result.next_step == "demo_rewrite_main_idea"
+        assert session.step_key == "demo_rewrite_main_idea"
+
+    @pytest.mark.asyncio
+    async def test_alternate_focus_selection_updates_resolved_idea(self):
+        """V3.1: Selecting alternate focus should update resolved_idea."""
+        session = VideoAISkill.initial_session()
+        session.collected["creative_input_mode"] = "recorded_demo_video"
+        session.collected["persona_id"] = "persona_123"
+        session.step_key = "demo_pick_alternate_focus"
+        session.collected["alternate_main_idea"] = "Budget Tracker"
+
+        evidence = _sample_evidence()
+        evidence.resolved_idea = ResolvedIdeaContract(
+            main_idea_name="Smart Trip Planner",
+            idea_source="official_catalog_prominence",
+            idea_confidence=0.9,
+            explanation="Original",
+            alternate_candidates=["Budget Tracker"],
+        )
+        session.artifacts["demo_evidence"] = evidence.model_dump(mode="json")
+
+        with patch(
+            "skills.video_ai.VideoAISkill._resolve_persona_snapshot",
+            new_callable=AsyncMock,
+        ) as mock_persona:
+            mock_persona.return_value = {"persona_id": "persona_123", "name": "Test"}
+            with patch(
+                "skills.video_ai.CreativeDirectorService.build_concept_from_demo_evidence",
+                new_callable=AsyncMock,
+            ) as mock_concept:
+                mock_concept.return_value = _recorded_demo_concept_contract()
+
+                result = await VideoAISkill.execute(
+                    session=session,
+                    backend_url="http://backend",
+                    http_client=MagicMock(),
+                )
+
+        # Check that resolved_idea was updated
+        updated_evidence = RecordedDemoEvidenceContract.model_validate(
+            session.artifacts["demo_evidence"]
+        )
+        assert updated_evidence.resolved_idea.main_idea_name == "Budget Tracker"
+        assert updated_evidence.resolved_idea.idea_source == "user_selected_alternate"
+        assert (
+            updated_evidence.resolved_idea.idea_confidence == 1.0
+        )  # User selection = max
+
+    @pytest.mark.asyncio
+    async def test_custom_main_idea_updates_resolved_idea(self):
+        """V3.1: Custom main idea text should update resolved_idea."""
+        session = VideoAISkill.initial_session()
+        session.collected["creative_input_mode"] = "recorded_demo_video"
+        session.collected["persona_id"] = "persona_123"
+        session.step_key = "demo_rewrite_main_idea"
+        session.collected["custom_main_idea"] = "Advanced Travel Planning Features"
+
+        evidence = _sample_evidence()
+        evidence.resolved_idea = ResolvedIdeaContract(
+            main_idea_name="Smart Trip Planner",
+            idea_source="official_catalog_prominence",
+            idea_confidence=0.9,
+            explanation="Original",
+            alternate_candidates=[],
+        )
+        session.artifacts["demo_evidence"] = evidence.model_dump(mode="json")
+
+        with patch(
+            "skills.video_ai.VideoAISkill._resolve_persona_snapshot",
+            new_callable=AsyncMock,
+        ) as mock_persona:
+            mock_persona.return_value = {"persona_id": "persona_123", "name": "Test"}
+            with patch(
+                "skills.video_ai.CreativeDirectorService.build_concept_from_demo_evidence",
+                new_callable=AsyncMock,
+            ) as mock_concept:
+                mock_concept.return_value = _recorded_demo_concept_contract()
+
+                result = await VideoAISkill.execute(
+                    session=session,
+                    backend_url="http://backend",
+                    http_client=MagicMock(),
+                )
+
+        # Check that resolved_idea was updated
+        updated_evidence = RecordedDemoEvidenceContract.model_validate(
+            session.artifacts["demo_evidence"]
+        )
+        assert (
+            updated_evidence.resolved_idea.main_idea_name
+            == "Advanced Travel Planning Features"
+        )
+        assert updated_evidence.resolved_idea.idea_source == "user_custom_rewrite"
+        assert (
+            updated_evidence.resolved_idea.idea_confidence == 1.0
+        )  # User choice = max

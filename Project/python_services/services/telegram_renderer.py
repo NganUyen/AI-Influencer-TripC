@@ -283,9 +283,20 @@ def _video_ai_demo_preview_text(
 ) -> str:
     """Format the demo video preview confirmation message (Phase 5).
 
+    V3.1: If resolved_idea is present, render Proposed Main Idea card.
+    Otherwise, fall back to original feature list format.
+
     Uses plain text (no markdown) to safely handle dynamic OCR-derived content
     that may contain special characters like *, _, [, etc.
     """
+    # V3.1: Check for resolved_idea (new format)
+    resolved_idea = preview_summary.get("resolved_idea")
+    if resolved_idea:
+        return _render_proposed_main_idea_card(
+            resolved_idea, preview_summary, session_collected
+        )
+
+    # Fallback to original format
     lines = ["📹 Demo Video Analysis Complete", ""]
 
     # Video info section
@@ -357,6 +368,70 @@ def _video_ai_demo_preview_text(
         "• Correct to fix any misunderstandings\n"
         "• Re-emphasize to focus on specific features\n"
         "• Re-upload to start with a different video"
+    )
+
+    return "\n".join(lines)
+
+
+def _render_proposed_main_idea_card(
+    resolved_idea: Dict[str, Any],
+    preview_summary: Dict[str, Any],
+    session_collected: Dict[str, Any],
+) -> str:
+    """
+    Render Proposed Main Idea card (V3.1 - Phase 5c).
+
+    Replaces raw feature list with synthesized main idea.
+    """
+    lines = ["📌 Proposed Main Idea", ""]
+
+    # Main idea
+    main_idea = resolved_idea.get("resolved_main_idea", "")
+    if main_idea:
+        lines.append(f"{main_idea}")
+        lines.append("")
+
+    # Why (supporting evidence)
+    supporting_evidence = resolved_idea.get("supporting_evidence", [])
+    if supporting_evidence:
+        lines.append("Why:")
+        evidence_text = " ".join(supporting_evidence[:2])  # Max 2 pieces of evidence
+        lines.append(f"  {_truncate(evidence_text, 150)}")
+        lines.append("")
+
+    # Top half flow
+    top_half_flow = resolved_idea.get("top_half_flow", [])
+    if top_half_flow:
+        lines.append("Top half flow:")
+        for step in top_half_flow[:3]:  # Max 3 steps
+            lines.append(f"  • {_truncate(step, 80)}")
+        lines.append("")
+
+    # Bottom half claim
+    bottom_half_claim = resolved_idea.get("bottom_half_claim", "")
+    if bottom_half_claim:
+        lines.append("Bottom half:")
+        lines.append(f"  {_truncate(bottom_half_claim, 120)}")
+        lines.append("")
+
+    # Confidence indicator
+    idea_confidence = resolved_idea.get("idea_confidence", "medium")
+    conf_emoji = {"high": "🟢", "medium": "🟡", "low": "🔴"}.get(idea_confidence, "⚪")
+    lines.append(f"Idea confidence: {conf_emoji} {idea_confidence}")
+    lines.append("")
+
+    # Warnings if medium/low confidence
+    if idea_confidence in ["medium", "low"]:
+        lines.append("⚠️ Please confirm this matches your intent before proceeding.")
+        lines.append("")
+
+    # Actions
+    lines.append(
+        "Choose an action:\n"
+        "• Approve — Proceed with this main idea\n"
+        "• Pick another focus — Choose a different feature\n"
+        "• Rewrite — Provide your own main idea\n"
+        "• Re-upload — Start with a different video"
     )
 
     return "\n".join(lines)

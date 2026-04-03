@@ -571,11 +571,28 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
 
             source_duration = _probe_media_duration(p)
             trim_start = TOP_SCENE_SKIP_SECONDS
+            
             if source_duration is not None:
-                # Honor the requested 8s anchor whenever possible.
-                # Only reduce skip when the clip is truly shorter than the anchor point.
-                if source_duration <= TOP_SCENE_SKIP_SECONDS:
-                    trim_start = max(0.0, source_duration - 0.1)
+                # Calculate the minimum content needed after trimming
+                min_content_needed = scene_duration + 0.5  # scene + small buffer
+                available_after_skip = source_duration - TOP_SCENE_SKIP_SECONDS
+                
+                if available_after_skip >= min_content_needed:
+                    # Ideal case: enough content after the 8s skip
+                    trim_start = TOP_SCENE_SKIP_SECONDS
+                elif source_duration >= min_content_needed:
+                    # Source is long enough but not after 8s skip - reduce skip to preserve content
+                    # Start from (source_duration - min_content_needed) to ensure we have enough
+                    trim_start = max(0.0, source_duration - min_content_needed)
+                else:
+                    # Source is shorter than needed - start from beginning
+                    trim_start = 0.0
+                    logger.warning(
+                        "Source video too short for full scene | scene=%s | source=%.2fs | needed=%.2fs | starting from 0",
+                        idx,
+                        source_duration,
+                        min_content_needed,
+                    )
 
             logger.info(
                 "Assembly scene %s trimming | requested_skip=%.2fs | effective_skip=%.2fs | source_duration=%s | scene_duration=%.2fs",
@@ -610,6 +627,13 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                 ],
                 f"std_vid_{idx}",
             )
+            
+            # Validate the output file has content
+            if not os.path.exists(std_p) or os.path.getsize(std_p) < 1000:
+                raise AssemblyError(
+                    f"Scene {idx} produced an empty or invalid video file after trimming "
+                    f"(source_duration={source_duration}, trim_start={trim_start}, scene_duration={scene_duration})"
+                )
 
         with open(concat_file, "w", encoding="utf-8") as file_obj:
             for sp in standard_paths:

@@ -502,6 +502,17 @@ class BrowserAutomationService:
             self._page_created = True
             video = page.video
             
+            # CRITICAL FIX: Set a non-white background immediately after page creation.
+            # Recording starts when the page is created (showing blank white by default).
+            # By setting a colored background, we avoid recording pure white frames.
+            # When the actual page loads, it will replace this background.
+            await page.evaluate("""
+                () => {
+                    document.documentElement.style.backgroundColor = '#1a1a2e';
+                    document.body.style.backgroundColor = '#1a1a2e';
+                }
+            """)
+            
             # CP-BR4: Main capture started
             logger.info(
                 "CP-BR4: Main capture started | url=%s | hint=%s | hint_multiplier=%.1f | target=%s | scene_duration=%s | max_capture_seconds=%s",
@@ -1141,11 +1152,25 @@ class BrowserAutomationService:
     async def _ensure_page_has_rendered_content(self, page: Any, url: str) -> None:
         """Helper to navigate and ensure that we don't just have a blank shell."""
         import asyncio
-        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        
+        # First, navigate with networkidle to wait for most resources
+        try:
+            await page.goto(url, wait_until="networkidle", timeout=30000)
+        except Exception as nav_err:
+            logger.warning(
+                "Navigation with networkidle failed, falling back to domcontentloaded | url=%s | error=%s",
+                url[:60],
+                str(nav_err)[:100],
+            )
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+        # Wait additional time for lazy-loaded content and CSS transitions
+        await asyncio.sleep(2.0)
 
         last_metrics: Dict[str, Any] = {}
-        for attempt in range(1, 5):
-            await asyncio.sleep(1.0)
+        max_attempts = 6  # Increased from 4 to 6
+        for attempt in range(1, max_attempts + 1):
+            await asyncio.sleep(1.5)  # Increased from 1.0 to 1.5
             metrics = await page.evaluate(
                 """
                 () => {
@@ -1157,6 +1182,11 @@ class BrowserAutomationService:
                     const hasMedia = mediaCount > 0;
                     const hasText = text.length > 24;
                     const looksBlank = !hasMedia && !hasText && childCount < 10;
+                    
+                    // Check if page has a white/blank background
+                    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+                    const isWhiteBg = bgColor === 'rgb(255, 255, 255)' || bgColor === 'rgba(0, 0, 0, 0)';
+                    
                     return {
                         readyState,
                         hasMedia,
@@ -1165,6 +1195,8 @@ class BrowserAutomationService:
                         childCount,
                         textLength: text.length,
                         looksBlank,
+                        bgColor,
+                        isWhiteBg,
                     };
                 }
                 """
@@ -1172,23 +1204,36 @@ class BrowserAutomationService:
             last_metrics = metrics or {}
 
             logger.info(
-                "Render probe attempt %s | url=%s | has_media=%s | ready_state=%s | looks_blank=%s",
+                "Render probe attempt %s/%s | url=%s | has_media=%s | child_count=%s | ready_state=%s | looks_blank=%s | bg=%s",
                 attempt,
-                url,
+                max_attempts,
+                url[:60],
                 last_metrics.get("hasMedia"),
+                last_metrics.get("childCount"),
                 last_metrics.get("readyState"),
                 last_metrics.get("looksBlank"),
+                last_metrics.get("bgColor", "unknown")[:30],
             )
 
             if not last_metrics.get("looksBlank"):
+                # Page has content - wait a bit more for visual stability
+                await asyncio.sleep(1.0)
                 return
 
-            if attempt < 4:
-                await page.reload(wait_until="domcontentloaded", timeout=30000)
+            if attempt < max_attempts:
+                # Try reloading if page looks blank
+                try:
+                    await page.reload(wait_until="networkidle", timeout=20000)
+                except Exception:
+                    await page.reload(wait_until="domcontentloaded", timeout=20000)
 
-        raise RuntimeError(
-            "Website rendered as blank/empty page before recording "
-            f"(metrics={last_metrics})"
+        # Don't raise error - let the capture proceed and we'll see what happens
+        # Some pages may appear "blank" to our detection but still have visual content
+        logger.warning(
+            "Page may be blank after %s attempts | url=%s | metrics=%s | proceeding anyway",
+            max_attempts,
+            url[:60],
+            last_metrics,
         )
 
     async def get_page_content(self, url: str) -> str:

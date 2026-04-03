@@ -105,6 +105,7 @@ class DemoVideoAnalyzerService:
         video_goal: str = "feature_demo",
         audience: str = "",
         cta: str = "",
+        user_video_thesis: Optional[str] = None,
     ) -> RecordedDemoEvidenceContract:
         """
         Download and analyze a demo video from a storage URL.
@@ -118,6 +119,7 @@ class DemoVideoAnalyzerService:
             video_goal: Video goal/intent (stored in evidence)
             audience: Target audience (stored in evidence)
             cta: Call-to-action (stored in evidence)
+            user_video_thesis: User's description of what the video demonstrates
 
         Returns:
             RecordedDemoEvidenceContract with analysis results
@@ -151,6 +153,7 @@ class DemoVideoAnalyzerService:
                 video_path=temp_video_path,
                 video_url=video_url,
                 original_filename="",
+                user_video_thesis=user_video_thesis,
             )
 
             # Store contextual metadata in confidence_signals for downstream use

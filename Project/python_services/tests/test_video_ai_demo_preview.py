@@ -874,6 +874,78 @@ async def test_execute_handles_analysis_failure_gracefully():
 
 
 @pytest.mark.asyncio
+async def test_run_demo_analysis_and_grounding_normalizes_reference_url_and_passes_catalog():
+    session = VideoAISkill.initial_session()
+    session.collected.update(_recorded_demo_collected_fields())
+    session.collected["reference_url"] = "tripc.vn"
+
+    evidence = _sample_evidence()
+    catalog = MagicMock()
+
+    with patch(
+        "skills.video_ai.DemoVideoAnalyzerService.analyze_demo_video",
+        new_callable=AsyncMock,
+    ) as mock_analyze:
+        mock_analyze.return_value = evidence
+
+        with patch(
+            "skills.video_ai.OfficialSourceResolverService.resolve_feature_urls",
+            new_callable=AsyncMock,
+        ) as mock_resolve:
+            mock_resolve.return_value = ["https://tripc.vn/features"]
+
+            with patch(
+                "skills.video_ai.OfficialFeatureCatalogService.extract_catalog",
+                new_callable=AsyncMock,
+            ) as mock_extract_catalog:
+                mock_extract_catalog.return_value = catalog
+
+                with patch(
+                    "skills.video_ai.DemoFeatureGroundingService.ground_features",
+                    new_callable=AsyncMock,
+                ) as mock_ground:
+                    mock_ground.return_value = evidence
+
+                    result = await VideoAISkill._run_demo_analysis_and_grounding(
+                        session=session,
+                        backend_url="http://backend",
+                        http_client=AsyncMock(),
+                    )
+
+    assert result is evidence
+    assert session.collected["reference_url"] == "https://tripc.vn"
+    _, analyze_kwargs = mock_analyze.await_args
+    assert analyze_kwargs["reference_url"] == "https://tripc.vn"
+
+    mock_resolve.assert_awaited_once_with("https://tripc.vn")
+    mock_extract_catalog.assert_awaited_once_with(["https://tripc.vn/features"])
+
+    _, ground_kwargs = mock_ground.await_args
+    assert ground_kwargs["reference_url"] == "https://tripc.vn"
+    assert ground_kwargs["official_catalog"] is catalog
+
+
+@pytest.mark.asyncio
+async def test_grounding_service_stores_official_catalog_on_evidence():
+    mock_openclaw = AsyncMock()
+    mock_openclaw.execute_task.return_value = {"grounded_features": []}
+    service = DemoFeatureGroundingService(openclaw_service=mock_openclaw)
+    evidence = _sample_evidence()
+    catalog = MagicMock()
+    catalog.features = []
+    catalog.visited_urls = []
+    catalog.primary_source_url = "https://tripc.vn"
+
+    result = await service.ground_features(
+        evidence=evidence,
+        reference_url="https://tripc.vn",
+        official_catalog=catalog,
+    )
+
+    assert result.official_catalog is catalog
+
+
+@pytest.mark.asyncio
 async def test_confirm_concept_regenerate_recorded_demo_reanalyzes_preview():
     session = _demo_session_at_preview_confirm()
     session.step_key = "confirm_concept"

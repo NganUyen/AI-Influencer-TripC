@@ -95,6 +95,7 @@ class DemoFeatureGroundingService:
         # Store grounding context
         evidence.grounding_reference_url = reference_url
         evidence.grounding_project_name = project_name
+        evidence.official_catalog = official_catalog
 
         if not evidence.extracted_features and not evidence.feature_candidates:
             logger.info("No features to ground")

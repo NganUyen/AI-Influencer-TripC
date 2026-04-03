@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from pydantic import ValidationError
 
@@ -60,6 +61,16 @@ _RESETTABLE_FIELDS = [
     "demo_video_telegram_file_id",
     "demo_video_asset_url",
 ]
+
+
+def _normalize_reference_url(reference_url: str) -> str:
+    normalized = str(reference_url or "").strip()
+    if not normalized:
+        return ""
+    parsed = urlparse(normalized)
+    if parsed.scheme:
+        return normalized
+    return f"https://{normalized}"
 
 
 class VideoAISkill(BaseSkill):
@@ -268,7 +279,10 @@ class VideoAISkill(BaseSkill):
         if not demo_video_url:
             raise ValueError("Demo video asset URL is missing. Please re-upload.")
 
-        reference_url = session.collected.get("reference_url", "")
+        reference_url = _normalize_reference_url(
+            session.collected.get("reference_url", "")
+        )
+        session.collected["reference_url"] = reference_url
         video_goal = session.collected.get("video_goal", "feature_demo")
         audience = session.collected.get("audience", "")
         cta = session.collected.get("cta", "")
@@ -314,14 +328,18 @@ class VideoAISkill(BaseSkill):
             official_catalog_service = OfficialFeatureCatalogService(
                 ai_service=ai_service
             )
-            grounding_service = DemoFeatureGroundingService(
-                official_source_resolver=official_source_resolver,
-                official_catalog_service=official_catalog_service,
+            verified_feature_urls = (
+                await official_source_resolver.resolve_feature_urls(reference_url)
             )
+            official_catalog = await official_catalog_service.extract_catalog(
+                verified_feature_urls
+            )
+            grounding_service = DemoFeatureGroundingService()
 
             evidence = await grounding_service.ground_features(
                 evidence=evidence,
                 reference_url=reference_url,
+                official_catalog=official_catalog,
                 project_name=None,  # Will be inferred from website
                 video_goal=video_goal,
                 audience=audience,

@@ -14,6 +14,8 @@ import {
 import { customerApiRequest } from "@/lib/customer-api";
 import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
+import { DashboardHeader } from "@/components/DashboardHeader";
+import { DashboardSidebar } from "@/components/DashboardSidebar";
 
 type BrandProfile = {
   product_name: string | null;
@@ -130,9 +132,9 @@ type SystemWorkflowData = {
   progress: number;
 };
 
-type DashboardTabId = "overview" | "ops" | "skills" | "memory" | "live_feed";
+export type DashboardTabId = "overview" | "ops" | "skills" | "memory" | "live_feed";
 
-type DashboardTab = {
+export type DashboardTab = {
   id: DashboardTabId;
   label: string;
   icon: LucideIcon;
@@ -204,8 +206,16 @@ function buildAiBackboneForm(
 export default function CustomerDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, isAuthenticated, initialized, isLoading, logout } = useCustomerAuthStore();
-
+  // const { user, isAuthenticated, initialized, isLoading, logout } = useCustomerAuthStore();
+// Replace the destructuring with mock values:
+  const { user, isAuthenticated, initialized, isLoading, logout } = {
+    user: { name: "Preview User", email: "preview@example.com" },
+    isAuthenticated: true,
+    initialized: true,
+    isLoading: false,
+    logout: () => console.log("Logout clicked"),
+  };
+  
   const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
   const [systemSummary, setSystemSummary] = useState<SystemSummaryData | null>(null);
   const [systemWorkflows, setSystemWorkflows] = useState<SystemWorkflowData[]>([]);
@@ -255,18 +265,34 @@ export default function CustomerDashboard() {
   const telegramBotUrl = getClientTelegramBotLaunchUrl();
   const telegramVerificationUrl = getClientTelegramBotLaunchUrl(linkToken?.start_token);
 
-  const fetchSystemData = useCallback(async () => {
-    try {
-      const [summary, workflows] = await Promise.all([
-        customerApiRequest<SystemSummaryData>("/api/customer/system/summary"),
-        customerApiRequest<{ workflows: SystemWorkflowData[] }>("/api/customer/system/workflows"),
-      ]);
-      setSystemSummary(summary);
-      setSystemWorkflows(workflows.workflows);
-    } catch (error) {
-      console.error("Failed to fetch system monitoring data:", error);
-    }
-  }, []);
+  // const fetchSystemData = useCallback(async () => {
+  //   try {
+  //     const [summary, workflows] = await Promise.all([
+  //       customerApiRequest<SystemSummaryData>("/api/customer/system/summary"),
+  //       customerApiRequest<{ workflows: SystemWorkflowData[] }>("/api/customer/system/workflows"),
+  //     ]);
+  //     setSystemSummary(summary);
+  //     setSystemWorkflows(workflows.workflows);
+  //   } catch (error) {
+  //     console.error("Failed to fetch system monitoring data:", error);
+  //   }
+  // }, []);
+
+const fetchSystemData = useCallback(async () => {
+  setSystemSummary({
+    services: [
+      { name: "API Gateway", status: "online", latency: "24ms" },
+      { name: "Worker Node", status: "online", latency: "115ms" }
+    ],
+    quota: [
+      { name: "GPT-4o Tokens", used: 45000, total: 100000, unit: "tokens" },
+      { name: "Image Gen", used: 12, total: 50, unit: "images" }
+    ]
+  });
+  setSystemWorkflows([
+    { id: "wf-123", name: "Content Generation", status: "running", progress: 65 }
+  ]);
+}, []);
 
   useEffect(() => {
     void fetchSystemData();
@@ -290,10 +316,10 @@ export default function CustomerDashboard() {
     if (!initialized || isLoading) {
       return;
     }
-    if (!isAuthenticated) {
-      router.replace("/auth");
-      return;
-    }
+    // if (!isAuthenticated) {
+    //   router.replace("/auth");
+    //   return;
+    // }
     void loadWorkspace();
   }, [initialized, isLoading, isAuthenticated, router]);
 
@@ -369,53 +395,83 @@ export default function CustomerDashboard() {
     };
   }, [isAuthenticated, linkToken, telegramLink?.linked]);
 
-  async function loadWorkspace() {
-    try {
-      setPageError(null);
-      const [
-        brand,
-        social,
-        assistant,
-        campaignList,
-        approvalList,
-        contentList,
-        aiBackboneResponse,
-        personasList,
-        telegramLinkResponse,
-      ] = await Promise.all([
-        customerApiRequest<{ brand_profile: BrandProfile | null }>("/api/customer/brand"),
-        customerApiRequest<{ accounts: SocialAccount[] }>("/api/customer/social-accounts"),
-        customerApiRequest<{ threads: AssistantThread[] }>("/api/customer/assistant/threads"),
-        customerApiRequest<{ campaigns: Campaign[] }>("/api/customer/campaigns"),
-        customerApiRequest<{ approvals: Campaign[] }>("/api/customer/approvals"),
-        customerApiRequest<{ items: ContentItem[] }>("/api/customer/content"),
-        customerApiRequest<{ settings: AIBackboneSettings }>("/api/customer/ai-backbone"),
-        customerApiRequest<{ personas: Persona[] }>("/api/customer/personas"),
-        customerApiRequest<TelegramLinkStatus>("/api/customer/telegram/link"),
-      ]);
+  // async function loadWorkspace() {
+  //   try {
+  //     setPageError(null);
+  //     const [
+  //       brand,
+  //       social,
+  //       assistant,
+  //       campaignList,
+  //       approvalList,
+  //       contentList,
+  //       aiBackboneResponse,
+  //       personasList,
+  //       telegramLinkResponse,
+  //     ] = await Promise.all([
+  //       customerApiRequest<{ brand_profile: BrandProfile | null }>("/api/customer/brand"),
+  //       customerApiRequest<{ accounts: SocialAccount[] }>("/api/customer/social-accounts"),
+  //       customerApiRequest<{ threads: AssistantThread[] }>("/api/customer/assistant/threads"),
+  //       customerApiRequest<{ campaigns: Campaign[] }>("/api/customer/campaigns"),
+  //       customerApiRequest<{ approvals: Campaign[] }>("/api/customer/approvals"),
+  //       customerApiRequest<{ items: ContentItem[] }>("/api/customer/content"),
+  //       customerApiRequest<{ settings: AIBackboneSettings }>("/api/customer/ai-backbone"),
+  //       customerApiRequest<{ personas: Persona[] }>("/api/customer/personas"),
+  //       customerApiRequest<TelegramLinkStatus>("/api/customer/telegram/link"),
+  //     ]);
 
-      setBrandForm(brand.brand_profile || EMPTY_BRAND);
-      setAccounts(social.accounts);
-      setThreads(assistant.threads);
-      setCampaigns(campaignList.campaigns);
-      setApprovals(approvalList.approvals);
-      setContent(contentList.items);
-      setPersonas(personasList.personas || []);
-      setTelegramLink(telegramLinkResponse);
-      const settings = aiBackboneResponse.settings;
-      setAiBackbone(settings);
-      setAiBackboneForm(buildAiBackboneForm(settings, user?.name || user?.email || ""));
+  //     setBrandForm(brand.brand_profile || EMPTY_BRAND);
+  //     setAccounts(social.accounts);
+  //     setThreads(assistant.threads);
+  //     setCampaigns(campaignList.campaigns);
+  //     setApprovals(approvalList.approvals);
+  //     setContent(contentList.items);
+  //     setPersonas(personasList.personas || []);
+  //     setTelegramLink(telegramLinkResponse);
+  //     const settings = aiBackboneResponse.settings;
+  //     setAiBackbone(settings);
+  //     setAiBackboneForm(buildAiBackboneForm(settings, user?.name || user?.email || ""));
 
-      const nextThreadId = selectedThreadId || assistant.threads[0]?.id || null;
-      setSelectedThreadId(nextThreadId);
-      if (!nextThreadId) {
-        setMessages([]);
-        setArtifacts([]);
-      }
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Failed to load workspace");
-    }
-  }
+  //     const nextThreadId = selectedThreadId || assistant.threads[0]?.id || null;
+  //     setSelectedThreadId(nextThreadId);
+  //     if (!nextThreadId) {
+  //       setMessages([]);
+  //       setArtifacts([]);
+  //     }
+  //   } catch (error) {
+  //     setPageError(error instanceof Error ? error.message : "Failed to load workspace");
+  //   }
+  // }
+
+async function loadWorkspace() {
+  setPageError(null);
+  
+  // Set dummy brand data
+  setBrandForm({
+    product_name: "Acme AI",
+    website_url: "https://acme.ai",
+    audience: "Tech Enthusiasts",
+    offer_summary: "AI-driven marketing automation",
+    tone_voice: "Professional & Witty",
+    timezone: "UTC+7",
+    campaign_goals: ["Brand Awareness"],
+    asset_urls: [],
+    telegram_contact: "@acme_bot",
+  });
+
+  // Set dummy social accounts
+  setAccounts([
+    { id: "1", platform: "linkedin", account_handle: "@acme", display_name: "Acme Corp", connection_status: "connected" },
+    { id: "2", platform: "twitter", account_handle: "@acme_ai", display_name: "Acme AI", connection_status: "connected" }
+  ]);
+
+  // Set dummy campaigns
+  setCampaigns([
+    { id: "c1", name: "Spring Launch", description: "New AI features", target_platforms: ["linkedin"], status: "running", approval_status: "approved", active_workflow_id: "w1" }
+  ]);
+
+  // Add more setters as needed for personas, threads, etc.
+}
 
   async function loadThread(threadId: string) {
     try {
@@ -743,67 +799,25 @@ export default function CustomerDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 px-6 py-8 text-stone-100">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <section className="rounded-[32px] border border-white/[0.08] bg-white/[0.03] p-6 backdrop-blur-xl">
-          <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-emerald-300">
-                Customer Workspace
-              </p>
-              <h1 className="mt-3 text-3xl sm:text-4xl font-semibold tracking-tight text-white text-balance">
-                Dashboard
-              </h1>
-              <p className="mt-3 max-w-3xl text-sm leading-relaxed text-zinc-400">
-                Manage your customer assistant threads, connected platforms,
-                Telegram linking, and campaign approvals from one workspace.
-              </p>
-            </div>
+    <div className="min-h-screen bg-zinc-950 text-stone-100">
+      <DashboardHeader
+        userName={user?.name}
+        userEmail={user?.email}
+        telegramBotUrl={telegramBotUrl}
+        onLogout={() => void handleLogout()}
+        isSigningOut={busyKey === "signout"}
+      />
 
-            <div className="flex flex-col gap-3 sm:items-end">
-              <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl px-4 py-3 text-sm text-zinc-400">
-                Signed in as <span className="font-semibold text-white">{user?.name || user?.email}</span>
-              </div>
-              <div className="flex flex-wrap gap-3 sm:justify-end">
-                {telegramBotUrl && (
-                  <a
-                    href={telegramBotUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98]"
-                  >
-                    Open Telegram Bot
-                  </a>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void handleLogout()}
-                  disabled={busyKey === "signout"}
-                  className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 px-5 py-3 text-sm font-semibold text-stone-100 transition-all duration-200 ease-out hover:border-white/25 hover:bg-white/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {busyKey === "signout" ? "Signing out..." : "Sign out"}
-                </button>
-              </div>
-            </div>
-          </div>
+      <div className="flex pt-0">
+        <DashboardSidebar
+          tabs={DASHBOARD_TABS}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
 
-          <div className="mt-6 inline-flex rounded-full bg-white/5 p-1.5 backdrop-blur-xl">
-            {DASHBOARD_TABS.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-200 ease-apple ${activeTab === tab.id
-                    ? "bg-white/10 border-transparent text-white shadow-sm"
-                    : "border-transparent bg-transparent text-zinc-400 hover:bg-white/5 hover:text-white"
-                  }`}
-              >
-                <tab.icon className="h-4 w-4" />
-                <span>{tab.label}</span>
-              </button>
-            ))}
-          </div>
-        </section>
+        <main className="ml-64 flex-1 px-6 py-8">
+          <div className="mx-auto max-w-7xl space-y-6">
+
 
         {banner && (
           <div className="rounded-[16px] border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
@@ -1193,6 +1207,8 @@ export default function CustomerDashboard() {
             </Panel>
           </div>
         )}
+          </div>
+        </main>
       </div>
     </div>
   );

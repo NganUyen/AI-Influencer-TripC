@@ -1166,20 +1166,20 @@ export default function CustomerDashboard() {
                   <FormField
                     label="Brand Name"
                     value={brandForm.product_name || ""}
-                    onChange={v => setBrandForm(c => ({ ...c, product_name: v }))}
+                    onChange={e => setBrandForm(c => ({ ...c, product_name: e.target.value }))}
                     placeholder="Enter your brand name"
                   />
                   <TextAreaField
                     label="Audience"
                     value={brandForm.audience || ""}
-                    onChange={v => setBrandForm(c => ({ ...c, audience: v }))}
+                    onChange={e => setBrandForm(c => ({ ...c, audience: e.target.value }))}
                     placeholder="Describe your target audience"
                     minHeight="100px"
                   />
                   <TextAreaField
                     label="Offer Summary"
                     value={brandForm.offer_summary || ""}
-                    onChange={v => setBrandForm(c => ({ ...c, offer_summary: v }))}
+                    onChange={e => setBrandForm(c => ({ ...c, offer_summary: e.target.value }))}
                     placeholder="Summarize your product or service offering"
                     minHeight="100px"
                   />

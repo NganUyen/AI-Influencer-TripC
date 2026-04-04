@@ -8,6 +8,9 @@ import {
   LayoutDashboard,
   Radio,
   Users,
+  Zap,
+  Clock,
+  CheckCircle,
   type LucideIcon,
 } from "lucide-react";
 
@@ -16,10 +19,19 @@ import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
-import { Panel } from "@/components/Panel";
-import { PanelHeader } from "@/components/PanelHeader";
-import { StatCard } from "@/components/StatCard";
-import { DataCard } from "@/components/DataCard";
+import { Panel } from "@/components/ui/Panel";
+import { PanelHeader } from "@/components/ui/PanelHeader";
+import { StatCard } from "@/components/ui/StatCard";
+import { DataCard } from "@/components/ui/DataCard";
+import { FormField } from "@/components/ui/FormField";
+import { SelectField } from "@/components/ui/SelectField";
+import { TextAreaField } from "@/components/ui/TextAreaField";
+import { ButtonGroup } from "@/components/ui/ButtonGroup";
+import { PersonaCard } from "@/components/ui/PersonaCard";
+import { ThreadItem } from "@/components/ui/ThreadItem";
+import { MessageBubble } from "@/components/ui/MessageBubble";
+import { TimelineItem } from "@/components/ui/TimelineItem";
+import { FieldSet } from "@/components/ui/FieldSet";
 
 
 type BrandProfile = {
@@ -847,21 +859,25 @@ async function loadWorkspace() {
                 <StatCard
                   title="Active Campaigns"
                   value={campaigns.filter(c => c.status === 'active').length.toString()}
+                  icon={Zap}
                   tone="emerald"
                 />
                 <StatCard
                   title="Pending Approvals"
                   value={approvals.length.toString()}
+                  icon={Clock}
                   tone="amber"
                 />
                 <StatCard
                   title="Published Content"
                   value={content.filter(c => c.status === 'published').length.toString()}
+                  icon={CheckCircle}
                   tone="sky"
                 />
                 <StatCard
                   title="AI Personas"
                   value={personas?.length.toString() || "0"}
+                  icon={Users}
                   tone="emerald"
                 />
               </div>
@@ -996,27 +1012,40 @@ async function loadWorkspace() {
                       <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Threads</h3>
                       <button type="button" onClick={() => void handleCreateThread()} disabled={busyKey === "thread"} className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300 transition-all duration-200 ease-out hover:border-emerald-500/60 hover:bg-emerald-500/20 active:scale-[0.98] disabled:opacity-50">New</button>
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {threads.length === 0 && <p className="text-xs text-zinc-500">No threads yet.</p>}
                       {threads.map((thread) => (
-                        <button key={thread.id} type="button" onClick={() => setSelectedThreadId(thread.id)} className={`w-full rounded-[14px] border px-4 py-3 text-left transition-all duration-200 ease-out ${selectedThreadId === thread.id ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/[0.08] bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]"}`}>
-                          <p className="font-medium text-white truncate">{thread.title}</p>
-                        </button>
+                        <ThreadItem
+                          key={thread.id}
+                          id={thread.id}
+                          title={thread.title}
+                          preview={thread.last_message_preview || undefined}
+                          isActive={selectedThreadId === thread.id}
+                          onClick={() => setSelectedThreadId(thread.id)}
+                        />
                       ))}
                     </div>
                   </div>
                   <div className="space-y-4 rounded-[24px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
                     <div className="max-h-[420px] overflow-y-auto pr-2 space-y-3">
                       {messages.map((message) => (
-                        <div key={message.id} className={`rounded-[16px] px-4 py-3 text-sm ${message.role === "assistant" ? "bg-emerald-500/10 text-stone-100" : "bg-white/[0.05] text-stone-200"}`}>
-                          <p className="mb-1 text-[10px] uppercase text-zinc-500">{message.role}</p>
-                          <p className="whitespace-pre-wrap">{message.content}</p>
-                        </div>
+                        <MessageBubble
+                          key={message.id}
+                          id={message.id}
+                          role={message.role}
+                          content={message.content}
+                        />
                       ))}
                     </div>
-                    <form className="space-y-2" onSubmit={handleSendMessage}>
-                      <textarea value={composer} onChange={(e) => setComposer(e.target.value)} placeholder="Type a message..." className="w-full bg-white/[0.03] border border-white/[0.08] rounded-[14px] backdrop-blur-xl p-3 text-white text-sm placeholder:text-zinc-500 outline-none transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500" />
-                      <button type="submit" disabled={busyKey === "assistant"} className="w-full bg-emerald-500 text-white font-semibold py-3 rounded-[14px] shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98] disabled:opacity-50">
+                    <form className="space-y-3" onSubmit={handleSendMessage}>
+                      <TextAreaField
+                        value={composer}
+                        onChange={(e) => setComposer(e.target.value)}
+                        placeholder="Type a message..."
+                        minHeight="80px"
+                        containerClassName="flex-1"
+                      />
+                      <button type="submit" disabled={busyKey === "assistant"} className="w-full bg-emerald-500 text-white font-semibold py-3 rounded-xl shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98] disabled:opacity-50">
                         {busyKey === "assistant" ? "OpenClaw Thinking..." : "Send to AI"}
                       </button>
                     </form>
@@ -1053,11 +1082,24 @@ async function loadWorkspace() {
                   title="Pending Approvals" subtitle="Action items."/>
                 <div className="space-y-3">
                   {approvals.map(a => (
-                    <div key={a.id} className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-[16px] backdrop-blur-xl">
+                    <div key={a.id} className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl backdrop-blur-xl">
                       <p className="font-medium text-amber-300">{a.name}</p>
-                      <div className="mt-4 flex gap-2">
-                        <button onClick={() => handleApprove(a.id, true)} className="px-4 py-2 bg-emerald-500 text-white rounded-[14px] text-xs font-semibold shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98]">Approve</button>
-                        <button onClick={() => handleApprove(a.id, false)} className="px-4 py-2 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-[14px] text-xs font-semibold transition-all duration-200 ease-out hover:bg-rose-500/20 active:scale-[0.98]">Reject</button>
+                      <div className="mt-4">
+                        <ButtonGroup
+                          buttons={[
+                            {
+                              label: "Approve",
+                              onClick: () => handleApprove(a.id, true),
+                              variant: "primary",
+                            },
+                            {
+                              label: "Reject",
+                              onClick: () => handleApprove(a.id, false),
+                              variant: "danger",
+                            },
+                          ]}
+                          size="sm"
+                        />
                       </div>
                     </div>
                   ))}
@@ -1092,15 +1134,15 @@ async function loadWorkspace() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {personas.map(p => (
-                  <div key={p.persona_id} className="bg-white/[0.02] border border-white/[0.08] rounded-[16px] backdrop-blur-xl p-4 flex items-center gap-4 transition-colors duration-200 ease-out hover:bg-white/[0.04] group">
-                    <div className="w-16 h-16 bg-zinc-800 rounded-xl overflow-hidden">
-                      {p.avatar_image_url && <img src={p.avatar_image_url} alt={p.display_name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-white truncate">{p.display_name}</h4>
-                      <StatusBadge label={p.status} />
-                    </div>
-                  </div>
+                  <PersonaCard
+                    key={p.persona_id}
+                    id={p.persona_id}
+                    name={p.display_name}
+                    avatarUrl={p.avatar_image_url || undefined}
+                    status={p.status}
+                    videoCount={p.video_count}
+                    tone="emerald"
+                  />
                 ))}
 
                 <div className="border border-dashed border-zinc-700 rounded-[16px] p-8 flex flex-col items-center justify-center text-center space-y-4 transition-colors duration-200 ease-out hover:bg-white/[0.02] group cursor-pointer">
@@ -1119,11 +1161,30 @@ async function loadWorkspace() {
             <Panel variant="elevated">
               <PanelHeader 
                 title="Brand Context" subtitle="Knowledge assets."/>
-              <form className="space-y-4" onSubmit={handleBrandSave}>
-                <Field label="Brand Name" value={brandForm.product_name || ""} onChange={v => setBrandForm(c => ({ ...c, product_name: v }))} />
-                <TextAreaField label="Audience" value={brandForm.audience || ""} onChange={v => setBrandForm(c => ({ ...c, audience: v }))} />
-                <TextAreaField label="Offer Summary" value={brandForm.offer_summary || ""} onChange={v => setBrandForm(c => ({ ...c, offer_summary: v }))} />
-                <button type="submit" className="w-full bg-emerald-500 text-white font-semibold py-3 rounded-[14px] shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98]">Update Memory</button>
+              <form className="space-y-6" onSubmit={handleBrandSave}>
+                <FieldSet title="Brand Profile" description="Core information about your brand">
+                  <FormField
+                    label="Brand Name"
+                    value={brandForm.product_name || ""}
+                    onChange={v => setBrandForm(c => ({ ...c, product_name: v }))}
+                    placeholder="Enter your brand name"
+                  />
+                  <TextAreaField
+                    label="Audience"
+                    value={brandForm.audience || ""}
+                    onChange={v => setBrandForm(c => ({ ...c, audience: v }))}
+                    placeholder="Describe your target audience"
+                    minHeight="100px"
+                  />
+                  <TextAreaField
+                    label="Offer Summary"
+                    value={brandForm.offer_summary || ""}
+                    onChange={v => setBrandForm(c => ({ ...c, offer_summary: v }))}
+                    placeholder="Summarize your product or service offering"
+                    minHeight="100px"
+                  />
+                </FieldSet>
+                <button type="submit" className="w-full bg-emerald-500 text-white font-semibold py-3 rounded-xl shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98]">Update Memory</button>
               </form>
             </Panel>
 
@@ -1328,23 +1389,22 @@ function ActivityFeed({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {items.map((item) => {
-        const tone = item.tone === "success" 
-          ? "emerald" 
+        const variant = item.tone === "success" 
+          ? "success" as const
           : item.tone === "warning" 
-            ? "amber" 
-            : "sky";
+            ? "warning" as const
+            : "info" as const;
         
         return (
-          <DataCard key={item.id} tone={tone}>
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="font-medium text-white">{item.title}</p>
-                <p className="mt-1 text-sm text-zinc-400">{item.detail}</p>
-              </div>
-            </div>
-          </DataCard>
+          <TimelineItem
+            key={item.id}
+            id={item.id}
+            title={item.title}
+            description={item.detail}
+            variant={variant}
+          />
         );
       })}
     </div>
@@ -1375,31 +1435,6 @@ function Field({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         className="w-full rounded-[14px] border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl px-4 py-3 text-sm text-white placeholder:text-zinc-500 outline-none transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-      />
-    </label>
-  );
-}
-
-function TextAreaField({
-  label,
-  value,
-  onChange,
-  className = "",
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  className?: string;
-}) {
-  return (
-    <label className={className}>
-      <span className="mb-2 block text-xs font-semibold uppercase tracking-widest text-zinc-500">
-        {label}
-      </span>
-      <textarea
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="min-h-[92px] w-full rounded-[14px] border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl px-4 py-3 text-sm text-white placeholder:text-zinc-500 outline-none transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
       />
     </label>
   );

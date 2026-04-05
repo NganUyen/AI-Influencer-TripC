@@ -86,6 +86,21 @@ type Campaign = {
   active_workflow_id: string | null;
 };
 
+type VideoContextDraft = {
+  title: string;
+  description: string;
+  duration: string;
+  style: string;
+  targetAudience: string;
+  keyMessages: string;
+  callToAction: string;
+  tone: string;
+  personaId: string;
+  platforms: string;
+  language: string;
+  subtitles: boolean;
+};
+
 type ContentItem = {
   id: string;
   title: string;
@@ -198,6 +213,38 @@ const AI_BACKBONE_OPTIONS = [
   },
 ] as const;
 
+const VIDEO_DURATION_OPTIONS = [
+  { value: "15s", label: "15 seconds" },
+  { value: "30s", label: "30 seconds" },
+  { value: "60s", label: "60 seconds" },
+  { value: "90s", label: "90 seconds" },
+  { value: "2m", label: "2 minutes" },
+] as const;
+
+const VIDEO_STYLE_OPTIONS = [
+  { value: "educational", label: "Educational" },
+  { value: "promotional", label: "Promotional" },
+  { value: "storytelling", label: "Storytelling" },
+  { value: "tutorial", label: "Tutorial" },
+  { value: "testimonial", label: "Testimonial" },
+] as const;
+
+const VIDEO_TONE_OPTIONS = [
+  { value: "professional", label: "Professional" },
+  { value: "casual", label: "Casual" },
+  { value: "energetic", label: "Energetic" },
+  { value: "bold", label: "Bold" },
+] as const;
+
+const VIDEO_PLATFORM_OPTIONS = [
+  { value: "tiktok", label: "TikTok" },
+  { value: "instagram", label: "Instagram" },
+  { value: "linkedin", label: "LinkedIn" },
+  { value: "facebook", label: "Facebook" },
+  { value: "twitter", label: "Twitter / X" },
+  { value: "youtube", label: "YouTube" },
+] as const;
+
 const DASHBOARD_TABS: DashboardTab[] = [
   { id: "overview", label: "Tổng quan", icon: LayoutDashboard },
   { id: "ops", label: "AI vận hành", icon: Bot },
@@ -223,15 +270,15 @@ function buildAiBackboneForm(
 export default function CustomerDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, isAuthenticated, initialized, isLoading, logout } = useCustomerAuthStore();
+  // const { user, isAuthenticated, initialized, isLoading, logout } = useCustomerAuthStore();
 // // Replace the destructuring with mock values:
-//   const { user, isAuthenticated, initialized, isLoading, logout } = {
-//     user: { name: "Preview User", email: "preview@example.com" },
-//     isAuthenticated: true,
-//     initialized: true,
-//     isLoading: false,
-//     logout: () => console.log("Logout clicked"),
-//   };
+  const { user, isAuthenticated, initialized, isLoading, logout } = {
+    user: { name: "Preview User", email: "preview@example.com" },
+    isAuthenticated: true,
+    initialized: true,
+    isLoading: false,
+    logout: () => console.log("Logout clicked"),
+  };
   
   const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
   const [systemSummary, setSystemSummary] = useState<SystemSummaryData | null>(null);
@@ -276,40 +323,56 @@ export default function CustomerDashboard() {
     targetPlatforms: "linkedin,facebook,twitter",
   });
 
+  const [videoContextDraft, setVideoContextDraft] = useState<VideoContextDraft>({
+    title: "",
+    description: "",
+    duration: "60s",
+    style: "promotional",
+    targetAudience: "",
+    keyMessages: "",
+    callToAction: "",
+    tone: "professional",
+    personaId: "",
+    platforms: "tiktok,instagram,linkedin",
+    language: "Vietnamese",
+    subtitles: false,
+  });
+  const [isVideoContextModalOpen, setIsVideoContextModalOpen] = useState(false);
+
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const telegramBotUrl = getClientTelegramBotLaunchUrl();
   const telegramVerificationUrl = getClientTelegramBotLaunchUrl(linkToken?.start_token);
 
-  const fetchSystemData = useCallback(async () => {
-    try {
-      const [summary, workflows] = await Promise.all([
-        customerApiRequest<SystemSummaryData>("/api/customer/system/summary"),
-        customerApiRequest<{ workflows: SystemWorkflowData[] }>("/api/customer/system/workflows"),
-      ]);
-      setSystemSummary(summary);
-      setSystemWorkflows(workflows.workflows);
-    } catch (error) {
-      console.error("Failed to fetch system monitoring data:", error);
-    }
-  }, []);
+  // const fetchSystemData = useCallback(async () => {
+  //   try {
+  //     const [summary, workflows] = await Promise.all([
+  //       customerApiRequest<SystemSummaryData>("/api/customer/system/summary"),
+  //       customerApiRequest<{ workflows: SystemWorkflowData[] }>("/api/customer/system/workflows"),
+  //     ]);
+  //     setSystemSummary(summary);
+  //     setSystemWorkflows(workflows.workflows);
+  //   } catch (error) {
+  //     console.error("Failed to fetch system monitoring data:", error);
+  //   }
+  // }, []);
 
-// const fetchSystemData = useCallback(async () => {
-//   setSystemSummary({
-//     services: [
-//       { name: "API Gateway", status: "online", latency: "24ms" },
-//       { name: "Worker Node", status: "online", latency: "115ms" }
-//     ],
-//     quota: [
-//       { name: "GPT-4o Tokens", used: 45000, total: 100000, unit: "tokens" },
-//       { name: "Image Gen", used: 12, total: 50, unit: "images" }
-//     ]
-//   });
-//   setSystemWorkflows([
-//     { id: "wf-123", name: "Content Generation", status: "running", progress: 65 }
-//   ]);
-// }, []);
+const fetchSystemData = useCallback(async () => {
+  setSystemSummary({
+    services: [
+      { name: "API Gateway", status: "online", latency: "24ms" },
+      { name: "Worker Node", status: "online", latency: "115ms" }
+    ],
+    quota: [
+      { name: "GPT-4o Tokens", used: 45000, total: 100000, unit: "tokens" },
+      { name: "Image Gen", used: 12, total: 50, unit: "images" }
+    ]
+  });
+  setSystemWorkflows([
+    { id: "wf-123", name: "Content Generation", status: "running", progress: 65 }
+  ]);
+}, []);
 
   useEffect(() => {
     void fetchSystemData();
@@ -412,83 +475,83 @@ export default function CustomerDashboard() {
     };
   }, [isAuthenticated, linkToken, telegramLink?.linked]);
 
-  async function loadWorkspace() {
-    try {
-      setPageError(null);
-      const [
-        brand,
-        social,
-        assistant,
-        campaignList,
-        approvalList,
-        contentList,
-        aiBackboneResponse,
-        personasList,
-        telegramLinkResponse,
-      ] = await Promise.all([
-        customerApiRequest<{ brand_profile: BrandProfile | null }>("/api/customer/brand"),
-        customerApiRequest<{ accounts: SocialAccount[] }>("/api/customer/social-accounts"),
-        customerApiRequest<{ threads: AssistantThread[] }>("/api/customer/assistant/threads"),
-        customerApiRequest<{ campaigns: Campaign[] }>("/api/customer/campaigns"),
-        customerApiRequest<{ approvals: Campaign[] }>("/api/customer/approvals"),
-        customerApiRequest<{ items: ContentItem[] }>("/api/customer/content"),
-        customerApiRequest<{ settings: AIBackboneSettings }>("/api/customer/ai-backbone"),
-        customerApiRequest<{ personas: Persona[] }>("/api/customer/personas"),
-        customerApiRequest<TelegramLinkStatus>("/api/customer/telegram/link"),
-      ]);
+  // async function loadWorkspace() {
+  //   try {
+  //     setPageError(null);
+  //     const [
+  //       brand,
+  //       social,
+  //       assistant,
+  //       campaignList,
+  //       approvalList,
+  //       contentList,
+  //       aiBackboneResponse,
+  //       personasList,
+  //       telegramLinkResponse,
+  //     ] = await Promise.all([
+  //       customerApiRequest<{ brand_profile: BrandProfile | null }>("/api/customer/brand"),
+  //       customerApiRequest<{ accounts: SocialAccount[] }>("/api/customer/social-accounts"),
+  //       customerApiRequest<{ threads: AssistantThread[] }>("/api/customer/assistant/threads"),
+  //       customerApiRequest<{ campaigns: Campaign[] }>("/api/customer/campaigns"),
+  //       customerApiRequest<{ approvals: Campaign[] }>("/api/customer/approvals"),
+  //       customerApiRequest<{ items: ContentItem[] }>("/api/customer/content"),
+  //       customerApiRequest<{ settings: AIBackboneSettings }>("/api/customer/ai-backbone"),
+  //       customerApiRequest<{ personas: Persona[] }>("/api/customer/personas"),
+  //       customerApiRequest<TelegramLinkStatus>("/api/customer/telegram/link"),
+  //     ]);
 
-      setBrandForm(brand.brand_profile || EMPTY_BRAND);
-      setAccounts(social.accounts);
-      setThreads(assistant.threads);
-      setCampaigns(campaignList.campaigns);
-      setApprovals(approvalList.approvals);
-      setContent(contentList.items);
-      setPersonas(personasList.personas || []);
-      setTelegramLink(telegramLinkResponse);
-      const settings = aiBackboneResponse.settings;
-      setAiBackbone(settings);
-      setAiBackboneForm(buildAiBackboneForm(settings, user?.name || user?.email || ""));
+  //     setBrandForm(brand.brand_profile || EMPTY_BRAND);
+  //     setAccounts(social.accounts);
+  //     setThreads(assistant.threads);
+  //     setCampaigns(campaignList.campaigns);
+  //     setApprovals(approvalList.approvals);
+  //     setContent(contentList.items);
+  //     setPersonas(personasList.personas || []);
+  //     setTelegramLink(telegramLinkResponse);
+  //     const settings = aiBackboneResponse.settings;
+  //     setAiBackbone(settings);
+  //     setAiBackboneForm(buildAiBackboneForm(settings, user?.name || user?.email || ""));
 
-      const nextThreadId = selectedThreadId || assistant.threads[0]?.id || null;
-      setSelectedThreadId(nextThreadId);
-      if (!nextThreadId) {
-        setMessages([]);
-        setArtifacts([]);
-      }
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Failed to load workspace");
-    }
-  }
+  //     const nextThreadId = selectedThreadId || assistant.threads[0]?.id || null;
+  //     setSelectedThreadId(nextThreadId);
+  //     if (!nextThreadId) {
+  //       setMessages([]);
+  //       setArtifacts([]);
+  //     }
+  //   } catch (error) {
+  //     setPageError(error instanceof Error ? error.message : "Failed to load workspace");
+  //   }
+  // }
 
-// async function loadWorkspace() {
-//   setPageError(null);
+async function loadWorkspace() {
+  setPageError(null);
   
-//   // Set dummy brand data
-//   setBrandForm({
-//     product_name: "Acme AI",
-//     website_url: "https://acme.ai",
-//     audience: "Tech Enthusiasts",
-//     offer_summary: "AI-driven marketing automation",
-//     tone_voice: "Professional & Witty",
-//     timezone: "UTC+7",
-//     campaign_goals: ["Brand Awareness"],
-//     asset_urls: [],
-//     telegram_contact: "@acme_bot",
-//   });
+  // Set dummy brand data
+  setBrandForm({
+    product_name: "Acme AI",
+    website_url: "https://acme.ai",
+    audience: "Tech Enthusiasts",
+    offer_summary: "AI-driven marketing automation",
+    tone_voice: "Professional & Witty",
+    timezone: "UTC+7",
+    campaign_goals: ["Brand Awareness"],
+    asset_urls: [],
+    telegram_contact: "@acme_bot",
+  });
 
-//   // Set dummy social accounts
-//   setAccounts([
-//     { id: "1", platform: "linkedin", account_handle: "@acme", display_name: "Acme Corp", connection_status: "connected" },
-//     { id: "2", platform: "twitter", account_handle: "@acme_ai", display_name: "Acme AI", connection_status: "connected" }
-//   ]);
+  // Set dummy social accounts
+  setAccounts([
+    { id: "1", platform: "linkedin", account_handle: "@acme", display_name: "Acme Corp", connection_status: "connected" },
+    { id: "2", platform: "twitter", account_handle: "@acme_ai", display_name: "Acme AI", connection_status: "connected" }
+  ]);
 
-//   // Set dummy campaigns
-//   setCampaigns([
-//     { id: "c1", name: "Spring Launch", description: "New AI features", target_platforms: ["linkedin"], status: "running", approval_status: "approved", active_workflow_id: "w1" }
-//   ]);
+  // Set dummy campaigns
+  setCampaigns([
+    { id: "c1", name: "Spring Launch", description: "New AI features", target_platforms: ["linkedin"], status: "running", approval_status: "approved", active_workflow_id: "w1" }
+  ]);
 
-//   // Add more setters as needed for personas, threads, etc.
-// }
+  // Add more setters as needed for personas, threads, etc.
+}
 
   async function loadThread(threadId: string) {
     try {
@@ -731,6 +794,14 @@ export default function CustomerDashboard() {
     } finally {
       setBusyKey(null);
     }
+  }
+
+  function handleVideoContextSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusyKey("video-context");
+    setBanner("Video context saved locally. Ready for AI generation.");
+    setBusyKey(null);
+    console.log("videoContextDraft", videoContextDraft);
   }
 
   async function handleApprove(campaignId: string, approved: boolean) {
@@ -1110,6 +1181,23 @@ export default function CustomerDashboard() {
             <section className="space-y-4 md:space-y-6">
               <Panel variant="elevated">
                 <PanelHeader 
+                  title="Video Creation Context" subtitle="Open the video brief form in a popup."
+                />
+                <div className="space-y-3">
+                  <p className="text-sm text-zinc-400">
+                    Create a short AI video brief with title, audience, style, platform and execution guidance.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsVideoContextModalOpen(true)}
+                    className="w-full bg-blue-500 text-white font-semibold py-3 rounded-lg shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98]"
+                  >
+                    Open Video Context Form
+                  </button>
+                </div>
+              </Panel>
+              <Panel variant="elevated">
+                <PanelHeader 
                   title="Pending Approvals" subtitle="Action items."/>
                 <div className="space-y-3">
                   {approvals.map(a => (
@@ -1161,6 +1249,145 @@ export default function CustomerDashboard() {
           </div>
         )}
 
+        {isVideoContextModalOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-8"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                setIsVideoContextModalOpen(false);
+              }
+            }}
+          >
+            <div
+              className="w-full max-w-3xl rounded-2xl border border-white/[0.08] bg-zinc-950/95 p-6 shadow-2xl shadow-black/40 backdrop-blur-xl"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-4 pb-4 border-b border-white/[0.08]">
+                <div>
+                  <h2 className="text-xl font-semibold text-white">Video Creation Context</h2>
+                  <p className="text-sm text-zinc-400 mt-1">Fill in the AI video brief and save it for later generation.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsVideoContextModalOpen(false)}
+                  className="rounded-full border border-white/[0.08] bg-white/5 px-3 py-2 text-sm text-white transition-all duration-200 hover:bg-white/10"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="max-h-[calc(100vh-10rem)] overflow-y-auto overflow-x-visible pr-2 pt-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                <form className="space-y-4" onSubmit={(event) => {
+                  handleVideoContextSave(event);
+                  setIsVideoContextModalOpen(false);
+                }}>
+                  <FormField
+                    label="Video Title"
+                    value={videoContextDraft.title}
+                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, title: (event.target as HTMLInputElement).value }))}
+                    placeholder="Short, descriptive title"
+                  />
+                  <TextAreaField
+                    label="Video Description"
+                    value={videoContextDraft.description}
+                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, description: (event.target as HTMLTextAreaElement).value }))}
+                    placeholder="What should this video communicate?"
+                    minHeight="100px"
+                  />
+                  <TextAreaField
+                    label="Target Audience"
+                    value={videoContextDraft.targetAudience}
+                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, targetAudience: (event.target as HTMLTextAreaElement).value }))}
+                    placeholder="Who is this for?"
+                    minHeight="80px"
+                  />
+                  <FormField
+                    label="Call To Action"
+                    value={videoContextDraft.callToAction}
+                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, callToAction: (event.target as HTMLInputElement).value }))}
+                    placeholder="What should viewers do next?"
+                  />
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <SelectField
+                      label="Duration"
+                      value={videoContextDraft.duration}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, duration: (event.target as HTMLSelectElement).value }))}
+                      options={VIDEO_DURATION_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    />
+                    <SelectField
+                      label="Video Style"
+                      value={videoContextDraft.style}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, style: (event.target as HTMLSelectElement).value }))}
+                      options={VIDEO_STYLE_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <SelectField
+                      label="Tone"
+                      value={videoContextDraft.tone}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, tone: (event.target as HTMLSelectElement).value }))}
+                      options={VIDEO_TONE_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    />
+                    <FormField
+                      label="Persona"
+                      value={videoContextDraft.personaId}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, personaId: (event.target as HTMLInputElement).value }))}
+                      placeholder="Choose or type persona ID"
+                    />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <SelectField
+                      label="Target Platforms"
+                      value={videoContextDraft.platforms}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, platforms: (event.target as HTMLSelectElement).value }))}
+                      options={VIDEO_PLATFORM_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    />
+                    <FormField
+                      label="Language"
+                      value={videoContextDraft.language}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, language: (event.target as HTMLInputElement).value }))}
+                      placeholder="Language for narration/captions"
+                    />
+                  </div>
+                  <TextAreaField
+                    label="Key Messages"
+                    value={videoContextDraft.keyMessages}
+                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, keyMessages: (event.target as HTMLTextAreaElement).value }))}
+                    placeholder="List the most important messages or bullet points."
+                    minHeight="80px"
+                  />
+                  <div className="flex items-center gap-3">
+                    <input
+                      id="video-subtitles"
+                      type="checkbox"
+                      checked={videoContextDraft.subtitles}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, subtitles: event.target.checked }))}
+                      className="h-4 w-4 rounded border-white/10 bg-white/5 text-blue-500 focus:ring-blue-500"
+                    />
+                    <label htmlFor="video-subtitles" className="text-sm text-zinc-400">
+                      Generate subtitles automatically
+                    </label>
+                  </div>
+                  <button type="submit" className="w-full bg-blue-500 text-white font-semibold py-2.5 rounded-lg shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98]">
+                    Save Video Context
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === "skills" && (
           <div className="space-y-4 md:space-y-6">
             <Panel variant="elevated">
@@ -1203,20 +1430,20 @@ export default function CustomerDashboard() {
                   <FormField
                     label="Brand Name"
                     value={brandForm.product_name || ""}
-                    onChange={v => setBrandForm(c => ({ ...c, product_name: v }))}
+                    onChange={(event) => setBrandForm(c => ({ ...c, product_name: (event.target as HTMLInputElement).value }))}
                     placeholder="Enter your brand name"
                   />
                   <TextAreaField
                     label="Audience"
                     value={brandForm.audience || ""}
-                    onChange={v => setBrandForm(c => ({ ...c, audience: v }))}
+                    onChange={(event) => setBrandForm(c => ({ ...c, audience: (event.target as HTMLTextAreaElement).value }))}
                     placeholder="Describe your target audience"
                     minHeight="80px"
                   />
                   <TextAreaField
                     label="Offer Summary"
                     value={brandForm.offer_summary || ""}
-                    onChange={v => setBrandForm(c => ({ ...c, offer_summary: v }))}
+                    onChange={(event) => setBrandForm(c => ({ ...c, offer_summary: (event.target as HTMLTextAreaElement).value }))}
                     placeholder="Summarize your product or service offering"
                     minHeight="80px"
                   />

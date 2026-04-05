@@ -1,0 +1,54 @@
+# Video Context Database Schema
+
+## Table: video_contexts
+- id: uuid, primary key
+- customer_id: uuid, foreign key to customers
+- persona_id: uuid, nullable
+- title: varchar(255)
+- description: text
+- duration: varchar(32)
+- style: varchar(64)
+- target_audience: text
+- key_messages: text
+- call_to_action: varchar(255)
+- tone: varchar(64)
+- platforms: varchar(255)
+- language: varchar(64)
+- subtitles: boolean
+- status: varchar(64) -- draft, ready, generating, completed, failed
+- created_at: timestamp
+- updated_at: timestamp
+
+## Table: video_context_assets
+- id: uuid, primary key
+- video_context_id: uuid, foreign key to video_contexts
+- asset_type: varchar(64) -- image, script, reference
+- asset_url: text
+- metadata: jsonb, nullable
+- created_at: timestamp
+
+## Table: video_generations
+- id: uuid, primary key
+- video_context_id: uuid, foreign key to video_contexts
+- request_payload: jsonb
+- response_payload: jsonb, nullable
+- provider: varchar(64)
+- status: varchar(64) -- queued, running, completed, failed
+- error_message: text, nullable
+- started_at: timestamp, nullable
+- finished_at: timestamp, nullable
+- created_at: timestamp
+
+## Table: video_context_comments (optional)
+- id: uuid, primary key
+- video_context_id: uuid, foreign key to video_contexts
+- user_id: uuid
+- comment: text
+- created_at: timestamp
+
+## Notes
+- Store the form as a `video_contexts` draft first.
+- Use `video_context_assets` for any file or reference materials.
+- `video_generations` tracks actual AI/video creation runs.
+- Keep `status` values small and consistent.
+- `customer_id` links the video context to the customer workspace.

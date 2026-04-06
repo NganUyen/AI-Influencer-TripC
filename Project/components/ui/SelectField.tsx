@@ -45,7 +45,7 @@ export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(
           </label>
         )}
 
-        <div className="relative">
+        <div className="relative z-10">
           <select
             ref={ref}
             id={fieldId}

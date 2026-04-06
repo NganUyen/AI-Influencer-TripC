@@ -86,6 +86,21 @@ type Campaign = {
   active_workflow_id: string | null;
 };
 
+type VideoContextDraft = {
+  title: string;
+  description: string;
+  duration: string;
+  style: string;
+  targetAudience: string;
+  keyMessages: string;
+  callToAction: string;
+  tone: string;
+  personaId: string;
+  platforms: string;
+  language: string;
+  subtitles: boolean;
+};
+
 type ContentItem = {
   id: string;
   title: string;
@@ -198,6 +213,38 @@ const AI_BACKBONE_OPTIONS = [
   },
 ] as const;
 
+const VIDEO_DURATION_OPTIONS = [
+  { value: "15s", label: "15 seconds" },
+  { value: "30s", label: "30 seconds" },
+  { value: "60s", label: "60 seconds" },
+  { value: "90s", label: "90 seconds" },
+  { value: "2m", label: "2 minutes" },
+] as const;
+
+const VIDEO_STYLE_OPTIONS = [
+  { value: "educational", label: "Educational" },
+  { value: "promotional", label: "Promotional" },
+  { value: "storytelling", label: "Storytelling" },
+  { value: "tutorial", label: "Tutorial" },
+  { value: "testimonial", label: "Testimonial" },
+] as const;
+
+const VIDEO_TONE_OPTIONS = [
+  { value: "professional", label: "Professional" },
+  { value: "casual", label: "Casual" },
+  { value: "energetic", label: "Energetic" },
+  { value: "bold", label: "Bold" },
+] as const;
+
+const VIDEO_PLATFORM_OPTIONS = [
+  { value: "tiktok", label: "TikTok" },
+  { value: "instagram", label: "Instagram" },
+  { value: "linkedin", label: "LinkedIn" },
+  { value: "facebook", label: "Facebook" },
+  { value: "twitter", label: "Twitter / X" },
+  { value: "youtube", label: "YouTube" },
+] as const;
+
 const DASHBOARD_TABS: DashboardTab[] = [
   { id: "overview", label: "Tổng quan", icon: LayoutDashboard },
   { id: "ops", label: "AI vận hành", icon: Bot },
@@ -225,13 +272,13 @@ export default function CustomerDashboard() {
   const searchParams = useSearchParams();
   const { user, isAuthenticated, initialized, isLoading, logout } = useCustomerAuthStore();
 // // Replace the destructuring with mock values:
-//   const { user, isAuthenticated, initialized, isLoading, logout } = {
-//     user: { name: "Preview User", email: "preview@example.com" },
-//     isAuthenticated: true,
-//     initialized: true,
-//     isLoading: false,
-//     logout: () => console.log("Logout clicked"),
-//   };
+  // const { user, isAuthenticated, initialized, isLoading, logout } = {
+  //   user: { name: "Preview User", email: "preview@example.com" },
+  //   isAuthenticated: true,
+  //   initialized: true,
+  //   isLoading: false,
+  //   logout: () => console.log("Logout clicked"),
+  // };
   
   const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
   const [systemSummary, setSystemSummary] = useState<SystemSummaryData | null>(null);
@@ -275,6 +322,22 @@ export default function CustomerDashboard() {
     description: "",
     targetPlatforms: "linkedin,facebook,twitter",
   });
+
+  const [videoContextDraft, setVideoContextDraft] = useState<VideoContextDraft>({
+    title: "",
+    description: "",
+    duration: "60s",
+    style: "promotional",
+    targetAudience: "",
+    keyMessages: "",
+    callToAction: "",
+    tone: "professional",
+    personaId: "",
+    platforms: "tiktok,instagram,linkedin",
+    language: "Vietnamese",
+    subtitles: false,
+  });
+  const [isVideoContextModalOpen, setIsVideoContextModalOpen] = useState(false);
 
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -733,6 +796,14 @@ export default function CustomerDashboard() {
     }
   }
 
+  function handleVideoContextSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusyKey("video-context");
+    setBanner("Video context saved locally. Ready for AI generation.");
+    setBusyKey(null);
+    console.log("videoContextDraft", videoContextDraft);
+  }
+
   async function handleApprove(campaignId: string, approved: boolean) {
     setBusyKey(`approve-${campaignId}`);
     try {
@@ -832,18 +903,18 @@ export default function CustomerDashboard() {
           onTabChange={setActiveTab}
         />
 
-        <main className="ml-64 flex-1 px-6 py-8">
-          <div className="mx-auto max-w-7xl space-y-6">
+        <main className="md:ml-64 flex-1 px-4 md:px-6 py-6 md:py-8 min-w-0">
+          <div className="mx-auto max-w-7xl space-y-4 md:space-y-6">
 
 
         {banner && (
-          <div className="rounded-[16px] border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
             {banner}
           </div>
         )}
 
         {pageError && (
-          <div className="rounded-[16px] border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+          <div className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
             {pageError}
           </div>
         )}
@@ -855,35 +926,54 @@ export default function CustomerDashboard() {
                 title="Quick Stats" 
                 subtitle="Current workflow pulse"
               />
-              <div className="grid grid-cols-2 gap-4">
-                <StatCard
-                  title="Active Campaigns"
-                  value={campaigns.filter(c => c.status === 'active').length.toString()}
-                  icon={Zap}
-                  tone="emerald"
-                />
-                <StatCard
-                  title="Pending Approvals"
-                  value={approvals.length.toString()}
-                  icon={Clock}
-                  tone="amber"
-                />
-                <StatCard
-                  title="Published Content"
-                  value={content.filter(c => c.status === 'published').length.toString()}
-                  icon={CheckCircle}
-                  tone="sky"
-                />
-                <StatCard
-                  title="AI Personas"
-                  value={personas?.length.toString() || "0"}
-                  icon={Users}
-                  tone="emerald"
-                />
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-3 md:p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Zap className="w-4 h-4 text-emerald-400" />
+                    <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Active</p>
+                  </div>
+                  <p className="text-2xl md:text-3xl font-bold text-emerald-400">
+                    {campaigns.filter(c => c.status === 'active').length}
+                  </p>
+                  <p className="text-xs text-zinc-500 mt-1">Campaigns</p>
+                </div>
+
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-3 md:p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Clock className="w-4 h-4 text-amber-400" />
+                    <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Pending</p>
+                  </div>
+                  <p className="text-2xl md:text-3xl font-bold text-amber-400">
+                    {approvals.length}
+                  </p>
+                  <p className="text-xs text-zinc-500 mt-1">Approvals</p>
+                </div>
+
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-3 md:p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle className="w-4 h-4 text-sky-400" />
+                    <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Published</p>
+                  </div>
+                  <p className="text-2xl md:text-3xl font-bold text-sky-400">
+                    {content.filter(c => c.status === 'published').length}
+                  </p>
+                  <p className="text-xs text-zinc-500 mt-1">Content</p>
+                </div>
+
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-3 md:p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Users className="w-4 h-4 text-emerald-400" />
+                    <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide">AI</p>
+                  </div>
+                  <p className="text-2xl md:text-3xl font-bold text-emerald-400">
+                    {personas?.length || 0}
+                  </p>
+                  <p className="text-xs text-zinc-500 mt-1">Personas</p>
+                </div>
               </div>
             </Panel>
 
-            <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+            <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
               <Panel variant="elevated">
                 <PanelHeader 
                   title="System Health" 
@@ -896,15 +986,21 @@ export default function CustomerDashboard() {
                   {(systemSummary?.services || []).map((service) => (
                     <div
                       key={service.name}
-                      className="flex items-center justify-between rounded-[16px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl px-4 py-3"
+                      className="flex items-center justify-between rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl px-4 py-3"
                     >
                       <div>
                         <p className="font-medium text-white">{service.name}</p>
-                        <p className="text-xs uppercase tracking-widest text-zinc-500">
+                        <p className="text-xs text-zinc-500">
                           Latency {service.latency}
                         </p>
                       </div>
-                      <StatusBadge label={service.status} />
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${
+                          service.status === 'online' ? 'bg-emerald-400' :
+                          service.status === 'warning' ? 'bg-amber-400' : 'bg-rose-400'
+                        }`} />
+                        <span className="text-xs text-zinc-400 capitalize">{service.status}</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -916,8 +1012,8 @@ export default function CustomerDashboard() {
                   subtitle="Current model access mode and readiness."
                 />
                 <div className="space-y-4">
-                  <div className="rounded-[16px] border border-emerald-500/15 bg-emerald-500/5 backdrop-blur-xl p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-emerald-300">
+                  <div className="rounded-lg border border-emerald-500/15 bg-emerald-500/5 backdrop-blur-xl p-4">
+                    <p className="text-xs font-medium text-emerald-300 uppercase tracking-wide">
                       Access Mode
                     </p>
                     <p className="mt-2 text-lg font-semibold uppercase text-white">
@@ -929,16 +1025,16 @@ export default function CustomerDashboard() {
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-2">
-                    <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+                    <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
+                      <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">
                         Workspace Endpoint
                       </p>
                       <p className="mt-2 break-all text-sm text-white">
                         {aiBackbone?.workspace_default.api_url || "Not configured"}
                       </p>
                     </div>
-                    <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+                    <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
+                      <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">
                         Customer API
                       </p>
                       <p className="mt-2 text-sm text-white">
@@ -950,7 +1046,7 @@ export default function CustomerDashboard() {
               </Panel>
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+            <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
               <Panel variant="elevated">
                 <PanelHeader 
                   title="Recent Activity" 
@@ -971,7 +1067,7 @@ export default function CustomerDashboard() {
                   {(systemSummary?.quota || []).map((quotaItem) => (
                     <div
                       key={quotaItem.name}
-                      className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4"
+                      className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4"
                     >
                       <div className="flex items-center justify-between gap-4">
                         <p className="font-medium text-white">{quotaItem.name}</p>
@@ -999,20 +1095,20 @@ export default function CustomerDashboard() {
         )}
 
         {activeTab === "ops" && (
-          <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-            <section className="space-y-6">
+          <div className="grid gap-4 md:gap-6 lg:grid-cols-3">
+            <section className="lg:col-span-2 space-y-4 md:space-y-6">
               <Panel variant="elevated">
                 <PanelHeader 
                   title="In-App OpenClaw Assistant" 
                   subtitle="Refine positioning and content plans."
                 />
-                <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-                  <div className="space-y-3 rounded-[24px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="space-y-3 rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">Threads</h3>
-                      <button type="button" onClick={() => void handleCreateThread()} disabled={busyKey === "thread"} className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300 transition-all duration-200 ease-out hover:border-emerald-500/60 hover:bg-emerald-500/20 active:scale-[0.98] disabled:opacity-50">New</button>
+                      <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wide">Threads</h3>
+                      <button type="button" onClick={() => void handleCreateThread()} disabled={busyKey === "thread"} className="rounded border border-blue-500/40 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-300 transition-all duration-200 ease-out hover:border-blue-500/60 hover:bg-blue-500/20 active:scale-[0.98] disabled:opacity-50">New</button>
                     </div>
-                    <div className="space-y-3">
+                    <div className="max-h-[300px] overflow-y-auto space-y-2">
                       {threads.length === 0 && <p className="text-xs text-zinc-500">No threads yet.</p>}
                       {threads.map((thread) => (
                         <ThreadItem
@@ -1026,26 +1122,28 @@ export default function CustomerDashboard() {
                       ))}
                     </div>
                   </div>
-                  <div className="space-y-4 rounded-[24px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
-                    <div className="max-h-[420px] overflow-y-auto pr-2 space-y-3">
-                      {messages.map((message) => (
-                        <MessageBubble
-                          key={message.id}
-                          id={message.id}
-                          role={message.role}
-                          content={message.content}
-                        />
-                      ))}
+                  <div className="flex flex-col rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
+                    <div className="flex-1 min-h-0">
+                      <div className="max-h-[300px] overflow-y-auto pr-2 space-y-3 mb-4">
+                        {messages.map((message) => (
+                          <MessageBubble
+                            key={message.id}
+                            id={message.id}
+                            role={message.role}
+                            content={message.content}
+                          />
+                        ))}
+                      </div>
                     </div>
-                    <form className="space-y-3" onSubmit={handleSendMessage}>
+                    <form className="space-y-3 flex-shrink-0" onSubmit={handleSendMessage}>
                       <TextAreaField
                         value={composer}
                         onChange={(e) => setComposer(e.target.value)}
                         placeholder="Type a message..."
-                        minHeight="80px"
+                        minHeight="60px"
                         containerClassName="flex-1"
                       />
-                      <button type="submit" disabled={busyKey === "assistant"} className="w-full bg-emerald-500 text-white font-semibold py-3 rounded-xl shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98] disabled:opacity-50">
+                      <button type="submit" disabled={busyKey === "assistant"} className="w-full bg-blue-500 text-white font-semibold py-2.5 rounded-lg shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98] disabled:opacity-50">
                         {busyKey === "assistant" ? "OpenClaw Thinking..." : "Send to AI"}
                       </button>
                     </form>
@@ -1057,18 +1155,22 @@ export default function CustomerDashboard() {
                   title="Campaign Control" 
                   subtitle="Manage workflow drafts."
                 />          
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {campaigns.map(c => (
-                    <div key={c.id} className="p-4 bg-white/[0.02] border border-white/[0.08] rounded-[16px] backdrop-blur-xl transition-colors duration-200 ease-out hover:bg-white/[0.04]">
-                      <div className="flex justify-between items-center">
-                        <h4 className="font-semibold text-white">{c.name}</h4>
-                        <StatusBadge label={c.status} />
+                    <div key={c.id} className="p-3 bg-white/[0.02] border border-white/[0.08] rounded-lg backdrop-blur-xl transition-colors duration-200 ease-out hover:bg-white/[0.04]">
+                      <div className="flex justify-between items-center mb-3">
+                        <h4 className="font-medium text-white text-sm">{c.name}</h4>
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${
+                            c.status === 'running' ? 'bg-emerald-400' :
+                            c.status === 'pending' ? 'bg-amber-400' : 'bg-zinc-400'
+                          }`} />
+                          <span className="text-xs text-zinc-400 capitalize">{c.status}</span>
+                        </div>
                       </div>
-                      <div className="mt-4 flex gap-2">
-                        <button onClick={() => handleLaunch(c.id)} disabled={c.approval_status !== "approved" || busyKey === `launch-${c.id}`} className="px-4 py-2 bg-emerald-500 text-white rounded-[14px] text-xs font-semibold shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98] disabled:opacity-50">
-                          {busyKey === `launch-${c.id}` ? "Launching..." : "Launch"}
-                        </button>
-                      </div>
+                      <button onClick={() => handleLaunch(c.id)} disabled={c.approval_status !== "approved" || busyKey === `launch-${c.id}`} className="w-full px-3 py-2 bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98] disabled:opacity-50">
+                        {busyKey === `launch-${c.id}` ? "Launching..." : "Launch"}
+                      </button>
                     </div>
                   ))}
                   {campaigns.length === 0 && <p className="text-sm text-zinc-500 italic">Queue clear.</p>}
@@ -1076,15 +1178,32 @@ export default function CustomerDashboard() {
               </Panel>
             </section>
 
-            <section className="space-y-6">
+            <section className="space-y-4 md:space-y-6">
+              <Panel variant="elevated">
+                <PanelHeader 
+                  title="Video Creation Context" subtitle="Open the video brief form in a popup."
+                />
+                <div className="space-y-3">
+                  <p className="text-sm text-zinc-400">
+                    Create a short AI video brief with title, audience, style, platform and execution guidance.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsVideoContextModalOpen(true)}
+                    className="w-full bg-blue-500 text-white font-semibold py-3 rounded-lg shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98]"
+                  >
+                    Open Video Context Form
+                  </button>
+                </div>
+              </Panel>
               <Panel variant="elevated">
                 <PanelHeader 
                   title="Pending Approvals" subtitle="Action items."/>
                 <div className="space-y-3">
                   {approvals.map(a => (
-                    <div key={a.id} className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl backdrop-blur-xl">
-                      <p className="font-medium text-amber-300">{a.name}</p>
-                      <div className="mt-4">
+                    <div key={a.id} className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-lg backdrop-blur-xl">
+                      <p className="font-medium text-amber-300 text-sm">{a.name}</p>
+                      <div className="mt-3">
                         <ButtonGroup
                           buttons={[
                             {
@@ -1113,9 +1232,15 @@ export default function CustomerDashboard() {
                 />        
                 <div className="space-y-2">
                   {content.slice(0, 5).map(item => (
-                    <div key={item.id} className="p-3 bg-white/[0.02] border border-white/[0.08] rounded-[14px] backdrop-blur-xl text-xs flex justify-between items-center transition-colors duration-200 ease-out hover:bg-white/[0.04]">
+                    <div key={item.id} className="p-3 bg-white/[0.02] border border-white/[0.08] rounded-lg backdrop-blur-xl text-xs flex justify-between items-center transition-colors duration-200 ease-out hover:bg-white/[0.04]">
                       <span className="text-zinc-400 truncate mr-2">{item.title}</span>
-                      <StatusBadge label={item.status} />
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${
+                          item.status === 'published' ? 'bg-emerald-400' :
+                          item.status === 'scheduled' ? 'bg-amber-400' : 'bg-zinc-400'
+                        }`} />
+                        <span className="text-zinc-500 capitalize">{item.status}</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1124,15 +1249,154 @@ export default function CustomerDashboard() {
           </div>
         )}
 
+        {isVideoContextModalOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-8"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                setIsVideoContextModalOpen(false);
+              }
+            }}
+          >
+            <div
+              className="w-full max-w-3xl rounded-2xl border border-white/[0.08] bg-zinc-950/95 p-6 shadow-2xl shadow-black/40 backdrop-blur-xl"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-4 pb-4 border-b border-white/[0.08]">
+                <div>
+                  <h2 className="text-xl font-semibold text-white">Video Creation Context</h2>
+                  <p className="text-sm text-zinc-400 mt-1">Fill in the AI video brief and save it for later generation.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsVideoContextModalOpen(false)}
+                  className="rounded-full border border-white/[0.08] bg-white/5 px-3 py-2 text-sm text-white transition-all duration-200 hover:bg-white/10"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="max-h-[calc(100vh-10rem)] overflow-y-auto overflow-x-visible pr-2 pt-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                <form className="space-y-4" onSubmit={(event) => {
+                  handleVideoContextSave(event);
+                  setIsVideoContextModalOpen(false);
+                }}>
+                  <FormField
+                    label="Video Title"
+                    value={videoContextDraft.title}
+                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, title: (event.target as HTMLInputElement).value }))}
+                    placeholder="Short, descriptive title"
+                  />
+                  <TextAreaField
+                    label="Video Description"
+                    value={videoContextDraft.description}
+                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, description: (event.target as HTMLTextAreaElement).value }))}
+                    placeholder="What should this video communicate?"
+                    minHeight="100px"
+                  />
+                  <TextAreaField
+                    label="Target Audience"
+                    value={videoContextDraft.targetAudience}
+                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, targetAudience: (event.target as HTMLTextAreaElement).value }))}
+                    placeholder="Who is this for?"
+                    minHeight="80px"
+                  />
+                  <FormField
+                    label="Call To Action"
+                    value={videoContextDraft.callToAction}
+                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, callToAction: (event.target as HTMLInputElement).value }))}
+                    placeholder="What should viewers do next?"
+                  />
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <SelectField
+                      label="Duration"
+                      value={videoContextDraft.duration}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, duration: (event.target as HTMLSelectElement).value }))}
+                      options={VIDEO_DURATION_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    />
+                    <SelectField
+                      label="Video Style"
+                      value={videoContextDraft.style}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, style: (event.target as HTMLSelectElement).value }))}
+                      options={VIDEO_STYLE_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <SelectField
+                      label="Tone"
+                      value={videoContextDraft.tone}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, tone: (event.target as HTMLSelectElement).value }))}
+                      options={VIDEO_TONE_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    />
+                    <FormField
+                      label="Persona"
+                      value={videoContextDraft.personaId}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, personaId: (event.target as HTMLInputElement).value }))}
+                      placeholder="Choose or type persona ID"
+                    />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <SelectField
+                      label="Target Platforms"
+                      value={videoContextDraft.platforms}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, platforms: (event.target as HTMLSelectElement).value }))}
+                      options={VIDEO_PLATFORM_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    />
+                    <FormField
+                      label="Language"
+                      value={videoContextDraft.language}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, language: (event.target as HTMLInputElement).value }))}
+                      placeholder="Language for narration/captions"
+                    />
+                  </div>
+                  <TextAreaField
+                    label="Key Messages"
+                    value={videoContextDraft.keyMessages}
+                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, keyMessages: (event.target as HTMLTextAreaElement).value }))}
+                    placeholder="List the most important messages or bullet points."
+                    minHeight="80px"
+                  />
+                  <div className="flex items-center gap-3">
+                    <input
+                      id="video-subtitles"
+                      type="checkbox"
+                      checked={videoContextDraft.subtitles}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, subtitles: event.target.checked }))}
+                      className="h-4 w-4 rounded border-white/10 bg-white/5 text-blue-500 focus:ring-blue-500"
+                    />
+                    <label htmlFor="video-subtitles" className="text-sm text-zinc-400">
+                      Generate subtitles automatically
+                    </label>
+                  </div>
+                  <button type="submit" className="w-full bg-blue-500 text-white font-semibold py-2.5 rounded-lg shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98]">
+                    Save Video Context
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === "skills" && (
-          <div className="space-y-6">
+          <div className="space-y-4 md:space-y-6">
             <Panel variant="elevated">
               <PanelHeader 
                 title="AI Influencer Personas" 
                 subtitle="Your account-linked characters."
               />
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
                 {personas.map(p => (
                   <PersonaCard
                     key={p.persona_id}
@@ -1145,10 +1409,10 @@ export default function CustomerDashboard() {
                   />
                 ))}
 
-                <div className="border border-dashed border-zinc-700 rounded-[16px] p-8 flex flex-col items-center justify-center text-center space-y-4 transition-colors duration-200 ease-out hover:bg-white/[0.02] group cursor-pointer">
+                <div className="border border-dashed border-zinc-700 rounded-lg p-6 md:p-8 flex flex-col items-center justify-center text-center space-y-4 transition-colors duration-200 ease-out hover:bg-white/[0.02] group cursor-pointer">
                   <p className="text-xs text-zinc-500">Create more characters on Telegram</p>
                   {telegramBotUrl && (
-                    <a href={telegramBotUrl} target="_blank" rel="noreferrer" className="px-6 py-2 bg-emerald-500 text-white font-semibold rounded-full text-[10px] uppercase tracking-widest shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98]">Open Bot</a>
+                    <a href={telegramBotUrl} target="_blank" rel="noreferrer" className="px-4 py-2 bg-blue-500 text-white font-semibold rounded text-xs uppercase tracking-wide shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98]">Open Bot</a>
                   )}
                 </div>
               </div>
@@ -1157,43 +1421,43 @@ export default function CustomerDashboard() {
         )}
 
         {activeTab === "memory" && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
             <Panel variant="elevated">
               <PanelHeader 
                 title="Brand Context" subtitle="Knowledge assets."/>
-              <form className="space-y-6" onSubmit={handleBrandSave}>
+              <form className="space-y-4 md:space-y-6" onSubmit={handleBrandSave}>
                 <FieldSet title="Brand Profile" description="Core information about your brand">
                   <FormField
                     label="Brand Name"
                     value={brandForm.product_name || ""}
-                    onChange={e => setBrandForm(c => ({ ...c, product_name: e.target.value }))}
+                    onChange={(event) => setBrandForm(c => ({ ...c, product_name: (event.target as HTMLInputElement).value }))}
                     placeholder="Enter your brand name"
                   />
                   <TextAreaField
                     label="Audience"
                     value={brandForm.audience || ""}
-                    onChange={e => setBrandForm(c => ({ ...c, audience: e.target.value }))}
+                    onChange={(event) => setBrandForm(c => ({ ...c, audience: (event.target as HTMLTextAreaElement).value }))}
                     placeholder="Describe your target audience"
-                    minHeight="100px"
+                    minHeight="80px"
                   />
                   <TextAreaField
                     label="Offer Summary"
                     value={brandForm.offer_summary || ""}
-                    onChange={e => setBrandForm(c => ({ ...c, offer_summary: e.target.value }))}
+                    onChange={(event) => setBrandForm(c => ({ ...c, offer_summary: (event.target as HTMLTextAreaElement).value }))}
                     placeholder="Summarize your product or service offering"
-                    minHeight="100px"
+                    minHeight="80px"
                   />
                 </FieldSet>
-                <button type="submit" className="w-full bg-emerald-500 text-white font-semibold py-3 rounded-xl shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98]">Update Memory</button>
+                <button type="submit" className="w-full bg-blue-500 text-white font-semibold py-2.5 rounded-lg shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98]">Update Memory</button>
               </form>
             </Panel>
 
-            <div className="space-y-6">
+            <div className="space-y-4 md:space-y-6">
               <Panel variant="elevated">
                 <PanelHeader 
                   title="Intelligence Settings" subtitle="AI configurations."/>
-                <div className="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-[16px] backdrop-blur-xl">
-                  <p className="text-[10px] font-semibold text-emerald-400 uppercase tracking-widest">Access Mode</p>
+                <div className="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-lg backdrop-blur-xl">
+                  <p className="text-xs font-medium text-emerald-400 uppercase tracking-wide">Access Mode</p>
                   <p className="text-lg font-semibold text-white mt-1 uppercase">{aiBackbone?.access_mode.replace(/_/g, " ")}</p>
                   <p className="text-xs text-zinc-400 mt-2">{aiBackbone?.effective_status.message}</p>
                 </div>
@@ -1203,27 +1467,30 @@ export default function CustomerDashboard() {
                 <PanelHeader 
                   title="System Bridge" subtitle="Telegram sync."/>
                 {telegramLink?.linked ? (
-                  <div className="flex justify-between items-center p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-[16px] backdrop-blur-xl">
+                  <div className="flex justify-between items-center p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-lg backdrop-blur-xl">
                     <div>
                       <p className="text-sm font-semibold text-white">@{telegramLink.link?.telegram_username || "Linked Account"}</p>
-                      <p className="text-[10px] text-zinc-500 uppercase">Chat ID: {telegramLink.link?.chat_id}</p>
+                      <p className="text-xs text-zinc-500 uppercase">Chat ID: {telegramLink.link?.chat_id}</p>
                     </div>
-                    <StatusBadge label="Linked" />
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                      <span className="text-xs text-zinc-400">Linked</span>
+                    </div>
                   </div>
                 ) : (
-                  <button onClick={handleStartTelegramLink} className="w-full bg-emerald-500 text-white font-semibold py-3 rounded-[14px] shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98]">
+                  <button onClick={handleStartTelegramLink} className="w-full bg-blue-500 text-white font-semibold py-2.5 rounded-lg shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98]">
                     {busyKey === "telegram-link" ? "Generating Link..." : "Connect Telegram"}
                   </button>
                 )}
                 {linkToken && (
-                  <div className="mt-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-[16px] backdrop-blur-xl text-center">
+                  <div className="mt-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg backdrop-blur-xl text-center">
                     <p className="text-xs text-amber-300 mb-3 font-medium">
                       {isPollingTelegramLink
                         ? "Waiting for Telegram confirmation. This card updates automatically."
                         : "Secure link ready. Finish the confirmation in Telegram."}
                     </p>
                     {telegramVerificationUrl && (
-                      <a href={telegramVerificationUrl} target="_blank" rel="noreferrer" className="bg-amber-500 text-zinc-950 px-6 py-2 rounded-full font-semibold text-[10px] uppercase tracking-widest shadow-lg shadow-amber-500/20 transition-all duration-200 ease-out hover:bg-amber-400 hover:shadow-amber-500/30 active:scale-[0.98] inline-block">Verify Now</a>
+                      <a href={telegramVerificationUrl} target="_blank" rel="noreferrer" className="bg-amber-500 text-zinc-950 px-4 py-2 rounded font-semibold text-xs uppercase tracking-wide shadow-lg shadow-amber-500/20 transition-all duration-200 ease-out hover:bg-amber-400 hover:shadow-amber-500/30 active:scale-[0.98] inline-block">Verify Now</a>
                     )}
                   </div>
                 )}
@@ -1236,10 +1503,13 @@ export default function CustomerDashboard() {
                   {SUPPORTED_PLATFORMS.map(p => {
                     const acc = accounts.find(a => a.platform === p);
                     return (
-                      <div key={p} className="p-3 bg-white/[0.02] border border-white/[0.08] rounded-[14px] backdrop-blur-xl flex justify-between items-center transition-colors duration-200 ease-out hover:bg-white/[0.04]">
-                        <p className="text-[10px] font-semibold uppercase">{p}</p>
-                        {acc ? <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" /> : (
-                          <button onClick={() => handleConnect(p)} className="text-[10px] text-zinc-500 hover:text-white uppercase font-semibold tracking-tighter transition-colors">Link</button>
+                      <div key={p} className="p-3 bg-white/[0.02] border border-white/[0.08] rounded-lg backdrop-blur-xl flex justify-between items-center transition-colors duration-200 ease-out hover:bg-white/[0.04]">
+                        <p className="text-xs font-medium uppercase tracking-wide">{p}</p>
+                        {acc ? <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                          <span className="text-xs text-zinc-400">Linked</span>
+                        </div> : (
+                          <button onClick={() => handleConnect(p)} className="text-xs text-zinc-500 hover:text-blue-400 uppercase font-medium tracking-wide transition-colors">Link</button>
                         )}
                       </div>
                     );
@@ -1251,7 +1521,7 @@ export default function CustomerDashboard() {
         )}
 
         {activeTab === "live_feed" && (
-          <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+          <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
             <Panel variant="elevated">
               <PanelHeader 
                 title="Activity Feed" subtitle="Recent customer-facing events and workflow changes."/>
@@ -1266,7 +1536,7 @@ export default function CustomerDashboard() {
                 title="Workflow Monitor" subtitle="Current workflow queue and publishing output."/>
               <div className="space-y-4">
                 <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
+                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
                     Runtime Workflows
                   </p>
                   {systemWorkflows.length === 0 && (
@@ -1275,16 +1545,22 @@ export default function CustomerDashboard() {
                   {systemWorkflows.map((workflow) => (
                     <div
                       key={workflow.id}
-                      className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4"
+                      className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4"
                     >
                       <div className="flex items-center justify-between gap-4">
                         <div>
                           <p className="font-medium text-white">{workflow.name}</p>
-                          <p className="text-xs uppercase tracking-widest text-zinc-500">
+                          <p className="text-xs text-zinc-500">
                             {workflow.id}
                           </p>
                         </div>
-                        <StatusBadge label={workflow.status} />
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${
+                            workflow.status === 'running' ? 'bg-emerald-400' :
+                            workflow.status === 'completed' ? 'bg-sky-400' : 'bg-rose-400'
+                          }`} />
+                          <span className="text-xs text-zinc-400 capitalize">{workflow.status}</span>
+                        </div>
                       </div>
                       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
                         <div
@@ -1297,21 +1573,27 @@ export default function CustomerDashboard() {
                 </div>
 
                 <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
+                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
                     Recent Output
                   </p>
                   {content.slice(0, 5).map((item) => (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between gap-4 rounded-[16px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4"
+                      className="flex items-center justify-between gap-4 rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4"
                     >
                       <div>
                         <p className="font-medium text-white">{item.title}</p>
-                        <p className="text-xs uppercase tracking-widest text-zinc-500">
+                        <p className="text-xs text-zinc-500">
                           {(item.platform || []).join(", ")}
                         </p>
                       </div>
-                      <StatusBadge label={item.status} />
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${
+                          item.status === 'published' ? 'bg-emerald-400' :
+                          item.status === 'scheduled' ? 'bg-amber-400' : 'bg-zinc-400'
+                        }`} />
+                        <span className="text-xs text-zinc-400 capitalize">{item.status}</span>
+                      </div>
                     </div>
                   ))}
                   {content.length === 0 && (
@@ -1437,36 +1719,6 @@ function Field({
         className="w-full rounded-[14px] border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl px-4 py-3 text-sm text-white placeholder:text-zinc-500 outline-none transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
       />
     </label>
-  );
-}
-
-function StatusBadge({ label }: { label: string }) {
-  const normalizedLabel = label.toLowerCase().replaceAll("_", " ");
-  
-  // Determine badge style based on status
-  const isSuccess = ["connected", "online", "completed", "approved", "published", "linked"].some(
-    keyword => normalizedLabel.includes(keyword)
-  );
-  const isWarning = ["pending", "waiting", "scheduled"].some(
-    keyword => normalizedLabel.includes(keyword)
-  );
-  const isError = ["error", "failed", "rejected", "disconnected"].some(
-    keyword => normalizedLabel.includes(keyword)
-  );
-  
-  let badgeClasses = "bg-white/5 text-zinc-400 border-white/10";
-  if (isSuccess) {
-    badgeClasses = "bg-emerald-500/15 text-emerald-400 border-emerald-500/20";
-  } else if (isWarning) {
-    badgeClasses = "bg-amber-500/15 text-amber-400 border-amber-500/20";
-  } else if (isError) {
-    badgeClasses = "bg-rose-500/15 text-rose-400 border-rose-500/20";
-  }
-  
-  return (
-    <span className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-widest ${badgeClasses}`}>
-      {label.replaceAll("_", " ")}
-    </span>
   );
 }
 

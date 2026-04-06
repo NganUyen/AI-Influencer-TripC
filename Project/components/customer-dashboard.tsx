@@ -278,7 +278,7 @@ export default function CustomerDashboard() {
   //   initialized: true,
   //   isLoading: false,
   //   logout: () => console.log("Logout clicked"),
-  };
+  // };
   
   const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
   const [systemSummary, setSystemSummary] = useState<SystemSummaryData | null>(null);

@@ -270,14 +270,14 @@ function buildAiBackboneForm(
 export default function CustomerDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // const { user, isAuthenticated, initialized, isLoading, logout } = useCustomerAuthStore();
+  const { user, isAuthenticated, initialized, isLoading, logout } = useCustomerAuthStore();
 // // Replace the destructuring with mock values:
-  const { user, isAuthenticated, initialized, isLoading, logout } = {
-    user: { name: "Preview User", email: "preview@example.com" },
-    isAuthenticated: true,
-    initialized: true,
-    isLoading: false,
-    logout: () => console.log("Logout clicked"),
+  // const { user, isAuthenticated, initialized, isLoading, logout } = {
+  //   user: { name: "Preview User", email: "preview@example.com" },
+  //   isAuthenticated: true,
+  //   initialized: true,
+  //   isLoading: false,
+  //   logout: () => console.log("Logout clicked"),
   };
   
   const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
@@ -345,34 +345,34 @@ export default function CustomerDashboard() {
   const telegramBotUrl = getClientTelegramBotLaunchUrl();
   const telegramVerificationUrl = getClientTelegramBotLaunchUrl(linkToken?.start_token);
 
-  // const fetchSystemData = useCallback(async () => {
-  //   try {
-  //     const [summary, workflows] = await Promise.all([
-  //       customerApiRequest<SystemSummaryData>("/api/customer/system/summary"),
-  //       customerApiRequest<{ workflows: SystemWorkflowData[] }>("/api/customer/system/workflows"),
-  //     ]);
-  //     setSystemSummary(summary);
-  //     setSystemWorkflows(workflows.workflows);
-  //   } catch (error) {
-  //     console.error("Failed to fetch system monitoring data:", error);
-  //   }
-  // }, []);
+  const fetchSystemData = useCallback(async () => {
+    try {
+      const [summary, workflows] = await Promise.all([
+        customerApiRequest<SystemSummaryData>("/api/customer/system/summary"),
+        customerApiRequest<{ workflows: SystemWorkflowData[] }>("/api/customer/system/workflows"),
+      ]);
+      setSystemSummary(summary);
+      setSystemWorkflows(workflows.workflows);
+    } catch (error) {
+      console.error("Failed to fetch system monitoring data:", error);
+    }
+  }, []);
 
-const fetchSystemData = useCallback(async () => {
-  setSystemSummary({
-    services: [
-      { name: "API Gateway", status: "online", latency: "24ms" },
-      { name: "Worker Node", status: "online", latency: "115ms" }
-    ],
-    quota: [
-      { name: "GPT-4o Tokens", used: 45000, total: 100000, unit: "tokens" },
-      { name: "Image Gen", used: 12, total: 50, unit: "images" }
-    ]
-  });
-  setSystemWorkflows([
-    { id: "wf-123", name: "Content Generation", status: "running", progress: 65 }
-  ]);
-}, []);
+// const fetchSystemData = useCallback(async () => {
+//   setSystemSummary({
+//     services: [
+//       { name: "API Gateway", status: "online", latency: "24ms" },
+//       { name: "Worker Node", status: "online", latency: "115ms" }
+//     ],
+//     quota: [
+//       { name: "GPT-4o Tokens", used: 45000, total: 100000, unit: "tokens" },
+//       { name: "Image Gen", used: 12, total: 50, unit: "images" }
+//     ]
+//   });
+//   setSystemWorkflows([
+//     { id: "wf-123", name: "Content Generation", status: "running", progress: 65 }
+//   ]);
+// }, []);
 
   useEffect(() => {
     void fetchSystemData();
@@ -475,83 +475,83 @@ const fetchSystemData = useCallback(async () => {
     };
   }, [isAuthenticated, linkToken, telegramLink?.linked]);
 
-  // async function loadWorkspace() {
-  //   try {
-  //     setPageError(null);
-  //     const [
-  //       brand,
-  //       social,
-  //       assistant,
-  //       campaignList,
-  //       approvalList,
-  //       contentList,
-  //       aiBackboneResponse,
-  //       personasList,
-  //       telegramLinkResponse,
-  //     ] = await Promise.all([
-  //       customerApiRequest<{ brand_profile: BrandProfile | null }>("/api/customer/brand"),
-  //       customerApiRequest<{ accounts: SocialAccount[] }>("/api/customer/social-accounts"),
-  //       customerApiRequest<{ threads: AssistantThread[] }>("/api/customer/assistant/threads"),
-  //       customerApiRequest<{ campaigns: Campaign[] }>("/api/customer/campaigns"),
-  //       customerApiRequest<{ approvals: Campaign[] }>("/api/customer/approvals"),
-  //       customerApiRequest<{ items: ContentItem[] }>("/api/customer/content"),
-  //       customerApiRequest<{ settings: AIBackboneSettings }>("/api/customer/ai-backbone"),
-  //       customerApiRequest<{ personas: Persona[] }>("/api/customer/personas"),
-  //       customerApiRequest<TelegramLinkStatus>("/api/customer/telegram/link"),
-  //     ]);
+  async function loadWorkspace() {
+    try {
+      setPageError(null);
+      const [
+        brand,
+        social,
+        assistant,
+        campaignList,
+        approvalList,
+        contentList,
+        aiBackboneResponse,
+        personasList,
+        telegramLinkResponse,
+      ] = await Promise.all([
+        customerApiRequest<{ brand_profile: BrandProfile | null }>("/api/customer/brand"),
+        customerApiRequest<{ accounts: SocialAccount[] }>("/api/customer/social-accounts"),
+        customerApiRequest<{ threads: AssistantThread[] }>("/api/customer/assistant/threads"),
+        customerApiRequest<{ campaigns: Campaign[] }>("/api/customer/campaigns"),
+        customerApiRequest<{ approvals: Campaign[] }>("/api/customer/approvals"),
+        customerApiRequest<{ items: ContentItem[] }>("/api/customer/content"),
+        customerApiRequest<{ settings: AIBackboneSettings }>("/api/customer/ai-backbone"),
+        customerApiRequest<{ personas: Persona[] }>("/api/customer/personas"),
+        customerApiRequest<TelegramLinkStatus>("/api/customer/telegram/link"),
+      ]);
 
-  //     setBrandForm(brand.brand_profile || EMPTY_BRAND);
-  //     setAccounts(social.accounts);
-  //     setThreads(assistant.threads);
-  //     setCampaigns(campaignList.campaigns);
-  //     setApprovals(approvalList.approvals);
-  //     setContent(contentList.items);
-  //     setPersonas(personasList.personas || []);
-  //     setTelegramLink(telegramLinkResponse);
-  //     const settings = aiBackboneResponse.settings;
-  //     setAiBackbone(settings);
-  //     setAiBackboneForm(buildAiBackboneForm(settings, user?.name || user?.email || ""));
+      setBrandForm(brand.brand_profile || EMPTY_BRAND);
+      setAccounts(social.accounts);
+      setThreads(assistant.threads);
+      setCampaigns(campaignList.campaigns);
+      setApprovals(approvalList.approvals);
+      setContent(contentList.items);
+      setPersonas(personasList.personas || []);
+      setTelegramLink(telegramLinkResponse);
+      const settings = aiBackboneResponse.settings;
+      setAiBackbone(settings);
+      setAiBackboneForm(buildAiBackboneForm(settings, user?.name || user?.email || ""));
 
-  //     const nextThreadId = selectedThreadId || assistant.threads[0]?.id || null;
-  //     setSelectedThreadId(nextThreadId);
-  //     if (!nextThreadId) {
-  //       setMessages([]);
-  //       setArtifacts([]);
-  //     }
-  //   } catch (error) {
-  //     setPageError(error instanceof Error ? error.message : "Failed to load workspace");
-  //   }
-  // }
+      const nextThreadId = selectedThreadId || assistant.threads[0]?.id || null;
+      setSelectedThreadId(nextThreadId);
+      if (!nextThreadId) {
+        setMessages([]);
+        setArtifacts([]);
+      }
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Failed to load workspace");
+    }
+  }
 
-async function loadWorkspace() {
-  setPageError(null);
+// async function loadWorkspace() {
+//   setPageError(null);
   
-  // Set dummy brand data
-  setBrandForm({
-    product_name: "Acme AI",
-    website_url: "https://acme.ai",
-    audience: "Tech Enthusiasts",
-    offer_summary: "AI-driven marketing automation",
-    tone_voice: "Professional & Witty",
-    timezone: "UTC+7",
-    campaign_goals: ["Brand Awareness"],
-    asset_urls: [],
-    telegram_contact: "@acme_bot",
-  });
+//   // Set dummy brand data
+//   setBrandForm({
+//     product_name: "Acme AI",
+//     website_url: "https://acme.ai",
+//     audience: "Tech Enthusiasts",
+//     offer_summary: "AI-driven marketing automation",
+//     tone_voice: "Professional & Witty",
+//     timezone: "UTC+7",
+//     campaign_goals: ["Brand Awareness"],
+//     asset_urls: [],
+//     telegram_contact: "@acme_bot",
+//   });
 
-  // Set dummy social accounts
-  setAccounts([
-    { id: "1", platform: "linkedin", account_handle: "@acme", display_name: "Acme Corp", connection_status: "connected" },
-    { id: "2", platform: "twitter", account_handle: "@acme_ai", display_name: "Acme AI", connection_status: "connected" }
-  ]);
+//   // Set dummy social accounts
+//   setAccounts([
+//     { id: "1", platform: "linkedin", account_handle: "@acme", display_name: "Acme Corp", connection_status: "connected" },
+//     { id: "2", platform: "twitter", account_handle: "@acme_ai", display_name: "Acme AI", connection_status: "connected" }
+//   ]);
 
-  // Set dummy campaigns
-  setCampaigns([
-    { id: "c1", name: "Spring Launch", description: "New AI features", target_platforms: ["linkedin"], status: "running", approval_status: "approved", active_workflow_id: "w1" }
-  ]);
+//   // Set dummy campaigns
+//   setCampaigns([
+//     { id: "c1", name: "Spring Launch", description: "New AI features", target_platforms: ["linkedin"], status: "running", approval_status: "approved", active_workflow_id: "w1" }
+//   ]);
 
-  // Add more setters as needed for personas, threads, etc.
-}
+//   // Add more setters as needed for personas, threads, etc.
+// }
 
   async function loadThread(threadId: string) {
     try {

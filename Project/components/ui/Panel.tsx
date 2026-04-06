@@ -15,9 +15,9 @@ export function Panel({
   ...props
 }: PanelProps) {
   const variants = {
-    default: "bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700",
-    elevated: "bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 hover:shadow-xl transition-shadow duration-200",
-    outlined: "bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 shadow-none",
+    default: "bg-white dark:bg-gray-800 shadow-sm",
+    elevated: "bg-white dark:bg-gray-800 shadow-lg hover:shadow-xl transition-shadow duration-200",
+    outlined: "bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-none",
   };
 
   const paddings = {

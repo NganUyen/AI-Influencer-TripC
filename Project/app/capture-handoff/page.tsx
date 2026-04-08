@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -48,6 +48,28 @@ function humanizeMode(value: string) {
 }
 
 export default function CaptureHandoffPage() {
+  return (
+    <Suspense fallback={<CaptureHandoffFallback />}>
+      <CaptureHandoffPageContent />
+    </Suspense>
+  );
+}
+
+function CaptureHandoffFallback() {
+  return (
+    <main className="min-h-screen bg-[#f8f7f0] px-6 py-12 text-[#2e2f2c]">
+      <div className="mx-auto max-w-3xl rounded-3xl border border-[#dfd8ce] bg-white p-8 shadow-sm">
+        <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-[#a03929]">
+          Secure Capture Handoff
+        </p>
+        <h1 className="text-3xl font-semibold">Authenticated PC Recording</h1>
+        <p className="mt-8 text-sm">Loading secure handoff...</p>
+      </div>
+    </main>
+  );
+}
+
+function CaptureHandoffPageContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token") || "";
   const { accessToken, initialize, initialized, isAuthenticated } = useCustomerAuthStore(

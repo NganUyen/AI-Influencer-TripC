@@ -1,6 +1,7 @@
 "use client";
 
-import { Bell, Settings, Search } from "lucide-react";
+import { Bell, Settings, Search, Menu } from "lucide-react";
+import { SocialIcon } from "@/components/ui/SocialIcon";
 
 interface DashboardHeaderProps {
   userName: string | undefined;
@@ -8,6 +9,7 @@ interface DashboardHeaderProps {
   telegramBotUrl: string | null;
   onLogout: () => void;
   isSigningOut: boolean;
+  onMobileMenuToggle?: () => void;
 }
 
 export function DashboardHeader({
@@ -16,6 +18,7 @@ export function DashboardHeader({
   telegramBotUrl,
   onLogout,
   isSigningOut,
+  onMobileMenuToggle,
 }: DashboardHeaderProps) {
   const displayName = userName || userEmail || "User";
   const initials = displayName
@@ -32,6 +35,15 @@ export function DashboardHeader({
         <div className="flex items-center gap-6">
           {/* Logo */}
           <div className="flex items-center gap-2.5 select-none">
+            {onMobileMenuToggle && (
+              <button 
+                onClick={onMobileMenuToggle}
+                className="md:hidden p-1.5 -ml-2 rounded-lg hover:bg-brand-surface-container active:scale-95 transition-all text-brand-on-surface-variant mr-1"
+                aria-label="Open menu"
+              >
+                <Menu className="w-5 h-5 stroke-[1.75]" />
+              </button>
+            )}
             {/* Icon mark */}
             <div className="w-8 h-8 rounded-xl bg-brand-primary flex items-center justify-center flex-shrink-0 shadow-brand-sm">
               <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -48,8 +60,8 @@ export function DashboardHeader({
               </span>
             </div>
           </div>
-          <div className="hidden md:flex items-center bg-brand-surface-container-low rounded-full px-4 py-2 gap-2 border border-brand-outline-variant/30 transition-all focus-within:border-brand-primary/30 focus-within:shadow-brand-sm">
-            <Search className="h-4 w-4 text-brand-outline" />
+          <div className="hidden md:flex items-center bg-brand-surface-container-low rounded-full px-4 py-2 gap-2.5 border border-brand-outline-variant/30 transition-all focus-within:border-brand-primary/30 focus-within:shadow-brand-sm">
+            <Search className="h-[14px] w-[14px] text-brand-outline stroke-[1.75]" />
             <input
               className="bg-transparent border-none focus:ring-0 text-sm font-body text-brand-on-surface-variant placeholder:text-brand-outline w-52 outline-none"
               placeholder="Search workplace..."
@@ -62,21 +74,18 @@ export function DashboardHeader({
         <div className="flex items-center gap-3">
           {telegramBotUrl && (
             <a
-              href={telegramBotUrl}
+              href={telegramBotUrl as string}
               target="_blank"
               rel="noreferrer"
-              className="hidden sm:inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-secondary-container text-brand-on-secondary-container text-sm font-semibold transition-all hover:shadow-brand-sm active:scale-95"
+              className="hidden sm:inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-brand-surface-container text-brand-on-surface-variant text-sm font-semibold transition-all hover:bg-brand-surface-container-high hover:text-brand-on-surface active:scale-95 border border-brand-outline-variant/20"
             >
-              Telegram Bot
+              <SocialIcon platform="telegram" size={15} />
+              Telegram
             </a>
           )}
 
-          <button className="p-2 rounded-full hover:bg-brand-surface-container transition-colors duration-200 active:scale-95">
-            <Bell className="h-5 w-5 text-brand-on-surface-variant" />
-          </button>
-
-          <button className="p-2 rounded-full hover:bg-brand-surface-container transition-colors duration-200 active:scale-95">
-            < Bell className="h-5 w-5 text-brand-on-surface-variant" />
+          <button className="p-2 rounded-full hover:bg-brand-surface-container transition-colors duration-200 active:scale-95" aria-label="Notifications">
+            <Bell className="h-[18px] w-[18px] text-brand-on-surface-variant stroke-[1.75]" />
           </button>
 
           {/* Avatar */}

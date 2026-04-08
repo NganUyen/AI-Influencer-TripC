@@ -23,32 +23,32 @@ export function TimelineItem({
 }: TimelineItemProps) {
   const variants = {
     success: {
-      dotBg: "bg-emerald-500",
-      lineBg: "from-emerald-500/50 to-emerald-500/10",
-      cardBg: "bg-gradient-to-r from-emerald-500/10 to-emerald-500/5",
-      cardBorder: "border-emerald-500/20",
-      icon: <CheckCircle className="w-5 h-5 text-emerald-500" />,
+      dotBg: "bg-aura-tertiary",
+      lineBg: "from-aura-tertiary/50 to-aura-tertiary/10",
+      cardBg: "bg-gradient-to-r from-aura-tertiary/10 to-aura-tertiary/5",
+      cardBorder: "border-aura-tertiary/20",
+      icon: <CheckCircle className="w-5 h-5 text-aura-tertiary" />,
     },
     warning: {
-      dotBg: "bg-amber-500",
-      lineBg: "from-amber-500/50 to-amber-500/10",
-      cardBg: "bg-gradient-to-r from-amber-500/10 to-amber-500/5",
-      cardBorder: "border-amber-500/20",
-      icon: <AlertCircle className="w-5 h-5 text-amber-500" />,
+      dotBg: "bg-aura-secondary",
+      lineBg: "from-aura-secondary/50 to-aura-secondary/10",
+      cardBg: "bg-gradient-to-r from-aura-secondary/10 to-aura-secondary/5",
+      cardBorder: "border-aura-secondary/20",
+      icon: <AlertCircle className="w-5 h-5 text-aura-secondary" />,
     },
     error: {
-      dotBg: "bg-rose-500",
-      lineBg: "from-rose-500/50 to-rose-500/10",
-      cardBg: "bg-gradient-to-r from-rose-500/10 to-rose-500/5",
-      cardBorder: "border-rose-500/20",
-      icon: <AlertCircle className="w-5 h-5 text-rose-500" />,
+      dotBg: "bg-aura-error",
+      lineBg: "from-aura-error/50 to-aura-error/10",
+      cardBg: "bg-gradient-to-r from-aura-error/10 to-aura-error/5",
+      cardBorder: "border-aura-error/20",
+      icon: <AlertCircle className="w-5 h-5 text-aura-error" />,
     },
     info: {
-      dotBg: "bg-sky-500",
-      lineBg: "from-sky-500/50 to-sky-500/10",
-      cardBg: "bg-gradient-to-r from-sky-500/10 to-sky-500/5",
-      cardBorder: "border-sky-500/20",
-      icon: <Zap className="w-5 h-5 text-sky-500" />,
+      dotBg: "bg-aura-primary",
+      lineBg: "from-aura-primary/50 to-aura-primary/10",
+      cardBg: "bg-gradient-to-r from-aura-primary/10 to-aura-primary/5",
+      cardBorder: "border-aura-primary/20",
+      icon: <Zap className="w-5 h-5 text-aura-primary" />,
     },
   };
 
@@ -72,15 +72,14 @@ export function TimelineItem({
 
       {/* Content card */}
       <div className={cn(
-        "flex-1 rounded-lg border p-4 transition-all duration-200",
-        "hover:shadow-aura-sm",
+        "flex-1 rounded-2xl border p-5 transition-all duration-300 shadow-sm hover:shadow-aura-md hover:-translate-y-0.5 relative overflow-hidden",
         style.cardBg,
         style.cardBorder
       )}>
-        <div className="flex items-start gap-3 mb-2">
+        <div className="flex items-start gap-3 mb-2 relative z-10">
           {icon || style.icon}
           <div className="flex-1">
-            <h4 className="font-semibold text-aura-on-surface text-sm">
+            <h4 className="font-bold text-aura-on-surface text-sm font-headline">
               {title}
             </h4>
             {timestamp && (
@@ -91,7 +90,7 @@ export function TimelineItem({
           </div>
         </div>
 
-        <p className="text-sm text-aura-on-surface-variant ml-8">
+        <p className="text-sm text-aura-on-surface-variant ml-8 relative z-10">
           {description}
         </p>
       </div>

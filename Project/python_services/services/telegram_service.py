@@ -52,6 +52,31 @@ class TelegramService:
         self.approval_requests = TelegramService.approval_requests
         self._init_redis()
 
+    async def _record_usage(
+        self,
+        operation: str,
+        usage: Dict[str, Any],
+        error: Exception | None = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        from services.quota_monitor_service import QuotaMonitorService
+        quota_metadata = {
+            "service": "telegram_service",
+            "operation": operation,
+            "status": "error" if error else "success",
+        }
+        if metadata:
+            quota_metadata.update(metadata)
+        if error:
+            quota_metadata["error_type"] = type(error).__name__
+            quota_metadata["error_message"] = str(error)
+
+        await QuotaMonitorService.record_runtime_usage(
+            provider="telegram",
+            usage=usage,
+            metadata=quota_metadata,
+        )
+
     @classmethod
     def _init_redis(cls) -> None:
         if cls._redis_init_attempted:
@@ -141,6 +166,11 @@ class TelegramService:
                 text=message,
                 reply_markup=reply_markup,
                 parse_mode="Markdown",
+            )
+            await self._record_usage(
+                operation="send_approval_request",
+                usage={"requests": 1, "messages": 1},
+                metadata={"chat_id": user_id},
             )
 
             request_id = f"{user_id}_{sent_message.message_id}"

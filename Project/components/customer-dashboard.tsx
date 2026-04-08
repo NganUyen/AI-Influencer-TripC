@@ -155,6 +155,7 @@ type TelegramLinkToken = {
 type SystemSummaryData = {
   services: { name: string; status: "online" | "warning" | "error"; latency: string }[];
   quota: { name: string; used: number; total: number; unit: string }[];
+  telegram_bot_url?: string | null;
 };
 
 type SystemWorkflowData = {
@@ -270,7 +271,7 @@ function buildAiBackboneForm(
 export default function CustomerDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, isAuthenticated, initialized, isLoading, logout } = useCustomerAuthStore();
+  const { user, isAuthenticated, initialized, isLoading, logout, initialize } = useCustomerAuthStore();
 // // Replace the destructuring with mock values:
   // const { user, isAuthenticated, initialized, isLoading, logout } = {
   //   user: { name: "Preview User", email: "preview@example.com" },
@@ -342,10 +343,15 @@ export default function CustomerDashboard() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
-  const telegramBotUrl = getClientTelegramBotLaunchUrl();
+  const telegramBotUrl = systemSummary?.telegram_bot_url || getClientTelegramBotLaunchUrl();
   const telegramVerificationUrl = getClientTelegramBotLaunchUrl(linkToken?.start_token);
 
   const fetchSystemData = useCallback(async () => {
+    // Only attempt fetch if we are in the browser and authenticated
+    if (typeof window === "undefined" || !isAuthenticated) {
+      return;
+    }
+
     try {
       const [summary, workflows] = await Promise.all([
         customerApiRequest<SystemSummaryData>("/api/customer/system/summary"),
@@ -354,9 +360,24 @@ export default function CustomerDashboard() {
       setSystemSummary(summary);
       setSystemWorkflows(workflows.workflows);
     } catch (error) {
-      console.error("Failed to fetch system monitoring data:", error);
+      if (error instanceof TypeError && error.message === "Failed to fetch") {
+        console.warn("[Dashboard] System data fetch failed (Network error).");
+        return;
+      }
+      
+      const msg = error instanceof Error ? error.message : "";
+      if (
+        msg.includes("401") ||
+        msg.includes("Unauthorized") ||
+        msg.toLowerCase().includes("invalid or expired")
+      ) {
+        void logout();
+        router.replace("/auth");
+      } else {
+        console.error("Failed to fetch system monitoring data:", error);
+      }
     }
-  }, []);
+  }, [isAuthenticated, logout, router]);
 
 // const fetchSystemData = useCallback(async () => {
 //   setSystemSummary({
@@ -393,7 +414,16 @@ export default function CustomerDashboard() {
   }, [searchParams]);
 
   useEffect(() => {
-    if (!initialized || isLoading) {
+    if (!initialized && !isLoading) {
+       // Only start initialize if we aren't already loading
+       void initialize();
+    } else if (!initialized) {
+       void initialize();
+    }
+  }, [initialized, initialize]);
+
+  useEffect(() => {
+    if (!initialized || isLoading || pageError) {
       return;
     }
     if (!isAuthenticated) {
@@ -401,7 +431,7 @@ export default function CustomerDashboard() {
       return;
     }
     void loadWorkspace();
-  }, [initialized, isLoading, isAuthenticated, router]);
+  }, [initialized, isLoading, isAuthenticated, router, pageError]);
 
   useEffect(() => {
     if (selectedThreadId && isAuthenticated) {
@@ -500,26 +530,47 @@ export default function CustomerDashboard() {
         customerApiRequest<TelegramLinkStatus>("/api/customer/telegram/link"),
       ]);
 
-      setBrandForm(brand.brand_profile || EMPTY_BRAND);
-      setAccounts(social.accounts);
-      setThreads(assistant.threads);
-      setCampaigns(campaignList.campaigns);
-      setApprovals(approvalList.approvals);
-      setContent(contentList.items);
-      setPersonas(personasList.personas || []);
-      setTelegramLink(telegramLinkResponse);
-      const settings = aiBackboneResponse.settings;
+      setBrandForm(brand?.brand_profile || EMPTY_BRAND);
+      setAccounts(social?.accounts || []);
+      setThreads(assistant?.threads || []);
+      setCampaigns(campaignList?.campaigns || []);
+      setApprovals(approvalList?.approvals || []);
+      setContent(contentList?.items || []);
+      
+      // Robust handling for persona list (handles both raw array and object with personas key)
+      const personasData = (personasList as any)?.personas || (Array.isArray(personasList) ? personasList : []);
+      setPersonas(personasData);
+      
+      setTelegramLink(telegramLinkResponse || null);
+      
+      const settings = aiBackboneResponse?.settings || {
+        access_mode: "workspace_default",
+        customer_api: { api_url: "", has_api_key: false },
+        workspace_default: { api_url: "" },
+        chatgpt_oauth: { linked: false, chatgpt_subject: null, session_ready: false, session_expires_at: null },
+        effective_status: { ready: false, message: "Initializing..." },
+      };
       setAiBackbone(settings);
       setAiBackboneForm(buildAiBackboneForm(settings, user?.name || user?.email || ""));
 
-      const nextThreadId = selectedThreadId || assistant.threads[0]?.id || null;
+      const nextThreadId = selectedThreadId || assistant?.threads?.[0]?.id || null;
       setSelectedThreadId(nextThreadId);
       if (!nextThreadId) {
         setMessages([]);
         setArtifacts([]);
       }
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Failed to load workspace");
+      const msg = error instanceof Error ? error.message : "Failed to load workspace";
+      if (
+        msg.includes("401") ||
+        msg.includes("Unauthorized") ||
+        msg.toLowerCase().includes("invalid or expired")
+      ) {
+        void logout();
+        router.replace("/auth");
+        return;
+      }
+      setPageError(msg);
     }
   }
 
@@ -878,16 +929,42 @@ export default function CustomerDashboard() {
     systemWorkflows,
   });
 
+  const [quotaBannerDismissed, setQuotaBannerDismissed] = useState(false);
+
   if (isLoading || !initialized) {
     return (
-      <div className="min-h-screen bg-slate-950 text-stone-100 flex items-center justify-center">
-        <p className="text-lg tracking-wide">Loading your workspace...</p>
+      <div className="min-h-screen bg-aura-surface">
+        <DashboardHeader
+          userName={undefined}
+          userEmail={undefined}
+          telegramBotUrl={null}
+          onLogout={() => {}}
+          isSigningOut={false}
+        />
+        <div className="flex pt-16">
+          <DashboardSidebar
+            tabs={DASHBOARD_TABS}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+          />
+          <main className="flex-1 min-w-0 px-6 md:px-10 py-8">
+            <div className="mx-auto max-w-7xl h-[60vh] flex flex-col items-center justify-center space-y-4">
+              <div className="animate-spin h-10 w-10 border-2 border-aura-primary border-t-transparent rounded-full" />
+              <p className="text-sm text-aura-outline font-body">Loading workspace…</p>
+            </div>
+          </main>
+        </div>
       </div>
     );
   }
 
+  // Quota warnings — providers at ≥80% usage
+  const quotaWarnings = (systemSummary?.quota || []).filter(
+    (q) => q.total > 0 && q.used / q.total >= 0.8,
+  );
+
   return (
-    <div className="min-h-screen bg-zinc-950 text-stone-100">
+    <div className="min-h-screen bg-aura-surface text-aura-on-surface">
       <DashboardHeader
         userName={user?.name}
         userEmail={user?.email}
@@ -896,356 +973,715 @@ export default function CustomerDashboard() {
         isSigningOut={busyKey === "signout"}
       />
 
-      <div className="flex pt-0">
+      <div className="flex pt-16 min-h-[calc(100vh-64px)]">
         <DashboardSidebar
           tabs={DASHBOARD_TABS}
           activeTab={activeTab}
           onTabChange={setActiveTab}
+          telegramBotUrl={telegramBotUrl}
         />
 
-        <main className="md:ml-64 flex-1 px-4 md:px-6 py-6 md:py-8 min-w-0">
-          <div className="mx-auto max-w-7xl space-y-4 md:space-y-6">
+        <main className="flex-1 min-w-0 px-6 md:px-10 py-8">
+          <div className="mx-auto max-w-7xl space-y-6">
 
 
+        {/* Success banner */}
         {banner && (
-          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
-            {banner}
+          <div className="flex items-center justify-between rounded-2xl border border-aura-tertiary/20 bg-aura-tertiary-container/30 px-5 py-3 text-sm text-aura-tertiary font-medium">
+            <span>✓ {banner}</span>
+            <button onClick={() => setBanner(null)} className="ml-4 text-aura-tertiary/60 hover:text-aura-tertiary transition-colors">✕</button>
           </div>
         )}
 
+        {/* Error banner */}
         {pageError && (
-          <div className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
-            {pageError}
+          <div className="flex items-center justify-between rounded-2xl border border-aura-error/20 bg-aura-error-container/20 px-5 py-3 text-sm text-aura-error font-medium">
+            <span>⚠ {pageError}</span>
+            <button onClick={() => setPageError(null)} className="ml-4 text-aura-error/60 hover:text-aura-error transition-colors">✕</button>
+          </div>
+        )}
+
+        {/* ─── Quota Warning Banner ─── */}
+        {activeTab === "overview" && quotaWarnings.length > 0 && !quotaBannerDismissed && (
+          <div className="flex items-start justify-between gap-4 rounded-2xl border border-aura-secondary/30 bg-aura-secondary-container/40 px-5 py-4">
+            <div className="flex items-start gap-3">
+              <span className="text-xl leading-none mt-0.5">⚠️</span>
+              <div>
+                <p className="font-semibold text-aura-secondary text-sm">Quota cảnh báo vượt ngưỡng hôm nay</p>
+                <p className="text-xs text-aura-on-surface-variant mt-0.5">
+                  {quotaWarnings.map((q) => {
+                    const pct = Math.round((q.used / q.total) * 100);
+                    return `${q.name} (${pct}%)`;
+                  }).join(" · ")}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setQuotaBannerDismissed(true)}
+              className="flex-shrink-0 text-aura-secondary/60 hover:text-aura-secondary transition-colors text-sm"
+            >
+              ✕
+            </button>
           </div>
         )}
 
         {activeTab === "overview" && (
-          <div className="space-y-6">
-            <Panel variant="elevated">
-              <PanelHeader 
-                title="Quick Stats" 
-                subtitle="Current workflow pulse"
-              />
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-3 md:p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Zap className="w-4 h-4 text-emerald-400" />
-                    <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Active</p>
+          <div className="space-y-8 animate-fade-in">
+
+            {/* ── Quick Stats Row ── */}
+            <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[
+                {
+                  label: "Active Campaigns",
+                  value: campaigns.filter((c) => c.status === "active").length,
+                  sub: `${campaigns.length} total`,
+                  color: "text-aura-tertiary",
+                  bg: "bg-aura-tertiary-container/30",
+                },
+                {
+                  label: "Pending Approvals",
+                  value: approvals.length,
+                  sub: approvals.length > 0 ? "Action needed" : "All clear",
+                  color: approvals.length > 0 ? "text-aura-secondary" : "text-aura-tertiary",
+                  bg: approvals.length > 0 ? "bg-aura-secondary-container/30" : "bg-aura-tertiary-container/20",
+                },
+                {
+                  label: "Published Content",
+                  value: content.filter((c) => c.status === "published").length,
+                  sub: `${content.length} total items`,
+                  color: "text-aura-primary",
+                  bg: "bg-aura-primary-container/20",
+                },
+                {
+                  label: "AI Personas",
+                  value: personas?.length ?? 0,
+                  sub: personas && personas.length > 0 ? `${personas.filter(p => p.status === 'active').length} active` : "None yet",
+                  color: "text-aura-on-surface",
+                  bg: "bg-aura-surface-container",
+                },
+              ].map((stat) => (
+                <div
+                  key={stat.label}
+                  className="bg-white rounded-2xl p-5 shadow-aura flex flex-col gap-2"
+                >
+                  <span className="text-[10px] uppercase tracking-widest text-aura-on-surface-variant font-body">
+                    {stat.label}
+                  </span>
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className="text-3xl font-extrabold text-aura-on-surface font-headline">
+                      {stat.value}
+                    </span>
+                    <span className={`text-xs font-semibold ${stat.color}`}>{stat.sub}</span>
                   </div>
-                  <p className="text-2xl md:text-3xl font-bold text-emerald-400">
-                    {campaigns.filter(c => c.status === 'active').length}
-                  </p>
-                  <p className="text-xs text-zinc-500 mt-1">Campaigns</p>
+                  <div className={`h-1 rounded-full mt-1 ${stat.bg}`} />
+                </div>
+              ))}
+            </section>
+
+            {/* ── Main Grid ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+
+              {/* Left: System Health + AI Backbone */}
+              <div className="lg:col-span-4 space-y-6">
+
+                {/* System Health */}
+                <div className="bg-aura-surface-container-high rounded-2xl p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-base font-bold text-aura-on-surface font-headline">System Health</h3>
+                    <span className="flex items-center gap-1.5 px-3 py-1 bg-aura-tertiary-fixed text-aura-on-tertiary-fixed rounded-full text-[10px] font-bold uppercase tracking-wider">
+                      <span className="w-1.5 h-1.5 rounded-full bg-aura-tertiary animate-pulse-slow" />
+                      {(systemSummary?.services || []).length > 0 ? "OPERATIONAL" : "LOADING"}
+                    </span>
+                  </div>
+
+                  <div className="space-y-4">
+                    {(systemSummary?.services || []).length === 0 ? (
+                      <div className="space-y-3">
+                        {["Core API", "Vector DB", "Edge Proxy"].map((name) => (
+                          <div key={name} className="flex items-center justify-between">
+                            <span className="text-sm text-aura-on-surface-variant">{name}</span>
+                            <div className="h-4 w-12 bg-aura-surface-container rounded animate-pulse" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      (systemSummary?.services || []).map((service) => (
+                        <div key={service.name} className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                                service.status === "online"
+                                  ? "bg-aura-tertiary"
+                                  : service.status === "warning"
+                                  ? "bg-aura-secondary"
+                                  : "bg-aura-error"
+                              }`}
+                            />
+                            <span className="text-sm font-medium text-aura-on-surface">{service.name}</span>
+                          </div>
+                          <span className="text-xs font-mono bg-aura-surface px-2 py-0.5 rounded-full text-aura-on-surface-variant">
+                            {service.latency}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Load bars */}
+                  <div className="mt-6 p-3 bg-aura-surface rounded-xl">
+                    <span className="text-[10px] uppercase font-bold text-aura-outline tracking-wider mb-2 block">Real-time Load</span>
+                    <div className="h-14 flex items-end gap-1">
+                      {[40, 60, 45, 85, 70, 55, 40, 65, 50, 80].map((h, i) => (
+                        <div
+                          key={i}
+                          className={`flex-1 rounded-t-sm transition-all duration-500 ${
+                            h > 75 ? "bg-aura-primary" : "bg-aura-primary-container"
+                          }`}
+                          style={{ height: `${h}%` }}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 </div>
 
-                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-3 md:p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Clock className="w-4 h-4 text-amber-400" />
-                    <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Pending</p>
-                  </div>
-                  <p className="text-2xl md:text-3xl font-bold text-amber-400">
-                    {approvals.length}
-                  </p>
-                  <p className="text-xs text-zinc-500 mt-1">Approvals</p>
-                </div>
+                {/* AI Backbone */}
+                <div className="bg-aura-surface-container-highest rounded-2xl p-6">
+                  <h3 className="text-base font-bold text-aura-on-surface font-headline mb-5">AI Backbone</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-aura-on-surface-variant block mb-1.5">Access Mode</label>
+                      <div className="flex items-center justify-between px-4 py-2.5 bg-aura-surface rounded-full">
+                        <span className="text-sm font-semibold text-aura-on-surface capitalize">
+                          {aiBackbone?.access_mode.replace(/_/g, " ") || "Loading…"}
+                        </span>
+                        {aiBackbone?.effective_status.ready ? (
+                          <span className="w-4 h-4 rounded-full bg-aura-tertiary flex items-center justify-center">
+                            <span className="text-white text-[10px]">✓</span>
+                          </span>
+                        ) : (
+                          <span className="w-2 h-2 rounded-full bg-aura-secondary animate-pulse" />
+                        )}
+                      </div>
+                    </div>
 
-                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-3 md:p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <CheckCircle className="w-4 h-4 text-sky-400" />
-                    <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Published</p>
-                  </div>
-                  <p className="text-2xl md:text-3xl font-bold text-sky-400">
-                    {content.filter(c => c.status === 'published').length}
-                  </p>
-                  <p className="text-xs text-zinc-500 mt-1">Content</p>
-                </div>
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-aura-on-surface-variant block mb-1.5">Status</label>
+                      <p className="text-xs text-aura-on-surface-variant px-1">
+                        {aiBackbone?.effective_status.message || "Initializing workspace access."}
+                      </p>
+                    </div>
 
-                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-3 md:p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Users className="w-4 h-4 text-emerald-400" />
-                    <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide">AI</p>
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-aura-on-surface-variant block mb-1.5">Endpoint</label>
+                      <div className="flex items-center text-xs font-mono text-aura-on-surface-variant truncate bg-aura-surface px-3 py-2 rounded-xl">
+                        <span className="truncate">{aiBackbone?.workspace_default.api_url || "Not configured"}</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="text-center bg-aura-surface rounded-xl p-3">
+                        <label className="text-[10px] uppercase font-bold text-aura-on-surface-variant block mb-1">Customer Key</label>
+                        <span className="text-sm font-bold text-aura-on-surface">
+                          {aiBackbone?.customer_api.has_api_key ? "Set" : "Shared"}
+                        </span>
+                      </div>
+                      <div className="text-center bg-aura-surface rounded-xl p-3">
+                        <label className="text-[10px] uppercase font-bold text-aura-on-surface-variant block mb-1">GPT OAuth</label>
+                        <span className="text-sm font-bold text-aura-on-surface">
+                          {aiBackbone?.chatgpt_oauth.linked ? "Linked" : "—"}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-2xl md:text-3xl font-bold text-emerald-400">
-                    {personas?.length || 0}
-                  </p>
-                  <p className="text-xs text-zinc-500 mt-1">Personas</p>
                 </div>
               </div>
-            </Panel>
 
-            <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
-              <Panel variant="elevated">
-                <PanelHeader 
-                  title="System Health" 
-                  subtitle="Service status and runtime availability."
-                />
-                <div className="space-y-3">
-                  {(systemSummary?.services || []).length === 0 && (
-                    <p className="text-sm text-stone-400">No system service data available yet.</p>
-                  )}
-                  {(systemSummary?.services || []).map((service) => (
-                    <div
-                      key={service.name}
-                      className="flex items-center justify-between rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl px-4 py-3"
-                    >
-                      <div>
-                        <p className="font-medium text-white">{service.name}</p>
-                        <p className="text-xs text-zinc-500">
-                          Latency {service.latency}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${
-                          service.status === 'online' ? 'bg-emerald-400' :
-                          service.status === 'warning' ? 'bg-amber-400' : 'bg-rose-400'
-                        }`} />
-                        <span className="text-xs text-zinc-400 capitalize">{service.status}</span>
-                      </div>
+              {/* Right: Quota + Personas */}
+              <div className="lg:col-span-8 space-y-6">
+
+                {/* Quota Snapshot */}
+                <div className="bg-white rounded-2xl p-7 shadow-aura">
+                  <div className="flex items-center justify-between mb-7">
+                    <div>
+                      <h2 className="text-2xl font-extrabold text-aura-on-surface font-headline leading-tight">Quota Snapshot</h2>
+                      <p className="text-xs text-aura-on-surface-variant mt-0.5">Provider-specific consumption today</p>
                     </div>
-                  ))}
-                </div>
-              </Panel>
-
-              <Panel variant="elevated">
-                <PanelHeader 
-                  title="AI Backbone" 
-                  subtitle="Current model access mode and readiness."
-                />
-                <div className="space-y-4">
-                  <div className="rounded-lg border border-emerald-500/15 bg-emerald-500/5 backdrop-blur-xl p-4">
-                    <p className="text-xs font-medium text-emerald-300 uppercase tracking-wide">
-                      Access Mode
-                    </p>
-                    <p className="mt-2 text-lg font-semibold uppercase text-white">
-                      {aiBackbone?.access_mode.replace(/_/g, " ") || "Loading"}
-                    </p>
-                    <p className="mt-2 text-sm text-zinc-400">
-                      {aiBackbone?.effective_status.message || "Initializing workspace access."}
-                    </p>
+                    {quotaWarnings.length > 0 && (
+                      <span className="flex items-center gap-2 px-3 py-1.5 bg-aura-secondary-container rounded-full text-xs font-bold text-aura-on-secondary-container">
+                        ⚠️ {quotaWarnings.length} over 80%
+                      </span>
+                    )}
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
-                      <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">
-                        Workspace Endpoint
-                      </p>
-                      <p className="mt-2 break-all text-sm text-white">
-                        {aiBackbone?.workspace_default.api_url || "Not configured"}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
-                      <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">
-                        Customer API
-                      </p>
-                      <p className="mt-2 text-sm text-white">
-                        {aiBackbone?.customer_api.has_api_key ? "Configured" : "Using workspace-managed access"}
-                      </p>
-                    </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-8">
+                    {(systemSummary?.quota || []).length === 0 ? (
+                      // Skeleton placeholder when no data
+                      ["OpenAI", "Anthropic", "Image Gen"].map((name) => (
+                        <div key={name} className="space-y-2">
+                          <div className="flex justify-between">
+                            <span className="text-sm font-medium text-aura-on-surface-variant">{name}</span>
+                            <span className="text-xs text-aura-outline">—</span>
+                          </div>
+                          <div className="h-2.5 bg-aura-surface-container-high rounded-full" />
+                        </div>
+                      ))
+                    ) : (
+                      (systemSummary?.quota || []).map((q) => {
+                        const pct = q.total > 0 ? Math.min((q.used / q.total) * 100, 100) : 0;
+                        const isOverThreshold = pct >= 80;
+                        const isCritical = pct >= 95;
+                        return (
+                          <div key={q.name} className="space-y-2.5">
+                            <div className="flex justify-between items-end">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold text-aura-on-surface">{q.name}</span>
+                                {isOverThreshold && (
+                                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                                    isCritical
+                                      ? "bg-aura-error-container/30 text-aura-error"
+                                      : "bg-aura-secondary-container/50 text-aura-secondary"
+                                  }`}>
+                                    {isCritical ? "⚠ Critical" : "⚠ High"}
+                                  </span>
+                                )}
+                              </div>
+                              <span className={`text-sm font-bold ${
+                                isCritical ? "text-aura-error" : isOverThreshold ? "text-aura-secondary" : "text-aura-on-surface"
+                              }`}>
+                                {Math.round(pct)}% consumed
+                              </span>
+                            </div>
+                            <div className="h-2.5 bg-aura-surface-container-high rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-700 ${
+                                  isCritical
+                                    ? "bg-gradient-to-r from-aura-error to-aura-error-container"
+                                    : isOverThreshold
+                                    ? "bg-gradient-to-r from-aura-secondary to-aura-secondary-fixed"
+                                    : "bg-gradient-to-r from-aura-primary to-aura-primary-container"
+                                }`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <p className="text-[10px] text-aura-outline">
+                              {q.used.toLocaleString()} / {q.total.toLocaleString()} {q.unit}
+                            </p>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
-              </Panel>
-            </div>
 
-            <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
-              <Panel variant="elevated">
-                <PanelHeader 
-                  title="Recent Activity" 
-                  subtitle="Latest events across campaigns, content, and workflow state."
-                />
-                <ActivityFeed items={activityItems} />
-              </Panel>
-
-              <Panel variant="elevated">
-                <PanelHeader 
-                  title="Quota Snapshot" 
-                  subtitle="Current provider usage pulled from system summary."
-                />
-                <div className="space-y-3">
-                  {(systemSummary?.quota || []).length === 0 && (
-                    <p className="text-sm text-stone-400">No quota data available yet.</p>
-                  )}
-                  {(systemSummary?.quota || []).map((quotaItem) => (
-                    <div
-                      key={quotaItem.name}
-                      className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4"
-                    >
-                      <div className="flex items-center justify-between gap-4">
-                        <p className="font-medium text-white">{quotaItem.name}</p>
-                        <p className="text-sm text-zinc-400">
-                          {quotaItem.used}/{quotaItem.total} {quotaItem.unit}
-                        </p>
-                      </div>
-                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
-                        <div
-                          className="h-full rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]"
-                          style={{
-                            width: `${Math.min(
-                              quotaItem.total > 0 ? (quotaItem.used / quotaItem.total) * 100 : 0,
-                              100,
-                            )}%`,
-                          }}
-                        />
-                      </div>
+                {/* AI Persona Bento */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  {personas.length === 0 ? (
+                    <div className="sm:col-span-2 bg-aura-surface-container-low rounded-2xl p-6 text-center text-sm text-aura-outline">
+                      No personas configured yet.
                     </div>
-                  ))}
+                  ) : (
+                    personas.slice(0, 4).map((persona) => (
+                      <div
+                        key={persona.persona_id}
+                        className="bg-white rounded-2xl p-5 shadow-aura border border-aura-outline-variant/15 flex flex-col gap-4 hover:shadow-aura-md transition-shadow duration-200"
+                      >
+                        <div className="flex gap-3">
+                          <div className="w-14 h-14 rounded-xl bg-aura-primary-container/30 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                            {persona.avatar_image_url ? (
+                              <img
+                                src={persona.avatar_image_url}
+                                alt={persona.display_name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-xl font-bold text-aura-primary">
+                                {persona.display_name.charAt(0).toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-sm font-bold text-aura-on-surface truncate">{persona.display_name}</h4>
+                            <p className="text-xs text-aura-on-surface-variant mt-0.5 truncate">{persona.status}</p>
+                            <span className={`inline-block mt-1.5 text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                              persona.status === "active"
+                                ? "bg-aura-tertiary-container/50 text-aura-tertiary"
+                                : "bg-aura-surface-container text-aura-on-surface-variant"
+                            }`}>
+                              {persona.status === "active" ? "● LIVE" : "● IDLE"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 pt-3 border-t border-aura-surface-container">
+                          <div className="text-center">
+                            <p className="text-[10px] text-aura-on-surface-variant uppercase font-bold">Videos</p>
+                            <p className="text-base font-bold text-aura-on-surface mt-0.5">{persona.video_count}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-[10px] text-aura-on-surface-variant uppercase font-bold">Status</p>
+                            <p className={`text-sm font-bold mt-0.5 ${
+                              persona.status === "active" ? "text-aura-tertiary" : "text-aura-outline"
+                            }`}>
+                              {persona.status === "active" ? "ZEN" : "IDLE"}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
-              </Panel>
+
+                {/* Recent Activity */}
+                <div className="bg-white rounded-2xl p-7 shadow-aura">
+                  <h3 className="text-base font-bold text-aura-on-surface font-headline mb-5">Recent Activity</h3>
+                  {activityItems.length === 0 ? (
+                    <p className="text-sm text-aura-outline">No recent activity yet.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {activityItems.map((item) => (
+                        <div key={item.id} className="flex items-start gap-3">
+                          <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${auraActivityDotClass(item.tone)}` } />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-aura-on-surface truncate">{item.title}</p>
+                            <p className="text-xs text-aura-on-surface-variant truncate">{item.detail}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
 
         {activeTab === "ops" && (
-          <div className="grid gap-4 md:gap-6 lg:grid-cols-3">
-            <section className="lg:col-span-2 space-y-4 md:space-y-6">
-              <Panel variant="elevated">
-                <PanelHeader 
-                  title="In-App OpenClaw Assistant" 
-                  subtitle="Refine positioning and content plans."
-                />
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="space-y-3 rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wide">Threads</h3>
-                      <button type="button" onClick={() => void handleCreateThread()} disabled={busyKey === "thread"} className="rounded border border-blue-500/40 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-300 transition-all duration-200 ease-out hover:border-blue-500/60 hover:bg-blue-500/20 active:scale-[0.98] disabled:opacity-50">New</button>
-                    </div>
-                    <div className="max-h-[300px] overflow-y-auto space-y-2">
-                      {threads.length === 0 && <p className="text-xs text-zinc-500">No threads yet.</p>}
-                      {threads.map((thread) => (
-                        <ThreadItem
-                          key={thread.id}
-                          id={thread.id}
-                          title={thread.title}
-                          preview={thread.last_message_preview || undefined}
-                          isActive={selectedThreadId === thread.id}
-                          onClick={() => setSelectedThreadId(thread.id)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex flex-col rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4">
-                    <div className="flex-1 min-h-0">
-                      <div className="max-h-[300px] overflow-y-auto pr-2 space-y-3 mb-4">
-                        {messages.map((message) => (
-                          <MessageBubble
-                            key={message.id}
-                            id={message.id}
-                            role={message.role}
-                            content={message.content}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                    <form className="space-y-3 flex-shrink-0" onSubmit={handleSendMessage}>
-                      <TextAreaField
-                        value={composer}
-                        onChange={(e) => setComposer(e.target.value)}
-                        placeholder="Type a message..."
-                        minHeight="60px"
-                        containerClassName="flex-1"
-                      />
-                      <button type="submit" disabled={busyKey === "assistant"} className="w-full bg-blue-500 text-white font-semibold py-2.5 rounded-lg shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98] disabled:opacity-50">
-                        {busyKey === "assistant" ? "OpenClaw Thinking..." : "Send to AI"}
-                      </button>
-                    </form>
-                  </div>
-                </div>
-              </Panel>
-              <Panel variant="elevated">
-                <PanelHeader 
-                  title="Campaign Control" 
-                  subtitle="Manage workflow drafts."
-                />          
-                <div className="space-y-3">
-                  {campaigns.map(c => (
-                    <div key={c.id} className="p-3 bg-white/[0.02] border border-white/[0.08] rounded-lg backdrop-blur-xl transition-colors duration-200 ease-out hover:bg-white/[0.04]">
-                      <div className="flex justify-between items-center mb-3">
-                        <h4 className="font-medium text-white text-sm">{c.name}</h4>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${
-                            c.status === 'running' ? 'bg-emerald-400' :
-                            c.status === 'pending' ? 'bg-amber-400' : 'bg-zinc-400'
-                          }`} />
-                          <span className="text-xs text-zinc-400 capitalize">{c.status}</span>
-                        </div>
-                      </div>
-                      <button onClick={() => handleLaunch(c.id)} disabled={c.approval_status !== "approved" || busyKey === `launch-${c.id}`} className="w-full px-3 py-2 bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98] disabled:opacity-50">
-                        {busyKey === `launch-${c.id}` ? "Launching..." : "Launch"}
-                      </button>
-                    </div>
-                  ))}
-                  {campaigns.length === 0 && <p className="text-sm text-zinc-500 italic">Queue clear.</p>}
-                </div>
-              </Panel>
-            </section>
+          <div className="space-y-10 animate-fade-in">
 
-            <section className="space-y-4 md:space-y-6">
-              <Panel variant="elevated">
-                <PanelHeader 
-                  title="Video Creation Context" subtitle="Open the video brief form in a popup."
-                />
-                <div className="space-y-3">
-                  <p className="text-sm text-zinc-400">
-                    Create a short AI video brief with title, audience, style, platform and execution guidance.
+            {/* ── Hero / Quick Stats Bento ── */}
+            <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              {/* Hero card */}
+              <div className="md:col-span-2 bg-gradient-to-br from-aura-primary to-aura-primary-container p-8 rounded-2xl flex flex-col justify-between text-aura-on-primary shadow-aura-md min-h-[220px]">
+                <div>
+                  <h2 className="text-3xl font-headline font-bold mb-2">AI vận hành</h2>
+                  <p className="text-aura-on-primary/80 font-body max-w-xs text-sm">
+                    Integrated view of your AI Influencer ecosystem — campaigns, backbone, and real-time quota.
                   </p>
+                </div>
+                <div className="flex items-center gap-3 mt-6">
                   <button
                     type="button"
-                    onClick={() => setIsVideoContextModalOpen(true)}
-                    className="w-full bg-blue-500 text-white font-semibold py-3 rounded-lg shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98]"
+                    onClick={() => void handleCreateThread()}
+                    disabled={busyKey === "thread"}
+                    className="bg-white/20 hover:bg-white/30 backdrop-blur-md px-6 py-2.5 rounded-full font-body text-sm transition-all active:scale-95 disabled:opacity-50"
                   >
-                    Open Video Context Form
+                    + New Thread
                   </button>
                 </div>
-              </Panel>
-              <Panel variant="elevated">
-                <PanelHeader 
-                  title="Pending Approvals" subtitle="Action items."/>
-                <div className="space-y-3">
-                  {approvals.map(a => (
-                    <div key={a.id} className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-lg backdrop-blur-xl">
-                      <p className="font-medium text-amber-300 text-sm">{a.name}</p>
-                      <div className="mt-3">
-                        <ButtonGroup
-                          buttons={[
-                            {
-                              label: "Approve",
-                              onClick: () => handleApprove(a.id, true),
-                              variant: "primary",
-                            },
-                            {
-                              label: "Reject",
-                              onClick: () => handleApprove(a.id, false),
-                              variant: "danger",
-                            },
-                          ]}
-                          size="sm"
-                        />
-                      </div>
-                    </div>
-                  ))}
-                  {approvals.length === 0 && <p className="text-sm text-zinc-500 italic">System clear.</p>}
-                </div>
-              </Panel>
-              <Panel variant="elevated">
-                <PanelHeader 
-                  title="Output Stream" 
-                  subtitle="Recently published."
-                />        
-                <div className="space-y-2">
-                  {content.slice(0, 5).map(item => (
-                    <div key={item.id} className="p-3 bg-white/[0.02] border border-white/[0.08] rounded-lg backdrop-blur-xl text-xs flex justify-between items-center transition-colors duration-200 ease-out hover:bg-white/[0.04]">
-                      <span className="text-zinc-400 truncate mr-2">{item.title}</span>
-                      <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${
-                          item.status === 'published' ? 'bg-emerald-400' :
-                          item.status === 'scheduled' ? 'bg-amber-400' : 'bg-zinc-400'
-                        }`} />
-                        <span className="text-zinc-500 capitalize">{item.status}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Panel>
+              </div>
+
+              {/* Quick stat cards */}
+              <div className="md:col-span-2 grid grid-cols-2 gap-4">
+                {[
+                  { label: "Active Campaigns", value: campaigns.filter(c => c.status === "active").length, border: "border-aura-primary" },
+                  { label: "Pending Approvals", value: approvals.length, border: "border-aura-secondary" },
+                  { label: "Published Content", value: content.filter(c => c.status === "published").length, border: "border-aura-tertiary" },
+                  { label: "AI Personas", value: personas?.length ?? 0, border: "border-aura-outline" },
+                ].map(stat => (
+                  <div key={stat.label} className={`bg-white p-6 rounded-xl shadow-aura-sm border-l-4 ${stat.border}`}>
+                    <p className="text-aura-on-surface-variant text-[10px] font-body uppercase tracking-widest mb-1">{stat.label}</p>
+                    <p className="text-4xl font-headline font-extrabold text-aura-on-surface">{stat.value}</p>
+                  </div>
+                ))}
+              </div>
             </section>
+
+            {/* ── Technical Integration Row ── */}
+            <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+              {/* System Health */}
+              <div className="bg-aura-surface-container-low p-7 rounded-2xl space-y-5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-headline font-bold text-aura-on-surface">System Health</h3>
+                  <span className="flex h-2 w-2 rounded-full bg-aura-tertiary animate-pulse" />
+                </div>
+                <div className="space-y-3">
+                  {(systemSummary?.services || []).length === 0 ? (
+                    [
+                      { name: "Temporal Cluster", icon: "☁" },
+                      { name: "OpenClaw AI", icon: "🧠" },
+                      { name: "Postiz Publisher", icon: "📡" },
+                      { name: "GrowChief Growth", icon: "📈" },
+                    ].map(s => (
+                      <div key={s.name} className="flex items-center justify-between p-3 bg-white rounded-xl">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">{s.icon}</span>
+                          <span className="text-sm font-body text-aura-on-surface-variant">{s.name}</span>
+                        </div>
+                        <div className="h-3 w-16 bg-aura-surface-container rounded animate-pulse" />
+                      </div>
+                    ))
+                  ) : (
+                    (systemSummary?.services || []).map(service => (
+                      <div key={service.name} className="flex items-center justify-between p-3 bg-white rounded-xl">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                            service.status === "online" ? "bg-aura-tertiary" :
+                            service.status === "warning" ? "bg-aura-secondary" : "bg-aura-error"
+                          }`} />
+                          <span className="text-sm font-body text-aura-on-surface">{service.name}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className={`block text-[10px] font-bold uppercase ${
+                            service.status === "online" ? "text-aura-tertiary" :
+                            service.status === "warning" ? "text-aura-secondary" : "text-aura-error"
+                          }`}>{service.status}</span>
+                          <span className="block text-[10px] text-aura-on-surface-variant">{service.latency}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* AI Backbone */}
+              <div className="bg-aura-surface-container-highest p-7 rounded-2xl flex flex-col justify-between">
+                <div className="space-y-5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-aura-primary/10 rounded-full flex items-center justify-center">
+                      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                        <circle cx="9" cy="9" r="3" fill="#a03929"/>
+                        <path d="M9 2v2M9 14v2M2 9h2M14 9h2M4.22 4.22l1.42 1.42M12.36 12.36l1.42 1.42M4.22 13.78l1.42-1.42M12.36 5.64l1.42-1.42" stroke="#a03929" strokeWidth="1.5" strokeLinecap="round"/>
+                      </svg>
+                    </div>
+                    <h3 className="text-base font-headline font-bold text-aura-on-surface">AI Backbone</h3>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="p-4 bg-white/50 rounded-xl">
+                      <p className="text-[10px] text-aura-on-surface-variant mb-1 font-body uppercase tracking-wider">Access Mode</p>
+                      <p className="text-sm font-bold text-aura-on-surface capitalize">
+                        {aiBackbone?.access_mode.replace(/_/g, " ") || "Loading…"}
+                      </p>
+                    </div>
+                    <div className="p-4 bg-white/50 rounded-xl overflow-hidden">
+                      <p className="text-[10px] text-aura-on-surface-variant mb-1 font-body uppercase tracking-wider">Workspace Endpoint</p>
+                      <code className="text-xs font-mono text-aura-primary truncate block">
+                        {aiBackbone?.workspace_default.api_url || "Not configured"}
+                      </code>
+                    </div>
+                    <div className="p-4 bg-white/50 rounded-xl">
+                      <p className="text-[10px] text-aura-on-surface-variant mb-1 font-body uppercase tracking-wider">Status</p>
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${aiBackbone?.effective_status.ready ? "bg-aura-tertiary" : "bg-aura-secondary animate-pulse"}`} />
+                        <p className="text-xs text-aura-on-surface">
+                          {aiBackbone?.effective_status.message || "Initializing…"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("memory")}
+                  className="mt-6 w-full py-3 bg-aura-on-surface text-aura-surface rounded-full text-sm font-body hover:opacity-90 transition-all active:scale-95"
+                >
+                  Configure Backend
+                </button>
+              </div>
+
+              {/* Quota Snapshot */}
+              <div className="bg-aura-surface-container-low p-7 rounded-2xl space-y-5">
+                <h3 className="text-base font-headline font-bold text-aura-on-surface">Quota Snapshot</h3>
+                <div className="space-y-4">
+                  {(systemSummary?.quota || []).length === 0 ? (
+                    [
+                      { name: "OpenAI", color: "bg-aura-primary", pct: 0 },
+                      { name: "Anthropic", color: "bg-aura-secondary", pct: 0 },
+                      { name: "Google TTS", color: "bg-aura-tertiary", pct: 0 },
+                      { name: "fal.ai", color: "bg-aura-error", pct: 0 },
+                      { name: "HeyGen", color: "bg-aura-primary-container", pct: 0 },
+                    ].map(q => (
+                      <div key={q.name} className="space-y-1">
+                        <div className="flex justify-between text-xs font-body">
+                          <span className="text-aura-on-surface">{q.name}</span>
+                          <span className="text-aura-on-surface-variant">—</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-aura-surface-container rounded-full overflow-hidden">
+                          <div className={`h-full ${q.color} animate-pulse`} style={{ width: "20%" }} />
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    (systemSummary?.quota || []).map(q => {
+                      const pct = q.total > 0 ? Math.min((q.used / q.total) * 100, 100) : 0;
+                      const isHigh = pct >= 80;
+                      const isCritical = pct >= 95;
+                      const barColor = isCritical ? "bg-aura-error" : isHigh ? "bg-aura-secondary" : "bg-aura-primary";
+                      return (
+                        <div key={q.name} className="space-y-1">
+                          <div className="flex justify-between text-xs font-body">
+                            <span className="text-aura-on-surface flex items-center gap-1.5">
+                              {q.name}
+                              {isHigh && (
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${
+                                  isCritical ? "bg-aura-error/20 text-aura-error" : "bg-aura-secondary/20 text-aura-secondary"
+                                }`}>
+                                  {isCritical ? "⚠ Critical" : "⚠ High"}
+                                </span>
+                              )}
+                            </span>
+                            <span className={`font-bold ${isCritical ? "text-aura-error" : isHigh ? "text-aura-secondary" : "text-aura-on-surface-variant"}`}>
+                              {Math.round(pct)}%
+                            </span>
+                          </div>
+                          <div className="h-1.5 w-full bg-aura-surface-container rounded-full overflow-hidden">
+                            <div className={`h-full ${barColor} transition-all duration-700 rounded-full`} style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </section>
+
+            {/* ── Persona Showcase + Action ── */}
+            <section className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
+              {/* Persona visual */}
+              <div className="md:col-span-7 bg-white p-1 rounded-2xl shadow-aura overflow-hidden relative group">
+                <div className="aspect-[16/9] w-full relative overflow-hidden rounded-xl bg-aura-surface-container-high flex items-end">
+                  {personas.length > 0 && personas[0].avatar_image_url ? (
+                    <img
+                      src={personas[0].avatar_image_url}
+                      alt={personas[0].display_name}
+                      className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                    />
+                  ) : (
+                    <div className="absolute inset-0 bg-gradient-to-br from-aura-primary/20 to-aura-primary-container/30 flex items-center justify-center">
+                      <div className="text-6xl font-headline font-extrabold text-aura-primary/20">
+                        {personas[0]?.display_name?.charAt(0) || "A"}
+                      </div>
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex items-end p-8">
+                    <div className="backdrop-blur-sm bg-white/10 p-5 rounded-xl border border-white/20">
+                      <h4 className="text-white text-xl font-bold font-headline mb-1">
+                        {personas[0]?.display_name || "Persona Alpha: Genesis"}
+                      </h4>
+                      <p className="text-white/80 text-sm font-body">
+                        {personas[0]?.status === "active" ? "Active · Ready for deployment." : "Configure your first persona to get started."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action panel */}
+              <div className="md:col-span-5 space-y-6">
+                <h3 className="text-3xl font-headline font-extrabold text-aura-on-surface leading-tight">
+                  Craft Your Next Digital Influence.
+                </h3>
+                <p className="text-aura-on-surface-variant font-body text-base leading-relaxed">
+                  Every great persona starts with a spark. Our AI backbone provides the infrastructure; you provide the soul. Monitor health, manage quotas, and watch your influence grow.
+                </p>
+
+                {/* Pending approvals inline */}
+                {approvals.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold text-aura-on-surface-variant uppercase tracking-widest">Pending Approvals</p>
+                    {approvals.slice(0, 3).map(a => (
+                      <div key={a.id} className="p-3 bg-aura-secondary-container/30 border border-aura-secondary/20 rounded-xl flex items-center justify-between">
+                        <span className="text-sm font-medium text-aura-on-surface truncate mr-2">{a.name}</span>
+                        <div className="flex gap-2 flex-shrink-0">
+                          <button
+                            onClick={() => handleApprove(a.id, true)}
+                            disabled={busyKey === `approve-${a.id}`}
+                            className="text-[10px] px-3 py-1.5 bg-aura-tertiary text-white rounded-full font-bold hover:opacity-90 active:scale-95 disabled:opacity-50"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleApprove(a.id, false)}
+                            disabled={busyKey === `approve-${a.id}`}
+                            className="text-[10px] px-3 py-1.5 bg-aura-error/20 text-aura-error rounded-full font-bold hover:bg-aura-error/30 active:scale-95 disabled:opacity-50"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-4">
+                  <button
+                    type="button"
+                    onClick={() => void handleCreateThread()}
+                    disabled={busyKey === "thread"}
+                    className="bg-aura-primary text-aura-on-primary px-7 py-3.5 rounded-full font-body font-bold shadow-aura-md hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
+                  >
+                    Launch Studio
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("live_feed")}
+                    className="bg-aura-secondary-container text-aura-on-secondary-container px-7 py-3.5 rounded-full font-body font-bold hover:scale-105 active:scale-95 transition-all"
+                  >
+                    View Logs
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {/* ── Campaign Control + Output Stream ── */}
+            <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white rounded-2xl p-7 shadow-aura">
+                <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Campaign Control</h3>
+                <div className="space-y-3">
+                  {campaigns.map(c => (
+                    <div key={c.id} className="p-4 bg-aura-surface-container-low border border-aura-outline-variant/20 rounded-xl flex items-center justify-between">
+                      <div className="min-w-0 mr-3">
+                        <h4 className="font-semibold text-aura-on-surface text-sm truncate">{c.name}</h4>
+                        <p className="text-[10px] text-aura-on-surface-variant mt-0.5 uppercase tracking-wider">{c.status} · {c.approval_status}</p>
+                      </div>
+                      <button
+                        onClick={() => handleLaunch(c.id)}
+                        disabled={c.approval_status !== "approved" || busyKey === `launch-${c.id}`}
+                        className="flex-shrink-0 text-[10px] px-4 py-2 bg-aura-tertiary text-white rounded-full font-bold hover:opacity-90 active:scale-95 disabled:opacity-40 transition-all"
+                      >
+                        {busyKey === `launch-${c.id}` ? "…" : "Launch"}
+                      </button>
+                    </div>
+                  ))}
+                  {campaigns.length === 0 && (
+                    <p className="text-sm text-aura-outline italic text-center py-4">Queue clear.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl p-7 shadow-aura">
+                <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Output Stream</h3>
+                <div className="space-y-2">
+                  {content.slice(0, 6).map(item => (
+                    <div key={item.id} className="p-3 bg-aura-surface-container-low border border-aura-outline-variant/15 rounded-xl flex justify-between items-center">
+                      <span className="text-sm text-aura-on-surface truncate mr-2">{item.title}</span>
+                      <span className={`flex-shrink-0 text-[10px] px-2.5 py-1 rounded-full font-bold ${
+                        item.status === "published"
+                          ? "bg-aura-tertiary-container/50 text-aura-tertiary"
+                          : item.status === "scheduled"
+                          ? "bg-aura-secondary-container/50 text-aura-secondary"
+                          : "bg-aura-surface-container text-aura-on-surface-variant"
+                      }`}>
+                        {item.status}
+                      </span>
+                    </div>
+                  ))}
+                  {content.length === 0 && (
+                    <p className="text-sm text-aura-outline italic text-center py-4">No content yet.</p>
+                  )}
+                </div>
+              </div>
+            </section>
+
           </div>
         )}
 
@@ -1389,134 +1825,453 @@ export default function CustomerDashboard() {
         )}
 
         {activeTab === "skills" && (
-          <div className="space-y-4 md:space-y-6">
-            <Panel variant="elevated">
-              <PanelHeader 
-                title="AI Influencer Personas" 
-                subtitle="Your account-linked characters."
-              />
+          <div className="space-y-10 animate-fade-in">
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-                {personas.map(p => (
-                  <PersonaCard
-                    key={p.persona_id}
-                    id={p.persona_id}
-                    name={p.display_name}
-                    avatarUrl={p.avatar_image_url || undefined}
-                    status={p.status}
-                    videoCount={p.video_count}
-                    tone="emerald"
-                  />
-                ))}
-
-                <div className="border border-dashed border-zinc-700 rounded-lg p-6 md:p-8 flex flex-col items-center justify-center text-center space-y-4 transition-colors duration-200 ease-out hover:bg-white/[0.02] group cursor-pointer">
-                  <p className="text-xs text-zinc-500">Create more characters on Telegram</p>
-                  {telegramBotUrl && (
-                    <a href={telegramBotUrl} target="_blank" rel="noreferrer" className="px-4 py-2 bg-blue-500 text-white font-semibold rounded text-xs uppercase tracking-wide shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98]">Open Bot</a>
-                  )}
-                </div>
+            {/* Page header */}
+            <header className="flex justify-between items-end">
+              <div>
+                <h1 className="text-4xl font-extrabold text-aura-on-surface font-headline tracking-tight mb-2">Quản lý AI Personas</h1>
+                <p className="text-aura-on-surface-variant max-w-xl text-sm font-body">
+                  Tùy chỉnh và điều phối các nhân vật ảo liên kết với tài khoản của bạn để tối ưu sức ảnh hưởng.
+                </p>
               </div>
-            </Panel>
+              {telegramBotUrl && (
+                <a
+                  href={telegramBotUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hidden sm:flex items-center gap-2 bg-gradient-to-br from-aura-primary to-aura-primary-container text-aura-on-primary px-7 py-3 rounded-full font-bold shadow-aura-md hover:scale-105 active:scale-95 transition-all text-sm"
+                >
+                  <span>+</span> Tạo Persona mới
+                </a>
+              )}
+            </header>
+
+            {/* Persona bento grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+              {personas.map(p => {
+                const isActive = p.status === "active";
+                return (
+                  <div
+                    key={p.persona_id}
+                    className="group relative overflow-hidden rounded-2xl bg-white shadow-aura transition-all duration-300 hover:-translate-y-2 hover:shadow-aura-md"
+                  >
+                    {/* Photo area */}
+                    <div className="aspect-[4/5] overflow-hidden bg-aura-surface-container-high">
+                      {p.avatar_image_url ? (
+                        <img
+                          src={p.avatar_image_url}
+                          alt={p.display_name}
+                          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-aura-primary/10 to-aura-primary-container/20">
+                          <span className="text-7xl font-extrabold font-headline text-aura-primary/20">
+                            {p.display_name.charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60" />
+                    </div>
+
+                    {/* Glass info panel */}
+                    <div className="absolute bottom-0 left-0 right-0 m-4 p-5 rounded-xl" style={{ background: "rgba(248,246,241,0.75)", backdropFilter: "blur(24px)" }}>
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="min-w-0 mr-2">
+                          <h3 className="text-lg font-bold font-headline text-aura-on-surface truncate">{p.display_name}</h3>
+                          <p className="text-[10px] font-bold text-aura-primary uppercase tracking-widest mt-0.5">
+                            {p.video_count} videos
+                          </p>
+                        </div>
+                        <span className={`flex-shrink-0 px-2 py-1 rounded text-[10px] font-bold ${
+                          isActive
+                            ? "bg-aura-tertiary-container text-aura-on-tertiary-container"
+                            : "bg-aura-surface-container-high text-aura-on-surface-variant"
+                        }`}>
+                          {isActive ? "ĐANG HOẠT ĐỘNG" : "BẢN NHÁP"}
+                        </span>
+                      </div>
+
+                      <div className="flex gap-4 mb-4 text-xs text-aura-on-surface-variant">
+                        <span className="flex items-center gap-1">
+                          <span className="text-base">👥</span>
+                          {isActive ? `${p.video_count * 12}k` : "--"}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="text-base">♥</span>
+                          {isActive ? "4.2%" : "--"}
+                        </span>
+                      </div>
+
+                      {telegramBotUrl ? (
+                        <a
+                          href={telegramBotUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="w-full py-2 bg-aura-surface-container text-aura-on-surface font-bold rounded-full text-sm hover:bg-aura-primary hover:text-white transition-colors flex items-center justify-center gap-2"
+                        >
+                          <span className="text-base">💬</span>
+                          {isActive ? "Mở Bot hội thoại" : "Tiếp tục thiết lập"}
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          className="w-full py-2 bg-aura-surface-container text-aura-on-surface font-bold rounded-full text-sm hover:bg-aura-primary hover:text-white transition-colors"
+                        >
+                          {isActive ? "Xem chi tiết" : "Tiếp tục thiết lập"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Add new card */}
+              <div className="group relative overflow-hidden rounded-2xl border-2 border-dashed border-aura-outline-variant/40 flex flex-col items-center justify-center p-12 text-center hover:border-aura-primary/50 transition-colors cursor-pointer min-h-[400px]">
+                <div className="w-16 h-16 rounded-full bg-aura-surface-container-high flex items-center justify-center mb-4 group-hover:bg-aura-primary-container/50 transition-colors">
+                  <span className="text-3xl text-aura-primary">+</span>
+                </div>
+                <h3 className="text-lg font-bold text-aura-on-surface mb-2">Tạo Nhân Vật Mới</h3>
+                <p className="text-sm text-aura-on-surface-variant mb-6">
+                  Ra mắt một AI cá tính hoàn toàn mới để mở rộng phạm vi tiếp cận.
+                </p>
+                {telegramBotUrl ? (
+                  <a
+                    href={telegramBotUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-6 py-2 bg-aura-surface-container-high text-aura-on-surface font-bold rounded-full text-sm hover:bg-aura-primary hover:text-white transition-all"
+                  >
+                    Bắt đầu tạo
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    className="px-6 py-2 bg-aura-surface-container-high text-aura-on-surface font-bold rounded-full text-sm hover:bg-aura-primary hover:text-white transition-all"
+                  >
+                    Bắt đầu tạo
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Management section */}
+            <section className="bg-aura-surface-container-low rounded-2xl p-8">
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-2xl font-bold text-aura-on-surface font-headline">Cài đặt Vận hành Chung</h2>
+                <button type="button" className="text-aura-primary font-bold text-sm hover:underline underline-offset-4">Quản lý tất cả</button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {[
+                  {
+                    icon: "✨",
+                    title: "Tự động hóa nội dung",
+                    desc: "Lên lịch đăng bài tự động cho tất cả các persona đang hoạt động.",
+                    badge: null,
+                    toggle: true,
+                  },
+                  {
+                    icon: "🌐",
+                    title: "Đa ngôn ngữ",
+                    desc: "Tự động dịch thuật để tiếp cận khán giả quốc tế.",
+                    badge: { text: "12 Ngôn ngữ đã kích hoạt", color: "text-aura-primary" },
+                    toggle: false,
+                  },
+                  {
+                    icon: "✅",
+                    title: "Bộ lọc an toàn",
+                    desc: "Giám sát phản hồi AI nghiêm ngặt để bảo vệ thương hiệu.",
+                    badge: { text: "Cấp độ Doanh nghiệp", color: "text-aura-tertiary" },
+                    toggle: false,
+                  },
+                ].map(item => (
+                  <div key={item.title} className="bg-white p-6 rounded-xl shadow-aura-sm">
+                    <span className="text-2xl mb-3 block">{item.icon}</span>
+                    <h4 className="font-bold text-aura-on-surface mb-1 text-sm">{item.title}</h4>
+                    <p className="text-xs text-aura-on-surface-variant">{item.desc}</p>
+                    {item.toggle && (
+                      <div className="mt-4 flex items-center gap-2">
+                        <div className="w-8 h-4 bg-aura-primary rounded-full relative">
+                          <div className="w-3 h-3 bg-white rounded-full absolute right-0.5 top-0.5" />
+                        </div>
+                        <span className="text-[10px] font-bold text-aura-on-surface-variant uppercase">BẬT</span>
+                      </div>
+                    )}
+                    {item.badge && (
+                      <p className={`mt-4 text-xs font-bold ${item.badge.color}`}>{item.badge.text}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+
           </div>
         )}
 
         {activeTab === "memory" && (
-          <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
-            <Panel variant="elevated">
-              <PanelHeader 
-                title="Brand Context" subtitle="Knowledge assets."/>
-              <form className="space-y-4 md:space-y-6" onSubmit={handleBrandSave}>
-                <FieldSet title="Brand Profile" description="Core information about your brand">
-                  <FormField
-                    label="Brand Name"
-                    value={brandForm.product_name || ""}
-                    onChange={(event) => setBrandForm(c => ({ ...c, product_name: (event.target as HTMLInputElement).value }))}
-                    placeholder="Enter your brand name"
-                  />
-                  <TextAreaField
-                    label="Audience"
-                    value={brandForm.audience || ""}
-                    onChange={(event) => setBrandForm(c => ({ ...c, audience: (event.target as HTMLTextAreaElement).value }))}
-                    placeholder="Describe your target audience"
-                    minHeight="80px"
-                  />
-                  <TextAreaField
-                    label="Offer Summary"
-                    value={brandForm.offer_summary || ""}
-                    onChange={(event) => setBrandForm(c => ({ ...c, offer_summary: (event.target as HTMLTextAreaElement).value }))}
-                    placeholder="Summarize your product or service offering"
-                    minHeight="80px"
-                  />
-                </FieldSet>
-                <button type="submit" className="w-full bg-blue-500 text-white font-semibold py-2.5 rounded-lg shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98]">Update Memory</button>
-              </form>
-            </Panel>
+          <div className="space-y-10 animate-fade-in">
 
-            <div className="space-y-4 md:space-y-6">
-              <Panel variant="elevated">
-                <PanelHeader 
-                  title="Intelligence Settings" subtitle="AI configurations."/>
-                <div className="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-lg backdrop-blur-xl">
-                  <p className="text-xs font-medium text-emerald-400 uppercase tracking-wide">Access Mode</p>
-                  <p className="text-lg font-semibold text-white mt-1 uppercase">{aiBackbone?.access_mode.replace(/_/g, " ")}</p>
-                  <p className="text-xs text-zinc-400 mt-2">{aiBackbone?.effective_status.message}</p>
+            {/* Page header */}
+            <header>
+              <h1 className="text-4xl font-extrabold text-aura-on-surface font-headline tracking-tight mb-2">Dự án &amp; Memory</h1>
+              <p className="text-aura-on-surface-variant max-w-2xl text-sm font-body">
+                Xác định bản sắc cốt lõi của thương hiệu kỹ thuật số. Các thông số này định hình cách AI học hỏi, ghi nhớ và giao tiếp trên mọi kênh.
+              </p>
+            </header>
+
+            {/* Bento grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+
+              {/* ── Left: Brand Context (8 col) ── */}
+              <section className="lg:col-span-8 space-y-8">
+
+                {/* Brand Context card */}
+                <div className="bg-white rounded-2xl p-8 shadow-aura">
+                  <div className="flex items-center gap-3 mb-8">
+                    <div className="w-12 h-12 rounded-2xl bg-aura-primary/10 flex items-center justify-center">
+                      <span className="text-xl">📖</span>
+                    </div>
+                    <h3 className="text-xl font-bold text-aura-on-surface font-headline">Bối cảnh Thương hiệu</h3>
+                  </div>
+
+                  <form className="space-y-6" onSubmit={handleBrandSave}>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Tên Thương hiệu</label>
+                        <input
+                          type="text"
+                          value={brandForm.product_name || ""}
+                          onChange={e => setBrandForm(c => ({ ...c, product_name: e.target.value }))}
+                          placeholder="Nhập tên thương hiệu..."
+                          className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all outline-none"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Đối tượng Mục tiêu</label>
+                        <input
+                          type="text"
+                          value={brandForm.audience || ""}
+                          onChange={e => setBrandForm(c => ({ ...c, audience: e.target.value }))}
+                          placeholder="Mô tả đối tượng mục tiêu..."
+                          className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Tóm tắt Giá trị</label>
+                      <textarea
+                        value={brandForm.offer_summary || ""}
+                        onChange={e => setBrandForm(c => ({ ...c, offer_summary: e.target.value }))}
+                        placeholder="Tóm tắt về sản phẩm hoặc dịch vụ của bạn..."
+                        rows={4}
+                        className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all resize-none outline-none"
+                      />
+                    </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={busyKey === "brand-save"}
+                        className="px-10 py-3.5 bg-aura-primary text-aura-on-primary font-bold rounded-full hover:opacity-90 transition-all shadow-aura-md active:scale-95 disabled:opacity-50"
+                      >
+                        {busyKey === "brand-save" ? "Đang lưu…" : "Lưu Bối cảnh"}
+                      </button>
+                    </div>
+                  </form>
                 </div>
-              </Panel>
 
-              <Panel variant="elevated">
-                <PanelHeader 
-                  title="System Bridge" subtitle="Telegram sync."/>
-                {telegramLink?.linked ? (
-                  <div className="flex justify-between items-center p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-lg backdrop-blur-xl">
+                {/* Intelligence Mode + System Bridge */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+                  {/* Intelligence Mode */}
+                  <div className="bg-white rounded-2xl p-8 shadow-aura flex flex-col justify-between">
                     <div>
-                      <p className="text-sm font-semibold text-white">@{telegramLink.link?.telegram_username || "Linked Account"}</p>
-                      <p className="text-xs text-zinc-500 uppercase">Chat ID: {telegramLink.link?.chat_id}</p>
+                      <div className="flex items-center gap-3 mb-6">
+                        <div className="w-10 h-10 rounded-xl bg-aura-tertiary/10 flex items-center justify-center">
+                          <span className="text-lg">🧠</span>
+                        </div>
+                        <h3 className="font-bold text-aura-on-surface font-headline">Chế độ Trí tuệ</h3>
+                      </div>
+                      <p className="text-sm text-aura-on-surface-variant mb-6 leading-relaxed font-body">
+                        Xác định cách AI truy cập và sử dụng kho lưu trữ bộ nhớ trong các cuộc hội thoại.
+                      </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                      <span className="text-xs text-zinc-400">Linked</span>
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between w-full p-5 bg-aura-surface-container-lowest rounded-2xl border-2 border-aura-primary shadow-aura-sm">
+                        <span className="font-bold text-aura-on-surface text-sm">
+                          {aiBackbone?.access_mode.replace(/_/g, " ") || "Platform Managed"}
+                        </span>
+                        <span className="text-aura-tertiary text-lg">✓</span>
+                      </div>
+                      <div className="flex items-center justify-between w-full p-5 bg-aura-surface-container-low rounded-2xl border-2 border-transparent">
+                        <span className="font-medium text-aura-on-surface-variant text-sm">
+                          {aiBackbone?.effective_status.message || "Initializing…"}
+                        </span>
+                        <span className={`w-2 h-2 rounded-full ${aiBackbone?.effective_status.ready ? "bg-aura-tertiary" : "bg-aura-secondary animate-pulse"}`} />
+                      </div>
                     </div>
                   </div>
-                ) : (
-                  <button onClick={handleStartTelegramLink} className="w-full bg-blue-500 text-white font-semibold py-2.5 rounded-lg shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98]">
-                    {busyKey === "telegram-link" ? "Generating Link..." : "Connect Telegram"}
-                  </button>
-                )}
-                {linkToken && (
-                  <div className="mt-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg backdrop-blur-xl text-center">
-                    <p className="text-xs text-amber-300 mb-3 font-medium">
-                      {isPollingTelegramLink
-                        ? "Waiting for Telegram confirmation. This card updates automatically."
-                        : "Secure link ready. Finish the confirmation in Telegram."}
-                    </p>
-                    {telegramVerificationUrl && (
-                      <a href={telegramVerificationUrl} target="_blank" rel="noreferrer" className="bg-amber-500 text-zinc-950 px-4 py-2 rounded font-semibold text-xs uppercase tracking-wide shadow-lg shadow-amber-500/20 transition-all duration-200 ease-out hover:bg-amber-400 hover:shadow-amber-500/30 active:scale-[0.98] inline-block">Verify Now</a>
-                    )}
-                  </div>
-                )}
-              </Panel>
 
-              <Panel variant="elevated">
-                <PanelHeader 
-                  title="Social Grid" subtitle="Publishing targets."/>
-                <div className="grid grid-cols-2 gap-3">
-                  {SUPPORTED_PLATFORMS.map(p => {
-                    const acc = accounts.find(a => a.platform === p);
-                    return (
-                      <div key={p} className="p-3 bg-white/[0.02] border border-white/[0.08] rounded-lg backdrop-blur-xl flex justify-between items-center transition-colors duration-200 ease-out hover:bg-white/[0.04]">
-                        <p className="text-xs font-medium uppercase tracking-wide">{p}</p>
-                        {acc ? <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                          <span className="text-xs text-zinc-400">Linked</span>
-                        </div> : (
-                          <button onClick={() => handleConnect(p)} className="text-xs text-zinc-500 hover:text-blue-400 uppercase font-medium tracking-wide transition-colors">Link</button>
+                  {/* System Bridge — Telegram */}
+                  <div className="bg-white rounded-2xl p-8 shadow-aura flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-3 mb-6">
+                        <div className="w-10 h-10 rounded-xl bg-aura-secondary/10 flex items-center justify-center">
+                          <span className="text-lg">🔗</span>
+                        </div>
+                        <h3 className="font-bold text-aura-on-surface font-headline">Cầu nối Hệ thống</h3>
+                      </div>
+                      <p className="text-sm text-aura-on-surface-variant mb-6 leading-relaxed font-body">
+                        Cho phép điều khiển và giám sát trực tiếp thông qua các giao thức tin nhắn bảo mật.
+                      </p>
+                    </div>
+
+                    {telegramLink?.linked ? (
+                      <div className="p-5 bg-blue-50 rounded-2xl flex items-center gap-4">
+                        <div className="w-10 h-10 bg-[#0088cc] text-white rounded-full flex items-center justify-center text-lg flex-shrink-0">✈</div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-aura-on-surface">@{telegramLink.link?.telegram_username || "Linked Account"}</p>
+                          <p className="text-[10px] text-aura-on-surface-variant">ID: {telegramLink.link?.chat_id}</p>
+                          <p className="text-[10px] text-aura-tertiary font-bold uppercase tracking-wide mt-0.5">Đã kết nối</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleStartTelegramLink}
+                          className="text-aura-on-surface-variant hover:text-aura-primary transition-colors text-sm"
+                        >↻</button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <button
+                          type="button"
+                          onClick={handleStartTelegramLink}
+                          disabled={busyKey === "telegram-link"}
+                          className="w-full py-3 bg-[#0088cc] text-white font-bold rounded-full hover:opacity-90 active:scale-95 transition-all disabled:opacity-50"
+                        >
+                          {busyKey === "telegram-link" ? "Đang tạo liên kết…" : "Kết nối Telegram"}
+                        </button>
+                        {linkToken && telegramVerificationUrl && (
+                          <div className="p-4 bg-aura-secondary-container/30 border border-aura-secondary/20 rounded-xl text-center">
+                            <p className="text-xs text-aura-secondary mb-3 font-medium">
+                              {isPollingTelegramLink ? "Chờ xác nhận Telegram…" : "Liên kết sẵn sàng. Xác nhận trên Telegram."}
+                            </p>
+                            <a
+                              href={telegramVerificationUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-block px-6 py-2 bg-aura-secondary text-aura-on-secondary rounded-full font-bold text-xs hover:opacity-90 active:scale-95 transition-all"
+                            >
+                              Xác nhận ngay
+                            </a>
+                          </div>
                         )}
                       </div>
-                    );
-                  })}
+                    )}
+                  </div>
                 </div>
-              </Panel>
+              </section>
+
+              {/* ── Right: Social Grid + Persona visual (4 col) ── */}
+              <aside className="lg:col-span-4 space-y-8">
+
+                {/* Social Grid */}
+                <div className="bg-aura-surface-container-high rounded-2xl p-8">
+                  <h3 className="text-lg font-bold font-headline text-aura-on-surface mb-2">Mạng lưới Xã hội</h3>
+                  <p className="text-xs text-aura-on-surface-variant mb-8 font-body">
+                    Bật/tắt các mục tiêu đăng bài tự động cho chu kỳ nội dung được tối ưu bởi bộ nhớ.
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    {SUPPORTED_PLATFORMS.map(p => {
+                      const acc = accounts.find(a => a.platform === p);
+                      const platformIcons: Record<string, { emoji: string; color: string; bg: string }> = {
+                        linkedin:  { emoji: "🔷", color: "text-blue-600",  bg: "bg-blue-50"  },
+                        twitter:   { emoji: "🐦", color: "text-stone-900", bg: "bg-stone-100" },
+                        x:         { emoji: "✖",  color: "text-stone-900", bg: "bg-stone-100" },
+                        youtube:   { emoji: "▶",  color: "text-red-600",   bg: "bg-red-50"   },
+                        instagram: { emoji: "📸", color: "text-pink-600",  bg: "bg-pink-50"  },
+                        tiktok:    { emoji: "🎵", color: "text-stone-900", bg: "bg-stone-100" },
+                        facebook:  { emoji: "📘", color: "text-blue-700",  bg: "bg-blue-50"  },
+                      };
+                      const meta = platformIcons[p.toLowerCase()] ?? { emoji: "🌐", color: "text-aura-primary", bg: "bg-aura-surface-container" };
+                      return (
+                        <div
+                          key={p}
+                          className="bg-white/60 backdrop-blur p-4 rounded-3xl flex flex-col items-center justify-center gap-3 hover:bg-white cursor-pointer group shadow-aura-sm transition-all"
+                        >
+                          <div className={`w-12 h-12 ${meta.bg} ${meta.color} rounded-full flex items-center justify-center group-hover:scale-110 transition-transform text-xl`}>
+                            {meta.emoji}
+                          </div>
+                          <span className="text-xs font-bold text-aura-on-surface capitalize">{p}</span>
+                          {acc ? (
+                            <div className="w-10 h-5 bg-aura-primary rounded-full relative">
+                              <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full" />
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleConnect(p)}
+                              className="w-10 h-5 bg-aura-surface-container-high rounded-full relative hover:bg-aura-primary/30 transition-colors"
+                            >
+                              <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Memory capacity bar */}
+                  <div className="mt-8 pt-8 border-t border-aura-outline-variant/20">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs font-bold text-aura-on-surface-variant">Khả năng Ghi nhớ</span>
+                      <span className="text-xs font-bold text-aura-primary">84%</span>
+                    </div>
+                    <div className="w-full bg-aura-surface-container-lowest h-2 rounded-full overflow-hidden">
+                      <div className="bg-gradient-to-r from-aura-primary to-aura-primary-container h-full w-[84%] rounded-full" />
+                    </div>
+                    <p className="text-[10px] text-aura-on-surface-variant mt-4 leading-relaxed italic font-body">
+                      Tỷ lệ lưu giữ cao hơn cho phép AI nhớ lại các sở thích thương hiệu sắc thái từ các tương tác trước đó chính xác hơn.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Persona visual card */}
+                {personas.length > 0 && (
+                  <div className="relative group cursor-pointer">
+                    <div className="aspect-[4/5] rounded-2xl overflow-hidden shadow-aura-md transition-transform group-hover:scale-[1.02] duration-300 bg-aura-surface-container-high">
+                      {personas[0]?.avatar_image_url ? (
+                        <img
+                          src={personas[0].avatar_image_url}
+                          alt={personas[0].display_name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-aura-primary/20 to-aura-primary-container/30 flex items-center justify-center">
+                          <span className="text-8xl font-extrabold text-aura-primary/20 font-headline">
+                            {personas[0]?.display_name?.charAt(0) || "A"}
+                          </span>
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                      <div className="absolute bottom-0 left-0 right-0 p-6" style={{ backdropFilter: "blur(12px)", background: "rgba(255,255,255,0.08)", borderTop: "1px solid rgba(255,255,255,0.15)" }}>
+                        <h4 className="text-white font-bold text-xl font-headline">{personas[0]?.display_name}</h4>
+                        <p className="text-white/70 text-xs font-body mt-0.5">Persona đang hoạt động</p>
+                        <div className="mt-4 flex items-center gap-2">
+                          <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                          <span className="text-[10px] text-white/90 font-body font-medium uppercase tracking-widest">
+                            {personas[0]?.status === "active" ? "Đã tối ưu & Đồng bộ" : "Chờ kích hoạt"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+              </aside>
             </div>
+
           </div>
         )}
 
@@ -1536,21 +2291,21 @@ export default function CustomerDashboard() {
                 title="Workflow Monitor" subtitle="Current workflow queue and publishing output."/>
               <div className="space-y-4">
                 <div className="space-y-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-aura-on-surface-variant">
                     Runtime Workflows
                   </p>
                   {systemWorkflows.length === 0 && (
-                    <p className="text-sm text-zinc-400">No active workflow telemetry right now.</p>
+                    <p className="text-sm text-aura-on-surface-variant">No active workflow telemetry right now.</p>
                   )}
                   {systemWorkflows.map((workflow) => (
                     <div
                       key={workflow.id}
-                      className="rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4"
+                      className="rounded-[16px] border border-aura-outline-variant/30 bg-aura-surface-container-low p-4"
                     >
                       <div className="flex items-center justify-between gap-4">
                         <div>
-                          <p className="font-medium text-white">{workflow.name}</p>
-                          <p className="text-xs text-zinc-500">
+                          <p className="font-medium text-aura-on-surface">{workflow.name}</p>
+                          <p className="text-xs uppercase tracking-widest text-aura-on-surface-variant">
                             {workflow.id}
                           </p>
                         </div>
@@ -1562,9 +2317,9 @@ export default function CustomerDashboard() {
                           <span className="text-xs text-zinc-400 capitalize">{workflow.status}</span>
                         </div>
                       </div>
-                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-aura-surface-container-highest">
                         <div
-                          className="h-full rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]"
+                          className="h-full rounded-full bg-emerald-400 shadow-aura-sm"
                           style={{ width: `${Math.max(0, Math.min(workflow.progress, 100))}%` }}
                         />
                       </div>
@@ -1573,17 +2328,17 @@ export default function CustomerDashboard() {
                 </div>
 
                 <div className="space-y-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-aura-on-surface-variant">
                     Recent Output
                   </p>
                   {content.slice(0, 5).map((item) => (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between gap-4 rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-4"
+                      className="flex items-center justify-between gap-4 rounded-[16px] border border-aura-outline-variant/30 bg-aura-surface-container-high p-4"
                     >
                       <div>
-                        <p className="font-medium text-white">{item.title}</p>
-                        <p className="text-xs text-zinc-500">
+                        <p className="font-medium text-aura-on-surface">{item.title}</p>
+                        <p className="text-xs uppercase tracking-widest text-aura-on-surface-variant">
                           {(item.platform || []).join(", ")}
                         </p>
                       </div>
@@ -1667,7 +2422,7 @@ function ActivityFeed({
   emptyMessage?: string;
 }) {
   if (items.length === 0) {
-    return <p className="text-sm text-zinc-400">{emptyMessage}</p>;
+    return <p className="text-sm text-aura-on-surface-variant">{emptyMessage}</p>;
   }
 
   return (
@@ -1716,9 +2471,39 @@ function Field({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-[14px] border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl px-4 py-3 text-sm text-white placeholder:text-zinc-500 outline-none transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+        className="w-full rounded-[14px] border border-aura-outline-variant bg-aura-surface-container-high px-4 py-3 text-sm text-aura-on-surface placeholder:text-aura-outline transition-colors focus:border-aura-primary focus:ring-1 focus:ring-aura-primary"
       />
     </label>
+  );
+}
+
+function StatusBadge({ label }: { label: string }) {
+  const normalizedLabel = label.toLowerCase().replaceAll("_", " ");
+  
+  // Determine badge style based on status
+  const isSuccess = ["connected", "online", "completed", "approved", "published", "linked"].some(
+    keyword => normalizedLabel.includes(keyword)
+  );
+  const isWarning = ["pending", "waiting", "scheduled"].some(
+    keyword => normalizedLabel.includes(keyword)
+  );
+  const isError = ["error", "failed", "rejected", "disconnected"].some(
+    keyword => normalizedLabel.includes(keyword)
+  );
+  
+  let badgeClasses = "bg-aura-surface-container-highest text-aura-on-surface-variant border-aura-outline-variant/30";
+  if (isSuccess) {
+    badgeClasses = "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/20";
+  } else if (isWarning) {
+    badgeClasses = "bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-500/15 dark:text-amber-400 dark:border-amber-500/20";
+  } else if (isError) {
+    badgeClasses = "bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-500/15 dark:text-rose-400 dark:border-rose-500/20";
+  }
+  
+  return (
+    <span className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-widest ${badgeClasses}`}>
+      {label.replaceAll("_", " ")}
+    </span>
   );
 }
 
@@ -1742,7 +2527,7 @@ function buildActivityItems({
 }): ActivityItem[] {
   const items: ActivityItem[] = [];
 
-  systemWorkflows.slice(0, 3).forEach((workflow) => {
+  (systemWorkflows || []).slice(0, 3).forEach((workflow) => {
     items.push({
       id: `workflow-${workflow.id}`,
       title: workflow.name,
@@ -1756,7 +2541,7 @@ function buildActivityItems({
     });
   });
 
-  approvals.slice(0, 2).forEach((approval) => {
+  (approvals || []).slice(0, 2).forEach((approval) => {
     items.push({
       id: `approval-${approval.id}`,
       title: `Approval pending: ${approval.name}`,
@@ -1765,7 +2550,7 @@ function buildActivityItems({
     });
   });
 
-  content.slice(0, 3).forEach((item) => {
+  (content || []).slice(0, 3).forEach((item) => {
     items.push({
       id: `content-${item.id}`,
       title: `Content: ${item.title}`,
@@ -1774,7 +2559,7 @@ function buildActivityItems({
     });
   });
 
-  campaigns.slice(0, 2).forEach((campaign) => {
+  (campaigns || []).slice(0, 2).forEach((campaign) => {
     items.push({
       id: `campaign-${campaign.id}`,
       title: `Campaign: ${campaign.name}`,
@@ -1812,4 +2597,10 @@ function activityToneClass(tone: ActivityItemTone = "default"): string {
     return "bg-amber-300";
   }
   return "bg-sky-300";
+}
+
+function auraActivityDotClass(tone: ActivityItemTone = "default"): string {
+  if (tone === "success") return "bg-aura-tertiary";
+  if (tone === "warning") return "bg-aura-secondary";
+  return "bg-aura-primary-container";
 }

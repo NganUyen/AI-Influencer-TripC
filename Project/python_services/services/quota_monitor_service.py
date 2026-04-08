@@ -116,11 +116,22 @@ class QuotaMonitorService:
     _live_refresh_lock = asyncio.Lock()
     _last_live_refresh_at: Dict[str, datetime] = {}
 
+    # Estimated costs per unit if not provided by response headers
+    PRICE_MAP = {
+        "openai": 0.00001,  # $10 per 1M tokens (blended input/output)
+        "anthropic": 0.00001,  # $10 per 1M tokens
+        "gemini": 0.000005,  # $5 per 1M tokens
+        "google_tts": 0.000004,  # $4 per 1M chars
+        "fal_ai": 0.05,  # $0.05 per request avg
+        "heygen": 2.0,  # $2.00 per job
+    }
+
     PROVIDERS = {
         "openai": {
             "label": "OpenAI",
             "api_key_attr": "OPENAI_API_KEY",
             "usage_unit": "tokens",
+            "billing_type": "pay_as_you_go",
             "limit_attr": "OPENAI_MONTHLY_TOKEN_LIMIT",
             "remaining_support": "provider_headers",
             "remaining_note": (
@@ -132,6 +143,7 @@ class QuotaMonitorService:
             "label": "Anthropic",
             "api_key_attr": "ANTHROPIC_API_KEY",
             "usage_unit": "tokens",
+            "billing_type": "pay_as_you_go",
             "limit_attr": "ANTHROPIC_MONTHLY_TOKEN_LIMIT",
             "remaining_support": "provider_headers",
             "remaining_note": (
@@ -142,6 +154,7 @@ class QuotaMonitorService:
             "label": "Google Gemini",
             "api_key_attr": "GOOGLE_AI_API_KEY",
             "usage_unit": "tokens",
+            "billing_type": "pay_as_you_go",
             "limit_attr": "GOOGLE_AI_MONTHLY_TOKEN_LIMIT",
             "remaining_support": "configured_limit_only",
             "remaining_note": (
@@ -153,6 +166,7 @@ class QuotaMonitorService:
             "label": "fal.ai",
             "api_key_attr": "FAL_AI_API_KEY",
             "usage_unit": "requests",
+            "billing_type": "pay_as_you_go",
             "limit_attr": "FAL_AI_MONTHLY_REQUEST_LIMIT",
             "remaining_support": "configured_limit_only",
             "remaining_note": (
@@ -164,6 +178,7 @@ class QuotaMonitorService:
             "label": "Google TTS",
             "api_key_attr": "GOOGLE_TTS_API_KEY",
             "usage_unit": "characters",
+            "billing_type": "pay_as_you_go",
             "limit_attr": "GOOGLE_TTS_MONTHLY_CHAR_LIMIT",
             "remaining_support": "configured_limit_only",
             "remaining_note": (
@@ -175,11 +190,48 @@ class QuotaMonitorService:
             "label": "HeyGen",
             "api_key_attr": "HEYGEN_API_KEY",
             "usage_unit": "jobs",
+            "billing_type": "subscription",
             "limit_attr": "HEYGEN_MONTHLY_JOB_LIMIT",
             "remaining_support": "live_endpoint",
             "remaining_note": (
                 "Remaining quota is refreshed from HeyGen's remaining quota endpoint."
             ),
+        },
+        "openclaw": {
+            "label": "OpenClaw",
+            "api_key_attr": "OPENCLAW_API_KEY",
+            "usage_unit": "requests",
+            "billing_type": "subscription",
+            "limit_attr": None,
+            "remaining_support": "configured_limit_only",
+            "remaining_note": "OpenClaw status monitoring.",
+        },
+        "postiz": {
+            "label": "Postiz",
+            "api_key_attr": "POSTIZ_API_KEY",
+            "usage_unit": "posts",
+            "billing_type": "subscription",
+            "limit_attr": None,
+            "remaining_support": "configured_limit_only",
+            "remaining_note": "Postiz social publishing monitoring.",
+        },
+        "growchief": {
+            "label": "GrowChief",
+            "api_key_attr": "GROWCHIEF_API_KEY",
+            "usage_unit": "workflows",
+            "billing_type": "subscription",
+            "limit_attr": None,
+            "remaining_support": "configured_limit_only",
+            "remaining_note": "GrowChief automation monitoring.",
+        },
+        "telegram": {
+            "label": "Telegram Bot",
+            "api_key_attr": "TELEGRAM_BOT_TOKEN",
+            "usage_unit": "messages",
+            "billing_type": "subscription",
+            "limit_attr": None,
+            "remaining_support": "configured_limit_only",
+            "remaining_note": "Telegram bot API monitoring.",
         },
     }
 
@@ -234,9 +286,20 @@ class QuotaMonitorService:
         cost_usd: Optional[float] = None,
         quota: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
     ) -> None:
         provider_profile = cls._provider_definition(provider)
         normalized_quota = _json_clone(quota or {})
+
+        # Estimate cost if missing for pay-as-you-go providers
+        if cost_usd is None and usage:
+            usage_unit = provider_profile.get("usage_unit")
+            unit_usage = _safe_float(usage.get(usage_unit))
+            if unit_usage is not None:
+                price_per_unit = cls.PRICE_MAP.get(_normalize_provider(provider))
+                if price_per_unit:
+                    cost_usd = round(unit_usage * price_per_unit, 6)
+
         if provider_profile.get("monthly_limit") is not None and "limit" not in normalized_quota:
             quota_unit = normalized_quota.get("unit")
             if quota_unit in (None, provider_profile.get("usage_unit")):
@@ -250,6 +313,7 @@ class QuotaMonitorService:
                 quota=normalized_quota,
                 source="runtime",
                 metadata=metadata,
+                user_id=user_id,
             )
         except Exception as exc:  # pragma: no cover - defensive fallback
             logger.warning("Failed to record runtime usage for %s: %s", provider, exc)
@@ -314,10 +378,12 @@ class QuotaMonitorService:
         source: str = "manual",
         observed_at: Optional[datetime] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         snapshot_time = observed_at or datetime.utcnow()
         return {
             "id": str(uuid4()),
+            "user_id": user_id,
             "provider": _normalize_provider(provider),
             "source": source or "manual",
             "usage": _json_clone(usage or {}),
@@ -331,6 +397,7 @@ class QuotaMonitorService:
     @classmethod
     async def _store_snapshot_db(cls, snapshot: Dict[str, Any]) -> Dict[str, Any]:
         pool = await cls._get_pool()
+        user_id = snapshot.get("user_id") or "00000000-0000-0000-0000-000000000001"
         event_metadata = {
             "snapshot_id": snapshot["id"],
             "provider": snapshot["provider"],
@@ -355,7 +422,7 @@ class QuotaMonitorService:
                 VALUES ($1, $2::uuid, $3, $4, $5::jsonb)
                 """,
                 None,
-                "00000000-0000-0000-0000-000000000001",
+                user_id,
                 "api_usage",
                 snapshot["provider"],
                 json.dumps(event_metadata),
@@ -378,6 +445,7 @@ class QuotaMonitorService:
         source: str = "manual",
         observed_at: Optional[datetime] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         snapshot = cls._build_snapshot_record(
             provider=provider,
@@ -387,6 +455,7 @@ class QuotaMonitorService:
             source=source,
             observed_at=observed_at,
             metadata=metadata,
+            user_id=user_id,
         )
 
         try:
@@ -446,6 +515,7 @@ class QuotaMonitorService:
         provider: Optional[str] = None,
         limit: int = 100,
         days: int = 30,
+        user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         provider_key = _normalize_provider(provider) if provider else None
         cutoff = datetime.utcnow() - timedelta(days=days)
@@ -457,9 +527,15 @@ class QuotaMonitorService:
         for snapshot in snapshots:
             if provider_key and snapshot["provider"] != provider_key:
                 continue
-            observed_at = _parse_datetime(snapshot.get("observed_at"))
-            if observed_at and observed_at < cutoff:
+            
+            if user_id and snapshot.get("user_id") != user_id:
                 continue
+            
+            if days > 0:
+                observed_at = _parse_datetime(snapshot.get("observed_at"))
+                if observed_at and observed_at < cutoff:
+                    continue
+            
             filtered.append(snapshot)
 
         filtered.sort(
@@ -474,44 +550,41 @@ class QuotaMonitorService:
         provider: Optional[str] = None,
         limit: int = 100,
         days: int = 30,
+        user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         provider_key = _normalize_provider(provider) if provider else None
         try:
             pool = await cls._get_pool()
+            where_clauses = ["event_type = 'api_usage'"]
+            params = []
+            
+            if provider_key:
+                params.append(provider_key)
+                where_clauses.append(f"platform = ${len(params)}")
+            
+            if user_id:
+                params.append(user_id)
+                where_clauses.append(f"user_id = ${len(params)}::uuid")
+            
+            if days > 0:
+                params.append(days)
+                where_clauses.append(f"created_at >= NOW() - make_interval(days => ${len(params)})")
+                
+            query = f"""
+                SELECT content_id, platform, metadata, created_at, user_id
+                FROM public.analytics_events
+                WHERE {" AND ".join(where_clauses)}
+                ORDER BY created_at DESC
+                LIMIT ${len(params) + 1}
+            """
+            
             async with pool.acquire() as conn:
-                if provider_key:
-                    rows = await conn.fetch(
-                        """
-                        SELECT content_id, platform, metadata, created_at
-                        FROM public.analytics_events
-                        WHERE event_type = 'api_usage'
-                          AND platform = $1
-                          AND created_at >= NOW() - make_interval(days => $2)
-                        ORDER BY created_at DESC
-                        LIMIT $3
-                        """,
-                        provider_key,
-                        days,
-                        limit,
-                    )
-                else:
-                    rows = await conn.fetch(
-                        """
-                        SELECT content_id, platform, metadata, created_at
-                        FROM public.analytics_events
-                        WHERE event_type = 'api_usage'
-                          AND created_at >= NOW() - make_interval(days => $1)
-                        ORDER BY created_at DESC
-                        LIMIT $2
-                        """,
-                        days,
-                        limit,
-                    )
+                rows = await conn.fetch(query, *params, limit)
             return [cls._normalize_row(dict(row)) for row in rows]
         except Exception as exc:
             logger.warning("Falling back to in-memory quota snapshots: %s", exc)
             return await cls._list_memory_snapshots(
-                provider=provider_key, limit=limit, days=days
+                provider=provider_key, limit=limit, days=days, user_id=user_id
             )
 
     @classmethod
@@ -535,7 +608,18 @@ class QuotaMonitorService:
             )
 
             rollup["snapshot_count"] += 1
-            rollup["cost_usd"] += _safe_float(snapshot.get("cost_usd")) or 0.0
+            
+            # Retroactive cost estimation for old snapshots
+            cost = _safe_float(snapshot.get("cost_usd"))
+            if cost is None:
+                usage = snapshot.get("usage") or {}
+                provider_profile = cls.PROVIDERS.get(provider, {})
+                unit = provider_profile.get("usage_unit")
+                unit_usage = _safe_float(usage.get(unit))
+                if unit_usage and provider in cls.PRICE_MAP:
+                    cost = round(unit_usage * cls.PRICE_MAP[provider], 6)
+            
+            rollup["cost_usd"] += cost or 0.0
 
             usage = snapshot.get("usage") or {}
             if isinstance(usage, dict):
@@ -612,18 +696,32 @@ class QuotaMonitorService:
         requests_reset_at = latest_quota.get("requests_reset_at")
         requests_reset_after = latest_quota.get("requests_reset_after")
 
-        if remaining_value is None:
-            monthly_limit = _safe_float(provider_profile.get("monthly_limit"))
+        if (
+            remaining_value is None
+            and provider_profile.get("monthly_limit") is not None
+        ):
             usage_unit = provider_profile.get("usage_unit")
-            usage_total = _safe_float((provider_rollup.get("usage") or {}).get(usage_unit))
-            if monthly_limit not in (None, 0) and usage_total is not None:
-                remaining_value = max(monthly_limit - usage_total, 0.0)
-                remaining_limit = monthly_limit
-                remaining_unit = usage_unit
+            usage_totals = provider_rollup.get("usage") or {}
+            usage_total = _safe_float(usage_totals.get(usage_unit))
+            if usage_total is not None:
+                remaining_value = max(
+                    provider_profile["monthly_limit"] - usage_total, 0.0
+                )
+                remaining_limit = provider_profile["monthly_limit"]
                 remaining_source = "tracked_usage"
                 remaining_exact = False
 
+        billing_type = provider_profile.get("billing_type") or "subscription"
+        remaining_usd = None
+        if billing_type == "pay_as_you_go":
+            spend_limit = _safe_float(provider_profile.get("spend_limit_usd"))
+            current_cost = _safe_float(provider_rollup.get("cost_usd")) or 0.0
+            if spend_limit is not None:
+                remaining_usd = max(spend_limit - current_cost, 0.0)
+
         return {
+            "billing_type": billing_type,
+            "remaining_usd": remaining_usd,
             "remaining_value": remaining_value,
             "remaining_limit": remaining_limit,
             "remaining_unit": remaining_unit,
@@ -642,6 +740,12 @@ class QuotaMonitorService:
                 remaining_exact=remaining_exact,
                 remaining_value=remaining_value,
             ),
+            "last_error": latest_snapshot.get("metadata", {}).get("error_message")
+            if latest_snapshot.get("metadata", {}).get("status") == "error"
+            else None,
+            "last_error_type": latest_snapshot.get("metadata", {}).get("error_type")
+            if latest_snapshot.get("metadata", {}).get("status") == "error"
+            else None,
         }
 
     @classmethod
@@ -687,15 +791,20 @@ class QuotaMonitorService:
                 return "warning"
             return "ok"
 
+        if (provider_rollup.get("latest_snapshot") or {}).get("metadata", {}).get("status") == "error":
+            return "critical"
+
         if provider_rollup.get("snapshot_count"):
             return "ok"
 
         return "configured"
 
     @classmethod
-    async def get_summary(cls, days: int = 30) -> Dict[str, Any]:
+    async def get_summary(cls, days: int = 30, user_id: Optional[str] = None) -> Dict[str, Any]:
         await cls.refresh_live_provider_snapshots()
-        snapshots = await cls.list_snapshots(limit=1000, days=days)
+        # Use a high limit for all-time stats to ensure we don't miss project totals
+        fetch_limit = 50000 if (days == 0 or days is None) else 1000
+        snapshots = await cls.list_snapshots(limit=fetch_limit, days=days, user_id=user_id)
         rollups = cls._aggregate_snapshots(snapshots)
 
         provider_items: List[Dict[str, Any]] = []
@@ -796,8 +905,8 @@ class QuotaMonitorService:
         }
 
     @classmethod
-    async def get_provider_overview(cls, days: int = 30) -> Dict[str, Any]:
-        summary = await cls.get_summary(days=days)
+    async def get_provider_overview(cls, days: int = 30, user_id: Optional[str] = None) -> Dict[str, Any]:
+        summary = await cls.get_summary(days=days, user_id=user_id)
         return {
             "time_period": summary["time_period"],
             "providers": summary["providers"],
@@ -807,10 +916,10 @@ class QuotaMonitorService:
 
     @classmethod
     async def get_provider_detail(
-        cls, provider: str, days: int = 30
+        cls, provider: str, days: int = 30, user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         provider_key = _normalize_provider(provider)
-        summary = await cls.get_summary(days=days)
+        summary = await cls.get_summary(days=days, user_id=user_id)
         for item in summary["providers"]:
             if item["provider"] == provider_key:
                 return {

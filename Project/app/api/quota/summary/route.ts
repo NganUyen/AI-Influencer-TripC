@@ -9,8 +9,11 @@ export async function GET(request: NextRequest) {
   }
 
   const baseUrl = getBackendBaseUrl();
+  const searchParams = request.nextUrl.searchParams.toString();
+  const targetUrl = `${baseUrl}/api/quota/summary${searchParams ? `?${searchParams}` : ""}`;
+  
   return proxyReadOnlyJson(
-    `${baseUrl}/api/quota/summary`,
+    targetUrl,
     {
       total_cost_usd: 0,
       providers: [],

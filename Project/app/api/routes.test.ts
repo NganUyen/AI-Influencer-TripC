@@ -390,6 +390,62 @@ describe("API proxy routes", () => {
     });
   });
 
+  it("returns 503 json when telegram auth backend is unreachable", async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error("connect ECONNREFUSED"));
+
+    const request = new NextRequest(
+      "http://localhost/api/auth/telegram/link/start",
+      {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ expires_in_minutes: 15 }),
+      },
+    );
+    const response = await postTelegramAuthProxy(request, {
+      params: Promise.resolve({ path: ["link", "start"] }),
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      detail:
+        "Telegram auth service is unavailable: connect ECONNREFUSED",
+    });
+  });
+
+  it("returns local dev mock login payload when backend is unreachable", async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error("connect ECONNREFUSED"));
+
+    const request = new NextRequest(
+      "http://localhost/api/auth/telegram/login",
+      {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ hash: "__MOCK_DEV_LOGIN__" }),
+      },
+    );
+    const response = await postTelegramAuthProxy(request, {
+      params: Promise.resolve({ path: ["login"] }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      access_token: "dev-local-token",
+      refresh_token: null,
+      user: {
+        id: "dev-local-user",
+        email: "dev-tester@local.test",
+        name: "Dev Tester",
+        avatar_url: null,
+      },
+    });
+  });
+
   it("proxies workflow approval payload", async () => {
     global.fetch = jest.fn().mockResolvedValue({
       status: 200,

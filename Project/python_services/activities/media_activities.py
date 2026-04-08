@@ -276,6 +276,7 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
             text=text_to_speak,
             voice=voice_mapped,
             language=voice_language,
+            user_id=user_id,
         )
 
         campaign_id = prompt_config.get("campaign_id") or metadata.get("campaign_id")
@@ -534,6 +535,7 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
         width=width,
         height=height,
         allow_aspect_ratio_fallback=True,
+        user_id=user_id,
     )
 
     video_id = video_job.get("video_id")
@@ -541,7 +543,7 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
         raise ApplicationError("HeyGen did not return video_id", non_retryable=False)
 
     logger.info(f"Polling HeyGen video {video_id}...")
-    heygen_video_url = await heygen.poll_video_status(video_id, timeout_seconds=600)
+    heygen_video_url = await heygen.poll_video_status(video_id, timeout_seconds=600, user_id=user_id)
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.get(heygen_video_url)

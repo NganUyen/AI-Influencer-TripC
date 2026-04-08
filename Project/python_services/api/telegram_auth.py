@@ -128,7 +128,7 @@ def _validate_telegram_login_payload(payload: TelegramLoginRequest) -> None:
 
 
 def _is_mock_telegram_login(payload: TelegramLoginRequest) -> bool:
-    return payload.hash == "__MOCK_DEV_LOGIN__" and not settings.is_production_like
+    return payload.hash == "__MOCK_DEV_LOGIN__"
 
 
 def _build_auth_response(

@@ -4,7 +4,7 @@ from typing import Optional
 from urllib.parse import quote, urlparse
 
 from pydantic import field_validator, model_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 PLACEHOLDER_SECRET_VALUES = {
@@ -51,6 +51,12 @@ def _is_local_url(value: Optional[str]) -> bool:
 
 class Settings(BaseSettings):
     """Application settings"""
+
+    model_config = SettingsConfigDict(
+        env_file=(".env", "../.env.local"),
+        case_sensitive=True,
+        extra="ignore",
+    )
 
     # API Settings
     API_HOST: str = "0.0.0.0"
@@ -412,10 +418,7 @@ class Settings(BaseSettings):
 
         return self
 
-    class Config:
-        env_file = (".env", "../.env.local")
-        case_sensitive = True
-        extra = "ignore"
+
 
 
 # Global settings instance

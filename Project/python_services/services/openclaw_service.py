@@ -102,6 +102,33 @@ class OpenClawService:
 
         self.client = _get_shared_client()
 
+    async def _record_usage(
+        self,
+        operation: str,
+        usage: Dict[str, Any],
+        error: Exception | None = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        from services.quota_monitor_service import QuotaMonitorService
+        quota_metadata = {
+            "service": "openclaw_service",
+            "operation": operation,
+            "status": "error" if error else "success",
+            "transport": self.transport,
+            "agent_id": self.agent_id,
+        }
+        if metadata:
+            quota_metadata.update(metadata)
+        if error:
+            quota_metadata["error_type"] = type(error).__name__
+            quota_metadata["error_message"] = str(error)
+
+        await QuotaMonitorService.record_runtime_usage(
+            provider="openclaw",
+            usage=usage,
+            metadata=quota_metadata,
+        )
+
     @staticmethod
     def _extract_error_message(exc: httpx.HTTPStatusError) -> str:
         try:
@@ -206,9 +233,26 @@ class OpenClawService:
         try:
             response = await self.client.post(f"{self.base_url}v1/responses", json=payload, headers=self.headers)
             response.raise_for_status()
+            await self._record_usage(
+                operation="execute_task",
+                usage={"requests": 1},
+                metadata={"task_type": task_type},
+            )
         except httpx.RequestError as exc:
+            await self._record_usage(
+                operation="execute_task",
+                usage={"requests": 1},
+                metadata={"task_type": task_type},
+                error=exc,
+            )
             self._raise_network_error(exc, transport="responses")
         except httpx.HTTPStatusError as exc:
+            await self._record_usage(
+                operation="execute_task",
+                usage={"requests": 1},
+                metadata={"task_type": task_type},
+                error=exc,
+            )
             self._raise_provider_error(exc, transport="responses")
 
         raw = response.json()

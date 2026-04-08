@@ -436,24 +436,26 @@ async def list_customer_approvals(
 @router.get("/personas")
 async def list_customer_personas(
     session: CustomerSession = Depends(require_customer_session),
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     # This ensures personas are strictly filtered by the authenticated user's ID
     personas = await PersonaRegistryService.list_personas(
         user_id=session.user_id
     )
-    return [
-        {
-            "persona_id": item.get("persona_id"),
-            "display_name": item.get("display_name"),
-            "language": item.get("language"),
-            "tts_voice": item.get("tts_voice"),
-            "avatar_image_url": item.get("avatar_image_url"),
-            "status": item.get("status"),
-            "video_count": int(item.get("video_count") or 0),
-            "created_at": item.get("created_at"),
-        }
-        for item in personas
-    ]
+    return {
+        "personas": [
+            {
+                "persona_id": item.get("persona_id"),
+                "display_name": item.get("display_name"),
+                "language": item.get("language"),
+                "tts_voice": item.get("tts_voice"),
+                "avatar_image_url": item.get("avatar_image_url"),
+                "status": item.get("status"),
+                "video_count": int(item.get("video_count") or 0),
+                "created_at": item.get("created_at"),
+            }
+            for item in personas
+        ]
+    }
 
 
 @router.get("/system/summary")
@@ -466,7 +468,7 @@ async def get_system_summary(
         # 1. Quota Summary (OpenAI, HeyGen, etc.)
         # Default empty if monitor service fails
         try:
-            summary_data = await QuotaMonitorService.get_summary(days=30)
+            summary_data = await QuotaMonitorService.get_summary(days=0, user_id=None)
             raw_quota = summary_data.get("providers", [])
         except Exception:
             raw_quota = []

@@ -18,24 +18,37 @@ export async function customerApiRequest<T>(
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  const response = await fetch(path, {
-    ...init,
-    headers,
-    cache: "no-store",
-  });
+  // Diagnostic logging for debugging "Failed to fetch"
+  const isBrowser = typeof window !== "undefined";
+  const baseUrl = isBrowser ? window.location.origin : "";
+  const fullUrl = path.startsWith("http") ? path : `${baseUrl}${path}`;
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    if (errorText) {
-      let message = errorText;
-      try {
-        const payload = JSON.parse(errorText) as { detail?: string };
-        message = payload.detail || errorText;
-      } catch {}
-      throw new Error(message);
+  try {
+    const response = await fetch(path, {
+      ...init,
+      headers,
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      if (errorText) {
+        let message = errorText;
+        try {
+          const payload = JSON.parse(errorText) as { detail?: string };
+          message = payload.detail || errorText;
+        } catch {}
+        throw new Error(message);
+      }
+      throw new Error(`Customer API request failed with status ${response.status}`);
     }
-    throw new Error("Customer API request failed");
-  }
 
-  return (await response.json()) as T;
+    return (await response.json()) as T;
+  } catch (error) {
+    if (error instanceof TypeError && error.message === "Failed to fetch") {
+      console.error(`[customerApiRequest] Network error: Failed to fetch "${fullUrl}". ` +
+        `Check if the dev server is running and the URL is reachable from this context.`);
+    }
+    throw error;
+  }
 }

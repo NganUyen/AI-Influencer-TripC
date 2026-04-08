@@ -26,31 +26,79 @@ async function proxyTelegramAuthRequest(
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(targetUrl, {
-    method: request.method,
-    headers,
-    body,
-    cache: "no-store",
-    redirect: "manual",
-  });
+  const isTelegramLoginRequest =
+    request.method === "POST" &&
+    pathSegments.length === 1 &&
+    pathSegments[0] === "login";
 
-  const proxiedHeaders = new Headers();
-  const contentType = response.headers.get("content-type");
-  const location = response.headers.get("location");
-  if (contentType) {
-    proxiedHeaders.set("content-type", contentType);
+  try {
+    const response = await fetch(targetUrl, {
+      method: request.method,
+      headers,
+      body,
+      cache: "no-store",
+      redirect: "manual",
+    });
+
+    const proxiedHeaders = new Headers();
+    const contentType = response.headers.get("content-type");
+    const location = response.headers.get("location");
+    if (contentType) {
+      proxiedHeaders.set("content-type", contentType);
+    }
+    if (location) {
+      proxiedHeaders.set("location", location);
+    }
+
+    const responseBody =
+      request.method === "HEAD" ? null : await response.text();
+
+    return new NextResponse(responseBody, {
+      status: response.status,
+      headers: proxiedHeaders,
+    });
+  } catch (error) {
+    if (isTelegramLoginRequest && isLocalDevMockLogin(body)) {
+      return NextResponse.json({
+        access_token: "dev-local-token",
+        refresh_token: null,
+        user: {
+          id: "dev-local-user",
+          email: "dev-tester@local.test",
+          name: "Dev Tester",
+          avatar_url: null,
+        },
+      });
+    }
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Telegram auth backend is unreachable";
+    return NextResponse.json(
+      {
+        detail: `Telegram auth service is unavailable: ${message}`,
+      },
+      { status: 503 },
+    );
   }
-  if (location) {
-    proxiedHeaders.set("location", location);
+}
+
+function isLocalDevMockLogin(body: string | undefined): boolean {
+  if (process.env.NODE_ENV === "production") {
+    return false;
   }
 
-  const responseBody =
-    request.method === "HEAD" ? null : await response.text();
+  if (!body) {
+    return false;
+  }
 
-  return new NextResponse(responseBody, {
-    status: response.status,
-    headers: proxiedHeaders,
-  });
+  try {
+    const payload = JSON.parse(body) as { hash?: string };
+    return payload.hash === "__MOCK_DEV_LOGIN__";
+  } catch {
+    return false;
+  }
 }
 
 type Params = {

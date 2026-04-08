@@ -125,7 +125,7 @@ async def enrich_items_with_workflow_details(
 @router.get("/list")
 async def list_content_items(
     request: Request, limit: int = 20
-) -> Dict[str, List[Dict[str, Any]]]:
+) -> Dict[str, Any]:
     """List content-like items for the dashboard."""
     try:
         persisted_items = await list_persisted_content_items(limit)

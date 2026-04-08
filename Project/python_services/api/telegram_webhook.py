@@ -664,10 +664,11 @@ def _system_status_text() -> str:
 def _help_text() -> str:
     return (
         "TripC Bot Help\n\n"
+        "Use /start to launch the video planner.\n"
         "Use /media to open the studio menu.\n"
         "Or send a normal message to chat with OpenClaw AI.\n\n"
         "Commands:\n"
-        "  /start — Welcome / onboarding\n"
+        "  /start — Launch the video planner\n"
         "  /media — Open studio\n"
         "  /create_video — Start AI video creation\n"
         "  /create_image — Create marketing images\n"
@@ -989,8 +990,7 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
             active_session = await TelegramSkillSessionStore.get_session(chat_id)
             if (
                 active_session is not None
-                and active_session.skill_name == "video-ai"
-                and active_session.step_key == "upload_demo_video"
+                and SkillDispatcher._session_accepts_video_upload(active_session)
             ):
                 await send_chat_action(chat_id, action="upload_video")
                 telegram_video = None
@@ -1176,19 +1176,14 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                     ),
                 )
                 return
-        await send_message(
+        skill_result, pending_message_id = await _await_with_message_progress(
             chat_id,
-            (
-                "Welcome! AI Influencer Bot is online.\n\n"
-                "Use /media to open the studio menu, or wait for daily story approvals.\n\n"
-                "To link this Telegram account to a customer workspace, start from the web dashboard or auth page and open the secure bot link there."
-            ),
-            parse_mode=None,
-            reply_markup=inline_keyboard(
-                [("Open Studio", "menu_main"), ("Status", "status_check")],
-                [("Help", "help")],
-            ),
+            SkillDispatcher.start_skill(chat_id, "video-planner", app),
         )
+        if skill_result is None:
+            return
+        rendered = TelegramRenderer.render_skill_result(skill_result)
+        await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)
         return
 
     # ── Shortcut slash commands ───────────────────────────────────────────

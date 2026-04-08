@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -29,6 +30,11 @@ from services.customer_campaign_service import CustomerCampaignService
 from services.database_service import DatabaseService
 from services.customer_media_service import CustomerMediaService
 from services.telegram_link_service import TelegramLinkService
+from services.video_capture_handoff_service import (
+    VideoCaptureHandoffError,
+    VideoCaptureHandoffService,
+)
+from services.video_planner_handoff_service import VideoPlannerHandoffService
 from services.persona_registry_service import PersonaRegistryService
 from services.quota_monitor_service import QuotaMonitorService
 from fastapi import Request
@@ -104,6 +110,16 @@ class TelegramLinkStartRequest(BaseModel):
     expires_in_minutes: int = 15
 
 
+class VideoCaptureHandoffInspectRequest(BaseModel):
+    token: str
+
+
+class VideoCaptureHandoffCompleteRequest(BaseModel):
+    token: str
+    method: str
+    notes: str = ""
+
+
 @router.get("/brand")
 async def get_brand_profile(
     session: CustomerSession = Depends(require_customer_session),
@@ -152,6 +168,83 @@ async def start_telegram_link(
         expires_in_minutes=payload.expires_in_minutes,
     )
     return token
+
+
+@router.post("/video-capture/handoff/inspect")
+async def inspect_video_capture_handoff(
+    payload: VideoCaptureHandoffInspectRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    try:
+        handoff = VideoCaptureHandoffService.inspect_token(
+            payload.token,
+            expected_user_id=session.user_id,
+        )
+    except VideoCaptureHandoffError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "handoff": {
+            **handoff,
+            "secure_collection_required": True,
+            "allowed_methods": [
+                "workspace_session_capture",
+                "temporary_username_password",
+                "guided_manual_login",
+            ],
+            "next_step": (
+                "Collect credentials only inside the authenticated workspace UI. "
+                "Do not send credentials in Telegram chat."
+            ),
+        }
+    }
+
+
+@router.post("/video-capture/handoff/complete")
+async def complete_video_capture_handoff(
+    payload: VideoCaptureHandoffCompleteRequest,
+    request: Request,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    allowed_methods = {
+        "workspace_session_capture",
+        "temporary_username_password",
+        "guided_manual_login",
+    }
+    if payload.method not in allowed_methods:
+        raise HTTPException(status_code=400, detail="Unsupported handoff completion method.")
+
+    try:
+        handoff = VideoCaptureHandoffService.inspect_token(
+            payload.token,
+            expected_user_id=session.user_id,
+        )
+        transport = httpx.ASGITransport(app=request.app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://backend",
+        ) as client:
+            result = await VideoPlannerHandoffService.complete_authenticated_handoff(
+                handoff_payload=handoff,
+                method=payload.method,
+                notes=payload.notes,
+                backend_url="http://backend",
+                http_client=client,
+            )
+    except VideoCaptureHandoffError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "status": result.get("status", "started"),
+        "message": result.get("message")
+        or "Authenticated PC capture handoff completed. Workflow started.",
+        "workflow_id": result.get("workflow_id"),
+        "execution_mode": result.get("execution_mode"),
+        "credential_handoff": result.get("credential_handoff"),
+        "video_review_plan": result.get("video_review_plan"),
+    }
 
 
 @router.get("/media/{asset_id}/access-url")

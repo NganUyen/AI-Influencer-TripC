@@ -216,3 +216,106 @@ def test_launch_campaign_returns_temporal_payload(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["workflow_id"] == "weekly-marketing-1"
+
+
+def test_inspect_video_capture_handoff_requires_matching_customer(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    def fake_inspect_token(token, expected_user_id=None):
+        assert token == "secure-handoff-token"
+        assert expected_user_id == "11111111-1111-1111-1111-111111111111"
+        return {
+            "user_id": expected_user_id,
+            "plan_id": "plan_1",
+            "objective": "Capture a dashboard review",
+            "target_url": "https://example.com/app",
+            "persona_id": "persona-1",
+            "execution_mode": "authenticated_pc_recording",
+            "review_plan": {"plan_id": "plan_1"},
+            "expires_at": "2026-04-08T12:00:00Z",
+        }
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(
+        customer.VideoCaptureHandoffService,
+        "inspect_token",
+        fake_inspect_token,
+    )
+
+    client = _build_client()
+    response = client.post(
+        "/api/customer/video-capture/handoff/inspect",
+        headers={"Authorization": "Bearer customer-token"},
+        json={"token": "secure-handoff-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["handoff"]
+    assert payload["objective"] == "Capture a dashboard review"
+    assert payload["secure_collection_required"] is True
+    assert "workspace_session_capture" in payload["allowed_methods"]
+
+
+def test_complete_video_capture_handoff_starts_workflow(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    def fake_inspect_token(token, expected_user_id=None):
+        assert token == "secure-handoff-token"
+        return {
+            "user_id": expected_user_id,
+            "plan_id": "plan_1",
+            "objective": "Capture a dashboard review",
+            "target_url": "https://example.com/app",
+            "persona_id": "persona-1",
+            "execution_mode": "authenticated_pc_recording",
+            "review_plan": {
+                "planning_mode": "webpage_review",
+                "plan_id": "plan_1",
+                "objective": "Capture a dashboard review",
+                "target_url": "https://example.com/app",
+                "language": "English",
+                "persona_id": "persona-1",
+                "execution_mode": "authenticated_pc_recording",
+                "access_level": "has_logged_in_access",
+                "status": "confirmed",
+            },
+            "telegram_chat_id": "555",
+            "expires_at": "2026-04-08T12:00:00Z",
+        }
+
+    async def fake_complete_authenticated_handoff(**kwargs):
+        assert kwargs["method"] == "workspace_session_capture"
+        return {
+            "status": "started",
+            "message": "Workflow started.",
+            "workflow_id": "video-auth-1",
+            "execution_mode": "authenticated_pc_recording",
+            "credential_handoff": {"status": "completed"},
+            "video_review_plan": {"plan_id": "plan_1"},
+        }
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.VideoCaptureHandoffService, "inspect_token", fake_inspect_token)
+    monkeypatch.setattr(
+        customer.VideoPlannerHandoffService,
+        "complete_authenticated_handoff",
+        fake_complete_authenticated_handoff,
+    )
+
+    client = _build_client()
+    response = client.post(
+        "/api/customer/video-capture/handoff/complete",
+        headers={"Authorization": "Bearer customer-token"},
+        json={
+            "token": "secure-handoff-token",
+            "method": "workspace_session_capture",
+            "notes": "Secure session is ready.",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_id"] == "video-auth-1"
+    assert payload["credential_handoff"]["status"] == "completed"

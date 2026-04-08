@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
@@ -49,6 +49,7 @@ async function customerApiRequest<T>(
 
 export default function AuthPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const {
     establishSessionFromAccessToken,
     loginWithTelegram,
@@ -75,6 +76,16 @@ export default function AuthPage() {
     linkToken?.start_token,
     "TripCInternBot",
   );
+  const nextPath = searchParams.get("next") || "/dashboard";
+
+  const resolveNextPath = (value: string | null) => {
+    const fallback = "/dashboard";
+    const normalized = (value || "").trim();
+    if (!normalized.startsWith("/") || normalized.startsWith("//")) {
+      return fallback;
+    }
+    return normalized;
+  };
 
   useEffect(() => {
     void initialize();
@@ -82,9 +93,9 @@ export default function AuthPage() {
 
   useEffect(() => {
     if (initialized && isAuthenticated) {
-      router.replace("/dashboard");
+      router.replace(resolveNextPath(nextPath));
     }
-  }, [initialized, isAuthenticated, router]);
+  }, [initialized, isAuthenticated, nextPath, router]);
 
   useEffect(() => {
     if (!linkToken) {
@@ -138,7 +149,7 @@ export default function AuthPage() {
           setLinkToken(null);
           setIsAwaitingTelegram(false);
           setIsCompletingSession(false);
-          router.replace("/dashboard");
+          router.replace(resolveNextPath(nextPath));
           return;
         }
 
@@ -178,6 +189,7 @@ export default function AuthPage() {
     establishSessionFromAccessToken,
     linkToken?.expires_at,
     linkToken?.start_token,
+    nextPath,
     router,
   ]);
 

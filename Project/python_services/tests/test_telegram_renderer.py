@@ -245,6 +245,136 @@ def test_render_video_ai_beats_preview_lists_beats():
     assert "Top Half: itinerary_section (Public Page Capture)" in rendered["text"]
 
 
+def test_render_video_planner_language_prompt_shows_website_review_card():
+    session = SkillSession(
+        skill_name="video-planner",
+        step_key="choose_language",
+        collected={"objective": "Create a short review video"},
+        artifacts={
+            "page_review": {
+                "target_url": "https://example.com",
+                "normalized_url": "https://example.com",
+                "page_title": "ExampleApp",
+                "product_summary": "ExampleApp helps teams plan launches from one dashboard.",
+                "access_level": "public_page_only",
+                "login_required": False,
+                "visible_features": [
+                    {
+                        "label": "Planning dashboard",
+                        "summary": "A central view for launch planning and tracking.",
+                    }
+                ],
+                "visible_flows": [
+                    {
+                        "label": "Launch review",
+                        "summary": "Shows planning through approval in one path.",
+                    }
+                ],
+                "recording_candidates": ["Hero section", "Dashboard walkthrough"],
+            }
+        },
+        control=SkillControl(status=SkillStatus.collecting),
+    )
+
+    rendered = TelegramRenderer.render_skill_prompt(session)
+
+    assert "Website Review Ready" in rendered["text"]
+    assert "ExampleApp" in rendered["text"]
+    assert "Visible Features:" in rendered["text"]
+    assert "Recording Candidates:" in rendered["text"]
+    assert rendered["reply_markup"] is None
+
+
+def test_render_video_planner_confirm_plan_shows_rationale_and_revision_actions():
+    session = SkillSession(
+        skill_name="video-planner",
+        step_key="confirm_plan",
+        collected={"persona_id": "minh_vn"},
+        artifacts={
+            "available_personas": [
+                {"persona_id": "minh_vn", "display_name": "Minh VN"}
+            ],
+            "video_review_plan": {
+                "objective": "Create a product review video",
+                "target_url": "https://example.com",
+                "language": "English",
+                "persona_id": "minh_vn",
+                "execution_mode": "autonomous_screen_recording",
+                "access_level": "public_page_only",
+                "credential_handoff": {"status": "not_required"},
+                "page_review": {
+                    "product_summary": "The site clearly explains launch planning and dashboards.",
+                    "visible_features": [
+                        {
+                            "label": "Planning dashboard",
+                            "summary": "Central workspace for launch coordination.",
+                        }
+                    ],
+                    "visible_flows": [
+                        {
+                            "label": "Review flow",
+                            "summary": "Moves from planning to approval and launch.",
+                        }
+                    ],
+                },
+                "assumptions": ["Homepage messaging matches the current product."],
+                "risks": ["Some deeper dashboard states may require login."],
+            },
+        },
+        control=SkillControl(status=SkillStatus.collecting),
+    )
+
+    rendered = TelegramRenderer.render_skill_prompt(session)
+
+    assert "Video Review Plan" in rendered["text"]
+    assert "Why This Plan:" in rendered["text"]
+    assert "Feature Rationale:" in rendered["text"]
+    assert "Flow Coverage:" in rendered["text"]
+    assert "Assumptions:" in rendered["text"]
+    assert "Risks:" in rendered["text"]
+    callback_values = {
+        button["callback_data"]
+        for row in rendered["reply_markup"]["inline_keyboard"]
+        for button in row
+    }
+    assert "option::confirm" in callback_values
+    assert "option::revise_url" in callback_values
+
+
+def test_render_video_planner_done_state_uses_friendly_confirmation_copy():
+    session = SkillSession(
+        skill_name="video-planner",
+        step_key="done",
+        collected={
+            "objective": "Create a product review video",
+            "target_url": "https://example.com",
+        },
+        artifacts={
+            "video_review_plan": {
+                "objective": "Create a product review video",
+                "target_url": "https://example.com",
+                "execution_mode": "autonomous_screen_recording",
+            }
+        },
+        control=SkillControl(status=SkillStatus.done),
+    )
+    result = SkillResult(
+        success=True,
+        next_step="done",
+        output={
+            "message": "Execution handoff is not wired yet, so the plan is stored.",
+            "video_review_plan": session.artifacts["video_review_plan"],
+        },
+        session=session,
+    )
+
+    rendered = TelegramRenderer.render_skill_result(result)
+
+    assert "Video Review Plan Confirmed" in rendered["text"]
+    assert "Create a product review video" in rendered["text"]
+    assert "Autonomous Screen Recording" in rendered["text"]
+
+
 def test_render_persona_inspector_done_shows_photo_and_details():
     session = SkillSession(
         skill_name="persona-inspector",

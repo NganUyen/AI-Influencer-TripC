@@ -414,3 +414,24 @@ async def test_persona_confirm_dream_action_sets_collected_flag(monkeypatch):
 
     assert result.session is not None
     assert result.session.collected.get("dream_confirmed") == "confirm"
+
+
+@pytest.mark.asyncio
+async def test_prepare_prompt_session_filters_video_planner_personas_to_ready(monkeypatch):
+    session = SkillSession(
+        skill_name="video-planner",
+        step_key="pick_persona",
+        artifacts={"telegram_chat_id": "555"},
+        control=SkillControl(status=SkillStatus.collecting),
+    )
+
+    async def fake_fetch_personas(_app, *, ready_only, owner_key=None):
+        assert ready_only is True
+        assert owner_key == "telegram:555"
+        return [{"persona_id": "persona-1", "status": "ready"}]
+
+    monkeypatch.setattr(SkillDispatcher, "_fetch_personas", fake_fetch_personas)
+
+    prepared = await SkillDispatcher._prepare_prompt_session(object(), session)
+
+    assert prepared.artifacts["available_personas"][0]["persona_id"] == "persona-1"

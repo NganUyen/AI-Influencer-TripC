@@ -88,7 +88,7 @@ def stub_telegram_presence_updates():
         yield
 
 @pytest.mark.asyncio
-async def test_start_command_sends_welcome_message(tg_calls):
+async def test_start_command_launches_video_planner_prompt(tg_calls):
     message = {
         "text": "/start",
         "chat": {"id": 123456789, "type": "private"},
@@ -98,13 +98,15 @@ async def test_start_command_sends_welcome_message(tg_calls):
     await _handle_message(None, message)
 
     send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
-    assert "AI Influencer Bot is online" in send_call["payload"]["text"]
-    assert "start from the web dashboard or auth page" in send_call["payload"]["text"]
-    assert send_call["payload"]["reply_markup"]["inline_keyboard"][0][1]["callback_data"] == "status_check"
+    assert "What is your objective for this video?" in send_call["payload"]["text"]
+    restored = await TelegramSkillSessionStore.get_session(123456789)
+    assert restored is not None
+    assert restored.skill_name == "video-planner"
+    assert restored.step_key == "collect_objective"
 
 
 @pytest.mark.asyncio
-async def test_start_command_clears_active_session(tg_calls):
+async def test_start_command_replaces_active_session_with_video_planner(tg_calls):
     session = SkillSession(
         skill_name="persona-creator",
         step_key="choose_language",
@@ -123,7 +125,9 @@ async def test_start_command_clears_active_session(tg_calls):
     await _handle_message(None, message)
 
     restored = await TelegramSkillSessionStore.get_session(123456789)
-    assert restored is None
+    assert restored is not None
+    assert restored.skill_name == "video-planner"
+    assert restored.step_key == "collect_objective"
 
 
 @pytest.mark.asyncio
@@ -541,3 +545,51 @@ def test_markdown_escape_handles_special_characters():
 
     for ch in ["!", ".", "-"]:
         assert f"\\{ch}" in escaped
+
+
+@pytest.mark.asyncio
+async def test_manual_mobile_upload_routes_video_planner_uploads(tg_calls):
+    chat_id = 123456789
+    await TelegramSkillSessionStore.set_session(
+        chat_id,
+        SkillSession(
+            skill_name="video-planner",
+            step_key="upload_manual_video",
+            artifacts={"telegram_chat_id": str(chat_id)},
+            control=SkillControl(status=SkillStatus.collecting),
+        ),
+    )
+    message = {
+        "chat": {"id": chat_id, "type": "private"},
+        "video": {"file_id": "telegram-video-1", "mime_type": "video/mp4"},
+    }
+
+    with patch(
+        "api.telegram_webhook._download_telegram_video",
+        AsyncMock(
+            return_value=(b"video-bytes", "video/mp4", "mobile.mp4")
+        ),
+    ) as download_video, patch(
+        "api.telegram_webhook.SkillDispatcher.handle_video_upload",
+        AsyncMock(
+            return_value=SkillResult(
+                success=True,
+                next_step="poll_status",
+                output={"message": "Upload processed."},
+                session=SkillSession(
+                    skill_name="video-ai",
+                    step_key="package_ready",
+                    artifacts={},
+                    control=SkillControl(status=SkillStatus.waiting_approval),
+                ),
+            )
+        ),
+    ) as handle_upload:
+        await _handle_message(None, message)
+
+    download_video.assert_awaited_once()
+    handle_upload.assert_awaited_once()
+    kwargs = handle_upload.await_args.kwargs
+    assert kwargs["file_id"] == "telegram-video-1"
+    assert kwargs["content_type"] == "video/mp4"
+    assert kwargs["filename"] == "mobile.mp4"

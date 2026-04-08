@@ -26,6 +26,7 @@ from .approval_activities import (
     send_telegram_approval_request,
     wait_for_approval,
     generate_and_send_script_for_approval,
+    generate_script_from_review_plan_activity,
     wait_for_script_approval,
     send_preview_to_telegram,
     wait_for_publish_decision,
@@ -58,6 +59,7 @@ __all__ = [
     "send_telegram_approval_request",
     "wait_for_approval",
     "generate_and_send_script_for_approval",
+    "generate_script_from_review_plan_activity",
     "wait_for_script_approval",
     "send_preview_to_telegram",
     "wait_for_publish_decision",
@@ -68,4 +70,7 @@ __all__ = [
     "send_story_for_approval",
 ]
 
-from .approval_activities import generate_script_from_approved_package_activity
+from .approval_activities import (
+    generate_script_from_approved_package_activity,
+    generate_script_from_review_plan_activity,
+)

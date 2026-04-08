@@ -373,6 +373,106 @@ def _video_ai_demo_preview_text(
     return "\n".join(lines)
 
 
+def _website_review_text(page_review: Dict[str, Any]) -> str:
+    lines = ["Website Review Ready", ""]
+    lines.append(f"URL: {page_review.get('normalized_url') or page_review.get('target_url') or '-'}")
+    lines.append(f"Title: {page_review.get('page_title') or '-'}")
+    lines.append(f"Access Level: {_humanize_token(page_review.get('access_level'))}")
+    lines.append(
+        f"Login Required: {'Yes' if page_review.get('login_required') else 'No'}"
+    )
+
+    summary = str(page_review.get("product_summary") or "").strip()
+    if summary:
+        lines.extend(["", f"Summary: {summary}"])
+
+    features = page_review.get("visible_features") or []
+    if features:
+        lines.extend(["", "Visible Features:"])
+        for item in features[:3]:
+            label = item.get("label") or "Feature"
+            summary_text = item.get("summary") or "-"
+            lines.append(f"- {label}: {_truncate(summary_text, 100)}")
+
+    flows = page_review.get("visible_flows") or []
+    if flows:
+        lines.extend(["", "Visible Flows:"])
+        for item in flows[:2]:
+            label = item.get("label") or "Flow"
+            summary_text = item.get("summary") or "-"
+            lines.append(f"- {label}: {_truncate(summary_text, 100)}")
+
+    candidates = page_review.get("recording_candidates") or []
+    if candidates:
+        lines.extend(["", "Recording Candidates:"])
+        for candidate in candidates[:3]:
+            lines.append(f"- {_truncate(candidate, 100)}")
+
+    lines.extend(["", "Next: choose the language for the video plan."])
+    return "\n".join(lines)
+
+
+def _video_planner_plan_text(plan: Dict[str, Any], session: SkillSession) -> str:
+    page_review = plan.get("page_review") or {}
+    credential = plan.get("credential_handoff") or {}
+    lines = ["Video Review Plan", ""]
+    lines.append(f"Objective: {plan.get('objective') or '-'}")
+    lines.append(f"Target URL: {plan.get('target_url') or '-'}")
+    lines.append(f"Language: {plan.get('language') or '-'}")
+
+    persona_id = str(plan.get("persona_id") or session.collected.get("persona_id") or "-")
+    persona_label = persona_id
+    for item in session.artifacts.get("available_personas") or []:
+        if str(item.get("persona_id") or "") == persona_id:
+            persona_label = str(item.get("display_name") or persona_id)
+            break
+    lines.append(f"Persona: {persona_label}")
+    lines.append(f"Execution Mode: {_humanize_token(plan.get('execution_mode'))}")
+    lines.append(f"Access Level: {_humanize_token(plan.get('access_level'))}")
+
+    summary = str(page_review.get("product_summary") or "").strip()
+    if summary:
+        lines.extend(["", f"Why This Plan: {summary}"])
+
+    features = page_review.get("visible_features") or []
+    if features:
+        lines.extend(["", "Feature Rationale:"])
+        for item in features[:3]:
+            lines.append(
+                f"- {item.get('label') or 'Feature'}: {_truncate(item.get('summary') or '-', 100)}"
+            )
+
+    flows = page_review.get("visible_flows") or []
+    if flows:
+        lines.extend(["", "Flow Coverage:"])
+        for item in flows[:2]:
+            lines.append(
+                f"- {item.get('label') or 'Flow'}: {_truncate(item.get('summary') or '-', 100)}"
+            )
+
+    assumptions = plan.get("assumptions") or []
+    if assumptions:
+        lines.extend(["", "Assumptions:"])
+        for item in assumptions[:2]:
+            lines.append(f"- {_truncate(item, 100)}")
+
+    risks = plan.get("risks") or []
+    if risks:
+        lines.extend(["", "Risks:"])
+        for item in risks[:2]:
+            lines.append(f"- {_truncate(item, 100)}")
+
+    lines.extend(
+        [
+            "",
+            f"Credential Handoff: {_humanize_token(credential.get('status'))}",
+            "",
+            "Confirm this plan to lock execution behind an explicit approval gate, or revise one part below.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _render_proposed_main_idea_card(
     resolved_idea: Dict[str, Any],
     preview_summary: Dict[str, Any],
@@ -789,6 +889,27 @@ class TelegramRenderer:
                 "reply_markup": _inline_keyboard_from_options(
                     step.get("options", []),
                     prefix="action::",
+                ),
+                "parse_mode": None,
+            }
+
+        if session.skill_name == "video-planner" and session.step_key == "choose_language":
+            step = get_step_definition(session.skill_name, session.step_key)
+            page_review = session.artifacts.get("page_review") or {}
+            return {
+                "text": _website_review_text(page_review),
+                "reply_markup": None,
+                "parse_mode": None,
+            }
+
+        if session.skill_name == "video-planner" and session.step_key == "confirm_plan":
+            step = get_step_definition(session.skill_name, session.step_key)
+            plan = session.artifacts.get("video_review_plan") or {}
+            return {
+                "text": _video_planner_plan_text(plan, session),
+                "reply_markup": _inline_keyboard_from_options(
+                    step.get("options", []),
+                    prefix="option::",
                 ),
                 "parse_mode": None,
             }
@@ -1566,6 +1687,43 @@ class TelegramRenderer:
                 return _render_cancelled_result(session, output)
             if session.skill_name == "persona-inspector":
                 return _render_persona_inspector_result(session=session, output=output)
+            if session.skill_name == "video-planner":
+                plan = output.get("video_review_plan") or session.artifacts.get(
+                    "video_review_plan"
+                ) or {}
+                workflow_id = output.get("workflow_id") or session.control.workflow_id
+                status = str(output.get("status") or "").strip()
+                if workflow_id:
+                    lines = ["Video Review Plan Confirmed", "", "Execution started."]
+                elif status == "handoff_required":
+                    lines = ["Video Review Plan Confirmed", "", "Secure handoff required."]
+                elif status == "awaiting_manual_upload":
+                    lines = ["Video Review Plan Confirmed", "", "Waiting for manual footage upload."]
+                else:
+                    lines = ["Video Review Plan Confirmed", ""]
+                if plan:
+                    lines.append(
+                        f"Objective: {plan.get('objective') or session.collected.get('objective') or '-'}"
+                    )
+                    lines.append(
+                        f"Target URL: {plan.get('target_url') or session.collected.get('target_url') or '-'}"
+                    )
+                    lines.append(
+                        f"Execution Mode: {_humanize_token(plan.get('execution_mode'))}"
+                    )
+                if workflow_id:
+                    lines.extend(["", f"Workflow ID: {workflow_id}"])
+                handoff_url = output.get("handoff_url")
+                if handoff_url:
+                    lines.extend(["", f"Secure Handoff URL: {handoff_url}"])
+                message = output.get("message")
+                if message:
+                    lines.extend(["", str(message)])
+                return {
+                    "text": "\n".join(lines),
+                    "reply_markup": None,
+                    "parse_mode": None,
+                }
             lines = [f"✅ `{session.skill_name}` completed successfully!"]
             if isinstance(output, dict):
                 if output.get("message"):

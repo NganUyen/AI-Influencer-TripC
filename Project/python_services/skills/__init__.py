@@ -10,6 +10,7 @@ from .persona_inspector import PersonaInspectorSkill
 from .publish_manager import PublishManagerSkill
 from .quota_inspector import QuotaInspectorSkill
 from .video_ai import VideoAISkill
+from .video_planner import VideoPlannerSkill
 from .weekly_planner import WeeklyPlannerSkill
 from .daily_story import DailyStorySkill
 
@@ -23,6 +24,7 @@ SKILL_REGISTRY = {
     "persona-creator": PersonaCreatorSkill,
     "publish-manager": PublishManagerSkill,
     "video-ai": VideoAISkill,
+    "video-planner": VideoPlannerSkill,
     "weekly-planner": WeeklyPlannerSkill,
     "daily-story": DailyStorySkill,
 }
@@ -45,6 +47,7 @@ __all__ = [
     "PersonaCreatorSkill",
     "PublishManagerSkill",
     "VideoAISkill",
+    "VideoPlannerSkill",
     "WeeklyPlannerSkill",
     "DailyStorySkill",
     "CarouselSkill",

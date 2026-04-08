@@ -396,6 +396,56 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
             "options": PREPRO_APPROVAL_ACTIONS,
         },
     },
+    "video-planner": {
+        "collect_objective": {
+            "input_type": "free_text",
+            "field": "objective",
+            "prompt_text": "What is your objective for this video?\n\nExample: Explain the product quickly, record a walkthrough, or create a short review that drives signups.",
+        },
+        "collect_target_url": {
+            "input_type": "free_text",
+            "field": "target_url",
+            "prompt_text": "Send the target URL to review.\n\nExample: https://tripc.ai",
+        },
+        "choose_language": {
+            "input_type": "free_text",
+            "field": "language",
+            "prompt_text": "What language should be used?\n\nExample: English or Vietnamese.",
+        },
+        "pick_persona": {
+            "input_type": "persona_picker",
+            "field": "persona_id",
+            "prompt_text": "Which persona should be applied to this video plan?",
+            "allow_skip": False,
+        },
+        "choose_execution_mode": {
+            "input_type": "inline_keyboard",
+            "field": "execution_mode",
+            "prompt_text": "Choose how this video should be executed.",
+            "options": _options(
+                ("Autonomous Screen Recording", "autonomous_screen_recording"),
+                ("Authenticated PC Recording", "authenticated_pc_recording"),
+                ("Manual Mobile Recording", "manual_mobile_recording"),
+            ),
+        },
+        "confirm_plan": {
+            "input_type": "inline_keyboard",
+            "field": "plan_decision",
+            "prompt_text": "Review the video plan below, then confirm it or revise one part.",
+            "options": _options(
+                ("Confirm Plan", "confirm"),
+                ("Change Objective", "revise_objective"),
+                ("Change URL", "revise_url"),
+                ("Change Persona", "revise_persona"),
+                ("Change Mode", "revise_mode"),
+            ),
+        },
+        "upload_manual_video": {
+            "input_type": "free_text",
+            "field": "manual_upload_note",
+            "prompt_text": "Upload the mobile-recorded demo video now. Keep the footage in the current vertical format so the final output stays on the existing 9:16 canvas.",
+        },
+    },
     "publish-manager": {
         "list_publish_queue": {
             "input_type": "automatic",

@@ -431,6 +431,65 @@ async def test_start_video_workflow_passes_validated_approved_package_and_snapsh
     }
 
 
+@pytest.mark.asyncio
+async def test_start_video_workflow_passes_review_plan_and_execution_mode(monkeypatch):
+    handle = SimpleNamespace(id="run-video-4")
+    mock_client = AsyncMock()
+    mock_client.start_workflow.return_value = handle
+
+    async def fake_get_temporal_client(_request):
+        return mock_client
+
+    async def fake_get_persona(_persona_id, user_id=None, owner_key=None):
+        return {
+            "persona_id": "persona-4",
+            "display_name": "Persona 4",
+            "language": "English",
+            "status": "ready",
+            "tts_voice": "en-US-Neural2-A",
+            "heygen_avatar_id": None,
+        }
+
+    monkeypatch.setattr(workflows, "get_temporal_client", fake_get_temporal_client)
+    monkeypatch.setattr(
+        workflows.PersonaRegistryService, "get_persona", fake_get_persona
+    )
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    payload = workflows.StartVideoRequest(
+        persona_id="persona-4",
+        topic="Create a short product review",
+        telegram_chat_id="444",
+        talking_head_optional=True,
+        execution_mode="autonomous_screen_recording",
+        review_plan={
+            "planning_mode": "webpage_review",
+            "objective": "Create a short product review",
+            "target_url": "https://example.com",
+            "language": "English",
+            "persona_id": "persona-4",
+            "execution_mode": "autonomous_screen_recording",
+            "access_level": "public_page_only",
+            "status": "confirmed",
+        },
+        audio_policy={
+            "voiceover_required": True,
+            "bgm_fallback_enabled": True,
+            "bgm_library_profile": "product_explainer",
+            "bgm_duck_under_voiceover": True,
+            "max_bgm_duration_seconds": 60,
+        },
+    )
+
+    response = await workflows.start_video_workflow(request, payload)
+
+    assert response["status"] == "started"
+    started_payload = mock_client.start_workflow.await_args.kwargs["args"][0]
+    assert started_payload["execution_mode"] == "autonomous_screen_recording"
+    assert started_payload["review_plan"]["target_url"] == "https://example.com"
+    assert started_payload["audio_policy"]["bgm_fallback_enabled"] is True
+
+
 def test_start_video_request_rejects_invalid_approved_package():
     with pytest.raises(ValidationError):
         workflows.StartVideoRequest(
@@ -447,6 +506,7 @@ async def test_video_ai_skill_legacy_topic_payload_no_longer_starts_workflow(
     session = VideoAISkill.initial_session()
     session.collected["persona_id"] = "persona-1"
     session.collected["topic"] = "Weekend beach trip"
+    session.collected["creative_input_mode"] = "idea_brief"
 
     request_mock = AsyncMock(
         side_effect=AssertionError("Legacy workflow start should not run")
@@ -468,6 +528,7 @@ async def test_video_ai_skill_requires_reference_url_before_generation(monkeypat
     session.collected.update(
         {
             "persona_id": "persona-legacy",
+            "creative_input_mode": "idea_brief",
             "idea_brief": "Sunset cruise concept",
             "feature_focus": "Trip planning",
             "video_goal": "feature_demo",
@@ -496,6 +557,7 @@ async def test_video_ai_skill_builds_concept_preview_instead_of_starting_workflo
     session.collected.update(
         {
             "persona_id": "persona-1",
+            "creative_input_mode": "idea_brief",
             "idea_brief": "Weekend beach trip planner",
             "feature_focus": "AI itinerary planner",
             "video_goal": "feature_demo",

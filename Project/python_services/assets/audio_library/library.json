@@ -1,0 +1,23 @@
+[
+  {
+    "id": "product_explainer_soft",
+    "profile": "product_explainer",
+    "mood": "neutral",
+    "duration_seconds": 28,
+    "filename": "product_explainer_soft.mp3"
+  },
+  {
+    "id": "calm_review_bed",
+    "profile": "calm_review",
+    "mood": "calm",
+    "duration_seconds": 24,
+    "filename": "calm_review_bed.mp3"
+  },
+  {
+    "id": "upbeat_demo_loop",
+    "profile": "upbeat_demo",
+    "mood": "upbeat",
+    "duration_seconds": 26,
+    "filename": "upbeat_demo_loop.mp3"
+  }
+]

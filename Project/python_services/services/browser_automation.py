@@ -15,6 +15,7 @@ Checkpoint Logging (CP-BR*):
 
 import logging
 import os
+import asyncio
 import time as _time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -439,6 +440,8 @@ class BrowserAutomationService:
         url: str, 
         capture_hint: str = "scroll",
         target_selector: Optional[str] = None,
+        action_text: Optional[str] = None,
+        visual_success_criteria: Optional[str] = None,
         viewport_width: int = 1080,
         viewport_height: int = 960,
         max_capture_seconds: int = 60,
@@ -619,6 +622,14 @@ class BrowserAutomationService:
                             await asyncio.sleep(1.0)
                 except Exception as e:
                     logger.warning(f"Could not scroll to target {target_selector}: {e}")
+
+            if capture_mode == "orchestrated":
+                await self._attempt_guided_interaction(
+                    page=page,
+                    target_selector=target_selector,
+                    action_text=action_text,
+                    visual_success_criteria=visual_success_criteria,
+                )
 
             # 2. Walk through relevant pages and scroll each one until budget is consumed.
             for idx, visit_url in enumerate(visit_urls):
@@ -811,6 +822,49 @@ class BrowserAutomationService:
                     self._page_created = False
             
             raise
+
+    async def _attempt_guided_interaction(
+        self,
+        *,
+        page: Any,
+        target_selector: Optional[str],
+        action_text: Optional[str],
+        visual_success_criteria: Optional[str],
+    ) -> None:
+        action_lower = str(action_text or "").lower()
+        if not any(token in action_lower for token in ["click", "open", "select", "tap", "press"]):
+            return
+
+        candidate_texts: List[str] = []
+        for raw in [target_selector, visual_success_criteria, action_text]:
+            text = str(raw or "").strip()
+            if not text:
+                continue
+            cleaned = text.replace("'", " ").replace('"', " ").strip()
+            if cleaned and cleaned not in candidate_texts:
+                candidate_texts.append(cleaned)
+
+        for candidate in candidate_texts[:3]:
+            try:
+                locator = page.get_by_text(candidate, exact=False).first
+                if await locator.count() > 0:
+                    await locator.click(timeout=1500)
+                    await page.wait_for_load_state("networkidle", timeout=2500)
+                    await asyncio.sleep(0.6)
+                    logger.info(
+                        "Guided interaction succeeded | target=%s | action=%s",
+                        candidate[:80],
+                        str(action_text or "")[:120],
+                    )
+                    return
+            except Exception:
+                continue
+
+        logger.info(
+            "Guided interaction skipped | target=%s | action=%s",
+            str(target_selector or "")[:80],
+            str(action_text or "")[:120],
+        )
 
     async def _warm_up_capture_navigation(self, url: str, timeout_seconds: int = 15) -> bool:
         """

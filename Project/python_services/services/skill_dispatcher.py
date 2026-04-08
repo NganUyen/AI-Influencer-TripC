@@ -18,6 +18,16 @@ from .step_config import get_step_definition
 class SkillDispatcher:
     """Load, update, execute, and persist skill sessions."""
 
+    @staticmethod
+    def _session_accepts_video_upload(session: SkillSession) -> bool:
+        return (
+            (session.skill_name == "video-ai" and session.step_key == "upload_demo_video")
+            or (
+                session.skill_name == "video-planner"
+                and session.step_key == "upload_manual_video"
+            )
+        )
+
     @classmethod
     def _check_demo_preview_timeout(
         cls, session: SkillSession
@@ -99,7 +109,7 @@ class SkillDispatcher:
         step = get_step_definition(session.skill_name, session.step_key)
         input_type = step.get("input_type")
         if input_type in {"persona_picker", "persona_selector"}:
-            ready_only = session.skill_name in {"video-ai", "carousel"}
+            ready_only = session.skill_name in {"video-ai", "video-planner", "carousel"}
             telegram_chat_id = session.artifacts.get("telegram_chat_id")
             owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
             session.artifacts["available_personas"] = await cls._fetch_personas(
@@ -330,8 +340,7 @@ class SkillDispatcher:
             return None
         session.artifacts.setdefault("telegram_chat_id", str(chat_id))
 
-        # Only handle video uploads for video-ai skill in upload_demo_video step
-        if session.skill_name != "video-ai" or session.step_key != "upload_demo_video":
+        if not cls._session_accepts_video_upload(session):
             return SkillResult(
                 success=False,
                 error="This step does not accept video uploads yet. Please follow the current prompt or send /cancel.",
@@ -410,13 +419,6 @@ class SkillDispatcher:
 
         access_url = storage_result.get("access_url") or storage_result.get("url")
 
-        # Store file_id and URL in session
-        session.collected["demo_video_telegram_file_id"] = file_id
-        session.collected["demo_video_asset_url"] = access_url
-        session.artifacts["demo_video_asset_id"] = storage_result.get("media_asset_id")
-        session.artifacts["demo_video_filename"] = filename
-        session.artifacts["demo_video_quality_report"] = quality_report.model_dump()
-
         # Build success message with warnings if any
         success_msg = f"✅ Video uploaded successfully!\n\n"
         success_msg += f"Duration: {quality_report.duration_sec:.1f}s\n"
@@ -428,10 +430,32 @@ class SkillDispatcher:
                 success_msg += f"• {warning}\n"
             success_msg += "\nYou can continue, but consider the warnings above."
 
-        # Execute skill to move to next step
-        skill_cls = SKILL_REGISTRY[session.skill_name]
-        async with cls._transport_client(app) as client:
-            result = await skill_cls.execute(session, "http://backend", client)
+        if session.skill_name == "video-planner":
+            from skills.video_planner import VideoPlannerSkill
+
+            async with cls._transport_client(app) as client:
+                result = await VideoPlannerSkill.continue_manual_mobile_pipeline(
+                    session,
+                    backend_url="http://backend",
+                    http_client=client,
+                    file_id=file_id,
+                    asset_url=access_url,
+                    asset_id=storage_result.get("media_asset_id"),
+                    filename=filename,
+                    quality_report=quality_report.model_dump(),
+                )
+        else:
+            # Store file_id and URL in session
+            session.collected["demo_video_telegram_file_id"] = file_id
+            session.collected["demo_video_asset_url"] = access_url
+            session.artifacts["demo_video_asset_id"] = storage_result.get("media_asset_id")
+            session.artifacts["demo_video_filename"] = filename
+            session.artifacts["demo_video_quality_report"] = quality_report.model_dump()
+
+            # Execute skill to move to next step
+            skill_cls = SKILL_REGISTRY[session.skill_name]
+            async with cls._transport_client(app) as client:
+                result = await skill_cls.execute(session, "http://backend", client)
 
         # Prepend success message to the result
         if result.session is not None:

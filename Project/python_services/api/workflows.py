@@ -18,6 +18,8 @@ from workflows import WeeklyMarketingWorkflow
 from config.settings import settings
 from services.contracts import (
     ApprovedProductionPackageContract,
+    VideoAudioPolicyContract,
+    VideoReviewPlanContract,
     VideoWorkflowPersonaSnapshotContract,
     VideoWorkflowStartPayloadContract,
 )
@@ -46,6 +48,9 @@ class StartVideoRequest(BaseModel):
     owner_key: Optional[str] = None
     talking_head_optional: bool = False
     approved_package: Optional[ApprovedProductionPackageContract] = None
+    review_plan: Optional[VideoReviewPlanContract] = None
+    execution_mode: Optional[str] = None
+    audio_policy: Optional[VideoAudioPolicyContract] = None
 
 
 def _normalize_execution_status(status_value: Any) -> Optional[str]:
@@ -256,6 +261,9 @@ async def start_video_workflow(request: Request, payload: StartVideoRequest):
             owner_key=owner_key,
             talking_head_optional=payload.talking_head_optional,
             approved_package=payload.approved_package,
+            review_plan=payload.review_plan,
+            execution_mode=payload.execution_mode,
+            audio_policy=payload.audio_policy,
             persona_snapshot=_build_video_workflow_persona_snapshot(persona),
         )
 

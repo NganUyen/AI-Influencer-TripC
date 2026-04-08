@@ -18,6 +18,10 @@ import httpx
 from temporalio import activity
 
 from services.contracts import FinalVideoContract, SplitScreenVideoInput
+from services.background_music_service import (
+    BackgroundMusicError,
+    BackgroundMusicService,
+)
 from services.errors import AssemblyError, AssemblyMissingAssetError, StorageUploadError
 from services.storage_service import StorageService
 from services.media_storage_service import MediaStorageService
@@ -179,6 +183,62 @@ def _probe_media_duration(path: str) -> Optional[float]:
     except ValueError:
         return None
     return duration if duration > 0 else None
+
+
+def _audio_has_audible_signal(path: str) -> bool:
+    result = subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-i",
+            path,
+            "-af",
+            "volumedetect",
+            "-f",
+            "null",
+            "/dev/null",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.warning("Could not inspect audio signal for %s", path)
+        return True
+    combined = "\n".join([result.stdout or "", result.stderr or ""])
+    match = re.search(r"mean_volume:\s*(-?[0-9.]+) dB", combined)
+    if not match:
+        return True
+    try:
+        mean_volume = float(match.group(1))
+    except ValueError:
+        return True
+    return mean_volume > -55.0
+
+
+def _prepare_audio_source(
+    assembly_input: SplitScreenVideoInput,
+    tmp_path: Path,
+) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
+    audio_policy = assembly_input.audio_policy or {}
+    bgm_enabled = bool(audio_policy.get("bgm_fallback_enabled", True))
+    profile = str(audio_policy.get("bgm_library_profile") or "product_explainer").strip()
+    max_duration = int(audio_policy.get("max_bgm_duration_seconds") or 60)
+
+    if assembly_input.audio_url:
+        return str(tmp_path / "narration.mp3"), None
+    if not bgm_enabled:
+        return None, None
+    try:
+        selected_track = BackgroundMusicService.select_track(
+            profile=profile,
+            max_duration_seconds=max_duration,
+        )
+    except BackgroundMusicError as exc:
+        raise AssemblyMissingAssetError(
+            f"audio_url is missing and no local BGM fallback is available: {exc}"
+        ) from exc
+    return str(tmp_path / "bgm_fallback.mp3"), selected_track
 
 
 def _clean_subtitle_text(text: str) -> str:
@@ -439,8 +499,8 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
 
     Required:
     - image_urls (top-half videos only)
-    - audio_url
     - talking_head_url (bottom-half video)
+    - audio_url or local BGM fallback
     """
     assembly_input = SplitScreenVideoInput(**config)
 
@@ -448,13 +508,6 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
         raise AssemblyMissingAssetError(
             "image_urls is empty; cannot assemble without scenes."
         )
-    if not assembly_input.audio_url:
-        raise AssemblyMissingAssetError("audio_url is missing; narration is required.")
-    if not assembly_input.talking_head_url:
-        raise AssemblyMissingAssetError(
-            "talking_head_url is required for split-screen assembly."
-        )
-
     logger.info(
         "Starting assembly: %s images, talking_head=%s",
         len(assembly_input.image_urls),
@@ -503,10 +556,23 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                 _download_required(url, image_path, f"asset_{index + 1}")
             )
 
-        audio_path = str(tmp_path / "narration.mp3")
-        download_tasks.append(
-            _download_required(assembly_input.audio_url, audio_path, "audio")
-        )
+        audio_path, bgm_track = _prepare_audio_source(assembly_input, tmp_path)
+        using_bgm_fallback = bgm_track is not None
+        if not audio_path:
+            raise AssemblyMissingAssetError(
+                "audio_url is missing and BGM fallback is disabled or unavailable."
+            )
+        if assembly_input.audio_url and audio_path:
+            download_tasks.append(
+                _download_required(assembly_input.audio_url, audio_path, "audio")
+            )
+        elif bgm_track and audio_path:
+            download_tasks.append(
+                asyncio.to_thread(
+                    Path(audio_path).write_bytes,
+                    Path(str(bgm_track["path"])).read_bytes(),
+                )
+            )
 
         talking_head_path: Optional[str] = None
         if assembly_input.talking_head_url:
@@ -521,12 +587,26 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
         if assembly_input.talking_head_url:
             talking_head_path = download_results[-1]
 
-        for path in [*image_paths, audio_path]:
+        required_audio_paths = [audio_path] if audio_path else []
+        for path in [*image_paths, *required_audio_paths]:
             # Increased size guard to 2KB to catch partial or empty browser captures
             if not os.path.exists(path) or os.path.getsize(path) < 2000:
                 raise AssemblyMissingAssetError(
                     f"Required asset missing or too small (min 2000 bytes, got {os.path.getsize(path) if os.path.exists(path) else '0'}): {path}"
                 )
+
+        if audio_path and not using_bgm_fallback and not _audio_has_audible_signal(audio_path):
+            audio_policy = assembly_input.audio_policy or {}
+            if bool(audio_policy.get("bgm_fallback_enabled", True)):
+                try:
+                    bgm_track = BackgroundMusicService.select_track(
+                        profile=str(audio_policy.get("bgm_library_profile") or "product_explainer").strip(),
+                        max_duration_seconds=int(audio_policy.get("max_bgm_duration_seconds") or 60),
+                    )
+                    Path(audio_path).write_bytes(Path(str(bgm_track["path"])).read_bytes())
+                    using_bgm_fallback = True
+                except BackgroundMusicError as exc:
+                    logger.warning("BGM fallback unavailable after silent audio detection: %s", exc)
 
         # New Robust Concat Logic for Mixed Media Types
         concat_file = str(tmp_path / "concat.txt")
@@ -659,43 +739,64 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
 
         final_path = str(tmp_path / "final_output.mp4")
 
-        if (
-            not talking_head_path
-            or not os.path.exists(talking_head_path)
-            or os.path.getsize(talking_head_path) < 100
-        ):
-            raise AssemblyMissingAssetError(
-                "Talking-head bottom-half video is missing; cannot complete split-screen assembly"
-            )
-
-        logger.info(
-            "Using split-screen assembly with talking head | scene_count=%s",
-            len(image_paths),
-        )
-
         talking_head_normalized = str(tmp_path / "talking_head_normalized.mp4")
-        _run_ffmpeg(
-            [
-                "ffmpeg",
-                "-y",
-                "-v",
-                "error",
-                "-nostats",
-                "-i",
-                talking_head_path,
-                "-an",
-                "-vf",
-                "fps=25,format=yuv420p,setsar=1",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "veryfast",
-                "-movflags",
-                "+faststart",
-                talking_head_normalized,
-            ],
-            "normalize_talking_head",
+        used_talking_head = bool(
+            talking_head_path
+            and os.path.exists(talking_head_path)
+            and os.path.getsize(talking_head_path) >= 100
         )
+        if used_talking_head:
+            logger.info(
+                "Using split-screen assembly with talking head | scene_count=%s",
+                len(image_paths),
+            )
+            _run_ffmpeg(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-v",
+                    "error",
+                    "-nostats",
+                    "-i",
+                    talking_head_path,
+                    "-an",
+                    "-vf",
+                    "fps=25,format=yuv420p,setsar=1",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-movflags",
+                    "+faststart",
+                    talking_head_normalized,
+                ],
+                "normalize_talking_head",
+            )
+        else:
+            fallback_duration = _probe_media_duration(slideshow_path) or _probe_media_duration(audio_path) or 20.0
+            logger.info(
+                "Talking head missing; using neutral bottom-half fallback | scene_count=%s | duration=%.2fs",
+                len(image_paths),
+                fallback_duration,
+            )
+            _run_ffmpeg(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    f"color=c=black:s={BOTTOM_SOURCE_WIDTH}x{BOTTOM_SOURCE_HEIGHT}:d={fallback_duration}",
+                    "-vf",
+                    "fps=25,format=yuv420p,setsar=1",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    talking_head_normalized,
+                ],
+                "build_fallback_bottom_half",
+            )
 
         _run_ffmpeg(
             [
@@ -805,7 +906,9 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
         metadata = {
             **assembly_input.model_dump(),
             "assembly_mode": "split_screen",
-            "used_talking_head": True,
+            "used_talking_head": used_talking_head,
+            "used_bgm_fallback": using_bgm_fallback,
+            "bgm_profile": (bgm_track or {}).get("profile") if bgm_track else None,
             "top_half_resolution": f"{HALF_FRAME_WIDTH}x{HALF_FRAME_HEIGHT}",
             "bottom_half_resolution": f"{HALF_FRAME_WIDTH}x{HALF_FRAME_HEIGHT}",
             "bottom_half_source_resolution": f"{BOTTOM_SOURCE_WIDTH}x{BOTTOM_SOURCE_HEIGHT}",

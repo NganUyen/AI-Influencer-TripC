@@ -270,6 +270,11 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
     if not text_to_speak:
         raise ApplicationError("Missing audio script in prompt", non_retryable=True)
 
+    campaign_id = prompt_config.get("campaign_id") or metadata.get("campaign_id")
+    persona_id = prompt_config.get("persona_id") or metadata.get("persona_id")
+    owner_key = prompt_config.get("owner_key") or metadata.get("owner_key")
+    user_id = prompt_config.get("user_id") or metadata.get("user_id")
+
     try:
         tts_service = GoogleTTSService()
         audio_bytes = await tts_service.generate_audio(
@@ -279,10 +284,6 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
             user_id=user_id,
         )
 
-        campaign_id = prompt_config.get("campaign_id") or metadata.get("campaign_id")
-        persona_id = prompt_config.get("persona_id") or metadata.get("persona_id")
-        owner_key = prompt_config.get("owner_key") or metadata.get("owner_key")
-        user_id = prompt_config.get("user_id") or metadata.get("user_id")
         file_extension = "mp3"
         day = audio_input.metadata.day
         platform = audio_input.metadata.platform
@@ -1105,6 +1106,8 @@ async def _capture_with_retry(
     source_ref: str,
     capture_hint: str,
     target_selector: str,
+    action_text: str,
+    visual_success_criteria: str,
     max_capture_seconds: int,
     follow_relevant_links: bool,
     scene_duration_sec: float,
@@ -1156,6 +1159,8 @@ async def _capture_with_retry(
                 source_ref,
                 capture_hint=attempt_hint,
                 target_selector=target_selector,
+                action_text=action_text,
+                visual_success_criteria=visual_success_criteria,
                 viewport_width=1080,
                 viewport_height=960,
                 max_capture_seconds=attempt_max_seconds,
@@ -1323,6 +1328,8 @@ async def _capture_browser_video(
 
         capture_hint = scene.get("top_half_capture_hint", "scroll")
         target_selector = scene.get("top_half_target")
+        action_text = str(scene.get("browser_action") or scene.get("prompt") or "").strip()
+        visual_success_criteria = str(scene.get("visual_success_criteria") or "").strip()
         base_max_capture_seconds = (
             scene.get("top_half_max_capture_seconds")
             or scene_metadata.get("top_half_max_capture_seconds")
@@ -1385,6 +1392,8 @@ async def _capture_browser_video(
             source_ref=source_ref,
             capture_hint=capture_hint,
             target_selector=target_selector,
+            action_text=action_text,
+            visual_success_criteria=visual_success_criteria,
             max_capture_seconds=max_capture_seconds,
             follow_relevant_links=follow_relevant_links,
             scene_duration_sec=scene_duration_sec,

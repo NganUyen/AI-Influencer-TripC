@@ -474,6 +474,68 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             },
         },
     },
+    "video-planner": {
+        "name": "VideoPlanner",
+        "command": "/start",
+        "role": "Planning-first Telegram entrypoint for video execution",
+        "description": (
+            "Collect the user's objective, target URL, language, persona, and execution mode, "
+            "then produce a reviewable video plan before any production workflow starts."
+        ),
+        "status": "partial",
+        "kind": "leaf",
+        "parent": None,
+        "menu_options": [],
+        "required_params": [
+            "objective",
+            "target_url",
+            "language",
+            "persona_id",
+            "execution_mode",
+        ],
+        "optional_params": ["plan_decision"],
+        "input_contract": {
+            "mode": "structured_conversational_planner",
+            "freeform_fields": ["objective", "target_url", "language"],
+            "note": (
+                "This planner is the new plain /start experience. It captures planning inputs first and waits for explicit confirmation before execution."
+            ),
+        },
+        "internal_skills": ["persona-picker", "creative-director"],
+        "api_call": {
+            "target": "Internal Telegram planner state machine",
+            "current_repo_support": True,
+            "note": (
+                "Step 2 only collects and stores the review plan. URL fetching and workflow execution land in later implementation steps."
+            ),
+        },
+        "output": "Confirmed video review plan",
+        "implementation_priority": 1,
+        "integration_note": "Designed to replace menu-only /start with a planning-first Telegram flow.",
+        "steps": [
+            "collect_objective",
+            "collect_target_url",
+            "choose_language",
+            "pick_persona",
+            "choose_execution_mode",
+            "confirm_plan",
+        ],
+        "session_shape": {
+            "step_key": "collect_objective",
+            "collected": {
+                "objective": None,
+                "target_url": None,
+                "language": None,
+                "persona_id": None,
+                "execution_mode": None,
+                "plan_decision": None,
+            },
+            "artifacts": {
+                "page_review": None,
+                "video_review_plan": None,
+            },
+        },
+    },
     "video-tutorial": {
         "name": "VideoTutorial",
         "command": "/media",

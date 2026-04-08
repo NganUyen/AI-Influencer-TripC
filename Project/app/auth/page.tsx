@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
@@ -47,7 +47,7 @@ async function customerApiRequest<T>(
   return (await response.json()) as T;
 }
 
-export default function AuthPage() {
+function AuthPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const {
@@ -476,6 +476,14 @@ export default function AuthPage() {
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={null}>
+      <AuthPageContent />
+    </Suspense>
   );
 }
 

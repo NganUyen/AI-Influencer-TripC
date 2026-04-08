@@ -64,12 +64,13 @@ export default function AuthPage() {
     initialize: state.initialize,
     isAuthenticated: state.isAuthenticated,
   }));
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [localError, setLocalError] = useState<string | null>(null);
   const [linkToken, setLinkToken] = useState<TelegramLinkToken | null>(null);
   const [isGeneratingToken, setIsGeneratingToken] = useState(false);
   const [isAwaitingTelegram, setIsAwaitingTelegram] = useState(false);
   const [isCompletingSession, setIsCompletingSession] = useState(false);
+  const [showQR, setShowQR] = useState(false);
+
   const telegramSignInUrl = getClientTelegramBotLaunchUrl(
     linkToken?.start_token,
     "TripCInternBot",
@@ -105,7 +106,7 @@ export default function AuthPage() {
         setLinkToken(null);
         setIsAwaitingTelegram(false);
         setIsCompletingSession(false);
-        setLocalError("Telegram link expired. Generate a new secure link to continue.");
+        setLocalError("Liên kết Telegram đã hết hạn. Vui lòng thử lại.");
         return;
       }
 
@@ -145,24 +146,23 @@ export default function AuthPage() {
           setLinkToken(null);
           setIsAwaitingTelegram(false);
           setIsCompletingSession(false);
-          setLocalError("Telegram link expired. Generate a new secure link to continue.");
+          setLocalError("Liên kết Telegram đã hết hạn. Vui lòng thử lại.");
           return;
         }
 
         timeoutId = window.setTimeout(() => {
           void pollForCompletion();
-        }, 2500);
+        }, 2000);
       } catch (requestError) {
         if (cancelled) {
           return;
         }
         setIsAwaitingTelegram(false);
         setIsCompletingSession(false);
-        setLocalError(
-          requestError instanceof Error
-            ? requestError.message
-            : "Failed to complete Telegram sign-in",
-        );
+        // Silently retry complex network errors during polling
+        timeoutId = window.setTimeout(() => {
+            void pollForCompletion();
+          }, 4000);
       }
     };
 
@@ -196,167 +196,232 @@ export default function AuthPage() {
         },
       );
       setLinkToken(payload);
+      return payload;
     } catch (requestError) {
       setLocalError(
         requestError instanceof Error
           ? requestError.message
-          : "Failed to generate Telegram link",
+          : "Không thể khởi tạo liên kết Telegram",
       );
+      return null;
     } finally {
       setIsGeneratingToken(false);
     }
   }
 
-  return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#23443d_0%,#0c1220_40%,#07080c_100%)] px-6 py-10 text-stone-100">
-      <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-[34px] border border-white/10 bg-white/5 p-8 backdrop-blur">
-          <p className="text-xs uppercase tracking-[0.32em] text-emerald-200/80">
-            Customer-Facing Automation
-          </p>
-          <h1 className="mt-4 text-5xl font-semibold leading-tight text-white">
-            Turn one login into a guided marketing machine.
-          </h1>
-          <p className="mt-5 max-w-2xl text-base text-stone-300">
-            This workspace is built for real customer accounts: connect official socials,
-            brief OpenClaw in-app, review the plan, and launch the Temporal workflow with
-            review-first controls.
-          </p>
+  const handleActionClick = async () => {
+    const payload = await handleGenerateTelegramLink();
+    if (payload) {
+      const url = getClientTelegramBotLaunchUrl(payload.start_token, "TripCInternBot");
+      if (url) {
+        window.open(url, "_blank");
+      }
+    }
+  };
 
-          <div className="mt-10 grid gap-4 sm:grid-cols-3">
-            <FeatureCard
-              title="Connect Official Accounts"
-              description="OAuth-first account linking for LinkedIn, Facebook, X, and YouTube."
+  const handleQRClick = async () => {
+    if (!linkToken) {
+       await handleGenerateTelegramLink();
+    }
+    setShowQR(true);
+  };
+
+  return (
+    <div className="bg-[#f8f7f0] font-[Lexend] text-[#2e2f2c] min-h-screen flex flex-col items-center overflow-x-hidden selection:bg-[#a03929]/10 selection:text-[#a03929]">
+      <style jsx global>{`
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Lexend:wght@300;400;500;600&display=swap');
+        
+        h1, h2, h3 { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .material-symbols-outlined {
+          font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .gradient-text {
+          background: linear-gradient(to right, #a03929, #fd7d68);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+        }
+        .aura-premium-shadow {
+          box-shadow: 0 20px 40px rgba(46, 47, 44, 0.08), 0 10px 15px rgba(160, 57, 41, 0.04);
+        }
+        .animate-fade-in {
+          animation: fadeIn 0.5s ease-out forwards;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-pulse-slow {
+          animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.7; }
+        }
+      `}</style>
+
+      {/* Decorative Background Elements */}
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <div className="absolute -top-24 -left-24 w-96 h-96 bg-[#a03929]/5 rounded-full blur-[100px]"></div>
+        <div className="absolute top-1/2 -right-48 w-[500px] h-[500px] bg-[#fd7d68]/5 rounded-full blur-[120px]"></div>
+      </div>
+
+      <header className="w-full max-w-7xl px-8 py-8 flex justify-between items-center z-10">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-[#a03929] rounded-xl flex items-center justify-center shadow-lg shadow-[#a03929]/20">
+            <span className="material-symbols-outlined text-white text-2xl">auto_awesome</span>
+          </div>
+          <span className="text-2xl font-bold tracking-tighter text-[#2e2f2c]">AURA</span>
+        </div>
+        <div className="hidden md:flex items-center gap-6">
+          <span className="text-[#2e2f2c]/60 font-medium text-sm">Hệ thống vận hành thông minh</span>
+          <div className="h-4 w-px bg-[#2e2f2c]/10"></div>
+          <a href="/" className="text-[#a03929] font-bold text-sm hover:underline">Trang chủ</a>
+        </div>
+      </header>
+
+      <main className="flex-grow w-full max-w-7xl px-8 flex flex-col lg:flex-row items-center justify-center gap-12 lg:gap-20 py-12 z-10">
+        {/* Left Side: Hero Text Section */}
+        <div className="w-full lg:w-3/5 space-y-10 text-center lg:text-left">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-white rounded-full text-[#a03929] font-bold text-sm tracking-wide border border-[#a03929]/10 shadow-sm">
+            <span className="material-symbols-outlined text-base">verified</span>
+            <span>TƯƠNG LAI CỦA TIẾP THỊ SỐ</span>
+          </div>
+          <h1 className="text-5xl lg:text-7xl font-extrabold tracking-tight leading-[1.1] text-[#2e2f2c]">
+            Hóa thân <span className="gradient-text">Influencer</span><br/> 
+            chỉ với một lần chạm.
+          </h1>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 text-left">
+            <FeatureCard 
+              icon="hub" 
+              title="Kết nối" 
+              description="Đồng bộ đa nền tảng chỉ trong vài giây." 
             />
-            <FeatureCard
-              title="Plan With OpenClaw"
-              description="Persistent strategy threads and artifacts live inside the workspace."
+            <FeatureCard 
+              icon="psychology" 
+              title="Trí tuệ" 
+              description="Tối ưu nội dung cùng sức mạnh AI." 
             />
-            <FeatureCard
-              title="Review Before Launch"
-              description="Approve the campaign in the web app before anything is published."
+            <FeatureCard 
+              icon="schema" 
+              title="Tự động" 
+              description="Vận hành 24/7 qua hệ thống workflow." 
             />
           </div>
-
-          <p className="mt-8 text-sm text-stone-400">
-            Operators still use the internal console at{" "}
-            <a className="text-amber-200 underline underline-offset-4" href="/ops/login">
-              /ops/login
-            </a>
-            .
-          </p>
         </div>
 
-        <div className="rounded-[34px] border border-white/10 bg-black/25 p-8 backdrop-blur">
-          <div className="mb-6 flex rounded-full border border-white/10 bg-white/5 p-1">
-            <button
-              type="button"
-              onClick={() => setMode("signin")}
-              className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition ${
-                mode === "signin" ? "bg-emerald-300 text-slate-950" : "text-stone-300"
-              }`}
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("signup")}
-              className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition ${
-                mode === "signup" ? "bg-emerald-300 text-slate-950" : "text-stone-300"
-              }`}
-            >
-              Create Account
-            </button>
-          </div>
-
-          <div className="mt-8">
-            <h2 className="text-3xl font-semibold text-white">
-              {mode === "signin" ? "Welcome back" : "Create your workspace"}
+        {/* Right Side: Login Card */}
+        <div className="w-full lg:w-2/5 max-w-md">
+          <div className="bg-white aura-premium-shadow rounded-lg p-10 flex flex-col items-center text-center border border-[#2e2f2c]/5 relative overflow-hidden">
+            {/* Tonal detail */}
+            <div className="absolute top-0 left-0 w-full h-2 bg-[#a03929]/10"></div>
+            
+            <div className="w-20 h-20 bg-[#f8f7f0] rounded-xl flex items-center justify-center mb-8 rotate-3 shadow-sm border border-[#2e2f2c]/5">
+              <span className="material-symbols-outlined text-[#a03929] text-4xl">lock_open</span>
+            </div>
+            
+            <h2 className="text-3xl font-bold mb-3 text-[#2e2f2c] tracking-tight">
+              Đăng nhập AI-Influencer
             </h2>
-            <p className="mt-2 text-sm text-stone-400">
-              {mode === "signin"
-                ? "Connect your Telegram to sign in securely."
-                : "Link your Telegram account to start building your influencer factory."}
+            <p className="text-[#2e2f2c]/60 mb-10 text-sm font-medium">
+                Sử dụng Telegram để truy cập nhanh không gian làm việc của bạn.
             </p>
 
-            <div className="mt-10 flex flex-col items-center justify-center rounded-3xl border border-white/5 bg-white/5 px-6 py-8 backdrop-blur-sm">
-              {linkToken ? (
-                <div className="w-full space-y-4">
-                  <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/5 p-4 text-center">
-                    <p className="text-xs uppercase tracking-[0.18em] text-emerald-200/80">
-                      Secure Link Ready
-                    </p>
-                    <p className="mt-2 text-sm text-stone-200">
-                      Open Telegram, tap Start in the bot, and we&apos;ll sign you in
-                      automatically here.
-                    </p>
-                  </div>
-                  {telegramSignInUrl && (
-                    <a
-                      href={telegramSignInUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex w-full items-center justify-center gap-2 rounded-full bg-emerald-300 px-5 py-4 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200"
-                    >
-                      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.461-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.442-.751-.244-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635.099-.002.321.023.465.141.121.099.154.232.17.325.015.094.034.31.019.478z" />
-                      </svg>
-                      Open Telegram & Sign In
-                    </a>
-                  )}
-                  <p className="text-center text-[10px] text-stone-500">
-                    Link expires at: {new Date(linkToken.expires_at).toLocaleTimeString()}
-                  </p>
-                  {(isAwaitingTelegram || isCompletingSession) && (
-                    <div className="rounded-2xl border border-amber-300/15 bg-amber-300/5 p-4 text-center">
-                      <p className="text-xs uppercase tracking-[0.18em] text-amber-200/80">
-                        {isCompletingSession ? "Finishing Sign-In" : "Waiting For Telegram"}
-                      </p>
-                      <p className="mt-2 text-sm text-stone-200">
-                        {isCompletingSession
-                          ? "Telegram verified. Finalizing your customer session now."
-                          : "This page is checking for confirmation and will move you into the dashboard automatically."}
-                      </p>
+            <div className="w-full space-y-4">
+              {showQR && telegramSignInUrl ? (
+                <div className="flex flex-col items-center gap-5 p-8 bg-[#f8f7f0] rounded-xl border border-[#2e2f2c]/5 w-full animate-fade-in">
+                    <div className="bg-white p-4 rounded-xl shadow-xl shadow-[#a03929]/5 border border-[#2e2f2c]/10">
+                        <img 
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(telegramSignInUrl)}`} 
+                          alt="Telegram Login QR"
+                          className="w-40 h-40"
+                        />
                     </div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLinkToken(null);
-                      setIsAwaitingTelegram(false);
-                      setIsCompletingSession(false);
-                      setLocalError(null);
-                    }}
-                    className="w-full text-center text-xs text-stone-400 transition hover:text-stone-300"
-                  >
-                    Generate new link
-                  </button>
+                    <div className="space-y-1">
+                        <p className="text-xs text-[#2e2f2c] font-black uppercase tracking-widest">
+                            Quét mã QR
+                        </p>
+                        <p className="text-[10px] text-[#2e2f2c]/60 font-medium">
+                            Mở Telegram và quét mã để đăng nhập
+                        </p>
+                    </div>
+                    <button 
+                        onClick={() => setShowQR(false)}
+                        className="text-[#a03929] text-xs font-black uppercase tracking-widest hover:bg-[#a03929]/10 rounded-full px-6 py-3 transition-colors mt-2"
+                    >
+                        Quay lại
+                    </button>
                 </div>
               ) : (
-                <div className="w-full space-y-4">
-                  <div className="text-center">
-                    <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-300/10">
-                      <svg className="h-8 w-8 text-emerald-300" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.461-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.442-.751-.244-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635.099-.002.321.023.465.141.121.099.154.232.17.325.015.094.034.31.019.478z" />
-                      </svg>
-                    </div>
-                    <p className="text-sm text-stone-300">
-                      We use Telegram for secure, passwordless authentication.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleGenerateTelegramLink()}
-                    disabled={isGeneratingToken}
-                    className="w-full rounded-full bg-emerald-300 px-5 py-4 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200 disabled:opacity-50"
+                <>
+                  <button 
+                    disabled={isGeneratingToken || isAwaitingTelegram}
+                    onClick={handleActionClick}
+                    className="w-full flex items-center justify-center gap-4 bg-gradient-to-br from-[#a03929] to-[#fd7d68] text-white py-5 px-8 rounded-full font-bold text-lg aura-premium-shadow transition-all active:scale-95 duration-200 hover:shadow-lg hover:shadow-[#a03929]/20 disabled:opacity-50 group"
                   >
-                    {isGeneratingToken ? "Generating Secure Link..." : "Continue with Telegram"}
+                    <span className="material-symbols-outlined group-hover:rotate-12 transition-transform" style={{ fontVariationSettings: "'FILL' 1" }}>send</span>
+                    {isGeneratingToken ? "Đang xử lý..." : "Tiếp tục với Telegram"}
                   </button>
+
+                  <div className="pt-6">
+                    <div className="flex items-center gap-3 w-full mb-6">
+                      <div className="h-px bg-[#2e2f2c]/10 flex-grow"></div>
+                      <span className="text-[10px] uppercase tracking-widest text-[#2e2f2c]/40 font-bold">Hoặc dùng mã QR</span>
+                      <div className="h-px bg-[#2e2f2c]/10 flex-grow"></div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 gap-4">
+                      <button 
+                        onClick={handleQRClick}
+                        className="flex items-center justify-center gap-2 py-4 px-4 bg-[#f8f7f0] rounded-full text-[#2e2f2c] text-sm font-bold hover:bg-white transition-all hover:text-[#a03929] active:scale-[0.98] border border-[#2e2f2c]/5 shadow-sm"
+                      >
+                        <span className="material-symbols-outlined text-lg">qr_code_2</span>
+                        {isGeneratingToken ? "Đang khởi tạo..." : "Hiện mã QR Đăng nhập"}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Status Messages */}
+              {(isAwaitingTelegram || isCompletingSession) && (
+                 <div className="mt-4 p-6 rounded-xl bg-[#a03929]/5 border border-[#a03929]/10 text-center shadow-sm animate-pulse-slow">
+                    <div className="flex items-center justify-center gap-2 mb-3">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#a03929] animate-bounce"></div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-[#a03929]">
+                            {isCompletingSession ? "Đang xác thực..." : "Đang chờ bot"}
+                        </p>
+                    </div>
+                    <p className="text-xs text-[#2e2f2c]/61 font-medium leading-relaxed">
+                        Bạn sẽ tự động chuyển hướng khi nhấn <b>Start</b> trong bot Telegram.
+                    </p>
+                 </div>
+              )}
+
+              {linkToken && !showQR && (
+                <div className="mt-4 animate-fade-in">
+                     <a 
+                      href={telegramSignInUrl!}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[#a03929] text-[11px] font-bold underline underline-offset-4 hover:text-[#fd7d68] block text-center p-2"
+                    >
+                      Bot không tự mở? Nhấn vào đây để tiếp tục
+                    </a>
                 </div>
               )}
 
-              {typeof window !== "undefined" && window.location.hostname === "localhost" && (
-                <div className="mt-6 w-full border-t border-white/5 pt-6">
+              {localError || error ? (
+                <div className="mt-4 p-4 rounded-lg bg-red-50 border border-red-100 text-center">
+                    <p className="text-xs text-red-600 font-bold">
+                        {localError || (error as string)}
+                    </p>
+                </div>
+              ) : null}
+
+              {/* Dev Mode Mock Login */}
+              {process.env.NODE_ENV === "development" && !showQR && (
+                <div className="mt-8 w-full pt-6 border-t border-[#2e2f2c]/10">
                   <button
                     onClick={() => {
                       void loginWithTelegram({
@@ -368,48 +433,50 @@ export default function AuthPage() {
                         hash: "__MOCK_DEV_LOGIN__",
                       });
                     }}
-                    className="w-full rounded-xl border border-amber-200/20 bg-amber-200/10 py-3 text-sm font-medium text-amber-200 transition-all hover:bg-amber-200/20"
+                    className="w-full rounded-full border border-[#a03929]/10 bg-[#a03929]/5 py-3 text-[10px] font-black uppercase tracking-widest text-[#a03929] transition-all hover:bg-[#a03929]/10"
                   >
-                    Login as Test User (Dev Only)
+                    Bỏ qua (Chế độ phát triển)
                   </button>
                 </div>
               )}
-
-              <p className="mt-6 px-6 text-center text-xs text-stone-500">
-                Logged in via Telegram? We&apos;ll automatically sync your personas and
-                media assets.
-              </p>
             </div>
 
-            {(localError || error) && (
-              <p className="mt-4 text-center text-sm text-rose-300">
-                {localError || error}
-              </p>
-            )}
-
-            <div className="mt-8 border-t border-white/5 pt-6 text-center">
-              <p className="text-xs text-stone-500">
-                By signing in, you agree to our Terms of Service and Privacy Policy.
+            <div className="mt-12 pt-8 border-t border-[#2e2f2c]/10 w-full opacity-40">
+              <p className="text-[9px] text-[#2e2f2c] leading-relaxed font-bold uppercase tracking-wider">
+                AI-Influencer Factory 2026. Premium AI Social Network Engine.
               </p>
             </div>
           </div>
         </div>
-      </div>
+      </main>
+
+      <footer className="w-full max-w-7xl px-8 py-12 flex flex-col md:flex-row justify-between items-center gap-6 z-10 border-t border-[#2e2f2c]/5">
+        <div className="flex flex-col items-center md:items-start text-[10px] font-bold text-[#2e2f2c]/40 uppercase tracking-widest">
+          <p>Privacy First AI Operations</p>
+        </div>
+        <div className="flex items-center gap-8">
+          <a className="text-[#2e2f2c]/60 text-sm font-bold hover:text-[#a03929] transition-colors" href="#">Hỗ trợ</a>
+          <div className="w-1 h-1 bg-[#2e2f2c]/20 rounded-full"></div>
+          <a className="group flex items-center gap-2 px-6 py-3 bg-[#2e2f2c] text-white rounded-full text-[10px] font-black uppercase tracking-widest transition-all hover:bg-[#a03929] hover:scale-105 shadow-md" href="/ops/login">
+            <span className="material-symbols-outlined text-base">admin_panel_settings</span>
+            Operator Console
+          </a>
+        </div>
+      </footer>
     </div>
   );
 }
 
-function FeatureCard({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
+function FeatureCard({ icon, title, description }: { icon: string; title: string; description: string }) {
   return (
-    <div className="rounded-[28px] border border-white/10 bg-black/20 p-5">
-      <p className="text-lg font-medium text-white">{title}</p>
-      <p className="mt-2 text-sm text-stone-400">{description}</p>
+    <div className="p-8 bg-white/40 backdrop-blur-sm rounded-xl space-y-4 border border-white shadow-sm transition-all hover:translate-y-[-4px] hover:shadow-lg cursor-default group">
+      <div className="w-12 h-12 rounded-lg bg-[#a03929]/5 flex items-center justify-center transition-colors group-hover:bg-[#a03929]/10">
+        <span className="material-symbols-outlined text-[#a03929] text-2xl transition-transform group-hover:scale-110">{icon}</span>
+      </div>
+      <div className="space-y-1">
+        <h3 className="font-bold text-lg text-[#2e2f2c]">{title}</h3>
+        <p className="text-[#2e2f2c]/60 text-xs leading-relaxed font-medium">{description}</p>
+      </div>
     </div>
   );
 }

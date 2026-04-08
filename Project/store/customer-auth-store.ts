@@ -51,6 +51,33 @@ interface CustomerAuthState {
 
 let authSubscriptionBound = false;
 
+async function readResponseErrorDetail(
+  response: Response,
+  fallbackMessage: string,
+): Promise<string> {
+  const raw = await response.text();
+  if (!raw) {
+    return fallbackMessage;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { detail?: string; error?: string; message?: string };
+    if (typeof parsed.detail === "string" && parsed.detail.trim()) {
+      return parsed.detail;
+    }
+    if (typeof parsed.error === "string" && parsed.error.trim()) {
+      return parsed.error;
+    }
+    if (typeof parsed.message === "string" && parsed.message.trim()) {
+      return parsed.message;
+    }
+  } catch {
+    return raw;
+  }
+
+  return fallbackMessage;
+}
+
 function mapUser(
   session: SupabaseSession | null,
 ): Pick<CustomerAuthState, "user" | "accessToken" | "isAuthenticated"> {
@@ -301,8 +328,8 @@ export const useCustomerAuthStore = create<CustomerAuthState>()(
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.detail || "Telegram login failed");
+          const detail = await readResponseErrorDetail(response, "Telegram login failed");
+          throw new Error(detail);
         }
 
         const payload = await response.json();

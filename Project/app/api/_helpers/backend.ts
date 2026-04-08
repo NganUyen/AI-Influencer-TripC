@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getInternalApiHeaders } from "@/app/api/_helpers/auth";
 
 export function getBackendBaseUrl(): string {
-  return process.env.PYTHON_BACKEND_URL || "http://localhost:8000";
+  return process.env.PYTHON_BACKEND_URL || "http://127.0.0.1:8000";
 }
 
 type FallbackReason =

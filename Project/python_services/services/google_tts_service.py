@@ -8,6 +8,7 @@ import base64
 import binascii
 import logging
 import httpx
+from typing import Optional
 from config.settings import settings
 from services.quota_monitor_service import QuotaMonitorService
 
@@ -152,6 +153,7 @@ class GoogleTTSService:
         output_format: str,
         audio_bytes: bytes | None = None,
         error: Exception | None = None,
+        user_id: Optional[str] = None,
     ) -> None:
         metadata = {
             "service": "google_tts_service",
@@ -175,6 +177,7 @@ class GoogleTTSService:
             provider="google_tts",
             usage=usage,
             metadata=metadata,
+            user_id=user_id,
         )
 
     async def generate_audio(
@@ -185,6 +188,7 @@ class GoogleTTSService:
         pitch: float = 0.0,  # Giọng chuẩn (0 = không thay đổi)
         output_format: str = "MP3",
         language: str | None = None,
+        user_id: Optional[str] = None,
     ) -> bytes:
         """
         Gọi Google TTS API và trả về MP3 bytes.
@@ -282,6 +286,7 @@ class GoogleTTSService:
                     voice=resolved_voice,
                     output_format=output_format_upper,
                     error=sanitized_exc,
+                    user_id=user_id,
                 )
                 raise sanitized_exc from None
             except Exception as exc:
@@ -290,6 +295,7 @@ class GoogleTTSService:
                     voice=resolved_voice,
                     output_format=output_format_upper,
                     error=exc,
+                    user_id=user_id,
                 )
                 raise
 
@@ -302,6 +308,7 @@ class GoogleTTSService:
                 voice=resolved_voice,
                 output_format=output_format_upper,
                 error=error,
+                user_id=user_id,
             )
             raise error
 
@@ -316,6 +323,7 @@ class GoogleTTSService:
                 voice=resolved_voice,
                 output_format=output_format_upper,
                 error=error,
+                user_id=user_id,
             )
             raise error from decode_error
 
@@ -326,6 +334,7 @@ class GoogleTTSService:
                 voice=resolved_voice,
                 output_format=output_format_upper,
                 error=error,
+                user_id=user_id,
             )
             raise error
 
@@ -335,6 +344,7 @@ class GoogleTTSService:
             voice=resolved_voice,
             output_format=output_format_upper,
             audio_bytes=audio_bytes,
+            user_id=user_id,
         )
         return audio_bytes
 
@@ -344,6 +354,7 @@ class GoogleTTSService:
         output_path: str,
         voice: str = "vi-VN-Wavenet-D",
         speaking_rate: float = 1.05,
+        user_id: Optional[str] = None,
     ) -> str:
         """
         Sinh audio và lưu file MP3 về local.
@@ -352,7 +363,7 @@ class GoogleTTSService:
             str: Đường dẫn file MP3 đã lưu
         """
         audio_bytes = await self.generate_audio(
-            text, voice=voice, speaking_rate=speaking_rate
+            text, voice=voice, speaking_rate=speaking_rate, user_id=user_id
         )
         with open(output_path, "wb") as f:
             f.write(audio_bytes)

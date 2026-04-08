@@ -8,6 +8,8 @@ import asyncio
 import logging
 from urllib.parse import urlparse
 import httpx
+from typing import Optional
+
 from config.settings import settings
 from services.errors import HeyGenAvatarSetupError, HeyGenTimeoutError
 from services.quota_monitor_service import QuotaMonitorService
@@ -47,6 +49,7 @@ class HeyGenService:
         usage: dict,
         metadata: dict | None = None,
         error: Exception | None = None,
+        user_id: Optional[str] = None,
     ) -> None:
         quota_metadata = {
             "service": "heygen_service",
@@ -63,11 +66,12 @@ class HeyGenService:
             provider="heygen",
             usage=usage,
             metadata=quota_metadata,
+            user_id=user_id,
         )
 
     # ─── Task 5.2: Tạo avatar từ ảnh persona ─────────────────────────────────
 
-    async def create_avatar(self, image_url: str, avatar_name: str = "Minh_TripC") -> str:
+    async def create_avatar(self, image_url: str, avatar_name: str = "Minh_TripC", user_id: Optional[str] = None) -> str:
         """
         Upload ảnh persona và tạo HeyGen photo avatar (thực hiện 1 lần, lưu avatar_id).
 
@@ -118,6 +122,7 @@ class HeyGenService:
                     usage={"requests": 1, "avatars": 1},
                     metadata={"avatar_name": avatar_name},
                     error=exc,
+                    user_id=user_id,
                 )
                 raise
 
@@ -136,10 +141,11 @@ class HeyGenService:
             operation="create_avatar",
             usage={"requests": 1, "avatars": 1},
             metadata={"avatar_name": avatar_name},
+            user_id=user_id,
         )
         return avatar_id
 
-    async def get_avatar_details(self, avatar_id: str) -> dict:
+    async def get_avatar_details(self, avatar_id: str, user_id: Optional[str] = None) -> dict:
         """Fetch current HeyGen photo-avatar status/details."""
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
@@ -155,6 +161,7 @@ class HeyGenService:
                     usage={"requests": 1, "status_checks": 1},
                     metadata={"avatar_id": avatar_id},
                     error=exc,
+                    user_id=user_id,
                 )
                 raise
 
@@ -165,6 +172,7 @@ class HeyGenService:
                 "avatar_id": avatar_id,
                 "provider_status": self._extract_avatar_status(data),
             },
+            user_id=user_id,
         )
         return data
 
@@ -174,13 +182,14 @@ class HeyGenService:
         *,
         timeout_seconds: int = 45,
         poll_interval: int = 5,
+        user_id: Optional[str] = None,
     ) -> dict:
         """Poll HeyGen until the photo avatar is actually ready for use."""
         elapsed = 0
         last_payload: dict | None = None
 
         while elapsed <= timeout_seconds:
-            last_payload = await self.get_avatar_details(avatar_id)
+            last_payload = await self.get_avatar_details(avatar_id, user_id=user_id)
             status = self._normalize_status(self._extract_avatar_status(last_payload))
 
             logger.info(
@@ -222,6 +231,7 @@ class HeyGenService:
         width: int = 1080,
         height: int = 1920,
         allow_aspect_ratio_fallback: bool = True,
+        user_id: Optional[str] = None,
     ) -> dict:
         """
         Tạo request video mới trên HeyGen.
@@ -305,6 +315,7 @@ class HeyGenService:
                     usage={"requests": 1, "jobs": 1},
                     metadata={"avatar_id": avatar_id},
                     error=exc,
+                    user_id=user_id,
                 )
                 raise
 
@@ -317,6 +328,7 @@ class HeyGenService:
             operation="create_video",
             usage={"requests": 1, "jobs": 1},
             metadata={"avatar_id": avatar_id, "video_id": video_id},
+            user_id=user_id,
         )
         return {"video_id": video_id, "raw": data}
 
@@ -337,6 +349,7 @@ class HeyGenService:
                     operation="get_remaining_quota",
                     usage={},
                     error=exc,
+                    # Global refresh is usually triggered without specific user context, but can be passed
                 )
                 raise
 
@@ -373,6 +386,7 @@ class HeyGenService:
         video_id: str,
         timeout_seconds: int = 600,
         poll_interval: int = 10,
+        user_id: Optional[str] = None,
     ) -> str:
         """
         Polling đợi video HeyGen hoàn thành.
@@ -382,7 +396,7 @@ class HeyGenService:
         """
         elapsed = 0
         while elapsed < timeout_seconds:
-            status_data = await self.get_video_status(video_id)
+            status_data = await self.get_video_status(video_id, user_id=user_id)
             status = status_data.get("data", {}).get("status") or status_data.get("status")
 
             logger.info(f"  HeyGen video {video_id}: {status} ({elapsed}s)")
@@ -425,7 +439,7 @@ class HeyGenService:
 
         raise TimeoutError(f"HeyGen video {video_id} vượt quá {timeout_seconds}s")
 
-    async def get_video_status(self, video_id: str) -> dict:
+    async def get_video_status(self, video_id: str, user_id: Optional[str] = None) -> dict:
         """Kiểm tra trạng thái video."""
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
@@ -452,6 +466,7 @@ class HeyGenService:
                     usage={"requests": 1, "status_checks": 1},
                     metadata={"video_id": video_id},
                     error=exc,
+                    user_id=user_id,
                 )
                 raise
 
@@ -463,6 +478,7 @@ class HeyGenService:
                 "provider_status": data.get("data", {}).get("status")
                 or data.get("status"),
             },
+            user_id=user_id,
         )
         return data
 

@@ -105,6 +105,31 @@ class GrowChiefService:
             timeout=120.0,
         )
 
+    async def _record_usage(
+        self,
+        operation: str,
+        usage: Dict[str, Any],
+        error: Exception | None = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        from services.quota_monitor_service import QuotaMonitorService
+        quota_metadata = {
+            "service": "growchief_service",
+            "operation": operation,
+            "status": "error" if error else "success",
+        }
+        if metadata:
+            quota_metadata.update(metadata)
+        if error:
+            quota_metadata["error_type"] = type(error).__name__
+            quota_metadata["error_message"] = str(error)
+
+        await QuotaMonitorService.record_runtime_usage(
+            provider="growchief",
+            usage=usage,
+            metadata=quota_metadata,
+        )
+
     @staticmethod
     def _raise_for_http_status(response: Any, operation: str) -> None:
         status_code = int(getattr(response, "status_code", 0) or 0)
@@ -277,11 +302,25 @@ class GrowChiefService:
         workflow_id = await self._resolve_workflow_id(platform)
         payload = {"urls": [post_url]}
 
-        raw = await self._post_json(
-            f"/workflows/{workflow_id}",
-            json_payload=payload,
-            operation=f"trigger workflow {workflow_id}",
-        )
+        try:
+            raw = await self._post_json(
+                f"/workflows/{workflow_id}",
+                json_payload=payload,
+                operation=f"trigger workflow {workflow_id}",
+            )
+            await self._record_usage(
+                operation="trigger_engagement",
+                usage={"requests": 1, "workflows": 1},
+                metadata={"platform": platform},
+            )
+        except Exception as exc:
+            await self._record_usage(
+                operation="trigger_engagement",
+                usage={"requests": 1},
+                metadata={"platform": platform},
+                error=exc,
+            )
+            raise
 
         first_item = raw[0] if isinstance(raw, list) and raw else raw
         if not isinstance(first_item, dict):

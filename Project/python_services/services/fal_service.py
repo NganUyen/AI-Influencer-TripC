@@ -162,6 +162,11 @@ class FalAIService:
             safety_tolerance=safety_tolerance,
             num_images=num_images,
         )
+        await QuotaMonitorService.assert_within_budget(
+            provider="fal_ai",
+            estimated_usage={"requests": 1},
+            operation=f"generate_image:{model}",
+        )
 
         try:
             response = await self.client.post(f"/{model}", json=payload)
@@ -235,6 +240,11 @@ class FalAIService:
         logger.info(f"Generating video with {model}")
 
         payload = {"prompt": prompt, "duration": duration, "fps": fps}
+        await QuotaMonitorService.assert_within_budget(
+            provider="fal_ai",
+            estimated_usage={"requests": 1},
+            operation=f"generate_video:{model}",
+        )
 
         try:
             response = await self.client.post(f"/{model}", json=payload)
@@ -273,6 +283,11 @@ class FalAIService:
     async def upscale_image(self, image_url: str, scale: int = 2) -> Dict[str, Any]:
         """Upscale an image"""
         logger.info(f"Upscaling image by {scale}x")
+        await QuotaMonitorService.assert_within_budget(
+            provider="fal_ai",
+            estimated_usage={"requests": 1},
+            operation="upscale_image",
+        )
 
         try:
             response = await self.client.post(

@@ -3,12 +3,30 @@ import pytest
 from types import SimpleNamespace
 
 from services.ai_service import AIService
-from services.errors import GrowChiefAuthError, PostizRetryableError
+from services.errors import (
+    GrowChiefAuthError,
+    PostizRetryableError,
+    QuotaExceededError,
+)
 from services.fal_service import FalAIService
 from services.google_tts_service import GoogleTTSService
 from services.growchief_service import GrowChiefService
 from services.heygen_service import HeyGenService
+from services.openclaw_service import OpenClawService
 from services.postiz_service import PostizService
+
+
+@pytest.fixture(autouse=True)
+def disable_quota_guard(monkeypatch):
+    async def fake_assert_within_budget(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr("services.fal_service.FalAIService._client", None)
+    monkeypatch.setattr("services.openclaw_service._shared_client", None)
+    monkeypatch.setattr(
+        "services.quota_monitor_service.QuotaMonitorService.assert_within_budget",
+        fake_assert_within_budget,
+    )
 
 
 @pytest.mark.asyncio
@@ -116,6 +134,37 @@ async def test_postiz_publish_treats_html_response_as_retryable(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_postiz_publish_blocks_before_outbound_call_when_quota_exceeded(
+    monkeypatch,
+):
+    monkeypatch.setenv("POSTIZ_INTEGRATION_MAP", '{"twitter":"integration-1"}')
+    blocked = QuotaExceededError("Postiz quota exhausted before publish.")
+
+    class StubClient:
+        async def post(self, _url, json):
+            raise AssertionError("Postiz API should not be called when quota is blocked")
+
+        async def aclose(self):
+            return None
+
+    async def raise_quota(*_args, **_kwargs):
+        raise blocked
+
+    monkeypatch.setattr(
+        "services.postiz_service.httpx.AsyncClient", lambda **_: StubClient()
+    )
+    monkeypatch.setattr(
+        "services.postiz_service.QuotaMonitorService.assert_within_budget",
+        raise_quota,
+    )
+
+    service = PostizService()
+    with pytest.raises(Exception, match="Postiz quota exhausted"):
+        await service.publish(platform="twitter", content="hello")
+    await service.close()
+
+
+@pytest.mark.asyncio
 async def test_growchief_trigger_engagement_builds_payload(monkeypatch):
     monkeypatch.setenv("GROWCHIEF_WORKFLOW_MAP", '{"twitter":"wf-1"}')
 
@@ -157,6 +206,43 @@ async def test_growchief_trigger_engagement_builds_payload(monkeypatch):
     assert captured["json"] == {"urls": ["https://platform/post/1"]}
     assert result["account_count"] == 3
     assert result["delay_between_actions"] == 15
+    await service.close()
+
+
+@pytest.mark.asyncio
+async def test_growchief_trigger_engagement_blocks_before_outbound_call_when_quota_exceeded(
+    monkeypatch,
+):
+    monkeypatch.setenv("GROWCHIEF_WORKFLOW_MAP", '{"twitter":"wf-1"}')
+    blocked = QuotaExceededError("GrowChief quota exhausted before trigger.")
+
+    class StubClient:
+        async def post(self, url, json):
+            raise AssertionError(
+                f"GrowChief API should not be called when quota is blocked: {url}"
+            )
+
+        async def aclose(self):
+            return None
+
+    async def raise_quota(*_args, **_kwargs):
+        raise blocked
+
+    monkeypatch.setattr(
+        "services.growchief_service.httpx.AsyncClient", lambda **_: StubClient()
+    )
+    monkeypatch.setattr(
+        "services.growchief_service.QuotaMonitorService.assert_within_budget",
+        raise_quota,
+    )
+
+    service = GrowChiefService()
+    with pytest.raises(Exception, match="GrowChief quota exhausted"):
+        await service.trigger_engagement(
+            post_url="https://platform/post/1",
+            platform="twitter",
+            engagement_type=["like"],
+        )
     await service.close()
 
 
@@ -335,6 +421,37 @@ async def test_ai_service_records_openai_usage(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_ai_service_blocks_before_outbound_call_when_quota_exceeded(monkeypatch):
+    blocked = QuotaExceededError("OpenAI quota exhausted before generate_text.")
+
+    class _StubRawCompletions:
+        async def create(self, **kwargs):
+            raise AssertionError("OpenAI API should not be called when quota is blocked")
+
+    class _StubCompletions:
+        def __init__(self):
+            self.with_raw_response = _StubRawCompletions()
+
+    class _StubOpenAIClient:
+        def __init__(self):
+            self.chat = SimpleNamespace(completions=_StubCompletions())
+
+    async def raise_quota(*_args, **_kwargs):
+        raise blocked
+
+    monkeypatch.setattr("services.ai_service._shared_openai_client", _StubOpenAIClient())
+    monkeypatch.setattr("services.ai_service._shared_anthropic_client", object())
+    monkeypatch.setattr(
+        "services.ai_service.QuotaMonitorService.assert_within_budget",
+        raise_quota,
+    )
+
+    service = AIService()
+    with pytest.raises(QuotaExceededError, match="OpenAI quota exhausted"):
+        await service.generate_text(prompt="Hello world", model="gpt-4")
+
+
+@pytest.mark.asyncio
 async def test_fal_service_records_generation_usage(monkeypatch):
     captured = {}
     requests = []
@@ -376,6 +493,34 @@ async def test_fal_service_records_generation_usage(monkeypatch):
     assert requests[0][0] == "/fal-ai/nano-banana-2"
     assert requests[0][1]["aspect_ratio"] == "16:9"
     assert "image_size" not in requests[0][1]
+    await service.close()
+
+
+@pytest.mark.asyncio
+async def test_fal_service_blocks_before_outbound_call_when_quota_exceeded(monkeypatch):
+    blocked = QuotaExceededError("fal.ai quota exhausted before generate_image.")
+
+    class StubClient:
+        async def post(self, url, json):
+            raise AssertionError(f"fal.ai should not be called when quota is blocked: {url}")
+
+        async def aclose(self):
+            return None
+
+    async def raise_quota(*_args, **_kwargs):
+        raise blocked
+
+    monkeypatch.setattr(
+        "services.fal_service.httpx.AsyncClient", lambda **_: StubClient()
+    )
+    monkeypatch.setattr(
+        "services.fal_service.QuotaMonitorService.assert_within_budget",
+        raise_quota,
+    )
+
+    service = FalAIService()
+    with pytest.raises(QuotaExceededError, match="fal.ai quota exhausted"):
+        await service.generate_image(prompt="Sunset beach")
     await service.close()
 
 
@@ -432,6 +577,45 @@ async def test_google_tts_service_records_usage(monkeypatch):
     assert requests[0][1]["voice"]["name"] == "en-US-Studio-O"
     assert requests[0][1]["voice"]["languageCode"] == "en-US"
     assert requests[0][2]["X-Goog-Api-Key"] == "test_google_tts_key"
+
+
+@pytest.mark.asyncio
+async def test_google_tts_service_blocks_before_outbound_call_when_quota_exceeded(
+    monkeypatch,
+):
+    blocked = QuotaExceededError("Google TTS quota exhausted before generate_audio.")
+
+    class StubClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, json, headers=None):
+            raise AssertionError(
+                f"Google TTS should not be called when quota is blocked: {url}"
+            )
+
+    async def raise_quota(*_args, **_kwargs):
+        raise blocked
+
+    monkeypatch.setattr(
+        "services.google_tts_service.httpx.AsyncClient",
+        lambda **_: StubClient(),
+    )
+    monkeypatch.setattr(
+        "services.google_tts_service.QuotaMonitorService.assert_within_budget",
+        raise_quota,
+    )
+    monkeypatch.setattr(
+        "services.google_tts_service.settings.GOOGLE_TTS_API_KEY",
+        "test_google_tts_key",
+    )
+
+    service = GoogleTTSService()
+    with pytest.raises(QuotaExceededError, match="Google TTS quota exhausted"):
+        await service.generate_audio(text="Hello there")
 
 
 @pytest.mark.asyncio
@@ -768,6 +952,46 @@ async def test_heygen_service_records_video_job_usage(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_heygen_service_blocks_before_outbound_call_when_quota_exceeded(
+    monkeypatch,
+):
+    blocked = QuotaExceededError("HeyGen quota exhausted before create_video.")
+
+    class StubClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers=None, json=None):
+            raise AssertionError(f"HeyGen should not be called when quota is blocked: {url}")
+
+    async def raise_quota(*_args, **_kwargs):
+        raise blocked
+
+    monkeypatch.setattr(
+        "services.heygen_service.httpx.AsyncClient",
+        lambda **_: StubClient(),
+    )
+    monkeypatch.setattr(
+        "services.heygen_service.QuotaMonitorService.assert_within_budget",
+        raise_quota,
+    )
+    monkeypatch.setattr(
+        "services.heygen_service.settings.HEYGEN_API_KEY",
+        "test_heygen_key",
+    )
+
+    service = HeyGenService()
+    with pytest.raises(QuotaExceededError, match="HeyGen quota exhausted"):
+        await service.create_video(
+            avatar_id="avatar-1",
+            audio_url="https://cdn.example/audio.mp3",
+        )
+
+
+@pytest.mark.asyncio
 async def test_heygen_service_prefers_v2_video_status(monkeypatch):
     captured = {}
 
@@ -868,3 +1092,37 @@ async def test_heygen_service_records_remaining_quota(monkeypatch):
     assert captured["quota"]["source"] == "provider_live_endpoint"
     assert captured["quota"]["exact"] is True
     assert captured["metadata"]["operation"] == "get_remaining_quota"
+
+
+@pytest.mark.asyncio
+async def test_openclaw_service_blocks_before_outbound_call_when_quota_exceeded(
+    monkeypatch,
+):
+    blocked = QuotaExceededError("OpenClaw quota exhausted before execute_task.")
+
+    class StubClient:
+        async def post(self, url, json=None, headers=None):
+            raise AssertionError(
+                f"OpenClaw should not be called when quota is blocked: {url}"
+            )
+
+    async def raise_quota(*_args, **_kwargs):
+        raise blocked
+
+    monkeypatch.setattr("services.openclaw_service._shared_client", StubClient())
+    monkeypatch.setattr(
+        "services.openclaw_service.QuotaMonitorService.assert_within_budget",
+        raise_quota,
+    )
+
+    service = OpenClawService(
+        base_url="https://openclaw.example",
+        api_key="test-openclaw-key",
+        agent_id="main",
+    )
+    with pytest.raises(QuotaExceededError, match="OpenClaw quota exhausted"):
+        await service.execute_task(
+            task_type="generate_copy",
+            prompt="Write something",
+            user_id="user-1",
+        )

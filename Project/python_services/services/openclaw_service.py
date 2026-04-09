@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 import httpx
 
 from config.settings import settings
+from services.quota_monitor_service import QuotaMonitorService
 from utils.json_helpers import extract_json_from_llm_response
 
 logger = logging.getLogger(__name__)
@@ -247,6 +248,12 @@ class OpenClawService:
         user_id: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        await QuotaMonitorService.assert_within_budget(
+            provider="openclaw",
+            estimated_usage={"requests": 1},
+            operation=f"execute_task:{task_type}",
+            user_id=user_id,
+        )
         if self.transport == "connector":
             logger.info("Executing OpenClaw task via ChatGPT connector: %s", task_type)
             payload = {

@@ -6,6 +6,7 @@ Integrates with fal.ai, PlayHT, Google TTS, HeyGen, and storage services
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from typing import Dict, Any, List
+import json
 import logging
 import httpx
 import asyncio
@@ -144,7 +145,8 @@ async def generate_image(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to generate image: {str(e)}")
         raise ApplicationError(
-            f"Image generation failed: {str(e)}", non_retryable=False
+            f"Image generation failed: {str(e)}",
+            non_retryable=not getattr(e, "retryable", False),
         )
     finally:
         await image_service.close()
@@ -196,7 +198,8 @@ async def generate_video(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to generate video: {str(e)}")
         raise ApplicationError(
-            f"Video generation failed: {str(e)}", non_retryable=False
+            f"Video generation failed: {str(e)}",
+            non_retryable=not getattr(e, "retryable", False),
         )
     finally:
         await fal_service.close()
@@ -361,7 +364,7 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"Failed to generate audio: {str(e)}")
         raise ApplicationError(
             f"Failed to generate audio via Google TTS: {str(e)}",
-            non_retryable=False,
+            non_retryable=not getattr(e, "retryable", False),
         )
 
 
@@ -493,6 +496,31 @@ async def create_slideshow(config: Dict[str, Any]) -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _is_heygen_insufficient_credit_error(exc: Exception) -> bool:
+    candidates = [str(exc)]
+    response = getattr(exc, "response", None)
+    if response is not None:
+        try:
+            response_text = (response.text or "").strip()
+        except Exception:
+            response_text = ""
+        if response_text:
+            candidates.append(response_text)
+
+        try:
+            response_json = response.json()
+        except Exception:
+            response_json = None
+        if response_json is not None:
+            candidates.append(json.dumps(response_json, ensure_ascii=True))
+
+    return any(
+        "MOVIO_PAYMENT_INSUFFICIENT_CREDIT" in candidate
+        or "Insufficient credit" in candidate
+        for candidate in candidates
+    )
+
+
 @activity.defn
 async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
     """Generate a talking-head asset via HeyGen and store it in object storage."""
@@ -528,23 +556,43 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
 
     width, height = (1920, 1080) if aspect_ratio == "16:9" else (1080, 1920)
 
-    video_job = await heygen.create_video(
-        avatar_id=avatar_id,
-        audio_url=audio_url,
-        background=background,
-        aspect_ratio=aspect_ratio,
-        width=width,
-        height=height,
-        allow_aspect_ratio_fallback=True,
-        user_id=user_id,
-    )
+    try:
+        video_job = await heygen.create_video(
+            avatar_id=avatar_id,
+            audio_url=audio_url,
+            background=background,
+            aspect_ratio=aspect_ratio,
+            width=width,
+            height=height,
+            allow_aspect_ratio_fallback=True,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        if _is_heygen_insufficient_credit_error(exc):
+            raise ApplicationError(
+                "HeyGen has insufficient API credits. Top up credits or switch to voiceover-only mode.",
+                non_retryable=True,
+            ) from exc
+        raise
 
     video_id = video_job.get("video_id")
     if not video_id:
         raise ApplicationError("HeyGen did not return video_id", non_retryable=False)
 
     logger.info(f"Polling HeyGen video {video_id}...")
-    heygen_video_url = await heygen.poll_video_status(video_id, timeout_seconds=600, user_id=user_id)
+    try:
+        heygen_video_url = await heygen.poll_video_status(
+            video_id,
+            timeout_seconds=600,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        if _is_heygen_insufficient_credit_error(exc):
+            raise ApplicationError(
+                "HeyGen has insufficient API credits. Top up credits or switch to voiceover-only mode.",
+                non_retryable=True,
+            ) from exc
+        raise
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.get(heygen_video_url)
@@ -1985,11 +2033,11 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                 if top_half_type in _STRICT_BROWSER_CAPTURE_TYPES:
                     raise ApplicationError(
                         f"Playwright top-half recording failed for scene {scene_id}: {e}",
-                        non_retryable=False,
+                        non_retryable=not getattr(e, "retryable", False),
                     )
                 raise ApplicationError(
                     f"Top-half generation failed for scene {scene_id}: {e}",
-                    non_retryable=False,
+                    non_retryable=not getattr(e, "retryable", False),
                 )
 
     logger.info(

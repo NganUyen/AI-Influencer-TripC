@@ -779,3 +779,28 @@ class VideoWorkflowStartPayloadContract(BaseModel):
         if normalized not in _VIDEO_EXECUTION_MODES:
             raise ValueError(f"Unsupported execution_mode: {value}")
         return normalized
+
+    @model_validator(mode="after")
+    def validate_approved_start_state(self) -> "VideoWorkflowStartPayloadContract":
+        review_execution_modes = {
+            "autonomous_screen_recording",
+            "authenticated_pc_recording",
+        }
+
+        if self.approved_package is not None:
+            return self
+
+        if self.review_plan is not None:
+            if self.review_plan.status != "confirmed":
+                raise ValueError(
+                    "review_plan must be confirmed before media generation can start"
+                )
+            if self.execution_mode not in review_execution_modes:
+                raise ValueError(
+                    "review_plan start requires an autonomous or authenticated recording execution_mode"
+                )
+            return self
+
+        raise ValueError(
+            "approved_package or confirmed review_plan is required before media generation can start"
+        )

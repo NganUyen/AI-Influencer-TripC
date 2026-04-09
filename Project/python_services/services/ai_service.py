@@ -43,6 +43,13 @@ def _usage_value(usage: Any, *keys: str) -> Any:
     return None
 
 
+def _estimate_text_tokens(*parts: str) -> int:
+    total_chars = sum(len(str(part or "")) for part in parts)
+    if total_chars <= 0:
+        return 0
+    return max(1, (total_chars + 3) // 4)
+
+
 def _header_value(headers: Any, key: str) -> Any:
     if headers is None:
         return None
@@ -220,6 +227,17 @@ class AIService:
         model = model or self.default_model
         logger.info(f"Generating text with {model}")
         provider = self._provider_for_model(model)
+        estimated_input_tokens = _estimate_text_tokens(system_prompt, prompt)
+        await QuotaMonitorService.assert_within_budget(
+            provider=provider,
+            estimated_usage={
+                "requests": 1,
+                "tokens": estimated_input_tokens + max_tokens,
+                "input_tokens": estimated_input_tokens,
+                "output_tokens": max_tokens,
+            },
+            operation=f"generate_text:{model}",
+        )
 
         try:
             if model.startswith("gpt"):
@@ -394,6 +412,17 @@ class AIService:
         """
         model = "gpt-4o-mini"
         logger.info(f"Analyzing image with {model} vision")
+        estimated_input_tokens = _estimate_text_tokens(system_prompt, user_prompt) + 1024
+        await QuotaMonitorService.assert_within_budget(
+            provider="openai",
+            estimated_usage={
+                "requests": 1,
+                "tokens": estimated_input_tokens + 1000,
+                "input_tokens": estimated_input_tokens,
+                "output_tokens": 1000,
+            },
+            operation=f"analyze_image_structured:{model}",
+        )
 
         try:
             messages = [
@@ -484,6 +513,17 @@ class AIService:
         model = model or self.default_model
         logger.info(f"Chat completion with {model}")
         provider = self._provider_for_model(model)
+        estimated_input_tokens = _estimate_text_tokens(system_message, user_message)
+        await QuotaMonitorService.assert_within_budget(
+            provider=provider,
+            estimated_usage={
+                "requests": 1,
+                "tokens": estimated_input_tokens + max_tokens,
+                "input_tokens": estimated_input_tokens,
+                "output_tokens": max_tokens,
+            },
+            operation=f"chat_completion:{model}",
+        )
 
         try:
             if model.startswith("gpt"):

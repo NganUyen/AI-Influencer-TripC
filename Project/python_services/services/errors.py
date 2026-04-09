@@ -14,6 +14,11 @@ class PipelineError(Exception):
     retryable: bool = False
 
 
+class QuotaExceededError(PipelineError):
+    """Provider quota or spend budget has been exhausted."""
+    retryable = False
+
+
 # ─── fal.ai ───────────────────────────────────────────────────────────────────
 
 class FalAIServiceError(PipelineError):

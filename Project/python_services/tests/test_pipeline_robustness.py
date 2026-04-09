@@ -93,6 +93,73 @@ class TestTalkingHeadGeneration:
         )
         assert result["url"] == "https://storage.example/talking-head.mp4"
 
+    @pytest.mark.asyncio
+    @patch("activities.media_activities.HeyGenService")
+    async def test_create_talking_head_video_marks_create_video_insufficient_credit_non_retryable(
+        self, MockHeyGen
+    ):
+        from temporalio.exceptions import ApplicationError
+        from activities.media_activities import create_talking_head_video
+
+        mock_heygen = AsyncMock()
+        request = httpx.Request("POST", "https://api.heygen.com/v2/videos")
+        response = httpx.Response(
+            400,
+            request=request,
+            json={
+                "error": "Insufficient credit. This operation requires 'api' credits.",
+                "error_code": "MOVIO_PAYMENT_INSUFFICIENT_CREDIT",
+            },
+        )
+        mock_heygen.create_video.side_effect = httpx.HTTPStatusError(
+            "HeyGen create_video failed with status 400",
+            request=request,
+            response=response,
+        )
+        MockHeyGen.return_value = mock_heygen
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await create_talking_head_video(
+                {
+                    "avatar_id": "avatar-123",
+                    "audio_url": "https://cdn.example/audio.mp3",
+                    "persona_id": "persona-1",
+                    "topic": "tripc-demo",
+                }
+            )
+
+        assert exc_info.value.non_retryable is True
+        assert "insufficient API credits" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @patch("activities.media_activities.HeyGenService")
+    async def test_create_talking_head_video_marks_insufficient_credit_non_retryable(
+        self, MockHeyGen
+    ):
+        from temporalio.exceptions import ApplicationError
+        from activities.media_activities import create_talking_head_video
+
+        mock_heygen = AsyncMock()
+        mock_heygen.create_video.return_value = {"video_id": "video-123"}
+        mock_heygen.poll_video_status.side_effect = ValueError(
+            "HeyGen video failed: Insufficient credit. This operation requires 'api' credits. "
+            "(code=MOVIO_PAYMENT_INSUFFICIENT_CREDIT, video_id=video-123)"
+        )
+        MockHeyGen.return_value = mock_heygen
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await create_talking_head_video(
+                {
+                    "avatar_id": "avatar-123",
+                    "audio_url": "https://cdn.example/audio.mp3",
+                    "persona_id": "persona-1",
+                    "topic": "tripc-demo",
+                }
+            )
+
+        assert exc_info.value.non_retryable is True
+        assert "insufficient API credits" in str(exc_info.value)
+
 
 class TestDurationMismatchDetection:
     """Tests for CRITICAL-1: Duration/image array mismatch raises error."""

@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { AlertCircle, CheckCircle, Clock, Zap } from "lucide-react";
+import { AlertCircle, CheckCircle, Clock } from "lucide-react";
 
 type TimelineVariant = "success" | "warning" | "error" | "info";
 
@@ -23,32 +23,40 @@ export function TimelineItem({
 }: TimelineItemProps) {
   const variants = {
     success: {
-      dotBg: "bg-emerald-500",
-      lineBg: "from-emerald-500/50 to-emerald-500/10",
-      cardBg: "bg-gradient-to-r from-emerald-500/10 to-emerald-500/5",
-      cardBorder: "border-emerald-500/20",
-      icon: <CheckCircle className="w-5 h-5 text-emerald-500" />,
+      dotBg: "bg-aura-tertiary",
+      lineBg: "from-aura-tertiary/50 to-aura-tertiary/10",
+      cardBg: "bg-white",
+      cardBorder: "border-aura-tertiary/20",
+      icon: <CheckCircle className="w-5 h-5 text-aura-tertiary" />,
+      titleColor: "text-aura-on-surface",
+      textColor: "text-aura-on-surface-variant",
     },
     warning: {
-      dotBg: "bg-amber-500",
-      lineBg: "from-amber-500/50 to-amber-500/10",
-      cardBg: "bg-gradient-to-r from-amber-500/10 to-amber-500/5",
-      cardBorder: "border-amber-500/20",
-      icon: <AlertCircle className="w-5 h-5 text-amber-500" />,
+      dotBg: "bg-aura-secondary",
+      lineBg: "from-aura-secondary/50 to-aura-secondary/10",
+      cardBg: "bg-white",
+      cardBorder: "border-aura-secondary/20",
+      icon: <AlertCircle className="w-5 h-5 text-aura-secondary" />,
+      titleColor: "text-aura-on-surface",
+      textColor: "text-aura-on-surface-variant",
     },
     error: {
-      dotBg: "bg-rose-500",
-      lineBg: "from-rose-500/50 to-rose-500/10",
-      cardBg: "bg-gradient-to-r from-rose-500/10 to-rose-500/5",
-      cardBorder: "border-rose-500/20",
-      icon: <AlertCircle className="w-5 h-5 text-rose-500" />,
+      dotBg: "bg-aura-secondary",
+      lineBg: "from-aura-secondary/50 to-aura-secondary/10",
+      cardBg: "bg-white",
+      cardBorder: "border-aura-secondary/20",
+      icon: <AlertCircle className="w-5 h-5 text-aura-secondary" />,
+      titleColor: "text-aura-on-surface",
+      textColor: "text-aura-on-surface-variant",
     },
     info: {
-      dotBg: "bg-sky-500",
-      lineBg: "from-sky-500/50 to-sky-500/10",
-      cardBg: "bg-gradient-to-r from-sky-500/10 to-sky-500/5",
-      cardBorder: "border-sky-500/20",
-      icon: <Zap className="w-5 h-5 text-sky-500" />,
+      dotBg: "bg-aura-on-surface-variant",
+      lineBg: "from-aura-outline-variant/60 to-aura-surface-container-high",
+      cardBg: "bg-white",
+      cardBorder: "border-aura-outline-variant/20",
+      icon: <Clock className="w-5 h-5 text-aura-on-surface-variant" />,
+      titleColor: "text-aura-on-surface",
+      textColor: "text-aura-on-surface-variant",
     },
   };
 
@@ -72,26 +80,25 @@ export function TimelineItem({
 
       {/* Content card */}
       <div className={cn(
-        "flex-1 rounded-lg border p-4 transition-all duration-200",
-        "hover:shadow-aura-sm",
+        "flex-1 rounded-2xl border px-5 py-4 transition-all duration-300 shadow-sm hover:shadow-aura-sm relative overflow-hidden",
         style.cardBg,
         style.cardBorder
       )}>
-        <div className="flex items-start gap-3 mb-2">
+        <div className="relative z-10 mb-3 flex items-start gap-3">
           {icon || style.icon}
           <div className="flex-1">
-            <h4 className="font-semibold text-aura-on-surface text-sm">
+            <h4 className={cn("text-[15px] font-extrabold leading-5 font-headline", style.titleColor)}>
               {title}
             </h4>
             {timestamp && (
-              <p className="text-xs text-aura-on-surface-variant mt-0.5">
+              <p className={cn("mt-1 text-[11px]", style.textColor)}>
                 {timestamp}
               </p>
             )}
           </div>
         </div>
 
-        <p className="text-sm text-aura-on-surface-variant ml-8">
+        <p className={cn("relative z-10 ml-8 text-[13px] leading-6", style.textColor)}>
           {description}
         </p>
       </div>

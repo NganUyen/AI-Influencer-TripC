@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { Footer } from "@/components/layout/Footer";
+import aiAvatarImg from "@/app/dashboard/ai-avatar.jpg";
 
 export default function HomePage() {
   return (
@@ -20,6 +22,43 @@ export default function HomePage() {
         .brand-shadow {
           box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1), 0 10px 15px rgba(0, 0, 0, 0.05);
         }
+        
+        /* Premium card animations */
+        @keyframes cardHoverGlow {
+          0% { box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1), 0 10px 15px rgba(0, 0, 0, 0.05), 0 0 20px rgba(160, 57, 41, 0); }
+          100% { box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1), 0 10px 15px rgba(0, 0, 0, 0.05), 0 0 30px rgba(160, 57, 41, 0.15); }
+        }
+        
+        @keyframes slideUpFade {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes badgePulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.05); }
+        }
+        
+        .card-premium {
+          transition: all 0.6s cubic-bezier(0.23, 1, 0.320, 1);
+        }
+        
+        .card-premium:hover {
+          animation: cardHoverGlow 0.6s ease-out;
+          transform: translateY(-4px);
+        }
+        
+        .content-fade-in {
+          animation: slideUpFade 0.7s ease-out forwards;
+        }
+        
+        .badge-hover {
+          animation: badgePulse 2.5s ease-in-out infinite;
+        }
+        
+        .badge-hover:hover {
+          animation: badgePulse 1s ease-in-out infinite;
+        }
       `}</style>
 
       {/* Decorative Background Elements */}
@@ -27,8 +66,6 @@ export default function HomePage() {
         <div className="absolute -top-24 -left-24 w-96 h-96 bg-[#a03929]/5 rounded-full blur-[100px]"></div>
         <div className="absolute bottom-0 right-0 w-[600px] h-[600px] bg-[#fd7d68]/5 rounded-full blur-[150px]"></div>
       </div>
-
-      
 
       <main className="w-full max-w-7xl px-8 pt-20 pb-32 z-10">
         {/* Hero Section */}
@@ -57,29 +94,50 @@ export default function HomePage() {
           </div>
           
           <div className="w-full lg:w-2/5">
-             <div className="relative aspect-[4/5] bg-white rounded-3xl brand-shadow border border-[#2e2f2c]/5 overflow-hidden group">
-                <img 
-                  src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=1000" 
-                  alt="AI-Influencer AI Visualization"
-                  className="w-full h-full object-cover opacity-90 transition-transform duration-1000 group-hover:scale-110"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#f8f7f0] via-transparent to-transparent"></div>
-                
-                {/* Floating Stats UI */}
-                <div className="absolute bottom-10 left-10 right-10 p-8 bg-white/80 backdrop-blur-xl rounded-3xl border border-white/40 shadow-2xl space-y-4 translate-y-4 group-hover:translate-y-0 transition-transform duration-500">
-                   <div className="flex justify-between items-center">
-                     <span className="text-[10px] font-black uppercase tracking-widest text-[#a03929]">Tình trạng vận hành</span>
-                     <div className="flex gap-1">
-                        <div className="w-1.5 h-1.5 rounded-full bg-[#a03929] animate-pulse"></div>
-                        <div className="w-1.5 h-1.5 rounded-full bg-[#a03929] animate-pulse delay-75"></div>
-                        <div className="w-1.5 h-1.5 rounded-full bg-[#a03929] animate-pulse delay-150"></div>
-                     </div>
-                   </div>
-                   <div className="h-2 w-full bg-[#2e2f2c]/5 rounded-full overflow-hidden">
-                      <div className="h-full w-[85%] bg-[#a03929] rounded-full"></div>
-                   </div>
-                   <p className="text-[#2e2f2c] text-sm font-bold">85% Persona Voice Accuracy</p>
+             <div className="card-premium relative aspect-[4/5] bg-white rounded-3xl brand-shadow border border-[#2e2f2c]/8 overflow-hidden group">
+                {/* Background image with overlay */}
+                <div className="absolute inset-0">
+                  <img 
+                    src={aiAvatarImg.src} 
+                    alt="AI Video Generation"
+                    className="w-full h-full object-cover opacity-20 group-hover:opacity-25 transition-opacity duration-500"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-b from-black/5 via-black/8 to-black/12"></div>
                 </div>
+                
+                {/* Content */}
+                <div className="relative w-full h-full flex flex-col items-center justify-center px-8 py-10 text-center">
+                  {/* Badge */}
+                  <div className="badge-hover mb-8 inline-flex items-center gap-2 px-3 py-1 bg-[#a03929]/10 rounded-full border border-[#a03929]/20 transition-all duration-300">
+                    <div className="w-2 h-2 rounded-full bg-[#a03929]"></div>
+                    <span className="text-xs font-semibold text-[#a03929] uppercase tracking-wide">AI-Powered</span>
+                  </div>
+
+                  {/* Main heading */}
+                  <h3 className="text-3xl font-extrabold text-[#2e2f2c] mb-3 tracking-tight leading-tight transition-all duration-500 group-hover:text-[#a03929]">
+                    Video Content in Seconds
+                  </h3>
+                  
+                  {/* Subheading */}
+                  <p className="text-sm text-[#2e2f2c]/70 leading-relaxed mb-10 max-w-sm font-medium">
+                    Professional AI-generated videos for creators, influencers, and brands
+                  </p>
+
+                  {/* Feature pill */}
+                  <div className="mb-8 transition-all duration-500 group-hover:scale-110 group-hover:shadow-lg group-hover:shadow-[#a03929]/20">
+                    <div className="inline-block px-4 py-2 bg-white/60 backdrop-blur-sm rounded-full border border-[#a03929]/15">
+                      <span className="text-xs text-[#2e2f2c] font-semibold">⚡ Real-Time Output</span>
+                    </div>
+                  </div>
+
+                  {/* CTA text */}
+                  <div className="text-xs text-[#2e2f2c]/60 font-medium">
+                    Powered by <span className="font-bold text-[#a03929]">OpenClaw</span>
+                  </div>
+                </div>
+
+                {/* Bottom accent line */}
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-[#a03929] to-transparent opacity-30"></div>
              </div>
           </div>
         </section>
@@ -119,53 +177,7 @@ export default function HomePage() {
         </section>
       </main>
 
-      <footer className="w-full bg-[#2e2f2c] text-[#f8f7f0] py-24 px-8 z-10 overflow-hidden">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start gap-20">
-          <div className="max-w-md space-y-8">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center">
-                <span className="material-symbols-outlined text-[#2e2f2c] text-2xl">auto_awesome</span>
-              </div>
-              <span className="text-2xl font-bold tracking-tighter">AI-Influencer</span>
-            </div>
-            <p className="text-lg text-[#f8f7f0]/60 leading-relaxed font-medium">
-              Cách thức thương hiệu của bạn giao tiếp với thế giới đang thay đổi. Định hình tương lai cùng AI-Influencer.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-16">
-            <div className="space-y-6">
-              <h4 className="text-[10px] font-black uppercase tracking-widest text-[#f8f7f0]/40">Sản phẩm</h4>
-              <ul className="space-y-4 text-sm font-bold">
-                <li><a className="hover:text-[#a03929] transition-colors" href="#">AI Engine</a></li>
-                <li><a className="hover:text-[#a03929] transition-colors" href="#">Studio Hub</a></li>
-                <li><a className="hover:text-[#a03929] transition-colors" href="#">Persona Registry</a></li>
-              </ul>
-            </div>
-            <div className="space-y-6">
-              <h4 className="text-[10px] font-black uppercase tracking-widest text-[#f8f7f0]/40">Công ty</h4>
-              <ul className="space-y-4 text-sm font-bold">
-                <li><a className="hover:text-[#a03929] transition-colors" href="#">Giới thiệu</a></li>
-                <li><a className="hover:text-[#a03929] transition-colors" href="#">Nghề nghiệp</a></li>
-                <li><a className="hover:text-[#a03929] transition-colors" href="#">Liên hệ</a></li>
-              </ul>
-            </div>
-            <div className="space-y-6">
-              <h4 className="text-[10px] font-black uppercase tracking-widest text-[#f8f7f0]/40">Hệ thống</h4>
-              <ul className="space-y-4 text-sm font-bold">
-                <li><a className="hover:text-[#a03929] transition-colors" href="/ops">Operator Dashboard</a></li>
-                <li><a className="hover:text-[#a03929] transition-colors" href="/auth">Customer Portal</a></li>
-              </ul>
-            </div>
-          </div>
-        </div>
-        <div className="max-w-7xl mx-auto mt-24 pt-10 border-t border-white/10 flex flex-col md:flex-row justify-between items-center gap-6">
-           <p className="text-[10px] font-black uppercase tracking-widest opacity-40">AI-Influencer Factory 2024. All rights reserved.</p>
-           <div className="flex gap-8 text-[10px] font-black uppercase tracking-widest opacity-60">
-             <a className="hover:text-white" href="#">Privacy Policy</a>
-             <a className="hover:text-white" href="#">Terms of Service</a>
-           </div>
-        </div>
-      </footer>
+      <Footer variant="page" />
     </div>
   );
 }

@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import { X, ChevronLeft, ChevronRight, HelpCircle, LogOut, ExternalLink } from "lucide-react";
+import { SocialIcon } from "@/components/ui/SocialIcon";
 import type { DashboardTabId, DashboardTab } from "./customer-dashboard";
 
 interface DashboardSidebarProps {
@@ -8,9 +11,10 @@ interface DashboardSidebarProps {
   onTabChange: (tabId: DashboardTabId) => void;
   userEmail?: string;
   telegramBotUrl?: string | null;
+  isMobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
-// Map tab id → Material Symbol icon name fallback (we use Lucide from parent, this is decorative)
 const TAB_SUBTITLES: Record<string, string> = {
   overview: "Workspace overview",
   ops: "AI orchestration",
@@ -24,87 +28,167 @@ export function DashboardSidebar({
   activeTab,
   onTabChange,
   telegramBotUrl,
+  isMobileOpen = false,
+  onMobileClose = () => {},
 }: DashboardSidebarProps) {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  const sidebarClasses = `
+    flex flex-col shrink-0 bg-brand-surface-variant overflow-y-auto transition-all duration-300 ease-in-out
+    fixed inset-y-0 left-0 z-50 h-full p-5 shadow-brand-xl
+    md:sticky md:top-16 md:h-[calc(100vh-64px)] md:z-40 md:rounded-r-2xl md:shadow-none
+    ${isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+    ${isCollapsed ? "md:w-20" : "md:w-60 w-64"}
+  `;
+
   return (
-    <aside className="hidden md:flex flex-col flex-shrink-0 p-5 space-y-1 bg-brand-surface-variant w-60 rounded-r-2xl sticky top-16 self-start h-[calc(100vh-64px)] z-40 overflow-y-auto">
-      {/* Brand tagline */}
-      <div className="mb-6 px-3 pt-2">
-        <h2 className="text-base font-bold text-brand-on-surface font-headline">AI-Influencer</h2>
-        <p className="text-xs text-brand-outline mt-0.5 uppercase tracking-widest">Factory</p>
-      </div>
+    <>
+      {/* Mobile overlay */}
+      {isMobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm transition-opacity"
+          onClick={onMobileClose}
+        />
+      )}
 
-      {/* Nav items */}
-      <nav className="flex-1 space-y-1">
-        {tabs.map((tab) => {
-          const isActive = activeTab === tab.id;
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => onTabChange(tab.id)}
-              title={TAB_SUBTITLES[tab.id] || tab.label}
-              className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200 ease-out ${
-                isActive
-                  ? "bg-white text-brand-primary shadow-brand-sm"
-                  : "text-brand-on-surface-variant hover:text-brand-primary hover:bg-white/50"
-              }`}
-            >
-              <Icon
-                className={`h-5 w-5 flex-shrink-0 ${
-                  isActive ? "text-brand-primary" : "text-brand-outline"
-                }`}
-              />
-              <span className="truncate">{tab.label}</span>
-              {isActive && (
-                <span className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-primary" />
-              )}
-            </button>
-          );
-        })}
-      </nav>
+      <aside className={sidebarClasses}>
+        {/* Brand tagline */}
+        <div className={`mb-6 px-3 pt-2 flex items-center justify-between ${isCollapsed ? "md:justify-center md:px-0" : ""}`}>
+          <div className={`${isCollapsed ? "md:hidden" : ""}`}>
+            <h2 className="text-base font-bold text-brand-on-surface font-headline">AI-Influencer</h2>
+            <p className="text-xs text-brand-outline mt-0.5 uppercase tracking-widest">Factory</p>
+          </div>
 
-      {/* Footer */}
-      <div className="pt-4 border-t border-brand-outline-variant/30 space-y-1 mt-auto">
-
-        {/* Telegram Bot button */}
-        {telegramBotUrl && (
-          <a
-            href={telegramBotUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold bg-[#0088cc]/10 text-[#0088cc] hover:bg-[#0088cc]/20 transition-all group mb-1"
+          {/* Desktop expand/collapse toggle */}
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className={`hidden md:flex w-7 h-7 rounded-full bg-white/95 border border-brand-outline-variant/40 items-center justify-center text-brand-on-surface-variant hover:text-brand-primary hover:bg-white shadow-brand-md transition-all duration-300 ease-in-out z-[70] backdrop-blur-sm flex-shrink-0 ${
+              isCollapsed 
+                ? "absolute top-6 left-1/2 -translate-x-1/2 p-1" 
+                : ""
+            }`}
+            aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
-            <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248-2.038 9.589c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.901.632z"/>
-            </svg>
-            <span>Mở Telegram Bot</span>
-            <svg className="w-3.5 h-3.5 ml-auto opacity-50" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-            </svg>
+            {isCollapsed
+              ? <ChevronRight className="w-3.5 h-3.5 stroke-[2.5]" />
+              : <ChevronLeft className="w-3.5 h-3.5 stroke-[2.5]" />}
+          </button>
+
+          <button
+            onClick={onMobileClose}
+            className="md:hidden p-1.5 -mr-2 rounded-lg hover:bg-brand-surface-container text-brand-outline-variant"
+            aria-label="Close menu"
+          >
+            <X className="w-5 h-5 stroke-[1.75]" />
+          </button>
+        </div>
+
+        {/* Nav items */}
+        <nav className="flex-1 space-y-1">
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab.id;
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  onTabChange(tab.id);
+                  onMobileClose();
+                }}
+                className={`group relative w-full flex items-center rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200 ease-out ${
+                  isCollapsed ? "md:justify-center" : "gap-3"
+                } ${
+                  isActive
+                    ? "bg-white text-brand-primary shadow-brand-sm"
+                    : "text-brand-on-surface-variant hover:text-brand-primary hover:bg-white/50"
+                }`}
+              >
+                <Icon
+                  className={`h-[18px] w-[18px] shrink-0 stroke-[1.75] transition-colors ${
+                    isActive ? "text-brand-primary" : "text-brand-outline"
+                  }`}
+                />
+                <span className={`truncate ${isCollapsed ? "md:hidden" : ""}`}>{tab.label}</span>
+                {isActive && !isCollapsed && (
+                  <span className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-primary" />
+                )}
+
+                {/* Tooltip for collapsed state */}
+                {isCollapsed && (
+                  <div className="absolute left-full ml-4 px-2 py-1 bg-brand-surface-container-high text-brand-on-surface text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 hidden md:block shadow-brand-sm border border-brand-outline-variant/20">
+                    {TAB_SUBTITLES[tab.id] || tab.label}
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Footer */}
+        <div className="pt-4 border-t border-brand-outline-variant/30 space-y-1 mt-auto">
+          {/* Telegram Bot button */}
+          {telegramBotUrl && (
+            <a
+              href={telegramBotUrl}
+              target="_blank"
+              rel="noreferrer"
+              title="Telegram Bot"
+              className={`group relative flex items-center rounded-xl text-sm font-semibold text-brand-on-surface-variant hover:text-brand-primary hover:bg-white/50 transition-all ${
+                isCollapsed ? "md:justify-center md:px-0 py-3" : "px-4 py-3 gap-3"
+              } mb-1`}
+            >
+              <SocialIcon platform="telegram" size={18} className="shrink-0" />
+              <span className={`${isCollapsed ? "md:hidden" : ""}`}>Mở Telegram Bot</span>
+              <ExternalLink className={`w-3.5 h-3.5 ml-auto opacity-40 stroke-[1.75] ${isCollapsed ? "md:hidden" : ""}`} />
+
+              {isCollapsed && (
+                <div className="absolute left-full ml-4 px-2 py-1 bg-brand-surface-container-high text-brand-on-surface text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 hidden md:block shadow-brand-sm border border-brand-outline-variant/20">
+                  Mở Telegram Bot
+                </div>
+              )}
+            </a>
+          )}
+
+          {/* Help link */}
+          <a
+            href="#"
+            title="Trợ giúp & Docs"
+            className={`group relative flex items-center rounded-xl text-sm text-brand-on-surface-variant hover:text-brand-primary hover:bg-white/50 transition-all ${
+              isCollapsed ? "md:justify-center md:px-0 py-2.5" : "px-4 py-2.5 gap-3"
+            }`}
+          >
+            <HelpCircle className="w-[18px] h-[18px] shrink-0 stroke-[1.75] text-brand-outline group-hover:text-brand-primary transition-colors" />
+            <span className={`${isCollapsed ? "md:hidden" : ""}`}>Trợ giúp &amp; Docs</span>
+
+            {isCollapsed && (
+              <div className="absolute left-full ml-4 px-2 py-1 bg-brand-surface-container-high text-brand-on-surface text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 hidden md:block shadow-brand-sm border border-brand-outline-variant/20">
+                Trợ giúp & Docs
+              </div>
+            )}
           </a>
-        )}
 
-        {/* Help link */}
-        <a
-          href="#"
-          className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm text-brand-on-surface-variant hover:text-brand-primary hover:bg-white/50 transition-all group"
-        >
-          <span className="w-6 h-6 rounded-full bg-brand-outline-variant/30 flex items-center justify-center text-xs font-bold group-hover:bg-brand-primary group-hover:text-white transition-all">?</span>
-          <span>Trợ giúp &amp; Docs</span>
-        </a>
+          {/* Logout link */}
+          <a
+            href="/auth"
+            title="Đăng xuất"
+            className={`group relative flex items-center rounded-xl text-sm text-brand-on-surface-variant hover:text-brand-error hover:bg-brand-error/5 transition-all ${
+              isCollapsed ? "md:justify-center md:px-0 py-2.5" : "px-4 py-2.5 gap-3"
+            }`}
+          >
+            <LogOut className="w-[18px] h-[18px] shrink-0 stroke-[1.75] text-brand-outline group-hover:text-brand-error transition-colors" />
+            <span className={`${isCollapsed ? "md:hidden" : ""}`}>Đăng xuất</span>
 
-        {/* Logout link */}
-        <a
-          href="/auth"
-          className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm text-brand-on-surface-variant hover:text-brand-error hover:bg-brand-error/5 transition-all"
-        >
-          <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M18 12H9m0 0l3-3m-3 3l3 3" />
-          </svg>
-          <span>Đăng xuất</span>
-        </a>
-      </div>
-    </aside>
+            {isCollapsed && (
+              <div className="absolute left-full ml-4 px-2 py-1 bg-brand-surface-container-high text-brand-on-surface text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 hidden md:block shadow-brand-sm border border-brand-outline-variant/20">
+                Đăng xuất
+              </div>
+            )}
+          </a>
+
+
+        </div>
+      </aside>
+    </>
   );
 }

@@ -223,7 +223,9 @@ async def complete_video_capture_handoff(
         "guided_manual_login",
     }
     if payload.method not in allowed_methods:
-        raise HTTPException(status_code=400, detail="Unsupported handoff completion method.")
+        raise HTTPException(
+            status_code=400, detail="Unsupported handoff completion method."
+        )
 
     try:
         handoff = VideoCaptureHandoffService.inspect_token(
@@ -248,9 +250,9 @@ async def complete_video_capture_handoff(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return {
-        "status": result.get("status", "started"),
+        "status": result.get("status", "handoff_completed"),
         "message": result.get("message")
-        or "Authenticated PC capture handoff completed. Workflow started.",
+        or "Authenticated PC capture handoff completed. Return to Telegram and retry start.",
         "workflow_id": result.get("workflow_id"),
         "execution_mode": result.get("execution_mode"),
         "credential_handoff": result.get("credential_handoff"),
@@ -300,7 +302,9 @@ async def oauth_callback(
     state: Optional[str] = Query(default=None),
     error: Optional[str] = Query(default=None),
 ) -> RedirectResponse:
-    dashboard_url = (settings.FRONTEND_PUBLIC_URL or "http://localhost:3000").rstrip("/")
+    dashboard_url = (settings.FRONTEND_PUBLIC_URL or "http://localhost:3000").rstrip(
+        "/"
+    )
     if error:
         return RedirectResponse(
             url=(
@@ -520,11 +524,19 @@ async def list_customer_content(
                 "content": row["content"],
                 "status": row["status"],
                 "platform": row["platform"] or [],
-                "scheduled_at": row["scheduled_at"].isoformat() if row["scheduled_at"] else None,
-                "published_at": row["published_at"].isoformat() if row["published_at"] else None,
+                "scheduled_at": row["scheduled_at"].isoformat()
+                if row["scheduled_at"]
+                else None,
+                "published_at": row["published_at"].isoformat()
+                if row["published_at"]
+                else None,
                 "metadata": row["metadata"] or {},
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+                "created_at": row["created_at"].isoformat()
+                if row["created_at"]
+                else None,
+                "updated_at": row["updated_at"].isoformat()
+                if row["updated_at"]
+                else None,
             }
         )
     return {"items": items}
@@ -534,7 +546,11 @@ async def list_customer_content(
 async def list_customer_approvals(
     session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
-    return {"approvals": await CustomerCampaignService.list_pending_approvals(session.user_id)}
+    return {
+        "approvals": await CustomerCampaignService.list_pending_approvals(
+            session.user_id
+        )
+    }
 
 
 @router.get("/personas")
@@ -542,9 +558,7 @@ async def list_customer_personas(
     session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
     # This ensures personas are strictly filtered by the authenticated user's ID
-    personas = await PersonaRegistryService.list_personas(
-        user_id=session.user_id
-    )
+    personas = await PersonaRegistryService.list_personas(user_id=session.user_id)
     return {
         "personas": [
             {
@@ -576,37 +590,54 @@ async def get_system_summary(
             raw_quota = summary_data.get("providers", [])
         except Exception:
             raw_quota = []
-            
+
         # Format quota for frontend
         quota_list = []
         for q in raw_quota:
-            quota_list.append({
-                "name": str(q.get("label", q.get("name", "Unknown"))),
-                "used": float(q.get("usage_value") or q.get("used") or 0),
-                "total": float(q.get("remaining_limit") or q.get("monthly_limit") or q.get("total") or 100),
-                "unit": str(q.get("usage_unit") or q.get("unit") or "units")
-            })
+            quota_list.append(
+                {
+                    "name": str(q.get("label", q.get("name", "Unknown"))),
+                    "used": float(q.get("usage_value") or q.get("used") or 0),
+                    "total": float(
+                        q.get("remaining_limit")
+                        or q.get("monthly_limit")
+                        or q.get("total")
+                        or 100
+                    ),
+                    "unit": str(q.get("usage_unit") or q.get("unit") or "units"),
+                }
+            )
 
         # 2. Service Health
         temporal_client = getattr(request.app.state, "temporal_client", None)
-        
+
         services = [
-            {"name": "Temporal Cluster", "status": "online" if temporal_client else "error", "latency": "12ms"},
-            {"name": "OpenClaw AI", "status": "online" if settings.OPENCLAW_API_URL else "warning", "latency": "450ms"},
-            {"name": "Postiz Publisher", "status": "online" if settings.POSTIZ_API_URL else "warning", "latency": "80ms"},
-            {"name": "GrowChief Growth", "status": "online" if settings.GROWCHIEF_API_URL else "warning", "latency": "120ms"},
+            {
+                "name": "Temporal Cluster",
+                "status": "online" if temporal_client else "error",
+                "latency": "12ms",
+            },
+            {
+                "name": "OpenClaw AI",
+                "status": "online" if settings.OPENCLAW_API_URL else "warning",
+                "latency": "450ms",
+            },
+            {
+                "name": "Postiz Publisher",
+                "status": "online" if settings.POSTIZ_API_URL else "warning",
+                "latency": "80ms",
+            },
+            {
+                "name": "GrowChief Growth",
+                "status": "online" if settings.GROWCHIEF_API_URL else "warning",
+                "latency": "120ms",
+            },
         ]
-        recent_videos = await CustomerMediaService.list_recent_assets(
-            user_id=session.user_id,
-            asset_type="video",
-            limit=5,
-        )
-        
+
         return {
             "quota": quota_list,
             "services": services,
             "status": "healthy" if temporal_client else "degraded",
-            "recent_videos": recent_videos,
         }
     except Exception as exc:
         # Fallback to empty/healthy-ish structure to avoid dashboard crash
@@ -617,7 +648,7 @@ async def get_system_summary(
             ],
             "recent_videos": [],
             "status": "error",
-            "detail": str(exc)
+            "detail": str(exc),
         }
 
 
@@ -647,26 +678,34 @@ async def list_system_workflows(
     temporal_client = getattr(request.app.state, "temporal_client", None)
     if not temporal_client:
         return {"workflows": [], "status": "temporal_unavailable"}
-        
+
     workflows = []
     try:
         # Filter by user_id if possible, or just list recent ones
         # For weekly marketing workflows, we can query by ID pattern
-        query = f"WorkflowType = 'WeeklyMarketingWorkflow' AND ExecutionStatus = 'Running'"
+        query = (
+            f"WorkflowType = 'WeeklyMarketingWorkflow' AND ExecutionStatus = 'Running'"
+        )
         # Note: Advanced visibility might be required for complex queries
-        
+
         async for item in temporal_client.list_workflows(query):
             # Only include workflows that belong to this user (id pattern: weekly-marketing-{user_id})
-            if item.id.startswith(f"weekly-marketing-{session.user_id}") or item.id.startswith(f"video-{session.user_id}"):
-                workflows.append({
-                    "id": item.id,
-                    "type": item.type,
-                    "status": item.status.name.lower(),
-                    "start_time": item.start_time.isoformat() if item.start_time else None,
-                })
+            if item.id.startswith(
+                f"weekly-marketing-{session.user_id}"
+            ) or item.id.startswith(f"video-{session.user_id}"):
+                workflows.append(
+                    {
+                        "id": item.id,
+                        "type": item.type,
+                        "status": item.status.name.lower(),
+                        "start_time": item.start_time.isoformat()
+                        if item.start_time
+                        else None,
+                    }
+                )
             if len(workflows) >= limit:
                 break
-                
+
         return {"workflows": workflows, "status": "ok"}
     except Exception as exc:
         return {"workflows": [], "status": "error", "detail": str(exc)}

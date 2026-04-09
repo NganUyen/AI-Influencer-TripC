@@ -617,7 +617,7 @@ export default function OpsConsole() {
         {/* Unified Footer */}
         <footer className="w-full py-8 border-t border-black/5 dark:border-white/5 bg-[#f8f6f1] dark:bg-black flex flex-col md:flex-row justify-between items-center px-12 gap-6">
           <div className="text-[#5c5c58] dark:text-stone-500 font-label text-[10px] uppercase font-bold tracking-[0.2em]">
-            © 2024 Aura Influencer Factory. All rights reserved.
+            © 2026 AI-Influencer Factory. All rights reserved.
           </div>
           <div className="flex gap-8">
             {["Privacy", "Terms", "API Docs"].map((l, i) => (

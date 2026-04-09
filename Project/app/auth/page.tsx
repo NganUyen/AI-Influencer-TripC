@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
+import { Footer } from "@/components/layout/Footer";
 
 interface TelegramLinkToken {
   start_token: string;
@@ -277,53 +278,9 @@ function AuthPageContent() {
         <div className="absolute top-1/2 -right-48 w-[500px] h-[500px] bg-[#fd7d68]/5 rounded-full blur-[120px]"></div>
       </div>
 
-      <header className="w-full max-w-7xl px-8 py-8 flex justify-between items-center z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-[#a03929] rounded-xl flex items-center justify-center shadow-lg shadow-[#a03929]/20">
-            <span className="material-symbols-outlined text-white text-2xl">auto_awesome</span>
-          </div>
-          <span className="text-2xl font-bold tracking-tighter text-[#2e2f2c]">AURA</span>
-        </div>
-        <div className="hidden md:flex items-center gap-6">
-          <span className="text-[#2e2f2c]/60 font-medium text-sm">Hệ thống vận hành thông minh</span>
-          <div className="h-4 w-px bg-[#2e2f2c]/10"></div>
-          <a href="/" className="text-[#a03929] font-bold text-sm hover:underline">Trang chủ</a>
-        </div>
-      </header>
-
       <main className="flex-grow w-full max-w-7xl px-8 flex flex-col lg:flex-row items-center justify-center gap-12 lg:gap-20 py-12 z-10">
-        {/* Left Side: Hero Text Section */}
-        <div className="w-full lg:w-3/5 space-y-10 text-center lg:text-left">
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-white rounded-full text-[#a03929] font-bold text-sm tracking-wide border border-[#a03929]/10 shadow-sm">
-            <span className="material-symbols-outlined text-base">verified</span>
-            <span>TƯƠNG LAI CỦA TIẾP THỊ SỐ</span>
-          </div>
-          <h1 className="text-5xl lg:text-7xl font-extrabold tracking-tight leading-[1.1] text-[#2e2f2c]">
-            Hóa thân <span className="gradient-text">Influencer</span><br/> 
-            chỉ với một lần chạm.
-          </h1>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 text-left">
-            <FeatureCard 
-              icon="hub" 
-              title="Kết nối" 
-              description="Đồng bộ đa nền tảng chỉ trong vài giây." 
-            />
-            <FeatureCard 
-              icon="psychology" 
-              title="Trí tuệ" 
-              description="Tối ưu nội dung cùng sức mạnh AI." 
-            />
-            <FeatureCard 
-              icon="schema" 
-              title="Tự động" 
-              description="Vận hành 24/7 qua hệ thống workflow." 
-            />
-          </div>
-        </div>
-
-        {/* Right Side: Login Card */}
-        <div className="w-full lg:w-2/5 max-w-md">
+        {/* Right Side: Login Card - order 1 on mobile, order 2 on desktop */}
+        <div className="w-full lg:w-2/5 max-w-md order-1 lg:order-2">
           <div className="bg-white aura-premium-shadow rounded-lg p-10 flex flex-col items-center text-center border border-[#2e2f2c]/5 relative overflow-hidden">
             {/* Tonal detail */}
             <div className="absolute top-0 left-0 w-full h-2 bg-[#a03929]/10"></div>
@@ -460,21 +417,39 @@ function AuthPageContent() {
             </div>
           </div>
         </div>
+
+        {/* Left Side: Hero Text Section - order 2 on mobile, order 1 on desktop */}
+        <div className="w-full lg:w-3/5 space-y-10 text-center lg:text-left order-2 lg:order-1">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-white rounded-full text-[#a03929] font-bold text-sm tracking-wide border border-[#a03929]/10 shadow-sm">
+            <span className="material-symbols-outlined text-base">verified</span>
+            <span>TƯƠNG LAI CỦA TIẾP THỊ SỐ</span>
+          </div>
+          <h1 className="text-5xl lg:text-7xl font-extrabold tracking-tight leading-[1.1] text-[#2e2f2c]">
+            Hóa thân <span className="gradient-text">Influencer</span><br/> 
+            chỉ với một lần chạm.
+          </h1>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 text-left">
+            <FeatureCard 
+              icon="hub" 
+              title="Kết nối" 
+              description="Đồng bộ đa nền tảng chỉ trong vài giây." 
+            />
+            <FeatureCard 
+              icon="psychology" 
+              title="Trí tuệ" 
+              description="Tối ưu nội dung cùng sức mạnh AI." 
+            />
+            <FeatureCard 
+              icon="schema" 
+              title="Tự động" 
+              description="Vận hành 24/7 qua hệ thống workflow." 
+            />
+          </div>
+        </div>
       </main>
 
-      <footer className="w-full max-w-7xl px-8 py-12 flex flex-col md:flex-row justify-between items-center gap-6 z-10 border-t border-[#2e2f2c]/5">
-        <div className="flex flex-col items-center md:items-start text-[10px] font-bold text-[#2e2f2c]/40 uppercase tracking-widest">
-          <p>Privacy First AI Operations</p>
-        </div>
-        <div className="flex items-center gap-8">
-          <a className="text-[#2e2f2c]/60 text-sm font-bold hover:text-[#a03929] transition-colors" href="#">Hỗ trợ</a>
-          <div className="w-1 h-1 bg-[#2e2f2c]/20 rounded-full"></div>
-          <a className="group flex items-center gap-2 px-6 py-3 bg-[#2e2f2c] text-white rounded-full text-[10px] font-black uppercase tracking-widest transition-all hover:bg-[#a03929] hover:scale-105 shadow-md" href="/ops/login">
-            <span className="material-symbols-outlined text-base">admin_panel_settings</span>
-            Operator Console
-          </a>
-        </div>
-      </footer>
+      <Footer variant="page" />
     </div>
   );
 }

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import FastAPI
 
+from config.settings import settings
 from services.contracts import BeatSheetContract, ConceptBriefContract
 from services.skill_dispatcher import SkillDispatcher
 from services.skill_session_store import TelegramSkillSessionStore
@@ -23,11 +24,20 @@ class _AsyncClientContext:
 
 
 @pytest.fixture(autouse=True)
-def reset_skill_session_store():
+def reset_skill_session_store(monkeypatch):
     TelegramSkillSessionStore._redis_client = None
     TelegramSkillSessionStore._redis_enabled = False
     TelegramSkillSessionStore._redis_init_attempted = True
     TelegramSkillSessionStore._memory_sessions.clear()
+    monkeypatch.setattr(settings, "ENVIRONMENT", "development")
+    monkeypatch.setattr(settings, "DEBUG", True)
+    monkeypatch.setattr(settings, "FRONTEND_PUBLIC_URL", "http://localhost:3000")
+    monkeypatch.setattr(settings, "BACKEND_PUBLIC_URL", "http://localhost:8000")
+    monkeypatch.setattr(
+        settings,
+        "CHATGPT_CONNECTOR_PUBLIC_URL",
+        "http://localhost:8000",
+    )
     yield
     TelegramSkillSessionStore._memory_sessions.clear()
 
@@ -145,39 +155,66 @@ def _patch_persona_lookup_missing_heygen(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_video_ai_collects_required_fields_in_order():
+async def test_video_ai_collects_required_fields_in_order(monkeypatch):
+    _patch_persona_lookup(monkeypatch)
     session = VideoAISkill.initial_session()
 
+    result = await VideoAISkill.execute(session, "http://backend", object())
+    assert result.next_step == "collect_objective"
+
+    session.collected["objective"] = "Need a product demo."
+    result = await VideoAISkill.execute(session, "http://backend", object())
+    assert result.next_step == "collect_target_url"
+
+    session.collected["target_url"] = "https://tripc.ai"
+    session.artifacts["page_review"] = {
+        "target_url": "https://tripc.ai",
+        "normalized_url": "https://tripc.ai",
+        "page_title": "TripC",
+        "product_summary": "Trip planner",
+        "access_level": "public_page_only",
+        "login_required": False,
+        "visible_features": [],
+        "visible_flows": [],
+        "recording_candidates": [],
+        "risks": [],
+        "assumptions": [],
+    }
     result = await VideoAISkill.execute(session, "http://backend", object())
     assert result.next_step == "pick_persona"
 
     session.collected["persona_id"] = "minh_vn"
     result = await VideoAISkill.execute(session, "http://backend", object())
-    assert result.next_step == "collect_idea_brief"
+    assert result.next_step == "choose_execution_mode"
 
-    session.collected["idea_brief"] = "Need a product demo."
+    session.collected["execution_mode"] = "autonomous_screen_recording"
+    result = await VideoAISkill.execute(session, "http://backend", object())
+    assert result.next_step == "confirm_plan"
+
+    session.step_key = "confirm_plan"
+    session.collected["plan_decision"] = "confirm"
     result = await VideoAISkill.execute(session, "http://backend", object())
     assert result.next_step == "collect_feature_focus"
 
-    session.collected["feature_focus"] = "AI itinerary planner"
-    result = await VideoAISkill.execute(session, "http://backend", object())
+    assert result.session.collected["idea_brief"] == "Need a product demo."
+    assert result.session.collected["reference_url"] == "https://tripc.ai"
+    assert result.session.collected["creative_input_mode"] == "idea_brief"
+
+    result.session.collected["feature_focus"] = "AI itinerary planner"
+    result = await VideoAISkill.execute(result.session, "http://backend", object())
     assert result.next_step == "choose_video_goal"
 
-    session.collected["video_goal"] = "feature_demo"
-    result = await VideoAISkill.execute(session, "http://backend", object())
+    result.session.collected["video_goal"] = "feature_demo"
+    result = await VideoAISkill.execute(result.session, "http://backend", object())
     assert result.next_step == "collect_audience"
 
-    session.collected["audience"] = "travelers aged 22-35"
-    result = await VideoAISkill.execute(session, "http://backend", object())
+    result.session.collected["audience"] = "travelers aged 22-35"
+    result = await VideoAISkill.execute(result.session, "http://backend", object())
     assert result.next_step == "collect_cta"
 
-    session.collected["cta"] = "Try TripC free"
-    result = await VideoAISkill.execute(session, "http://backend", object())
-    assert result.next_step == "collect_reference_url"
-
-    session.collected["reference_url"] = "https://tripc.ai"
-    result = await VideoAISkill.execute(session, "http://backend", object())
-    assert result.next_step == "choose_access_level"
+    result.session.collected["cta"] = "Try TripC free"
+    result = await VideoAISkill.execute(result.session, "http://backend", object())
+    assert result.next_step == "confirm_concept"
 
 
 @pytest.mark.asyncio

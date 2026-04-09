@@ -15,9 +15,9 @@ export function Panel({
   ...props
 }: PanelProps) {
   const variants = {
-    default: "bg-white dark:bg-gray-800 shadow-sm",
-    elevated: "bg-white dark:bg-gray-800 shadow-lg hover:shadow-xl transition-shadow duration-200",
-    outlined: "bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-none",
+    default: "bg-white border border-aura-outline-variant/10 shadow-aura",
+    elevated: "bg-white border border-aura-outline-variant/10 shadow-aura hover:shadow-aura-md transition-shadow duration-200",
+    outlined: "bg-white border border-aura-outline-variant/20 shadow-none",
   };
 
   const paddings = {
@@ -30,7 +30,7 @@ export function Panel({
   return (
     <div
       className={cn(
-        "rounded-xl",
+        "rounded-2xl",
         variants[variant],
         paddings[padding],
         className,

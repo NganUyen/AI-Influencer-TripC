@@ -26,6 +26,8 @@ _TEST_ENV = {
     "TELEGRAM_WEBHOOK_SECRET": "test-secret",
     "TELEGRAM_CHAT_ID": "999",
     "BACKEND_PUBLIC_URL": "http://localhost:8000",
+    "FRONTEND_PUBLIC_URL": "http://localhost:3000",
+    "CHATGPT_CONNECTOR_PUBLIC_URL": "http://localhost:8000",
     "DATABASE_URL": "postgresql://localhost/test",
     "SUPABASE_URL": "https://test.supabase.co",
     "SUPABASE_KEY": "test-key",
@@ -157,7 +159,7 @@ async def test_create_video_command_starts_video_planner_directly(tg_calls):
         success=True,
         next_step="collect_objective",
         session=SkillSession(
-            skill_name="video-planner",
+            skill_name="video-ai",
             step_key="collect_objective",
             collected={},
             artifacts={},
@@ -194,7 +196,7 @@ async def test_create_video_command_does_not_call_openclaw(tg_calls):
         success=True,
         next_step="collect_objective",
         session=SkillSession(
-            skill_name="video-planner",
+            skill_name="video-ai",
             step_key="collect_objective",
             collected={},
             artifacts={},
@@ -286,7 +288,7 @@ async def test_skill_video_planner_callback_starts_directly(tg_calls):
         success=True,
         next_step="collect_objective",
         session=SkillSession(
-            skill_name="video-planner",
+            skill_name="video-ai",
             step_key="collect_objective",
             collected={},
             artifacts={},
@@ -327,7 +329,7 @@ async def test_skill_video_planner_callback_does_not_call_openclaw(tg_calls):
         success=True,
         next_step="collect_objective",
         session=SkillSession(
-            skill_name="video-planner",
+            skill_name="video-ai",
             step_key="collect_objective",
             collected={},
             artifacts={},
@@ -432,7 +434,7 @@ async def test_create_video_text_shortcut_bypasses_openclaw(tg_calls):
         success=True,
         next_step="collect_objective",
         session=SkillSession(
-            skill_name="video-planner",
+            skill_name="video-ai",
             step_key="collect_objective",
             collected={},
             artifacts={},
@@ -500,12 +502,12 @@ async def test_free_text_still_routes_through_openclaw(tg_calls):
 
 
 # -----------------------------------------------------------------------------
-# Test: Video planner fresh session has collect_objective step
+# Test: Video-ai fresh session has collect_objective step
 # -----------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_video_planner_fresh_session_has_collect_objective_step(tg_calls):
+async def test_video_ai_fresh_session_has_collect_objective_step(tg_calls):
     """
-    A fresh video-planner session should start at step_key='collect_objective'.
+    A fresh video-ai session should start at step_key='collect_objective'.
     """
     message = {
         "text": "/create_video",
@@ -521,10 +523,10 @@ async def test_video_planner_fresh_session_has_collect_objective_step(tg_calls):
     ):
         await _handle_message(FastAPI(), message)
 
-    # Check that session was created with planner entry step
+    # Check that session was created with collect_objective
     session = await TelegramSkillSessionStore.get_session(123456789)
     assert session is not None
-    assert session.skill_name == "video-planner"
+    assert session.skill_name == "video-ai"
     assert session.step_key == "collect_objective"
 
 

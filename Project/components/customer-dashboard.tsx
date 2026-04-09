@@ -11,14 +11,25 @@ import {
   Zap,
   Clock,
   CheckCircle,
+  AlertTriangle,
+  X,
+  Check,
+  Cpu,
+  BookOpen,
+  Brain,
+  Link2,
+  RefreshCw,
   type LucideIcon,
 } from "lucide-react";
+import { SocialIcon } from "@/components/ui/SocialIcon";
 
 import { customerApiRequest } from "@/lib/customer-api";
 import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
+import { Footer } from "@/components/layout/Footer";
+import openClawLogo from "@/app/dashboard/openclaw-logo.svg";
 import { Panel } from "@/components/ui/Panel";
 import { PanelHeader } from "@/components/ui/PanelHeader";
 import { StatCard } from "@/components/ui/StatCard";
@@ -289,6 +300,7 @@ export default function CustomerDashboard() {
   // };
   
   const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [systemSummary, setSystemSummary] = useState<SystemSummaryData | null>(null);
   const [systemWorkflows, setSystemWorkflows] = useState<SystemWorkflowData[]>([]);
 
@@ -978,14 +990,17 @@ export default function CustomerDashboard() {
         telegramBotUrl={telegramBotUrl}
         onLogout={() => void handleLogout()}
         isSigningOut={busyKey === "signout"}
+        onMobileMenuToggle={() => setIsMobileMenuOpen(prev => !prev)}
       />
 
-      <div className="flex pt-16 min-h-[calc(100vh-64px)]">
+      <div className="flex pt-16 min-h-[calc(100vh-64px)] relative">
         <DashboardSidebar
           tabs={DASHBOARD_TABS}
           activeTab={activeTab}
           onTabChange={setActiveTab}
           telegramBotUrl={telegramBotUrl}
+          isMobileOpen={isMobileMenuOpen}
+          onMobileClose={() => setIsMobileMenuOpen(false)}
         />
 
         <main className="flex-1 min-w-0 px-6 md:px-10 py-8">
@@ -1003,19 +1018,21 @@ export default function CustomerDashboard() {
         {/* Error banner */}
         {pageError && (
           <div className="flex items-center justify-between rounded-2xl border border-aura-error/20 bg-aura-error-container/20 px-5 py-3 text-sm text-aura-error font-medium">
-            <span>⚠ {pageError}</span>
-            <button onClick={() => setPageError(null)} className="ml-4 text-aura-error/60 hover:text-aura-error transition-colors">✕</button>
+            <span>{pageError}</span>
+            <button onClick={() => setPageError(null)} className="ml-4 text-aura-error/60 hover:text-aura-error transition-colors">
+              <X className="w-4 h-4 stroke-[1.75]" />
+            </button>
           </div>
         )}
 
         {/* ─── Quota Warning Banner ─── */}
         {activeTab === "overview" && quotaWarnings.length > 0 && !quotaBannerDismissed && (
-          <div className="flex items-start justify-between gap-4 rounded-2xl border border-aura-secondary/30 bg-aura-secondary-container/40 px-5 py-4">
+          <div className="flex items-start justify-between gap-4 rounded-2xl border border-aura-error/20 bg-aura-error-container/15 px-5 py-4">
             <div className="flex items-start gap-3">
-              <span className="text-xl leading-none mt-0.5">⚠️</span>
+              <AlertTriangle className="w-4 h-4 text-aura-error flex-shrink-0 mt-0.5 stroke-[1.75]" />
               <div>
-                <p className="font-semibold text-aura-secondary text-sm">Quota cảnh báo vượt ngưỡng hôm nay</p>
-                <p className="text-xs text-aura-on-surface-variant mt-0.5">
+                <p className="text-sm font-semibold text-aura-error">Quota cảnh báo vượt ngưỡng hôm nay</p>
+                <p className="mt-0.5 text-xs text-aura-on-surface-variant">
                   {quotaWarnings.map((q) => {
                     const pct = Math.round((q.used / q.total) * 100);
                     return `${q.name} (${pct}%)`;
@@ -1025,9 +1042,9 @@ export default function CustomerDashboard() {
             </div>
             <button
               onClick={() => setQuotaBannerDismissed(true)}
-              className="flex-shrink-0 text-aura-secondary/60 hover:text-aura-secondary transition-colors text-sm"
+              className="flex-shrink-0 text-aura-error/60 hover:text-aura-error transition-colors"
             >
-              ✕
+              <X className="w-4 h-4 stroke-[1.75]" />
             </button>
           </div>
         )}
@@ -1069,18 +1086,18 @@ export default function CustomerDashboard() {
               ].map((stat) => (
                 <div
                   key={stat.label}
-                  className="bg-white rounded-2xl p-5 shadow-aura flex flex-col gap-2"
+                  className="bg-white rounded-2xl p-5 md:p-6 shadow-aura flex flex-col justify-between gap-3"
                 >
-                  <span className="text-[10px] uppercase tracking-widest text-aura-on-surface-variant font-body">
+                  <span className="text-[9px] font-semibold uppercase tracking-[0.18em] text-aura-outline font-body">
                     {stat.label}
                   </span>
-                  <div className="flex items-baseline gap-2 mt-1">
-                    <span className="text-3xl font-extrabold text-aura-on-surface font-headline">
+                  <div className="pt-1">
+                    <span className="text-5xl font-black tracking-tight text-aura-on-surface font-headline">
                       {stat.value}
                     </span>
-                    <span className={`text-xs font-semibold ${stat.color}`}>{stat.sub}</span>
+                    <p className={`mt-2 text-xs font-semibold ${stat.color}`}>{stat.sub}</p>
                   </div>
-                  <div className={`h-1 rounded-full mt-1 ${stat.bg}`} />
+                  <div className={`h-1 rounded-full ${stat.bg}`} />
                 </div>
               ))}
             </section>
@@ -1163,7 +1180,7 @@ export default function CustomerDashboard() {
                         </span>
                         {aiBackbone?.effective_status.ready ? (
                           <span className="w-4 h-4 rounded-full bg-aura-tertiary flex items-center justify-center">
-                            <span className="text-white text-[10px]">✓</span>
+                            <Check className="w-2.5 h-2.5 text-white stroke-[3]" />
                           </span>
                         ) : (
                           <span className="w-2 h-2 rounded-full bg-aura-secondary animate-pulse" />
@@ -1173,9 +1190,9 @@ export default function CustomerDashboard() {
 
                     <div>
                       <label className="text-[10px] uppercase font-bold text-aura-on-surface-variant block mb-1.5">Status</label>
-                      <p className="text-xs text-aura-on-surface-variant px-1">
-                        {aiBackbone?.effective_status.message || "Initializing workspace access."}
-                      </p>
+                        <p className="px-1 text-[11px] leading-5 text-aura-on-surface-variant/80">
+                          {aiBackbone?.effective_status.message || "Initializing workspace access."}
+                        </p>
                     </div>
 
                     <div>
@@ -1214,8 +1231,8 @@ export default function CustomerDashboard() {
                       <p className="text-xs text-aura-on-surface-variant mt-0.5">Provider-specific consumption today</p>
                     </div>
                     {quotaWarnings.length > 0 && (
-                      <span className="flex items-center gap-2 px-3 py-1.5 bg-aura-secondary-container rounded-full text-xs font-bold text-aura-on-secondary-container">
-                        ⚠️ {quotaWarnings.length} over 80%
+                      <span className="flex items-center gap-1.5 px-3 py-1.5 bg-aura-secondary-container rounded-full text-xs font-bold text-aura-on-secondary-container">
+                        <AlertTriangle className="w-3 h-3 stroke-[2]" /> {quotaWarnings.length} over 80%
                       </span>
                     )}
                   </div>
@@ -1238,39 +1255,39 @@ export default function CustomerDashboard() {
                         const isOverThreshold = pct >= 80;
                         const isCritical = pct >= 95;
                         return (
-                          <div key={q.name} className="space-y-2.5">
-                            <div className="flex justify-between items-end">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-semibold text-aura-on-surface">{q.name}</span>
-                                {isOverThreshold && (
-                                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                                    isCritical
-                                      ? "bg-aura-error-container/30 text-aura-error"
-                                      : "bg-aura-secondary-container/50 text-aura-secondary"
-                                  }`}>
-                                    {isCritical ? "⚠ Critical" : "⚠ High"}
-                                  </span>
-                                )}
+                          <div key={q.name} className="space-y-3">
+                            <div className="flex justify-between items-end gap-3">
+                              <div className="flex flex-col gap-1">
+                                <span className={`text-lg font-black text-aura-on-surface leading-tight ${
+                                  isCritical ? "text-aura-secondary" : isOverThreshold ? "text-aura-secondary" : "text-aura-tertiary"
+                                }`}>
+                                  {Math.round(pct)}%
+                                </span>
+                                <span className="text-xs font-medium text-aura-on-surface-variant uppercase tracking-wide">{q.name}</span>
                               </div>
-                              <span className={`text-sm font-bold ${
-                                isCritical ? "text-aura-error" : isOverThreshold ? "text-aura-secondary" : "text-aura-on-surface"
-                              }`}>
-                                {Math.round(pct)}% consumed
-                              </span>
+                              {isOverThreshold && (
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap ${
+                                  isCritical
+                                    ? "bg-aura-secondary-container/50 text-aura-secondary"
+                                    : "bg-aura-secondary-container/50 text-aura-secondary"
+                                }`}>
+                                  {isCritical ? "Critical" : "High"}
+                                </span>
+                              )}
                             </div>
                             <div className="h-2.5 bg-aura-surface-container-high rounded-full overflow-hidden">
                               <div
                                 className={`h-full rounded-full transition-all duration-700 ${
                                   isCritical
-                                    ? "bg-gradient-to-r from-aura-error to-aura-error-container"
+                                    ? "bg-gradient-to-r from-aura-secondary to-aura-secondary-fixed"
                                     : isOverThreshold
                                     ? "bg-gradient-to-r from-aura-secondary to-aura-secondary-fixed"
-                                    : "bg-gradient-to-r from-aura-primary to-aura-primary-container"
-                                }`}
-                                style={{ width: `${pct}%` }}
-                              />
+                                    : "bg-gradient-to-r from-aura-tertiary to-aura-tertiary-container"
+                                 }`}
+                                 style={{ width: `${pct}%` }}
+                               />
                             </div>
-                            <p className="text-[10px] text-aura-outline">
+                            <p className="text-[10px] text-aura-on-surface-variant">
                               {q.used.toLocaleString()} / {q.total.toLocaleString()} {q.unit}
                             </p>
                           </div>
@@ -1338,18 +1355,23 @@ export default function CustomerDashboard() {
                 </div>
 
                 {/* Recent Activity */}
-                <div className="bg-white rounded-2xl p-7 shadow-aura">
-                  <h3 className="text-base font-bold text-aura-on-surface font-headline mb-5">Recent Activity</h3>
+                <div className="bg-white rounded-2xl p-7 shadow-aura border border-aura-outline-variant/10">
+                  <div className="mb-6">
+                    <h3 className="text-lg font-extrabold text-aura-on-surface font-headline">Recent Activity</h3>
+                    <p className="mt-1 text-xs text-aura-on-surface-variant">Latest events and updates</p>
+                  </div>
                   {activityItems.length === 0 ? (
-                    <p className="text-sm text-aura-outline">No recent activity yet.</p>
+                    <p className="text-sm text-aura-on-surface-variant">No recent activity yet.</p>
                   ) : (
-                    <div className="space-y-3">
-                      {activityItems.map((item) => (
-                        <div key={item.id} className="flex items-start gap-3">
-                          <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${auraActivityDotClass(item.tone)}` } />
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-aura-on-surface truncate">{item.title}</p>
-                            <p className="text-xs text-aura-on-surface-variant truncate">{item.detail}</p>
+                      <div className="space-y-0 divide-y divide-aura-surface-container-high">
+                        {activityItems.map((item) => (
+                        <div key={item.id} className="flex items-start gap-4 py-5 first:pt-0 last:pb-0">
+                          <div className="flex flex-shrink-0 mt-1">
+                            <span className={`w-2.5 h-2.5 rounded-full ${auraActivityDotClass(item.tone)}`} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold line-clamp-2 text-aura-on-surface">{item.title}</p>
+                            <p className="mt-1.5 text-xs leading-relaxed text-aura-on-surface-variant line-clamp-2">{item.detail}</p>
                           </div>
                         </div>
                       ))}
@@ -1394,9 +1416,9 @@ export default function CustomerDashboard() {
                   { label: "Published Content", value: content.filter(c => c.status === "published").length, border: "border-aura-tertiary" },
                   { label: "AI Personas", value: personas?.length ?? 0, border: "border-aura-outline" },
                 ].map(stat => (
-                  <div key={stat.label} className={`bg-white p-6 rounded-xl shadow-aura-sm border-l-4 ${stat.border}`}>
-                    <p className="text-aura-on-surface-variant text-[10px] font-body uppercase tracking-widest mb-1">{stat.label}</p>
-                    <p className="text-4xl font-headline font-extrabold text-aura-on-surface">{stat.value}</p>
+                  <div key={stat.label} className={`bg-white p-6 rounded-xl shadow-aura-sm border-l-4 ${stat.border} flex min-h-[132px] flex-col justify-between`}>
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-aura-outline">{stat.label}</p>
+                    <p className="pt-4 text-5xl font-headline font-black tracking-tight text-aura-on-surface">{stat.value}</p>
                   </div>
                 ))}
               </div>
@@ -1414,14 +1436,14 @@ export default function CustomerDashboard() {
                 <div className="space-y-3">
                   {(systemSummary?.services || []).length === 0 ? (
                     [
-                      { name: "Temporal Cluster", icon: "☁" },
-                      { name: "OpenClaw AI", icon: "🧠" },
-                      { name: "Postiz Publisher", icon: "📡" },
-                      { name: "GrowChief Growth", icon: "📈" },
+                      { name: "Temporal Cluster", Icon: Radio },
+                      { name: "OpenClaw AI", Icon: Cpu },
+                      { name: "Postiz Publisher", Icon: Bot },
+                      { name: "GrowChief Growth", Icon: Zap },
                     ].map(s => (
                       <div key={s.name} className="flex items-center justify-between p-3 bg-white rounded-xl">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm">{s.icon}</span>
+                          <s.Icon className="w-4 h-4 text-aura-outline stroke-[1.75]" />
                           <span className="text-sm font-body text-aura-on-surface-variant">{s.name}</span>
                         </div>
                         <div className="h-3 w-16 bg-aura-surface-container rounded animate-pulse" />
@@ -1433,14 +1455,14 @@ export default function CustomerDashboard() {
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
                             service.status === "online" ? "bg-aura-tertiary" :
-                            service.status === "warning" ? "bg-aura-secondary" : "bg-aura-error"
+                            service.status === "warning" ? "bg-aura-secondary" : "bg-aura-secondary"
                           }`} />
                           <span className="text-sm font-body text-aura-on-surface">{service.name}</span>
                         </div>
                         <div className="text-right">
                           <span className={`block text-[10px] font-bold uppercase ${
                             service.status === "online" ? "text-aura-tertiary" :
-                            service.status === "warning" ? "text-aura-secondary" : "text-aura-error"
+                            service.status === "warning" ? "text-aura-secondary" : "text-aura-secondary"
                           }`}>{service.status}</span>
                           <span className="block text-[10px] text-aura-on-surface-variant">{service.latency}</span>
                         </div>
@@ -1455,10 +1477,7 @@ export default function CustomerDashboard() {
                 <div className="space-y-5">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-aura-primary/10 rounded-full flex items-center justify-center">
-                      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                        <circle cx="9" cy="9" r="3" fill="#a03929"/>
-                        <path d="M9 2v2M9 14v2M2 9h2M14 9h2M4.22 4.22l1.42 1.42M12.36 12.36l1.42 1.42M4.22 13.78l1.42-1.42M12.36 5.64l1.42-1.42" stroke="#a03929" strokeWidth="1.5" strokeLinecap="round"/>
-                      </svg>
+                      <Cpu className="w-5 h-5 text-aura-primary stroke-[1.5]" />
                     </div>
                     <h3 className="text-base font-headline font-bold text-aura-on-surface">AI Backbone</h3>
                   </div>
@@ -1479,7 +1498,7 @@ export default function CustomerDashboard() {
                       <p className="text-[10px] text-aura-on-surface-variant mb-1 font-body uppercase tracking-wider">Status</p>
                       <div className="flex items-center gap-2">
                         <span className={`w-2 h-2 rounded-full ${aiBackbone?.effective_status.ready ? "bg-aura-tertiary" : "bg-aura-secondary animate-pulse"}`} />
-                        <p className="text-xs text-aura-on-surface">
+                        <p className="text-[11px] leading-5 text-aura-on-surface/80">
                           {aiBackbone?.effective_status.message || "Initializing…"}
                         </p>
                       </div>
@@ -1522,7 +1541,7 @@ export default function CustomerDashboard() {
                       const pct = q.total > 0 ? Math.min((q.used / q.total) * 100, 100) : 0;
                       const isHigh = pct >= 80;
                       const isCritical = pct >= 95;
-                      const barColor = isCritical ? "bg-aura-error" : isHigh ? "bg-aura-secondary" : "bg-aura-primary";
+                      const barColor = isCritical ? "bg-aura-secondary" : isHigh ? "bg-aura-secondary" : "bg-aura-tertiary";
                       return (
                         <div key={q.name} className="space-y-1">
                           <div className="flex justify-between text-xs font-body">
@@ -1530,13 +1549,13 @@ export default function CustomerDashboard() {
                               {q.name}
                               {isHigh && (
                                 <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${
-                                  isCritical ? "bg-aura-error/20 text-aura-error" : "bg-aura-secondary/20 text-aura-secondary"
+                                  isCritical ? "bg-aura-secondary/20 text-aura-secondary" : "bg-aura-secondary/20 text-aura-secondary"
                                 }`}>
                                   {isCritical ? "⚠ Critical" : "⚠ High"}
                                 </span>
                               )}
                             </span>
-                            <span className={`font-bold ${isCritical ? "text-aura-error" : isHigh ? "text-aura-secondary" : "text-aura-on-surface-variant"}`}>
+                            <span className={`font-bold ${isCritical ? "text-aura-secondary" : isHigh ? "text-aura-secondary" : "text-aura-on-surface-variant"}`}>
                               {Math.round(pct)}%
                             </span>
                           </div>
@@ -1639,11 +1658,11 @@ export default function CustomerDashboard() {
               </div>
             </section>
 
-            {/* ── Campaign Control + Output Stream ── */}
-            <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white rounded-2xl p-7 shadow-aura">
-                <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Campaign Control</h3>
-                <div className="space-y-3">
+             {/* ── Campaign Control + Output Stream ── */}
+             <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+               <div className="bg-white rounded-2xl p-8 shadow-aura">
+                 <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Campaign Control</h3>
+                 <div className="space-y-3">
                   {campaigns.map(c => (
                     <div key={c.id} className="p-4 bg-aura-surface-container-low border border-aura-outline-variant/20 rounded-xl flex items-center justify-between">
                       <div className="min-w-0 mr-3">
@@ -1665,9 +1684,9 @@ export default function CustomerDashboard() {
                 </div>
               </div>
 
-              <div className="bg-white rounded-2xl p-7 shadow-aura">
-                <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Output Stream</h3>
-                <div className="space-y-2">
+               <div className="bg-white rounded-2xl p-8 shadow-aura">
+                 <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Output Stream</h3>
+                 <div className="space-y-2">
                   {content.slice(0, 6).map(item => (
                     <div key={item.id} className="p-3 bg-aura-surface-container-low border border-aura-outline-variant/15 rounded-xl flex justify-between items-center">
                       <span className="text-sm text-aura-on-surface truncate mr-2">{item.title}</span>
@@ -1969,31 +1988,39 @@ export default function CustomerDashboard() {
                 <button type="button" className="text-aura-primary font-bold text-sm hover:underline underline-offset-4">Quản lý tất cả</button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {[
+                {([
                   {
-                    icon: "✨",
+                    Icon: Zap,
+                    iconColor: "text-aura-primary",
+                    iconBg: "bg-aura-primary/10",
                     title: "Tự động hóa nội dung",
                     desc: "Lên lịch đăng bài tự động cho tất cả các persona đang hoạt động.",
                     badge: null,
                     toggle: true,
                   },
                   {
-                    icon: "🌐",
+                    Icon: Database,
+                    iconColor: "text-aura-secondary",
+                    iconBg: "bg-aura-secondary/10",
                     title: "Đa ngôn ngữ",
                     desc: "Tự động dịch thuật để tiếp cận khán giả quốc tế.",
                     badge: { text: "12 Ngôn ngữ đã kích hoạt", color: "text-aura-primary" },
                     toggle: false,
                   },
                   {
-                    icon: "✅",
+                    Icon: CheckCircle,
+                    iconColor: "text-aura-tertiary",
+                    iconBg: "bg-aura-tertiary/10",
                     title: "Bộ lọc an toàn",
                     desc: "Giám sát phản hồi AI nghiêm ngặt để bảo vệ thương hiệu.",
                     badge: { text: "Cấp độ Doanh nghiệp", color: "text-aura-tertiary" },
                     toggle: false,
                   },
-                ].map(item => (
+                ] as const).map(item => (
                   <div key={item.title} className="bg-white p-6 rounded-xl shadow-aura-sm">
-                    <span className="text-2xl mb-3 block">{item.icon}</span>
+                    <div className={`w-10 h-10 ${item.iconBg} rounded-xl flex items-center justify-center mb-4`}>
+                      <item.Icon className={`w-5 h-5 ${item.iconColor} stroke-[1.5]`} />
+                    </div>
                     <h4 className="font-bold text-aura-on-surface mb-1 text-sm">{item.title}</h4>
                     <p className="text-xs text-aura-on-surface-variant">{item.desc}</p>
                     {item.toggle && (
@@ -2036,7 +2063,7 @@ export default function CustomerDashboard() {
                 <div className="bg-white rounded-2xl p-8 shadow-aura">
                   <div className="flex items-center gap-3 mb-8">
                     <div className="w-12 h-12 rounded-2xl bg-aura-primary/10 flex items-center justify-center">
-                      <span className="text-xl">📖</span>
+                      <BookOpen className="w-5 h-5 text-aura-primary stroke-[1.5]" />
                     </div>
                     <h3 className="text-xl font-bold text-aura-on-surface font-headline">Bối cảnh Thương hiệu</h3>
                   </div>
@@ -2096,7 +2123,7 @@ export default function CustomerDashboard() {
                     <div>
                       <div className="flex items-center gap-3 mb-6">
                         <div className="w-10 h-10 rounded-xl bg-aura-tertiary/10 flex items-center justify-center">
-                          <span className="text-lg">🧠</span>
+                          <Brain className="w-5 h-5 text-aura-tertiary stroke-[1.5]" />
                         </div>
                         <h3 className="font-bold text-aura-on-surface font-headline">Chế độ Trí tuệ</h3>
                       </div>
@@ -2109,10 +2136,10 @@ export default function CustomerDashboard() {
                         <span className="font-bold text-aura-on-surface text-sm">
                           {aiBackbone?.access_mode.replace(/_/g, " ") || "Platform Managed"}
                         </span>
-                        <span className="text-aura-tertiary text-lg">✓</span>
+                        <Check className="w-4 h-4 text-aura-tertiary stroke-[2.5]" />
                       </div>
                       <div className="flex items-center justify-between w-full p-5 bg-aura-surface-container-low rounded-2xl border-2 border-transparent">
-                        <span className="font-medium text-aura-on-surface-variant text-sm">
+                        <span className="text-sm font-medium text-aura-on-surface-variant/80">
                           {aiBackbone?.effective_status.message || "Initializing…"}
                         </span>
                         <span className={`w-2 h-2 rounded-full ${aiBackbone?.effective_status.ready ? "bg-aura-tertiary" : "bg-aura-secondary animate-pulse"}`} />
@@ -2125,7 +2152,7 @@ export default function CustomerDashboard() {
                     <div>
                       <div className="flex items-center gap-3 mb-6">
                         <div className="w-10 h-10 rounded-xl bg-aura-secondary/10 flex items-center justify-center">
-                          <span className="text-lg">🔗</span>
+                          <Link2 className="w-5 h-5 text-aura-secondary stroke-[1.5]" />
                         </div>
                         <h3 className="font-bold text-aura-on-surface font-headline">Cầu nối Hệ thống</h3>
                       </div>
@@ -2135,8 +2162,10 @@ export default function CustomerDashboard() {
                     </div>
 
                     {telegramLink?.linked ? (
-                      <div className="p-5 bg-blue-50 rounded-2xl flex items-center gap-4">
-                        <div className="w-10 h-10 bg-[#0088cc] text-white rounded-full flex items-center justify-center text-lg flex-shrink-0">✈</div>
+                      <div className="p-5 bg-aura-surface-container rounded-2xl flex items-center gap-4">
+                        <div className="w-10 h-10 bg-aura-surface-container rounded-full flex items-center justify-center flex-shrink-0 shadow-aura-sm">
+                          <SocialIcon platform="telegram" size={20} />
+                        </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-bold text-aura-on-surface">@{telegramLink.link?.telegram_username || "Linked Account"}</p>
                           <p className="text-[10px] text-aura-on-surface-variant">ID: {telegramLink.link?.chat_id}</p>
@@ -2145,19 +2174,21 @@ export default function CustomerDashboard() {
                         <button
                           type="button"
                           onClick={handleStartTelegramLink}
-                          className="text-aura-on-surface-variant hover:text-aura-primary transition-colors text-sm"
-                        >↻</button>
+                          className="text-aura-on-surface-variant hover:text-aura-primary transition-colors"
+                          aria-label="Re-link Telegram"
+                        ><RefreshCw className="w-4 h-4 stroke-[1.75]" /></button>
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        <button
-                          type="button"
-                          onClick={handleStartTelegramLink}
-                          disabled={busyKey === "telegram-link"}
-                          className="w-full py-3 bg-[#0088cc] text-white font-bold rounded-full hover:opacity-90 active:scale-95 transition-all disabled:opacity-50"
-                        >
-                          {busyKey === "telegram-link" ? "Đang tạo liên kết…" : "Kết nối Telegram"}
-                        </button>
+                         <button
+                           type="button"
+                           onClick={handleStartTelegramLink}
+                           disabled={busyKey === "telegram-link"}
+                           className="w-full py-3 bg-white text-aura-on-surface border border-aura-outline/20 font-bold rounded-full hover:bg-aura-surface-container-low active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-aura-sm"
+                         >
+                           {busyKey !== "telegram-link" && <SocialIcon platform="telegram" size={18} />}
+                           {busyKey === "telegram-link" ? "Đang tạo liên kết…" : "Kết nối Telegram"}
+                         </button>
                         {linkToken && telegramVerificationUrl && (
                           <div className="p-4 bg-aura-secondary-container/30 border border-aura-secondary/20 rounded-xl text-center">
                             <p className="text-xs text-aura-secondary mb-3 font-medium">
@@ -2192,23 +2223,13 @@ export default function CustomerDashboard() {
                   <div className="grid grid-cols-2 gap-4">
                     {SUPPORTED_PLATFORMS.map(p => {
                       const acc = accounts.find(a => a.platform === p);
-                      const platformIcons: Record<string, { emoji: string; color: string; bg: string }> = {
-                        linkedin:  { emoji: "🔷", color: "text-blue-600",  bg: "bg-blue-50"  },
-                        twitter:   { emoji: "🐦", color: "text-stone-900", bg: "bg-stone-100" },
-                        x:         { emoji: "✖",  color: "text-stone-900", bg: "bg-stone-100" },
-                        youtube:   { emoji: "▶",  color: "text-red-600",   bg: "bg-red-50"   },
-                        instagram: { emoji: "📸", color: "text-pink-600",  bg: "bg-pink-50"  },
-                        tiktok:    { emoji: "🎵", color: "text-stone-900", bg: "bg-stone-100" },
-                        facebook:  { emoji: "📘", color: "text-blue-700",  bg: "bg-blue-50"  },
-                      };
-                      const meta = platformIcons[p.toLowerCase()] ?? { emoji: "🌐", color: "text-aura-primary", bg: "bg-aura-surface-container" };
                       return (
                         <div
                           key={p}
                           className="bg-white/60 backdrop-blur p-4 rounded-3xl flex flex-col items-center justify-center gap-3 hover:bg-white cursor-pointer group shadow-aura-sm transition-all"
                         >
-                          <div className={`w-12 h-12 ${meta.bg} ${meta.color} rounded-full flex items-center justify-center group-hover:scale-110 transition-transform text-xl`}>
-                            {meta.emoji}
+                          <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center group-hover:scale-110 group-hover:shadow-aura-md transition-all border border-aura-outline/5">
+                            <SocialIcon platform={p} size={24} />
                           </div>
                           <span className="text-xs font-bold text-aura-on-surface capitalize">{p}</span>
                           {acc ? (
@@ -2229,14 +2250,14 @@ export default function CustomerDashboard() {
                     })}
                   </div>
 
-                  {/* Memory capacity bar */}
-                  <div className="mt-8 pt-8 border-t border-aura-outline-variant/20">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-xs font-bold text-aura-on-surface-variant">Khả năng Ghi nhớ</span>
-                      <span className="text-xs font-bold text-aura-primary">84%</span>
-                    </div>
+                   {/* Memory capacity bar */}
+                   <div className="mt-8 pt-8 border-t border-aura-outline-variant/20">
+                     <div className="flex items-end justify-between mb-3">
+                       <span className="text-[10px] font-semibold uppercase tracking-widest text-aura-on-surface-variant">Khả năng Ghi nhớ</span>
+                       <span className="text-5xl font-black text-aura-primary leading-none">84%</span>
+                     </div>
                     <div className="w-full bg-aura-surface-container-lowest h-2 rounded-full overflow-hidden">
-                      <div className="bg-gradient-to-r from-aura-primary to-aura-primary-container h-full w-[84%] rounded-full" />
+                      <div className="bg-gradient-to-r from-aura-primary to-aura-primary-container h-full w-[84%] rounded-full shadow-aura-sm" />
                     </div>
                     <p className="text-[10px] text-aura-on-surface-variant mt-4 leading-relaxed italic font-body">
                       Tỷ lệ lưu giữ cao hơn cho phép AI nhớ lại các sở thích thương hiệu sắc thái từ các tương tác trước đó chính xác hơn.
@@ -2266,7 +2287,7 @@ export default function CustomerDashboard() {
                         <h4 className="text-white font-bold text-xl font-headline">{personas[0]?.display_name}</h4>
                         <p className="text-white/70 text-xs font-body mt-0.5">Persona đang hoạt động</p>
                         <div className="mt-4 flex items-center gap-2">
-                          <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                          <span className="w-2 h-2 bg-aura-tertiary rounded-full animate-pulse" />
                           <span className="text-[10px] text-white/90 font-body font-medium uppercase tracking-widest">
                             {personas[0]?.status === "active" ? "Đã tối ưu & Đồng bộ" : "Chờ kích hoạt"}
                           </span>
@@ -2318,15 +2339,15 @@ export default function CustomerDashboard() {
                         </div>
                         <div className="flex items-center gap-2">
                           <div className={`w-2 h-2 rounded-full ${
-                            workflow.status === 'running' ? 'bg-emerald-400' :
-                            workflow.status === 'completed' ? 'bg-sky-400' : 'bg-rose-400'
+                            workflow.status === 'running' ? 'bg-aura-tertiary' :
+                            workflow.status === 'completed' ? 'bg-aura-primary' : 'bg-aura-error'
                           }`} />
-                          <span className="text-xs text-zinc-400 capitalize">{workflow.status}</span>
+                          <span className="text-xs text-aura-on-surface-variant capitalize">{workflow.status}</span>
                         </div>
                       </div>
                       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-aura-surface-container-highest">
                         <div
-                          className="h-full rounded-full bg-emerald-400 shadow-aura-sm"
+                          className="h-full rounded-full bg-aura-tertiary shadow-aura-sm"
                           style={{ width: `${Math.max(0, Math.min(workflow.progress, 100))}%` }}
                         />
                       </div>
@@ -2376,15 +2397,15 @@ export default function CustomerDashboard() {
                       </div>
                       <div className="flex items-center gap-2">
                         <div className={`w-2 h-2 rounded-full ${
-                          item.status === 'published' ? 'bg-emerald-400' :
-                          item.status === 'scheduled' ? 'bg-amber-400' : 'bg-zinc-400'
+                          item.status === 'published' ? 'bg-aura-tertiary' :
+                          item.status === 'scheduled' ? 'bg-aura-secondary' : 'bg-aura-outline'
                         }`} />
-                        <span className="text-xs text-zinc-400 capitalize">{item.status}</span>
+                        <span className="text-xs text-aura-on-surface-variant capitalize">{item.status}</span>
                       </div>
                     </div>
                   ))}
-                  {content.length === 0 && (systemSummary?.recent_videos || []).length === 0 && (
-                    <p className="text-sm text-zinc-400">No recent output yet.</p>
+                  {content.length === 0 && (
+                    <p className="text-sm text-aura-on-surface-variant">No recent output yet.</p>
                   )}
                 </div>
               </div>
@@ -2392,6 +2413,20 @@ export default function CustomerDashboard() {
           </div>
         )}
           </div>
+
+          {/* Page Footer branding */}
+          <footer className="mt-12 py-10 border-t border-aura-outline-variant/10 flex justify-center">
+            <div className="flex items-center gap-2">
+              <img 
+                src={openClawLogo.src} 
+                alt="OpenClaw" 
+                className="h-4 w-auto opacity-75"
+              />
+              <span className="text-xs text-aura-on-surface-variant font-body">
+                Operated by OpenClaw
+              </span>
+            </div>
+          </footer>
         </main>
       </div>
     </div>
@@ -2454,11 +2489,11 @@ function ActivityFeed({
   emptyMessage?: string;
 }) {
   if (items.length === 0) {
-    return <p className="text-sm text-aura-on-surface-variant">{emptyMessage}</p>;
+    return <div className="py-8 text-center"><p className="text-sm text-aura-on-surface-variant">{emptyMessage}</p></div>;
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-1">
       {items.map((item) => {
         const variant = item.tone === "success" 
           ? "success" as const
@@ -2467,13 +2502,14 @@ function ActivityFeed({
             : "info" as const;
         
         return (
-          <TimelineItem
-            key={item.id}
-            id={item.id}
-            title={item.title}
-            description={item.detail}
-            variant={variant}
-          />
+          <div key={item.id} className="py-3 first:pt-0 last:pb-0">
+            <TimelineItem
+              id={item.id}
+              title={item.title}
+              description={item.detail}
+              variant={variant}
+            />
+          </div>
         );
       })}
     </div>
@@ -2621,18 +2657,8 @@ function formatDateLabel(value: string): string {
   return new Date(parsed).toLocaleString();
 }
 
-function activityToneClass(tone: ActivityItemTone = "default"): string {
-  if (tone === "success") {
-    return "bg-emerald-300";
-  }
-  if (tone === "warning") {
-    return "bg-amber-300";
-  }
-  return "bg-sky-300";
-}
-
 function auraActivityDotClass(tone: ActivityItemTone = "default"): string {
   if (tone === "success") return "bg-aura-tertiary";
   if (tone === "warning") return "bg-aura-secondary";
-  return "bg-aura-primary-container";
+  return "bg-aura-on-surface-variant";
 }

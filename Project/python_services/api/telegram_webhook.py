@@ -591,6 +591,8 @@ async def _handle_skill_callback(
 
     if data.startswith("skill_"):
         skill_name = data.split("skill_", 1)[1]
+        if skill_name == "video-planner":
+            skill_name = "video-ai"
 
         # All skills (including video-ai) start directly for deterministic UI actions.
         # OpenClaw routing is reserved for free-text conversational input only.
@@ -1195,9 +1197,9 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
     }
     _SHORTCUT_SKILL_MAP = {
         # Canonical video command - starts the planner directly (deterministic)
-        "/create_video": "video-planner",
+        "/create_video": "video-ai",
         # Legacy aliases for video
-        "/create-video": "video-planner",
+        "/create-video": "video-ai",
         # Canonical persona inspection command
         "/personas": "persona-inspector",
         # Legacy aliases for persona
@@ -1212,9 +1214,9 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
     # ── Plain text shortcuts (case-insensitive) ────────────────────────────
     # These are deterministic triggers that bypass OpenClaw routing
     _TEXT_SKILL_MAP = {
-        "create video": "video-planner",
-        "make video": "video-planner",
-        "video": "video-planner",
+        "create video": "video-ai",
+        "make video": "video-ai",
+        "video": "video-ai",
         "create persona": "persona-creator",
         "new persona": "persona-creator",
         "inspect persona": "persona-inspector",

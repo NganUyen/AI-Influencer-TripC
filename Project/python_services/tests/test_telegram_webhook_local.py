@@ -133,6 +133,89 @@ async def test_start_command_replaces_active_session_with_menu_only(tg_calls):
 
 
 @pytest.mark.asyncio
+async def test_create_video_command_starts_video_ai_directly(tg_calls):
+    message = {
+        "text": "/create_video",
+        "chat": {"id": 123456789, "type": "private"},
+        "from": {"first_name": "TripC", "username": "tripc"},
+    }
+
+    mock_skill_result = SkillResult(
+        success=True,
+        next_step="collect_objective",
+        session=SkillSession(
+            skill_name="video-ai",
+            step_key="collect_objective",
+            collected={},
+            artifacts={},
+            control=SkillControl(status=SkillStatus.collecting),
+        ),
+    )
+
+    mock_openclaw = AsyncMock()
+    mock_openclaw.execute_task = AsyncMock(
+        return_value={"text": "Should not be called"}
+    )
+    mock_openclaw.close = AsyncMock()
+
+    with (
+        patch.object(
+            telegram_webhook.SkillDispatcher,
+            "start_skill",
+            AsyncMock(return_value=mock_skill_result),
+        ) as start_skill,
+        patch(
+            "api.telegram_webhook.OpenClawService",
+            return_value=mock_openclaw,
+        ),
+    ):
+        await _handle_message(FastAPI(), message)
+
+    start_skill.assert_awaited_once()
+    call_args = start_skill.call_args
+    assert call_args[0][0] == 123456789
+    assert call_args[0][1] == "video-ai"
+    mock_openclaw.execute_task.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_legacy_video_planner_callback_aliases_to_video_ai(tg_calls):
+    callback_query = {
+        "id": "cq_skill_video_001",
+        "data": "skill_video-planner",
+        "from": {"id": 123456789, "first_name": "TripC"},
+        "message": {
+            "message_id": 42,
+            "chat": {"id": 123456789},
+        },
+    }
+
+    mock_skill_result = SkillResult(
+        success=True,
+        next_step="collect_objective",
+        session=SkillSession(
+            skill_name="video-ai",
+            step_key="collect_objective",
+            collected={},
+            artifacts={},
+            control=SkillControl(status=SkillStatus.collecting),
+        ),
+    )
+
+    with patch.object(
+        telegram_webhook.SkillDispatcher,
+        "start_skill",
+        AsyncMock(return_value=mock_skill_result),
+    ) as start_skill:
+        await _handle_callback_query(FastAPI(), callback_query)
+
+    start_skill.assert_awaited_once()
+    call_args = start_skill.call_args
+    assert call_args[0][0] == 123456789
+    assert call_args[0][1] == "video-ai"
+
+
+@pytest.mark.asyncio
 async def test_start_command_without_token_does_not_register_or_link(tg_calls):
     message = {
         "text": "/start",

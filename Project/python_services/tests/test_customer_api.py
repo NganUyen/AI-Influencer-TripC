@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 
 from api import customer
 from services.customer_auth_service import CustomerSession
@@ -391,3 +392,67 @@ def test_list_recent_customer_media_returns_assets(monkeypatch):
     payload = response.json()
     assert payload["assets"][0]["asset_id"] == "asset-1"
     assert payload["assets"][0]["title"] == "Launch walkthrough"
+
+
+def test_list_system_workflows_includes_persona_owned_video_workflows(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_list_personas(user_id=None, owner_key=None, status=None):
+        assert user_id == _session().user_id
+        return [{"persona_id": "persona-1"}]
+
+    class _WorkflowList:
+        def __init__(self, items):
+            self._items = items
+
+        def __aiter__(self):
+            self._iter = iter(self._items)
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._iter)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    temporal_client = SimpleNamespace(
+        list_workflows=lambda query: _WorkflowList(
+            [
+                SimpleNamespace(
+                    id="video-persona-1-abcd1234",
+                    workflow_type="ShortVideoWorkflow",
+                    type="ShortVideoWorkflow",
+                    status=SimpleNamespace(name="COMPLETED"),
+                    start_time=None,
+                ),
+                SimpleNamespace(
+                    id="video-persona-2-ignored",
+                    workflow_type="ShortVideoWorkflow",
+                    type="ShortVideoWorkflow",
+                    status=SimpleNamespace(name="RUNNING"),
+                    start_time=None,
+                ),
+            ]
+        )
+    )
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.PersonaRegistryService, "list_personas", fake_list_personas)
+
+    app = FastAPI()
+    app.state.temporal_client = temporal_client
+    app.include_router(customer.router, prefix="/api/customer")
+    client = TestClient(app)
+    response = client.get(
+        "/api/customer/system/workflows",
+        headers={"Authorization": "Bearer customer-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert len(payload["workflows"]) == 1
+    assert payload["workflows"][0]["id"] == "video-persona-1-abcd1234"
+    assert payload["workflows"][0]["name"] == "ShortVideoWorkflow"
+    assert payload["workflows"][0]["progress"] == 100

@@ -20,8 +20,11 @@ class SkillDispatcher:
 
     @staticmethod
     def _session_accepts_video_upload(session: SkillSession) -> bool:
+        if session.skill_name == "video-ai" and session.step_key == "upload_demo_video":
+            return True
         return (
-            session.skill_name == "video-ai" and session.step_key == "upload_demo_video"
+            session.skill_name == "video-planner"
+            and session.step_key == "upload_manual_video"
         )
 
     @classmethod
@@ -433,10 +436,29 @@ class SkillDispatcher:
         session.artifacts["demo_video_filename"] = filename
         session.artifacts["demo_video_quality_report"] = quality_report.model_dump()
 
-        # Execute skill to move to next step
-        skill_cls = SKILL_REGISTRY[session.skill_name]
+        # Execute the active video flow.
+        # Legacy video-planner manual-upload sessions still exist in Redis for some chats;
+        # bridge them into video-ai instead of treating them as expired.
         async with cls._transport_client(app) as client:
-            result = await skill_cls.execute(session, "http://backend", client)
+            if (
+                session.skill_name == "video-planner"
+                and session.step_key == "upload_manual_video"
+            ):
+                from skills.video_planner import VideoPlannerSkill
+
+                result = await VideoPlannerSkill.continue_manual_mobile_pipeline(
+                    session,
+                    backend_url="http://backend",
+                    http_client=client,
+                    file_id=file_id,
+                    asset_url=access_url,
+                    asset_id=storage_result.get("media_asset_id"),
+                    filename=filename,
+                    quality_report=quality_report.model_dump(),
+                )
+            else:
+                skill_cls = SKILL_REGISTRY[session.skill_name]
+                result = await skill_cls.execute(session, "http://backend", client)
 
         # Prepend success message to the result
         if result.session is not None:

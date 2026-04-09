@@ -1,16 +1,47 @@
-"""Helpers for authenticated capture handoff without direct workflow starts."""
+"""Convert confirmed Telegram review plans into execution handoff actions."""
 
 from __future__ import annotations
 
 from typing import Any, Dict
 
 from services.contracts import VideoReviewPlanContract
-from services.skill_session_store import TelegramSkillSessionStore
 from services.telegram_link_service import TelegramLinkService
 from services.video_capture_handoff_service import VideoCaptureHandoffService
 
 
 class VideoPlannerHandoffService:
+    @classmethod
+    async def _start_review_plan_workflow(
+        cls,
+        *,
+        plan: VideoReviewPlanContract,
+        backend_url: str,
+        http_client: Any,
+        telegram_chat_id: str | None,
+    ) -> Dict[str, Any]:
+        response = await http_client.post(
+            f"{backend_url.rstrip('/')}/api/workflows/start-video",
+            json={
+                "persona_id": plan.persona_id,
+                "topic": plan.objective,
+                "tone": "natural",
+                "platform": "tiktok",
+                "telegram_chat_id": telegram_chat_id,
+                "talking_head_optional": True,
+                "review_plan": plan.model_dump(mode="json"),
+                "execution_mode": plan.execution_mode,
+                "audio_policy": plan.audio_policy.model_dump(mode="json"),
+            },
+            headers={"x-internal-api-token": cls._internal_api_token()},
+        )
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise ValueError("Workflow start response must be a JSON object")
+        data.setdefault("execution_mode", plan.execution_mode)
+        data.setdefault("video_review_plan", plan.model_dump(mode="json"))
+        return data
+
     @classmethod
     async def start_confirmed_plan(
         cls,
@@ -21,8 +52,6 @@ class VideoPlannerHandoffService:
         http_client: Any,
         telegram_chat_id: str | None,
     ) -> Dict[str, Any]:
-        del persona_snapshot, backend_url, http_client
-
         if plan.status != "confirmed":
             raise ValueError(
                 "Video review plan must be confirmed before execution handoff"
@@ -90,14 +119,12 @@ class VideoPlannerHandoffService:
         if execution_mode != "autonomous_screen_recording":
             raise ValueError(f"Unsupported execution mode: {execution_mode}")
 
-        return {
-            "status": "ready_for_video_ai",
-            "execution_mode": execution_mode,
-            "message": (
-                "Plan confirmed. Continue in Create Video to finish pre-production and start execution."
-            ),
-            "video_review_plan": plan.model_dump(mode="json"),
-        }
+        return await cls._start_review_plan_workflow(
+            plan=plan,
+            backend_url=backend_url,
+            http_client=http_client,
+            telegram_chat_id=telegram_chat_id,
+        )
 
     @classmethod
     async def complete_authenticated_handoff(
@@ -109,8 +136,6 @@ class VideoPlannerHandoffService:
         backend_url: str,
         http_client: Any,
     ) -> Dict[str, Any]:
-        del backend_url, http_client
-
         plan_payload = handoff_payload.get("review_plan") or {}
         plan = VideoReviewPlanContract.model_validate(plan_payload)
         if plan.execution_mode != "authenticated_pc_recording":
@@ -128,22 +153,31 @@ class VideoPlannerHandoffService:
             }
         )
 
-        telegram_chat_id = str(handoff_payload.get("telegram_chat_id") or "").strip()
+        telegram_chat_id = str(handoff_payload.get("telegram_chat_id") or "").strip() or None
+        data = await cls._start_review_plan_workflow(
+            plan=plan,
+            backend_url=backend_url,
+            http_client=http_client,
+            telegram_chat_id=telegram_chat_id,
+        )
+        data["credential_handoff"] = plan.credential_handoff.model_dump(mode="json")
+
         if telegram_chat_id:
+            from services.skill_session_store import TelegramSkillSessionStore
+
             session = await TelegramSkillSessionStore.get_session(telegram_chat_id)
             if session is not None and session.skill_name == "video-ai":
-                session.artifacts["credential_handoff"] = (
-                    plan.credential_handoff.model_dump(mode="json")
-                )
+                session.artifacts["credential_handoff"] = data["credential_handoff"]
                 session.artifacts["video_review_plan"] = plan.model_dump(mode="json")
                 await TelegramSkillSessionStore.set_session(telegram_chat_id, session)
 
-        return {
-            "status": "handoff_completed",
-            "message": (
-                "Authenticated PC capture handoff completed. Return to Telegram and tap Retry Start to continue."
-            ),
-            "execution_mode": plan.execution_mode,
-            "credential_handoff": plan.credential_handoff.model_dump(mode="json"),
-            "video_review_plan": plan.model_dump(mode="json"),
-        }
+        return data
+
+    @staticmethod
+    def _internal_api_token() -> str:
+        try:
+            from config.settings import settings
+
+            return (getattr(settings, "INTERNAL_API_TOKEN", None) or "").strip()
+        except Exception:
+            return ""

@@ -13,7 +13,7 @@ MAIN_MENU: Dict[str, Any] = {
     "text": "🎨 Welcome to the TripC Media Studio!\n\nWhat would you like to create today? Please select an option below:",
     "rows": [
         [("📖 Daily Story", "skill_daily-story")],
-        [("🖼️ Create Image", "menu_image"), ("🎬 Create Video", "skill_video-planner")],
+        [("🖼️ Create Image", "menu_image"), ("🎬 Create Video", "skill_video-ai")],
         [
             ("➕ Create Persona", "skill_persona-creator"),
             ("🔍 Inspect Persona", "skill_persona-inspector"),
@@ -35,7 +35,7 @@ SUBMENUS: Dict[str, Dict[str, Any]] = {
     "menu_video": {
         "text": "🎬 Select Video Creation Mode:",
         "rows": [
-            [("🎭 AI Influencer", "skill_video-planner")],
+            [("🎭 AI Influencer", "skill_video-ai")],
             [("🔙 Back", "menu_main")],
         ],
     },

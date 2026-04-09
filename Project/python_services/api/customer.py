@@ -634,9 +634,16 @@ async def get_system_summary(
             },
         ]
 
+        recent_videos = await CustomerMediaService.list_recent_assets(
+            user_id=session.user_id,
+            asset_type="video",
+            limit=5,
+        )
+
         return {
             "quota": quota_list,
             "services": services,
+            "recent_videos": recent_videos,
             "status": "healthy" if temporal_client else "degraded",
         }
     except Exception as exc:
@@ -681,23 +688,40 @@ async def list_system_workflows(
 
     workflows = []
     try:
-        # Filter by user_id if possible, or just list recent ones
-        # For weekly marketing workflows, we can query by ID pattern
+        personas = await PersonaRegistryService.list_personas(user_id=session.user_id)
+        video_prefixes = {
+            f"video-{str(item.get('persona_id') or '').strip()}-"
+            for item in personas
+            if str(item.get("persona_id") or "").strip()
+        }
         query = (
-            f"WorkflowType = 'WeeklyMarketingWorkflow' AND ExecutionStatus = 'Running'"
+            "WorkflowType = 'WeeklyMarketingWorkflow' "
+            "OR WorkflowType = 'ShortVideoWorkflow'"
         )
-        # Note: Advanced visibility might be required for complex queries
 
         async for item in temporal_client.list_workflows(query):
-            # Only include workflows that belong to this user (id pattern: weekly-marketing-{user_id})
-            if item.id.startswith(
+            workflow_id = str(getattr(item, "id", "") or "")
+            belongs_to_customer = workflow_id.startswith(
                 f"weekly-marketing-{session.user_id}"
-            ) or item.id.startswith(f"video-{session.user_id}"):
+            ) or any(workflow_id.startswith(prefix) for prefix in video_prefixes)
+            if belongs_to_customer:
+                raw_status = getattr(item, "status", None)
+                status_name = getattr(raw_status, "name", raw_status)
+                normalized_status = str(status_name or "unknown").lower()
                 workflows.append(
                     {
-                        "id": item.id,
-                        "type": item.type,
-                        "status": item.status.name.lower(),
+                        "id": workflow_id,
+                        "name": getattr(item, "workflow_type", None)
+                        or getattr(item, "type", None)
+                        or workflow_id,
+                        "type": getattr(item, "workflow_type", None)
+                        or getattr(item, "type", None),
+                        "status": normalized_status,
+                        "progress": 100
+                        if normalized_status == "completed"
+                        else 0
+                        if normalized_status in {"failed", "error", "terminated"}
+                        else 50,
                         "start_time": item.start_time.isoformat()
                         if item.start_time
                         else None,

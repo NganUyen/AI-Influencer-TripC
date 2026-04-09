@@ -376,10 +376,12 @@ async def test_start_video_workflow_passes_talking_head_optional(monkeypatch):
     assert started_payload["talking_head_optional"] is True
     assert started_payload["owner_key"] == "telegram:999"
     assert started_payload["persona_snapshot"] == {
+        "persona_id": "persona-2",
         "display_name": None,
         "language": "English",
         "tts_voice": "male_friendly",
         "heygen_avatar_id": None,
+        "avatar_image_url": None,
     }
 
 
@@ -424,10 +426,12 @@ async def test_start_video_workflow_passes_validated_approved_package_and_snapsh
     assert started_payload["approved_package"]["concept_brief"]["persona_id"] == "persona-3"
     assert started_payload["approved_package"]["beat_sheet"]["beats"][0]["purpose"] == "hook"
     assert started_payload["persona_snapshot"] == {
+        "persona_id": "persona-3",
         "display_name": "Persona 3",
         "language": "Vietnamese",
         "tts_voice": "vi-VN-Neural2-A",
         "heygen_avatar_id": "avatar-3",
+        "avatar_image_url": None,
     }
 
 

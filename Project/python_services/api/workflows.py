@@ -150,10 +150,12 @@ def _build_video_workflow_persona_snapshot(
     persona: Dict[str, Any],
 ) -> VideoWorkflowPersonaSnapshotContract:
     return VideoWorkflowPersonaSnapshotContract(
+        persona_id=persona.get("persona_id"),
         display_name=persona.get("display_name"),
         language=persona.get("language") or "English",
         tts_voice=persona.get("tts_voice"),
         heygen_avatar_id=persona.get("heygen_avatar_id"),
+        avatar_image_url=persona.get("avatar_image_url"),
     )
 
 

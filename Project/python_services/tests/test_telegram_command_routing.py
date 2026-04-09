@@ -142,12 +142,12 @@ async def test_start_command_returns_welcome_not_video_ai(tg_calls):
 
 
 # -----------------------------------------------------------------------------
-# Test: /create_video starts video-ai directly
+# Test: /create_video starts video-planner directly
 # -----------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_create_video_command_starts_video_ai_directly(tg_calls):
+async def test_create_video_command_starts_video_planner_directly(tg_calls):
     """
-    /create_video should start video-ai skill directly without OpenClaw routing.
+    /create_video should start video-planner directly without OpenClaw routing.
     """
     message = {
         "text": "/create_video",
@@ -174,11 +174,11 @@ async def test_create_video_command_starts_video_ai_directly(tg_calls):
     ) as start_skill:
         await _handle_message(FastAPI(), message)
 
-    # Should call start_skill directly with video-ai
+    # Should call start_skill directly with video-planner
     start_skill.assert_awaited_once()
     call_args = start_skill.call_args
     assert call_args[0][0] == 123456789  # chat_id
-    assert call_args[0][1] == "video-ai"  # skill_name
+    assert call_args[0][1] == "video-planner"  # skill_name
 
 
 @pytest.mark.asyncio
@@ -267,16 +267,16 @@ async def test_personas_command_starts_persona_inspector(tg_calls):
 
 
 # -----------------------------------------------------------------------------
-# Test: skill_video-ai callback starts video-ai directly
+# Test: skill_video-planner callback starts video-planner directly
 # -----------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_skill_video_ai_callback_starts_directly(tg_calls):
+async def test_skill_video_planner_callback_starts_directly(tg_calls):
     """
-    Callback data 'skill_video-ai' should start video-ai directly without OpenClaw.
+    Callback data 'skill_video-planner' should start video-planner directly without OpenClaw.
     """
     callback_query = {
         "id": "cq_skill_video_001",
-        "data": "skill_video-ai",
+        "data": "skill_video-planner",
         "from": {"id": 123456789, "first_name": "TripC"},
         "message": {
             "message_id": 42,
@@ -307,17 +307,17 @@ async def test_skill_video_ai_callback_starts_directly(tg_calls):
     start_skill.assert_awaited_once()
     call_args = start_skill.call_args
     assert call_args[0][0] == 123456789  # chat_id
-    assert call_args[0][1] == "video-ai"  # skill_name
+    assert call_args[0][1] == "video-planner"  # skill_name
 
 
 @pytest.mark.asyncio
-async def test_skill_video_ai_callback_does_not_call_openclaw(tg_calls):
+async def test_skill_video_planner_callback_does_not_call_openclaw(tg_calls):
     """
-    Callback 'skill_video-ai' should NOT route through OpenClaw.
+    Callback 'skill_video-planner' should NOT route through OpenClaw.
     """
     callback_query = {
         "id": "cq_skill_video_002",
-        "data": "skill_video-ai",
+        "data": "skill_video-planner",
         "from": {"id": 123456789, "first_name": "TripC"},
         "message": {
             "message_id": 43,
@@ -422,7 +422,7 @@ def test_registered_commands_are_exactly_seven():
 @pytest.mark.asyncio
 async def test_create_video_text_shortcut_bypasses_openclaw(tg_calls):
     """
-    Plain text 'create video' should start video-ai directly, not via OpenClaw.
+    Plain text 'create video' should start video-planner directly, not via OpenClaw.
     """
     message = {
         "text": "create video",
@@ -461,10 +461,10 @@ async def test_create_video_text_shortcut_bypasses_openclaw(tg_calls):
     ):
         await _handle_message(FastAPI(), message)
 
-    # Should call start_skill directly with video-ai
+    # Should call start_skill directly with video-planner
     start_skill.assert_awaited_once()
     call_args = start_skill.call_args
-    assert call_args[0][1] == "video-ai"
+    assert call_args[0][1] == "video-planner"
 
     # OpenClaw should NOT be called
     mock_openclaw.execute_task.assert_not_awaited()
@@ -531,12 +531,12 @@ async def test_video_ai_fresh_session_has_collect_objective_step(tg_calls):
 
 
 # -----------------------------------------------------------------------------
-# Test: Video-ai result includes mode options
+# Test: Video planner result prompts for objective
 # -----------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_video_ai_result_includes_mode_options(tg_calls):
+async def test_video_planner_result_prompts_for_objective(tg_calls):
     """
-    Rendering a fresh video-ai result should include both mode options.
+    Rendering a fresh video-planner result should prompt for the planning objective.
     """
     message = {
         "text": "/create_video",
@@ -551,20 +551,8 @@ async def test_video_ai_result_includes_mode_options(tg_calls):
     ):
         await _handle_message(FastAPI(), message)
 
-    # Find the sendMessage call
     send_calls = [call for call in tg_calls if call["method"] == "sendMessage"]
     assert len(send_calls) >= 1
 
-    # Check that mode options are rendered
     last_send = send_calls[-1]
-    reply_markup = last_send["payload"].get("reply_markup", {})
-    keyboard = reply_markup.get("inline_keyboard", [])
-
-    # Flatten to get all callback_data values
-    callback_data_values = [
-        btn.get("callback_data", "") for row in keyboard for btn in row
-    ]
-
-    # Should have both mode options
-    assert any("idea_brief" in data for data in callback_data_values)
-    assert any("recorded_demo_video" in data for data in callback_data_values)
+    assert "What is your objective for this video?" in last_send["payload"]["text"]

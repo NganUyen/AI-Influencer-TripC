@@ -40,6 +40,52 @@ class VideoPlannerSkill(BaseSkill):
         return persona_id or "-"
 
     @classmethod
+    def _owner_params(cls, session: SkillSession) -> Dict[str, str] | None:
+        telegram_chat_id = str(session.artifacts.get("telegram_chat_id") or "").strip()
+        if not telegram_chat_id:
+            return None
+        return {"owner_key": f"telegram:{telegram_chat_id}"}
+
+    @classmethod
+    async def _resolve_persona_snapshot(
+        cls,
+        session: SkillSession,
+        backend_url: str,
+        http_client: Any,
+    ) -> Dict[str, Any]:
+        persona_id = str(session.collected.get("persona_id") or "").strip()
+        snapshot = session.artifacts.get("persona_snapshot") or {}
+        if snapshot.get("persona_id") == persona_id and snapshot.get("tts_voice"):
+            return snapshot
+
+        persona = await cls._request_json(
+            http_client,
+            "GET",
+            backend_url,
+            f"/api/personas/{persona_id}",
+            params=cls._owner_params(session),
+        )
+        resolved = {
+            "persona_id": persona.get("persona_id") or persona_id,
+            "display_name": persona.get("display_name") or persona_id,
+            "language": persona.get("language") or "English",
+            "tts_voice": persona.get("tts_voice"),
+            "heygen_avatar_id": persona.get("heygen_avatar_id"),
+            "avatar_image_url": persona.get("avatar_image_url"),
+            "status": persona.get("status"),
+        }
+        session.artifacts["persona_snapshot"] = resolved
+        return resolved
+
+    @classmethod
+    def _languages_match(cls, requested: str, persona_language: str) -> bool:
+        left = str(requested or "").strip().lower()
+        right = str(persona_language or "").strip().lower()
+        if not left or not right:
+            return True
+        return left == right
+
+    @classmethod
     def _build_credential_handoff(
         cls,
         execution_mode: str,
@@ -178,12 +224,23 @@ class VideoPlannerSkill(BaseSkill):
                 plan_payload = current.artifacts.get("video_review_plan") or {}
                 plan = VideoReviewPlanContract.model_validate(plan_payload)
                 plan.status = "confirmed"
+                persona_snapshot = await cls._resolve_persona_snapshot(
+                    current, backend_url, http_client
+                )
+                if not cls._languages_match(plan.language, persona_snapshot.get("language")):
+                    current.artifacts["video_review_plan"] = None
+                    current.collected["language"] = None
+                    return cls._collecting_result(
+                        current,
+                        next_step="choose_language",
+                        output={
+                            "message": (
+                                f"Selected persona speaks {persona_snapshot.get('language') or 'another language'}, "
+                                "which does not match this plan yet. Choose a matching language or switch personas."
+                            )
+                        },
+                    )
                 current.artifacts["video_review_plan"] = plan.model_dump(mode="json")
-                persona_snapshot = current.artifacts.get("persona_snapshot") or {
-                    "persona_id": plan.persona_id,
-                    "display_name": cls._persona_label(current),
-                    "language": plan.language,
-                }
                 handoff = await VideoPlannerHandoffService.start_confirmed_plan(
                     plan=plan,
                     persona_snapshot=persona_snapshot,
@@ -293,6 +350,10 @@ class VideoPlannerSkill(BaseSkill):
         if not cls._has_value(current.collected.get("persona_id")):
             return cls._collecting_result(current, next_step="pick_persona")
 
+        persona_snapshot = await cls._resolve_persona_snapshot(
+            current, backend_url, http_client
+        )
+
         if not cls._has_value(current.collected.get("execution_mode")):
             return cls._collecting_result(current, next_step="choose_execution_mode")
 
@@ -326,7 +387,7 @@ class VideoPlannerSkill(BaseSkill):
                 objective=str(current.collected.get("objective") or "").strip(),
                 target_url=target_url,
                 language=str(current.collected.get("language") or "").strip(),
-                persona_id=str(current.collected.get("persona_id") or "").strip(),
+                persona_id=str(persona_snapshot.get("persona_id") or current.collected.get("persona_id") or "").strip(),
                 execution_mode=execution_mode,
                 access_level=access_level,
                 page_review=page_review,

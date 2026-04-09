@@ -308,7 +308,7 @@ async def _download_telegram_video(
 
     Returns:
         tuple of (file_content, content_type, filename) or None if no video found
-    
+
     Raises:
         ValueError: If file size exceeds Telegram's download limit
     """
@@ -664,11 +664,11 @@ def _system_status_text() -> str:
 def _help_text() -> str:
     return (
         "TripC Bot Help\n\n"
-        "Use /start to launch the video planner.\n"
+        "Use /start to open the studio menu.\n"
         "Use /media to open the studio menu.\n"
         "Or send a normal message to chat with OpenClaw AI.\n\n"
         "Commands:\n"
-        "  /start — Launch the video planner\n"
+        "  /start — Open studio\n"
         "  /media — Open studio\n"
         "  /create_video — Start AI video creation\n"
         "  /create_image — Create marketing images\n"
@@ -708,6 +708,8 @@ def _extract_openclaw_reply(result: Any) -> str:
 def _skill_catalog_for_agent() -> list[Dict[str, str]]:
     catalog: list[Dict[str, str]] = []
     for skill_name in sorted(SKILL_REGISTRY.keys()):
+        if skill_name == "video-planner":
+            continue
         definition = get_skill_definition(skill_name) or {}
         catalog.append(
             {
@@ -995,7 +997,7 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                 await send_chat_action(chat_id, action="upload_video")
                 telegram_video = None
                 error_message = None
-                
+
                 try:
                     telegram_video = await _download_telegram_video(message)
                 except ValueError as exc:
@@ -1014,6 +1016,7 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                     )
                     # Check if it's an HTTP error with specific status codes
                     import httpx
+
                     if isinstance(exc, httpx.HTTPStatusError):
                         if exc.response.status_code in (400, 413):
                             error_message = (
@@ -1030,7 +1033,7 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                             "❌ Video download failed.\n\n"
                             "Please try uploading again or send /cancel to restart."
                         )
-                
+
                 # Send error message if download failed
                 if error_message:
                     await send_message(chat_id, error_message, parse_mode=None)
@@ -1068,7 +1071,7 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                         rendered = TelegramRenderer.render_skill_result(skill_result)
                         await _send_rendered_message(chat_id, rendered)
                         return
-            
+
             # Video detected but no active video-ai session - provide recovery hint
             await send_message(
                 chat_id,
@@ -1176,14 +1179,8 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                     ),
                 )
                 return
-        skill_result, pending_message_id = await _await_with_message_progress(
-            chat_id,
-            SkillDispatcher.start_skill(chat_id, "video-planner", app),
-        )
-        if skill_result is None:
-            return
-        rendered = TelegramRenderer.render_skill_result(skill_result)
-        await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)
+        rendered = TelegramRenderer.render_menu("menu_main")
+        await _send_rendered_message(chat_id, rendered)
         return
 
     # ── Shortcut slash commands ───────────────────────────────────────────

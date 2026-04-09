@@ -221,21 +221,47 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
     },
     "video-ai": {
-        "select_mode": {
-            "input_type": "inline_keyboard",
-            "field": "creative_input_mode",
-            "prompt_text": "🎬 How would you like to create your video?\n\n"
-            "Choose your input method:",
-            "options": _options(
-                ("💡 Idea Brief", "idea_brief"),
-                ("📹 Recorded Demo Video", "recorded_demo_video"),
-            ),
+        "collect_objective": {
+            "input_type": "free_text",
+            "field": "objective",
+            "prompt_text": "What is your objective for this video?\n\nExample: Explain the product quickly, record a walkthrough, or create a short review that drives signups.",
+        },
+        "collect_target_url": {
+            "input_type": "free_text",
+            "field": "target_url",
+            "prompt_text": "Send the target URL to review.\n\nExample: https://tripc.ai",
+        },
+        "website_review": {
+            "input_type": "automatic",
+            "prompt_text": "",
         },
         "pick_persona": {
             "input_type": "persona_picker",
             "field": "persona_id",
             "prompt_text": "Select a ready persona for this video concept.",
             "allow_skip": False,
+        },
+        "choose_execution_mode": {
+            "input_type": "inline_keyboard",
+            "field": "execution_mode",
+            "prompt_text": "Choose how this video should be executed.",
+            "options": _options(
+                ("Autonomous Screen Recording", "autonomous_screen_recording"),
+                ("Authenticated PC Recording", "authenticated_pc_recording"),
+                ("Manual Mobile Recording", "manual_mobile_recording"),
+            ),
+        },
+        "confirm_plan": {
+            "input_type": "inline_keyboard",
+            "field": "plan_decision",
+            "prompt_text": "Review the video plan below, then confirm it or revise one part.",
+            "options": _options(
+                ("Confirm Plan", "confirm"),
+                ("Change Objective", "revise_objective"),
+                ("Change URL", "revise_url"),
+                ("Change Persona", "revise_persona"),
+                ("Change Mode", "revise_mode"),
+            ),
         },
         "upload_demo_video": {
             "input_type": "video_upload",

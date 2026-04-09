@@ -21,11 +21,7 @@ class SkillDispatcher:
     @staticmethod
     def _session_accepts_video_upload(session: SkillSession) -> bool:
         return (
-            (session.skill_name == "video-ai" and session.step_key == "upload_demo_video")
-            or (
-                session.skill_name == "video-planner"
-                and session.step_key == "upload_manual_video"
-            )
+            session.skill_name == "video-ai" and session.step_key == "upload_demo_video"
         )
 
     @classmethod
@@ -430,32 +426,17 @@ class SkillDispatcher:
                 success_msg += f"• {warning}\n"
             success_msg += "\nYou can continue, but consider the warnings above."
 
-        if session.skill_name == "video-planner":
-            from skills.video_planner import VideoPlannerSkill
+        # Store file_id and URL in session
+        session.collected["demo_video_telegram_file_id"] = file_id
+        session.collected["demo_video_asset_url"] = access_url
+        session.artifacts["demo_video_asset_id"] = storage_result.get("media_asset_id")
+        session.artifacts["demo_video_filename"] = filename
+        session.artifacts["demo_video_quality_report"] = quality_report.model_dump()
 
-            async with cls._transport_client(app) as client:
-                result = await VideoPlannerSkill.continue_manual_mobile_pipeline(
-                    session,
-                    backend_url="http://backend",
-                    http_client=client,
-                    file_id=file_id,
-                    asset_url=access_url,
-                    asset_id=storage_result.get("media_asset_id"),
-                    filename=filename,
-                    quality_report=quality_report.model_dump(),
-                )
-        else:
-            # Store file_id and URL in session
-            session.collected["demo_video_telegram_file_id"] = file_id
-            session.collected["demo_video_asset_url"] = access_url
-            session.artifacts["demo_video_asset_id"] = storage_result.get("media_asset_id")
-            session.artifacts["demo_video_filename"] = filename
-            session.artifacts["demo_video_quality_report"] = quality_report.model_dump()
-
-            # Execute skill to move to next step
-            skill_cls = SKILL_REGISTRY[session.skill_name]
-            async with cls._transport_client(app) as client:
-                result = await skill_cls.execute(session, "http://backend", client)
+        # Execute skill to move to next step
+        skill_cls = SKILL_REGISTRY[session.skill_name]
+        async with cls._transport_client(app) as client:
+            result = await skill_cls.execute(session, "http://backend", client)
 
         # Prepend success message to the result
         if result.session is not None:
@@ -670,6 +651,22 @@ class SkillDispatcher:
                         session, "http://backend", client
                     )
                 return await cls._save_or_clear(chat_id, result)
+
+        if (
+            session.skill_name == "video-ai"
+            and session.step_key == "demo_preview_confirm"
+            and action in {"approve", "pick_alternate", "rewrite", "reupload"}
+        ):
+            async with cls._transport_client(app) as client:
+                result = await skill_cls.handle_demo_preview_action(
+                    session,
+                    action,
+                    "http://backend",
+                    client,
+                )
+            if result.session is not None:
+                await cls._prepare_prompt_session(app, result.session)
+            return await cls._save_or_clear(chat_id, result)
 
         if session.skill_name == "video-ai" and action in {
             "approve",

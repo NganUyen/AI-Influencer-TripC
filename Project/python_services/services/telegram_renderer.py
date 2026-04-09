@@ -375,7 +375,9 @@ def _video_ai_demo_preview_text(
 
 def _website_review_text(page_review: Dict[str, Any]) -> str:
     lines = ["Website Review Ready", ""]
-    lines.append(f"URL: {page_review.get('normalized_url') or page_review.get('target_url') or '-'}")
+    lines.append(
+        f"URL: {page_review.get('normalized_url') or page_review.get('target_url') or '-'}"
+    )
     lines.append(f"Title: {page_review.get('page_title') or '-'}")
     lines.append(f"Access Level: {_humanize_token(page_review.get('access_level'))}")
     lines.append(
@@ -408,7 +410,7 @@ def _website_review_text(page_review: Dict[str, Any]) -> str:
         for candidate in candidates[:3]:
             lines.append(f"- {_truncate(candidate, 100)}")
 
-    lines.extend(["", "Next: choose the language for the video plan."])
+    lines.extend(["", "Next: choose the persona for this video."])
     return "\n".join(lines)
 
 
@@ -420,7 +422,9 @@ def _video_planner_plan_text(plan: Dict[str, Any], session: SkillSession) -> str
     lines.append(f"Target URL: {plan.get('target_url') or '-'}")
     lines.append(f"Language: {plan.get('language') or '-'}")
 
-    persona_id = str(plan.get("persona_id") or session.collected.get("persona_id") or "-")
+    persona_id = str(
+        plan.get("persona_id") or session.collected.get("persona_id") or "-"
+    )
     persona_label = persona_id
     for item in session.artifacts.get("available_personas") or []:
         if str(item.get("persona_id") or "") == persona_id:
@@ -893,16 +897,36 @@ class TelegramRenderer:
                 "parse_mode": None,
             }
 
-        if session.skill_name == "video-planner" and session.step_key == "choose_language":
-            step = get_step_definition(session.skill_name, session.step_key)
+        if (
+            session.skill_name == "video-ai"
+            and session.step_key == "pick_persona"
+            and session.artifacts.get("page_review")
+            and not session.artifacts.get("plan_confirmed")
+        ):
             page_review = session.artifacts.get("page_review") or {}
+            personas = session.artifacts.get("available_personas") or []
+            options = [
+                {
+                    "label": item.get("display_name")
+                    or item.get("persona_id")
+                    or "persona",
+                    "value": item.get("persona_id") or "",
+                }
+                for item in personas
+                if item.get("persona_id")
+            ]
             return {
                 "text": _website_review_text(page_review),
-                "reply_markup": None,
+                "reply_markup": _inline_keyboard_from_options(options)
+                if options
+                else None,
                 "parse_mode": None,
             }
 
-        if session.skill_name == "video-planner" and session.step_key == "confirm_plan":
+        if session.step_key == "confirm_plan" and session.skill_name in {
+            "video-ai",
+            "video-planner",
+        }:
             step = get_step_definition(session.skill_name, session.step_key)
             plan = session.artifacts.get("video_review_plan") or {}
             return {
@@ -1152,13 +1176,21 @@ class TelegramRenderer:
                 ) or session.artifacts.get("production_note")
                 lines = [
                     "Pre-production package ready.",
-                    "Production workflow could not be started.",
+                    (
+                        "Secure workspace handoff is still required before execution can start."
+                        if output.get("handoff_required")
+                        else "Production workflow could not be started."
+                    ),
                     "",
                     f"Persona: {concept.get('persona_id') or '-'}",
                     f"Feature Focus: {concept.get('feature_focus') or '-'}",
                     f"Type: {_humanize_token(concept.get('video_goal'), is_video_goal=True)}",
                     f"Beats: {beat_count}",
                 ]
+                if output.get("message"):
+                    lines.extend(["", str(output.get("message"))])
+                if output.get("handoff_url"):
+                    lines.extend(["", f"Secure Handoff URL: {output['handoff_url']}"])
                 if production_note:
                     lines.extend(["", production_note])
                 if result.error:
@@ -1688,17 +1720,27 @@ class TelegramRenderer:
             if session.skill_name == "persona-inspector":
                 return _render_persona_inspector_result(session=session, output=output)
             if session.skill_name == "video-planner":
-                plan = output.get("video_review_plan") or session.artifacts.get(
-                    "video_review_plan"
-                ) or {}
+                plan = (
+                    output.get("video_review_plan")
+                    or session.artifacts.get("video_review_plan")
+                    or {}
+                )
                 workflow_id = output.get("workflow_id") or session.control.workflow_id
                 status = str(output.get("status") or "").strip()
                 if workflow_id:
                     lines = ["Video Review Plan Confirmed", "", "Execution started."]
                 elif status == "handoff_required":
-                    lines = ["Video Review Plan Confirmed", "", "Secure handoff required."]
+                    lines = [
+                        "Video Review Plan Confirmed",
+                        "",
+                        "Secure handoff required.",
+                    ]
                 elif status == "awaiting_manual_upload":
-                    lines = ["Video Review Plan Confirmed", "", "Waiting for manual footage upload."]
+                    lines = [
+                        "Video Review Plan Confirmed",
+                        "",
+                        "Waiting for manual footage upload.",
+                    ]
                 else:
                     lines = ["Video Review Plan Confirmed", ""]
                 if plan:

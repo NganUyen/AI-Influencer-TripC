@@ -246,6 +246,14 @@ def _video_ai_beats_text(beat_sheet: Dict[str, Any], concept: Dict[str, Any]) ->
         source_type = _humanize_token(beat.get("top_half_source_type"))
         lines.append(f"{idx}. {purpose}: {bottom}")
         lines.append(f"   Top Half: {target} ({source_type})")
+    narration_lines = [
+        str(beat.get("bottom_half_message") or "").strip()
+        for beat in beat_sheet.get("beats") or []
+        if str(beat.get("bottom_half_message") or "").strip()
+    ]
+    if narration_lines:
+        lines.extend(["", "Narration Draft:"])
+        lines.extend(narration_lines)
     lines.extend(["", "Approve this beat plan, edit the inputs, or regenerate it."])
     return "\n".join(lines)
 

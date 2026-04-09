@@ -93,6 +93,38 @@ class CreativeDirectorService:
         }
 
     @staticmethod
+    def _runtime_hints(*sources: Dict[str, Any] | None) -> Dict[str, Optional[str]]:
+        for source in sources:
+            if not isinstance(source, dict):
+                continue
+            owner_key = str(source.get("_openclaw_owner_key") or "").strip() or None
+            user_id = str(source.get("_openclaw_user_id") or "").strip() or None
+            if owner_key or user_id:
+                return {
+                    "owner_key": owner_key,
+                    "user_id": user_id,
+                }
+        return {"owner_key": None, "user_id": None}
+
+    @classmethod
+    async def _make_openclaw_service(
+        cls,
+        *,
+        runtime_hints: Dict[str, Optional[str]] | None = None,
+    ) -> OpenClawService:
+        service_class = cls._openclaw_service_class
+        owner_key = str((runtime_hints or {}).get("owner_key") or "").strip() or None
+        user_id = str((runtime_hints or {}).get("user_id") or "").strip() or None
+
+        if (owner_key or user_id) and hasattr(service_class, "create_for_owner"):
+            return await service_class.create_for_owner(
+                owner_key=owner_key,
+                user_id=user_id,
+            )
+
+        return service_class()
+
+    @staticmethod
     def _require_mapping(payload: Any, *, label: str) -> Dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError(f"{label} must be returned as a JSON object")
@@ -116,6 +148,331 @@ class CreativeDirectorService:
         if host.startswith("www."):
             host = host[4:]
         return host or "the official product site"
+
+    @staticmethod
+    def _first_review_label(page_review: Dict[str, Any], *keys: str) -> str:
+        for key in keys:
+            entries = page_review.get(key) or []
+            for entry in entries:
+                if isinstance(entry, str):
+                    label = entry.strip()
+                    if label:
+                        return label
+                    continue
+                if not isinstance(entry, dict):
+                    continue
+                label = str(entry.get("label") or "").strip()
+                if label:
+                    return label
+        return ""
+
+    @classmethod
+    def _fallback_video_goal(cls, objective: str) -> str:
+        normalized = cls._normalized(objective)
+        if any(
+            token in normalized
+            for token in ("walkthrough", "how to", "flow", "login", "steps", "process")
+        ):
+            return "walkthrough"
+        if any(
+            token in normalized
+            for token in (
+                "signup",
+                "sign up",
+                "register",
+                "download",
+                "install",
+                "book",
+                "buy",
+                "convert",
+                "trial",
+            )
+        ):
+            return "conversion"
+        return "feature_demo"
+
+    @staticmethod
+    def _fallback_angle(video_goal: str) -> str:
+        normalized = str(video_goal or "").strip()
+        if normalized == "walkthrough":
+            return "guided_walkthrough"
+        if normalized == "conversion":
+            return "problem_solution"
+        return "feature_spotlight"
+
+    @classmethod
+    def _fallback_preproduction_plan_from_review(
+        cls,
+        *,
+        objective: str,
+        target_url: str,
+        page_review: Dict[str, Any],
+    ) -> Dict[str, str]:
+        page_title = str(page_review.get("page_title") or "").strip()
+        product_summary = str(page_review.get("product_summary") or "").strip()
+        host_label = cls._host_label(target_url)
+        video_goal = cls._fallback_video_goal(objective)
+        feature_focus = cls._first_review_label(
+            page_review,
+            "visible_flows" if video_goal == "walkthrough" else "visible_features",
+            "visible_features",
+            "visible_flows",
+        )
+        if not feature_focus:
+            feature_focus = (
+                page_title
+                or cls._first_review_label(page_review, "recording_candidates")
+                or "core product flow"
+            )
+        audience = (
+            f"people evaluating {page_title or host_label}"
+            if product_summary
+            else f"people discovering {host_label}"
+        )
+        cta = (
+            f"Try {page_title} at {host_label}"
+            if page_title
+            else f"Learn more at {host_label}"
+        )
+        if video_goal == "conversion":
+            cta = (
+                f"Start with {page_title} on {host_label}"
+                if page_title
+                else f"Get started on {host_label}"
+            )
+
+        return {
+            "idea_brief": str(objective or "").strip()
+            or f"Show how {page_title or host_label} works.",
+            "feature_focus": feature_focus,
+            "video_goal": video_goal,
+            "audience": audience,
+            "cta": cta,
+            "reference_url": str(
+                page_review.get("normalized_url")
+                or page_review.get("target_url")
+                or target_url
+            ).strip()
+            or target_url,
+            "access_level": str(page_review.get("access_level") or "unknown").strip()
+            or "unknown",
+        }
+
+    @classmethod
+    def _fallback_concept_brief(
+        cls,
+        collected: Dict[str, Any],
+        persona_snapshot: Dict[str, Any],
+    ) -> ConceptBriefContract:
+        reference_url = str(collected.get("reference_url") or "").strip()
+        host_label = cls._host_label(reference_url)
+        feature_focus = str(collected.get("feature_focus") or "core product flow").strip()
+        audience = str(collected.get("audience") or f"people evaluating {host_label}").strip()
+        return ConceptBriefContract(
+            persona_id=str(collected.get("persona_id") or "").strip(),
+            creative_input_mode="idea_brief",
+            feature_focus=feature_focus,
+            video_goal=str(collected.get("video_goal") or "feature_demo").strip(),
+            audience=audience,
+            angle=cls._fallback_angle(collected.get("video_goal")),
+            platform=str(collected.get("platform") or "tiktok").strip() or "tiktok",
+            cta=str(collected.get("cta") or f"Learn more at {host_label}").strip(),
+            reference_url=reference_url,
+            access_level=str(collected.get("access_level") or "unknown").strip()
+            or "unknown",
+            source_summary=(
+                f"{host_label} is presented as the official source for {feature_focus}."
+            ),
+            tone_resolved=(
+                str(persona_snapshot.get("tone_default") or "natural").strip()
+                or "natural"
+            ),
+        )
+
+    @classmethod
+    def _fallback_beat_sheet(
+        cls,
+        concept_brief: ConceptBriefContract,
+    ) -> BeatSheetContract:
+        beats = [
+            BeatContract(
+                idx=1,
+                purpose="hook",
+                bottom_half_message=(
+                    f"If {concept_brief.feature_focus} feels complicated, this is the faster way to understand it."
+                ),
+                top_half_source_type="public_page_capture",
+                top_half_target="Hero section",
+                top_half_capture_hint="Hold on the main headline and first CTA.",
+                top_half_follow_links=False,
+                top_half_max_capture_seconds=12,
+                source_ref=concept_brief.reference_url,
+                overlay_text=concept_brief.feature_focus[:36],
+                duration_sec=5,
+            ),
+            BeatContract(
+                idx=2,
+                purpose="problem",
+                bottom_half_message=(
+                    f"For {concept_brief.audience}, the usual process can feel slower than it should."
+                ),
+                top_half_source_type="public_page_capture",
+                top_half_target="Problem framing section",
+                top_half_capture_hint="Scroll just enough to show the main benefit statement.",
+                top_half_follow_links=False,
+                top_half_max_capture_seconds=12,
+                source_ref=concept_brief.reference_url,
+                overlay_text="Why it matters",
+                duration_sec=5,
+            ),
+            BeatContract(
+                idx=3,
+                purpose="solution_intro",
+                bottom_half_message=(
+                    f"Here is how {concept_brief.feature_focus} is positioned inside the real product experience."
+                ),
+                top_half_source_type="public_page_capture",
+                top_half_target="Primary product overview section",
+                top_half_capture_hint="Show the first section that explains the feature.",
+                top_half_follow_links=True,
+                top_half_max_capture_seconds=18,
+                source_ref=concept_brief.reference_url,
+                overlay_text="Real product flow",
+                duration_sec=6,
+            ),
+            BeatContract(
+                idx=4,
+                purpose="feature_demo",
+                bottom_half_message=(
+                    f"Focus on the specific moments that make {concept_brief.feature_focus} feel useful right away."
+                ),
+                top_half_source_type="public_page_capture",
+                top_half_target="Feature detail section",
+                top_half_capture_hint="Scroll through the section that demonstrates the feature in action.",
+                top_half_follow_links=True,
+                top_half_max_capture_seconds=18,
+                source_ref=concept_brief.reference_url,
+                overlay_text="Key feature",
+                duration_sec=6,
+            ),
+            BeatContract(
+                idx=5,
+                purpose="cta",
+                bottom_half_message=concept_brief.cta,
+                top_half_source_type="public_page_capture",
+                top_half_target="CTA section",
+                top_half_capture_hint="End on the primary CTA or signup entry point.",
+                top_half_follow_links=False,
+                top_half_max_capture_seconds=12,
+                source_ref=concept_brief.reference_url,
+                overlay_text="Next step",
+                duration_sec=5,
+            ),
+        ]
+        return BeatSheetContract(beats=beats)
+
+    @classmethod
+    async def build_preproduction_plan_from_review(
+        cls,
+        *,
+        objective: str,
+        target_url: str,
+        page_review: Dict[str, Any],
+        persona_snapshot: Dict[str, Any],
+        platform: str = "tiktok",
+    ) -> Dict[str, str]:
+        runtime_hints = cls._runtime_hints(persona_snapshot)
+        page_review_payload = page_review or {}
+        context = {
+            "objective": str(objective or "").strip(),
+            "target_url": str(target_url or "").strip(),
+            "platform": str(platform or "tiktok").strip() or "tiktok",
+            "page_review": page_review_payload,
+            "persona": {
+                "persona_id": persona_snapshot.get("persona_id"),
+                "display_name": persona_snapshot.get("display_name"),
+                "language": persona_snapshot.get("language"),
+                "tone_default": persona_snapshot.get("tone_default"),
+            },
+        }
+        prompt = (
+            "You are planning the operator inputs for a short AI influencer video.\n"
+            "Return JSON only.\n"
+            "Infer a concise pre-production plan from the objective and grounded website review.\n"
+            "Be conservative and stay aligned to the visible product evidence.\n"
+            "Return exactly this shape:\n"
+            "{\n"
+            '  "idea_brief": "...",\n'
+            '  "feature_focus": "...",\n'
+            '  "video_goal": "feature_demo|conversion|walkthrough",\n'
+            '  "audience": "...",\n'
+            '  "cta": "...",\n'
+            '  "reference_url": "https://...",\n'
+            '  "access_level": "public_page_only|has_logged_in_access|login_required_but_not_available|unknown"\n'
+            "}\n"
+            "Rules:\n"
+            "- Keep `reference_url` equal to the official target URL.\n"
+            "- Prefer visible flows/features from page_review when selecting `feature_focus`.\n"
+            "- Use `walkthrough` only for step-based or flow-based objectives.\n"
+            "- Use `conversion` only when the objective is clearly sign-up, install, book, or buy oriented.\n"
+            "- CTA must be realistic and not overclaim.\n"
+            "- No markdown.\n\n"
+            f"Input context:\n{json.dumps(context, ensure_ascii=True, indent=2, sort_keys=True)}"
+        )
+
+        try:
+            service = await cls._make_openclaw_service(runtime_hints=runtime_hints)
+            async with service:
+                response = await service.execute_task(
+                    task_type="video_preproduction_plan",
+                    prompt=prompt,
+                    user_id=f"creative-director:{persona_snapshot.get('persona_id') or 'unknown'}",
+                    context=context,
+                )
+            payload = cls._require_mapping(response, label="VideoPreproductionPlan")
+            plan = {
+                "idea_brief": str(payload.get("idea_brief") or "").strip(),
+                "feature_focus": str(payload.get("feature_focus") or "").strip(),
+                "video_goal": str(payload.get("video_goal") or "").strip(),
+                "audience": str(payload.get("audience") or "").strip(),
+                "cta": str(payload.get("cta") or "").strip(),
+                "reference_url": str(payload.get("reference_url") or "").strip(),
+                "access_level": str(payload.get("access_level") or "").strip(),
+            }
+            if (
+                not plan["idea_brief"]
+                or not plan["feature_focus"]
+                or not plan["audience"]
+                or not plan["cta"]
+            ):
+                raise ValueError("Pre-production plan returned empty required fields")
+            if plan["video_goal"] not in {"feature_demo", "conversion", "walkthrough"}:
+                raise ValueError(
+                    f"Unsupported video_goal returned: {plan['video_goal']}"
+                )
+            if plan["access_level"] not in {
+                "public_page_only",
+                "has_logged_in_access",
+                "login_required_but_not_available",
+                "unknown",
+            }:
+                raise ValueError(
+                    f"Unsupported access_level returned: {plan['access_level']}"
+                )
+            if not plan["reference_url"].startswith(("http://", "https://")):
+                raise ValueError("reference_url must be a fully qualified URL")
+            return plan
+        except Exception as exc:
+            logger.warning(
+                "Falling back to heuristic pre-production planning | persona=%s | error=%s",
+                persona_snapshot.get("persona_id"),
+                exc,
+            )
+            return cls._fallback_preproduction_plan_from_review(
+                objective=objective,
+                target_url=target_url,
+                page_review=page_review_payload,
+            )
 
     @staticmethod
     def _format_timestamp(seconds: float) -> str:
@@ -823,6 +1180,7 @@ class CreativeDirectorService:
         collected: Dict[str, Any],
         persona_snapshot: Dict[str, Any],
     ) -> ConceptBriefContract:
+        runtime_hints = cls._runtime_hints(collected, persona_snapshot)
         context = cls._prompt_context(
             collected=collected, persona_snapshot=persona_snapshot
         )
@@ -855,13 +1213,28 @@ class CreativeDirectorService:
             "}\n"
             f"Input context:\n{json.dumps(context, ensure_ascii=True, indent=2, sort_keys=True)}"
         )
-        async with cls._openclaw_service_class() as service:
-            response = await service.execute_task(
-                task_type="video_preproduction_concept_brief",
-                prompt=prompt,
-                user_id=f"creative-director:{collected.get('persona_id') or 'unknown'}",
-                context=context,
+        try:
+            service = await cls._make_openclaw_service(runtime_hints=runtime_hints)
+            async with service:
+                response = await service.execute_task(
+                    task_type="video_preproduction_concept_brief",
+                    prompt=prompt,
+                    user_id=f"creative-director:{collected.get('persona_id') or 'unknown'}",
+                    context=context,
+                )
+        except Exception as exc:
+            logger.warning(
+                "OpenClaw concept generation failed, using deterministic fallback | persona=%s | error=%s",
+                collected.get("persona_id"),
+                exc,
             )
+            contract = cls._fallback_concept_brief(collected, persona_snapshot)
+            cls._validate_concept_quality(
+                collected=collected,
+                persona_snapshot=persona_snapshot,
+                concept=contract,
+            )
+            return contract
         contract = ConceptBriefContract.model_validate(
             cls._require_mapping(response, label="ConceptBrief")
         )
@@ -878,6 +1251,7 @@ class CreativeDirectorService:
         concept_brief: ConceptBriefContract,
         persona_snapshot: Dict[str, Any],
     ) -> BeatSheetContract:
+        runtime_hints = cls._runtime_hints(persona_snapshot)
         concept_payload = concept_brief.model_dump(mode="json")
         context = {
             "concept_brief": concept_payload,
@@ -925,13 +1299,27 @@ class CreativeDirectorService:
             "}\n"
             f"Input context:\n{json.dumps(context, ensure_ascii=True, indent=2, sort_keys=True)}"
         )
-        async with cls._openclaw_service_class() as service:
-            response = await service.execute_task(
-                task_type="video_preproduction_beat_sheet",
-                prompt=prompt,
-                user_id=f"creative-director:{concept_brief.persona_id}",
-                context=context,
+        try:
+            service = await cls._make_openclaw_service(runtime_hints=runtime_hints)
+            async with service:
+                response = await service.execute_task(
+                    task_type="video_preproduction_beat_sheet",
+                    prompt=prompt,
+                    user_id=f"creative-director:{concept_brief.persona_id}",
+                    context=context,
+                )
+        except Exception as exc:
+            logger.warning(
+                "OpenClaw beat generation failed, using deterministic fallback | persona=%s | error=%s",
+                concept_brief.persona_id,
+                exc,
             )
+            contract = cls._fallback_beat_sheet(concept_brief)
+            cls._validate_beat_sheet_quality(
+                concept_brief=concept_brief,
+                beat_sheet=contract,
+            )
+            return contract
         contract = BeatSheetContract.model_validate(
             cls._require_mapping(response, label="BeatSheet")
         )

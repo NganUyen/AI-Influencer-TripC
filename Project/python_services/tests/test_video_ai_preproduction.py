@@ -157,6 +157,54 @@ def _patch_persona_lookup_missing_heygen(monkeypatch):
 @pytest.mark.asyncio
 async def test_video_ai_collects_required_fields_in_order(monkeypatch):
     _patch_persona_lookup(monkeypatch)
+    auto_plan = {
+        "idea_brief": "Show how TripC handles login and booking.",
+        "feature_focus": "Login and booking flow",
+        "video_goal": "walkthrough",
+        "audience": "travelers comparing booking tools",
+        "cta": "Try TripC free",
+        "reference_url": "https://tripc.ai",
+        "access_level": "public_page_only",
+    }
+
+    async def fake_build_preproduction_plan_from_review(
+        cls,
+        *,
+        objective,
+        target_url,
+        page_review,
+        persona_snapshot,
+        platform="tiktok",
+    ):
+        assert objective == "Need a product demo."
+        assert target_url == "https://tripc.ai"
+        assert persona_snapshot["persona_id"] == "minh_vn"
+        return auto_plan
+
+    async def fake_build_concept_brief(cls, collected, persona_snapshot):
+        assert collected["feature_focus"] == auto_plan["feature_focus"]
+        assert collected["video_goal"] == auto_plan["video_goal"]
+        assert collected["audience"] == auto_plan["audience"]
+        assert collected["cta"] == auto_plan["cta"]
+        return _concept_contract().model_copy(
+            update={
+                "feature_focus": auto_plan["feature_focus"],
+                "video_goal": auto_plan["video_goal"],
+                "audience": auto_plan["audience"],
+                "cta": auto_plan["cta"],
+            }
+        )
+
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_preproduction_plan_from_review",
+        classmethod(fake_build_preproduction_plan_from_review),
+    )
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_concept_brief",
+        classmethod(fake_build_concept_brief),
+    )
     session = VideoAISkill.initial_session()
 
     result = await VideoAISkill.execute(session, "http://backend", object())
@@ -194,27 +242,15 @@ async def test_video_ai_collects_required_fields_in_order(monkeypatch):
     session.step_key = "confirm_plan"
     session.collected["plan_decision"] = "confirm"
     result = await VideoAISkill.execute(session, "http://backend", object())
-    assert result.next_step == "collect_feature_focus"
+    assert result.next_step == "confirm_concept"
 
-    assert result.session.collected["idea_brief"] == "Need a product demo."
+    assert result.session.collected["idea_brief"] == auto_plan["idea_brief"]
     assert result.session.collected["reference_url"] == "https://tripc.ai"
     assert result.session.collected["creative_input_mode"] == "idea_brief"
-
-    result.session.collected["feature_focus"] = "AI itinerary planner"
-    result = await VideoAISkill.execute(result.session, "http://backend", object())
-    assert result.next_step == "choose_video_goal"
-
-    result.session.collected["video_goal"] = "feature_demo"
-    result = await VideoAISkill.execute(result.session, "http://backend", object())
-    assert result.next_step == "collect_audience"
-
-    result.session.collected["audience"] = "travelers aged 22-35"
-    result = await VideoAISkill.execute(result.session, "http://backend", object())
-    assert result.next_step == "collect_cta"
-
-    result.session.collected["cta"] = "Try TripC free"
-    result = await VideoAISkill.execute(result.session, "http://backend", object())
-    assert result.next_step == "confirm_concept"
+    assert result.session.collected["feature_focus"] == auto_plan["feature_focus"]
+    assert result.session.collected["video_goal"] == auto_plan["video_goal"]
+    assert result.session.collected["audience"] == auto_plan["audience"]
+    assert result.session.collected["cta"] == auto_plan["cta"]
 
 
 @pytest.mark.asyncio

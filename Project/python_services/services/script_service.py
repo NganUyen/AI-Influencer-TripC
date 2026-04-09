@@ -73,6 +73,26 @@ class ScriptService:
     Follows the v2 pattern: service → contract validation → pipeline.
     """
 
+    @staticmethod
+    def _runtime_hints(runtime_context: Optional[dict]) -> dict:
+        context = runtime_context or {}
+        return {
+            "owner_key": str(context.get("_openclaw_owner_key") or "").strip() or None,
+            "user_id": str(context.get("_openclaw_user_id") or "").strip() or None,
+        }
+
+    async def _make_openclaw_service(
+        self,
+        runtime_context: Optional[dict] = None,
+    ) -> OpenClawService:
+        runtime_hints = self._runtime_hints(runtime_context)
+        if runtime_hints["owner_key"] or runtime_hints["user_id"]:
+            return await OpenClawService.create_for_owner(
+                owner_key=runtime_hints["owner_key"],
+                user_id=runtime_hints["user_id"],
+            )
+        return OpenClawService()
+
     async def generate_script(
         self,
         app_name: str,
@@ -80,6 +100,8 @@ class ScriptService:
         language: str = "Vietnamese",
         voice_style: str = "friendly and energetic",
         market: str = "Vietnam",
+        runtime_context: Optional[dict] = None,
+        model: Optional[str] = None,
     ) -> ScriptContract:
         """
         Generate a validated ScriptContract using OpenClaw.
@@ -111,7 +133,7 @@ class ScriptService:
         )
 
         try:
-            openclaw = OpenClawService()
+            openclaw = await self._make_openclaw_service(runtime_context)
             full_prompt = f"{SYSTEM_PROMPT}\n\n{user_prompt}"
             result = await openclaw.execute_task(
                 task_type="script_generation",
@@ -146,6 +168,7 @@ class ScriptService:
         app_name: str,
         topic: str,
         persona_config: dict,
+        model: Optional[str] = None,
     ) -> ScriptContract:
         """
         Convenience method: generate script using persona config directly.
@@ -158,6 +181,8 @@ class ScriptService:
             language=persona_config.get("language_name", "English"),
             voice_style=f"natural, conversational, targeting {persona_config.get('language_name', 'global')} audience",
             market=persona_config.get("language_name", "Global"),
+            runtime_context=persona_config,
+            model=model,
         )
 
     async def generate_script_from_package(
@@ -328,7 +353,7 @@ class ScriptService:
             f"Page review JSON: {json.dumps(page_review, ensure_ascii=True, sort_keys=True)}\n"
         )
 
-        service = OpenClawService()
+        service = await self._make_openclaw_service(persona_config)
         try:
             result = await service.execute_task(
                 task_type="review_plan_script_generation",

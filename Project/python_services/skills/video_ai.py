@@ -149,6 +149,60 @@ class VideoAISkill(BaseSkill):
         )
 
     @classmethod
+    def _owner_key(cls, session: SkillSession) -> Optional[str]:
+        telegram_chat_id = str(session.artifacts.get("telegram_chat_id") or "").strip()
+        if not telegram_chat_id:
+            return None
+        return f"telegram:{telegram_chat_id}"
+
+    @classmethod
+    def _attach_openclaw_runtime_hints(
+        cls,
+        session: SkillSession,
+        persona_snapshot: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        enriched = dict(persona_snapshot or {})
+        owner_key = cls._owner_key(session)
+        if owner_key:
+            enriched["_openclaw_owner_key"] = owner_key
+        user_id = str(session.artifacts.get("customer_user_id") or "").strip()
+        if user_id:
+            enriched["_openclaw_user_id"] = user_id
+        session.artifacts["persona_snapshot"] = enriched
+        return enriched
+
+    @classmethod
+    async def _auto_fill_idea_brief_inputs(
+        cls,
+        session: SkillSession,
+        persona_snapshot: Dict[str, Any],
+    ) -> None:
+        plan = await CreativeDirectorService.build_preproduction_plan_from_review(
+            objective=str(session.collected.get("objective") or "").strip(),
+            target_url=str(session.collected.get("target_url") or "").strip(),
+            page_review=session.artifacts.get("page_review") or {},
+            persona_snapshot=persona_snapshot,
+            platform=str(session.collected.get("platform") or "tiktok"),
+        )
+
+        objective = str(session.collected.get("objective") or "").strip()
+        existing_idea_brief = str(session.collected.get("idea_brief") or "").strip()
+        if not existing_idea_brief or existing_idea_brief == objective:
+            session.collected["idea_brief"] = plan["idea_brief"]
+        session.collected["feature_focus"] = plan["feature_focus"]
+        session.collected["video_goal"] = plan["video_goal"]
+        session.collected["audience"] = plan["audience"]
+        session.collected["cta"] = plan["cta"]
+        session.collected["reference_url"] = (
+            str(session.collected.get("reference_url") or "").strip()
+            or plan["reference_url"]
+        )
+        session.collected["access_level"] = (
+            str(session.collected.get("access_level") or "").strip()
+            or plan["access_level"]
+        )
+
+    @classmethod
     def _uses_legacy_preproduction_state(cls, session: SkillSession) -> bool:
         return any(
             cls._has_value(session.collected.get(field))
@@ -409,7 +463,7 @@ class VideoAISkill(BaseSkill):
             session.artifacts["production_note"] = cls._production_note(
                 talking_head_optional=session.artifacts["talking_head_optional"]
             )
-            return snapshot
+            return cls._attach_openclaw_runtime_hints(session, snapshot)
 
         # Build owner_key from telegram_chat_id for proper scoping
         telegram_chat_id = session.artifacts.get("telegram_chat_id")
@@ -472,8 +526,7 @@ class VideoAISkill(BaseSkill):
             "talking_head_optional": talking_head_optional,
             "status": persona.get("status"),
         }
-        session.artifacts["persona_snapshot"] = resolved_snapshot
-        return resolved_snapshot
+        return cls._attach_openclaw_runtime_hints(session, resolved_snapshot)
 
     @classmethod
     async def _run_demo_analysis_and_grounding(
@@ -1339,6 +1392,34 @@ class VideoAISkill(BaseSkill):
                 current.step_key = None
 
         next_step = cls._missing_step(current)
+
+        if (
+            current.artifacts.get("plan_confirmed")
+            and current.collected.get("creative_input_mode") == "idea_brief"
+            and next_step
+            in {
+                "collect_idea_brief",
+                "collect_feature_focus",
+                "choose_video_goal",
+                "collect_audience",
+                "collect_cta",
+            }
+        ):
+            try:
+                persona_snapshot = await cls._resolve_persona_snapshot(
+                    current, backend_url, http_client
+                )
+                await cls._auto_fill_idea_brief_inputs(current, persona_snapshot)
+                next_step = cls._missing_step(current)
+            except Exception as exc:
+                return cls._retryable_error_result(
+                    current,
+                    step_key=next_step,
+                    error=(
+                        "Could not build the video plan yet. "
+                        f"Please try again. ({exc})"
+                    ),
+                )
 
         if next_step == "website_review":
             try:

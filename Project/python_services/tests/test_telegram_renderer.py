@@ -243,6 +243,7 @@ def test_render_video_ai_beats_preview_lists_beats():
     assert "Beat Plan Ready" in rendered["text"]
     assert "1. Hook:" in rendered["text"]
     assert "Top Half: itinerary_section (Public Page Capture)" in rendered["text"]
+    assert "Narration Draft:" in rendered["text"]
 
 
 def test_render_video_planner_language_prompt_shows_website_review_card():

@@ -288,6 +288,8 @@ class ShortVideoWorkflow:
                                 "language_name": language,
                                 "voice": tts_voice,
                                 "tts_voice": tts_voice,
+                                "_openclaw_owner_key": owner_key,
+                                "_openclaw_user_id": user_id,
                             },
                         }
                     ],
@@ -318,6 +320,8 @@ class ShortVideoWorkflow:
                                 "language_name": language,
                                 "voice": tts_voice,
                                 "tts_voice": tts_voice,
+                                "_openclaw_owner_key": owner_key,
+                                "_openclaw_user_id": user_id,
                             },
                         }
                     ],
@@ -341,6 +345,8 @@ class ShortVideoWorkflow:
                                 "language_name": language,
                                 "voice": tts_voice,
                                 "tts_voice": tts_voice,
+                                "_openclaw_owner_key": owner_key,
+                                "_openclaw_user_id": user_id,
                             },
                             "telegram_chat_id": telegram_chat_id,
                         }

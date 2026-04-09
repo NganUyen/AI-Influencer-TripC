@@ -1235,15 +1235,29 @@ class CreativeDirectorService:
                 concept=contract,
             )
             return contract
-        contract = ConceptBriefContract.model_validate(
-            cls._require_mapping(response, label="ConceptBrief")
-        )
-        cls._validate_concept_quality(
-            collected=collected,
-            persona_snapshot=persona_snapshot,
-            concept=contract,
-        )
-        return contract
+        try:
+            contract = ConceptBriefContract.model_validate(
+                cls._require_mapping(response, label="ConceptBrief")
+            )
+            cls._validate_concept_quality(
+                collected=collected,
+                persona_snapshot=persona_snapshot,
+                concept=contract,
+            )
+            return contract
+        except Exception as exc:
+            logger.warning(
+                "OpenClaw concept output failed validation, using deterministic fallback | persona=%s | error=%s",
+                collected.get("persona_id"),
+                exc,
+            )
+            contract = cls._fallback_concept_brief(collected, persona_snapshot)
+            cls._validate_concept_quality(
+                collected=collected,
+                persona_snapshot=persona_snapshot,
+                concept=contract,
+            )
+            return contract
 
     @classmethod
     async def build_beat_sheet(

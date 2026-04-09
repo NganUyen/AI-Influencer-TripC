@@ -77,7 +77,7 @@ async def test_build_concept_brief_accepts_valid_structured_output(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_build_concept_brief_rejects_feature_focus_goal_audience_or_cta_drift(
+async def test_build_concept_brief_falls_back_when_output_drifts_from_collected(
     monkeypatch,
 ):
     _StubOpenClawService.response = {
@@ -100,15 +100,19 @@ async def test_build_concept_brief_rejects_feature_focus_goal_audience_or_cta_dr
         _StubOpenClawService,
     )
 
-    with pytest.raises(Exception):
-        await CreativeDirectorService.build_concept_brief(
-            _sample_collected(),
-            _sample_persona(),
-        )
+    concept = await CreativeDirectorService.build_concept_brief(
+        _sample_collected(),
+        _sample_persona(),
+    )
+
+    assert concept.feature_focus == "AI itinerary planner"
+    assert concept.video_goal == "feature_demo"
+    assert concept.audience == "travelers aged 22-35"
+    assert concept.cta == "Try TripC free"
 
 
 @pytest.mark.asyncio
-async def test_build_concept_brief_rejects_public_page_overclaim(monkeypatch):
+async def test_build_concept_brief_falls_back_on_public_page_overclaim(monkeypatch):
     _StubOpenClawService.response = {
         "persona_id": "minh_vn",
         "creative_input_mode": "idea_brief",
@@ -129,15 +133,17 @@ async def test_build_concept_brief_rejects_public_page_overclaim(monkeypatch):
         _StubOpenClawService,
     )
 
-    with pytest.raises(Exception):
-        await CreativeDirectorService.build_concept_brief(
-            _sample_collected(),
-            _sample_persona(),
-        )
+    concept = await CreativeDirectorService.build_concept_brief(
+        _sample_collected(),
+        _sample_persona(),
+    )
+
+    assert concept.access_level == "public_page_only"
+    assert "logged-in" not in concept.source_summary.lower()
 
 
 @pytest.mark.asyncio
-async def test_build_concept_brief_rejects_invalid_output(monkeypatch):
+async def test_build_concept_brief_falls_back_on_invalid_output(monkeypatch):
     _StubOpenClawService.response = {"text": "not structured"}
     monkeypatch.setattr(
         CreativeDirectorService,
@@ -145,11 +151,13 @@ async def test_build_concept_brief_rejects_invalid_output(monkeypatch):
         _StubOpenClawService,
     )
 
-    with pytest.raises(Exception):
-        await CreativeDirectorService.build_concept_brief(
-            _sample_collected(),
-            _sample_persona(),
-        )
+    concept = await CreativeDirectorService.build_concept_brief(
+        _sample_collected(),
+        _sample_persona(),
+    )
+
+    assert concept.reference_url == "https://tripc.ai"
+    assert concept.source_summary
 
 
 @pytest.mark.asyncio

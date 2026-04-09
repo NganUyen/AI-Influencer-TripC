@@ -485,3 +485,105 @@ async def test_video_ai_demo_preview_approve_routes_to_preview_handler(monkeypat
 
     assert result.success is True
     assert result.output == {"routed_to": "demo_preview", "action": "approve"}
+
+
+@pytest.mark.asyncio
+async def test_handle_video_upload_bridges_legacy_video_planner_session(monkeypatch):
+    chat_id = 223344
+    await TelegramSkillSessionStore.clear_session(chat_id)
+    session = SkillSession(
+        skill_name="video-planner",
+        step_key="upload_manual_video",
+        artifacts={
+            "telegram_chat_id": str(chat_id),
+            "video_review_plan": {
+                "plan_id": "plan-1",
+                "planning_mode": "webpage_review",
+                "objective": "Create a walkthrough",
+                "target_url": "https://example.com",
+                "language": "English",
+                "persona_id": "persona-1",
+                "execution_mode": "manual_mobile_recording",
+                "access_level": "public_page_only",
+                "status": "confirmed",
+            },
+        },
+        control=SkillControl(status=SkillStatus.collecting),
+    )
+    await TelegramSkillSessionStore.set_session(chat_id, session)
+
+    quality_report = SimpleNamespace(
+        passed=True,
+        duration_sec=9.5,
+        resolution_string="1080x1920",
+        file_size_bytes=2048,
+        has_warnings=False,
+        warnings=[],
+        model_dump=lambda: {
+            "passed": True,
+            "duration_sec": 9.5,
+            "resolution_string": "1080x1920",
+            "file_size_bytes": 2048,
+            "has_warnings": False,
+            "warnings": [],
+        },
+    )
+
+    bridged_result = SkillResult(
+        success=True,
+        next_step="poll_status",
+        output={"message": "Upload processed."},
+        session=SkillSession(
+            skill_name="video-ai",
+            step_key="package_ready",
+            artifacts={"workflow_id": "wf-1"},
+            control=SkillControl(
+                status=SkillStatus.waiting_approval,
+                workflow_id="wf-1",
+            ),
+        ),
+    )
+
+    monkeypatch.setattr(
+        SkillDispatcher,
+        "_transport_client",
+        lambda _app: _AsyncClientContext(SimpleNamespace()),
+    )
+
+    with (
+        patch(
+            "services.video_quality_gate_service.VideoQualityGateService.validate_video_file",
+            AsyncMock(return_value=quality_report),
+        ),
+        patch(
+            "services.media_storage_service.MediaStorageService.upload_bytes",
+            AsyncMock(
+                return_value={
+                    "media_asset_id": "asset-1",
+                    "access_url": "https://cdn.example/demo.mp4",
+                }
+            ),
+        ),
+        patch(
+            "skills.video_planner.VideoPlannerSkill.continue_manual_mobile_pipeline",
+            AsyncMock(return_value=bridged_result),
+        ) as continue_manual_mobile_pipeline,
+    ):
+        result = await SkillDispatcher.handle_video_upload(
+            chat_id,
+            file_id="tg-file-1",
+            data=b"video-bytes",
+            content_type="video/mp4",
+            filename="demo.mp4",
+            app=object(),
+        )
+
+    assert result is not None
+    assert result.success is True
+    assert result.session is not None
+    assert result.session.skill_name == "video-ai"
+    continue_manual_mobile_pipeline.assert_awaited_once()
+    kwargs = continue_manual_mobile_pipeline.await_args.kwargs
+    assert kwargs["file_id"] == "tg-file-1"
+    assert kwargs["asset_url"] == "https://cdn.example/demo.mp4"
+    assert kwargs["asset_id"] == "asset-1"

@@ -244,11 +244,17 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "choose_execution_mode": {
             "input_type": "inline_keyboard",
             "field": "execution_mode",
-            "prompt_text": "Choose how this video should be executed.",
+            "prompt_text": "Choose how this video should be executed.\n\n"
+            "🤖 Autonomous Screen Recording\n"
+            "Best for full end-to-end automation. The system navigates the product, captures the screen, and assembles the production flow for you.\n\n"
+            "🔐 Authenticated PC Recording\n"
+            "Best for login-required or protected product flows. You complete a secure PC handoff first, then recording continues inside the authenticated session.\n\n"
+            "📱 Manual Mobile Recording\n"
+            "Best for mobile-first apps or when you already have raw footage. You record the demo on your phone and upload it for production.",
             "options": _options(
-                ("Autonomous Screen Recording", "autonomous_screen_recording"),
-                ("Authenticated PC Recording", "authenticated_pc_recording"),
-                ("Manual Mobile Recording", "manual_mobile_recording"),
+                ("🤖 Auto Record", "autonomous_screen_recording"),
+                ("🔐 Auth PC", "authenticated_pc_recording"),
+                ("📱 Mobile Demo", "manual_mobile_recording"),
             ),
         },
         "confirm_plan": {
@@ -447,11 +453,17 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         "choose_execution_mode": {
             "input_type": "inline_keyboard",
             "field": "execution_mode",
-            "prompt_text": "Choose how this video should be executed.",
+            "prompt_text": "Choose how this video should be executed.\n\n"
+            "🤖 Autonomous Screen Recording\n"
+            "Best for full end-to-end automation. The system navigates the product, captures the screen, and assembles the production flow for you.\n\n"
+            "🔐 Authenticated PC Recording\n"
+            "Best for login-required or protected product flows. You complete a secure PC handoff first, then recording continues inside the authenticated session.\n\n"
+            "📱 Manual Mobile Recording\n"
+            "Best for mobile-first apps or when you already have raw footage. You record the demo on your phone and upload it for production.",
             "options": _options(
-                ("Autonomous Screen Recording", "autonomous_screen_recording"),
-                ("Authenticated PC Recording", "authenticated_pc_recording"),
-                ("Manual Mobile Recording", "manual_mobile_recording"),
+                ("🤖 Auto Record", "autonomous_screen_recording"),
+                ("🔐 Auth PC", "authenticated_pc_recording"),
+                ("📱 Mobile Demo", "manual_mobile_recording"),
             ),
         },
         "confirm_plan": {

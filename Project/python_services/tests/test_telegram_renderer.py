@@ -342,6 +342,32 @@ def test_render_video_planner_confirm_plan_shows_rationale_and_revision_actions(
     assert "option::revise_url" in callback_values
 
 
+def test_render_video_planner_execution_mode_prompt_uses_mobile_friendly_copy():
+    session = SkillSession(
+        skill_name="video-planner",
+        step_key="choose_execution_mode",
+        collected={
+            "objective": "Create a product walkthrough",
+            "target_url": "https://example.com",
+            "language": "English",
+            "persona_id": "minh_vn",
+        },
+        artifacts={},
+        control=SkillControl(status=SkillStatus.collecting),
+    )
+
+    rendered = TelegramRenderer.render_skill_prompt(session)
+
+    assert "🤖 Autonomous Screen Recording" in rendered["text"]
+    assert "🔐 Authenticated PC Recording" in rendered["text"]
+    assert "📱 Manual Mobile Recording" in rendered["text"]
+    rows = rendered["reply_markup"]["inline_keyboard"]
+    button_labels = [button["text"] for row in rows for button in row]
+    assert "🤖 Auto Record" in button_labels
+    assert "🔐 Auth PC" in button_labels
+    assert "📱 Mobile Demo" in button_labels
+
+
 def test_render_video_planner_done_state_uses_friendly_confirmation_copy():
     session = SkillSession(
         skill_name="video-planner",

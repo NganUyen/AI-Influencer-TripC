@@ -337,12 +337,17 @@ async def test_plain_text_is_forwarded_to_openclaw(tg_calls):
     mock_service.execute_task = AsyncMock(return_value={"text": "Hi from OpenClaw"})
     mock_service.close = AsyncMock()
 
-    with patch("api.telegram_webhook.OpenClawService", return_value=mock_service):
+    with patch.object(
+        telegram_webhook.OpenClawService,
+        "create_for_owner",
+        AsyncMock(return_value=mock_service),
+    ) as create_for_owner:
         await _handle_message(None, message)
 
     send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
     assert send_call["payload"]["text"] == "Hi from OpenClaw"
     assert "parse_mode" not in send_call["payload"]
+    create_for_owner.assert_awaited_once_with(owner_key="telegram:123456789")
     mock_service.execute_task.assert_awaited_once()
     mock_service.close.assert_awaited_once()
 
@@ -370,7 +375,11 @@ async def test_plain_text_agent_can_start_skill(tg_calls):
     )
 
     with (
-        patch("api.telegram_webhook.OpenClawService", return_value=mock_service),
+        patch.object(
+            telegram_webhook.OpenClawService,
+            "create_for_owner",
+            AsyncMock(return_value=mock_service),
+        ) as create_for_owner,
         patch.object(
             telegram_webhook.SkillDispatcher,
             "start_skill",
@@ -379,9 +388,41 @@ async def test_plain_text_agent_can_start_skill(tg_calls):
     ):
         await _handle_message(None, message)
 
+    create_for_owner.assert_awaited_once_with(owner_key="telegram:123456789")
     start_skill.assert_awaited_once_with(123456789, "weekly-planner", None)
     send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
     assert send_call["payload"]["text"] == "brand_config is required."
+    mock_service.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_plain_text_openclaw_value_error_is_sent_to_user(tg_calls):
+    message = {
+        "text": "Hello bot!",
+        "chat": {"id": 123456789, "type": "private"},
+    }
+
+    mock_service = AsyncMock()
+    mock_service.execute_task = AsyncMock(
+        side_effect=ValueError(
+            "Your GPT OAuth session expired. Reconnect it from the dashboard."
+        )
+    )
+    mock_service.close = AsyncMock()
+
+    with patch.object(
+        telegram_webhook.OpenClawService,
+        "create_for_owner",
+        AsyncMock(return_value=mock_service),
+    ):
+        await _handle_message(None, message)
+
+    send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
+    assert (
+        send_call["payload"]["text"]
+        == "Your GPT OAuth session expired. Reconnect it from the dashboard."
+    )
+    assert "temporarily unavailable" not in send_call["payload"]["text"].lower()
     mock_service.close.assert_awaited_once()
 
 

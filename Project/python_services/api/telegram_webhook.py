@@ -769,8 +769,9 @@ def _extract_agent_decision(result: Any) -> Optional[Dict[str, str]]:
 
 
 async def _handle_openclaw_message(chat_id: int, text: str, app: Any) -> None:
-    service = OpenClawService()
+    service = None
     try:
+        service = await OpenClawService.create_for_owner(owner_key=f"telegram:{chat_id}")
         catalog_json = json.dumps(_skill_catalog_for_agent(), ensure_ascii=False)
         agent_prompt = (
             "You are the Telegram orchestrator for TripC. "
@@ -811,6 +812,22 @@ async def _handle_openclaw_message(chat_id: int, text: str, app: Any) -> None:
         if len(reply) > 3500:
             reply = f"{reply[:3500]}\n\n…(truncated)"
         await send_message(chat_id, reply, parse_mode=None)
+    except ValueError as exc:
+        logger.warning(
+            "OpenClaw Telegram chat request failed for chat_id=%s: %s",
+            chat_id,
+            exc,
+        )
+        message = str(exc).strip() or (
+            "AI assistant is temporarily unavailable. Please try again in a moment."
+        )
+        if len(message) > 3500:
+            message = f"{message[:3500]}\n\n…(truncated)"
+        await send_message(
+            chat_id,
+            message,
+            parse_mode=None,
+        )
     except Exception:
         logger.exception("OpenClaw Telegram chat failed for chat_id=%s", chat_id)
         await send_message(
@@ -819,7 +836,8 @@ async def _handle_openclaw_message(chat_id: int, text: str, app: Any) -> None:
             parse_mode=None,
         )
     finally:
-        await service.close()
+        if service is not None:
+            await service.close()
 
 
 async def _handle_system_callback(

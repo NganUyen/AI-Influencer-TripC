@@ -79,6 +79,24 @@ _LEGACY_PREPRODUCTION_FIELDS = [
     "demo_video_telegram_file_id",
     "demo_video_asset_url",
 ]
+_PLAN_AUTOFILL_FIELDS = [
+    "idea_brief",
+    "feature_focus",
+    "video_goal",
+    "audience",
+    "cta",
+    "reference_url",
+    "access_level",
+]
+_PLAN_AUTOFILL_STEPS = {
+    "collect_idea_brief",
+    "collect_feature_focus",
+    "choose_video_goal",
+    "collect_audience",
+    "collect_cta",
+    "collect_reference_url",
+    "choose_access_level",
+}
 
 
 def _normalize_reference_url(reference_url: str) -> str:
@@ -200,6 +218,19 @@ class VideoAISkill(BaseSkill):
         session.collected["access_level"] = (
             str(session.collected.get("access_level") or "").strip()
             or plan["access_level"]
+        )
+
+    @classmethod
+    def _needs_plan_autofill(cls, session: SkillSession) -> bool:
+        if not session.artifacts.get("plan_confirmed"):
+            return False
+        if str(session.collected.get("creative_input_mode") or "").strip() != "idea_brief":
+            return False
+        if str(session.step_key or "").strip() in _PLAN_AUTOFILL_STEPS:
+            return True
+        return any(
+            not cls._has_value(session.collected.get(field))
+            for field in _PLAN_AUTOFILL_FIELDS
         )
 
     @classmethod
@@ -436,7 +467,10 @@ class VideoAISkill(BaseSkill):
             return None
 
         # For idea_brief mode (original flow)
-        # idea_brief and feature_focus are required in this mode
+        if session.artifacts.get("plan_confirmed"):
+            return None
+
+        # Legacy idea_brief-only sessions still collect the manual brief fields.
         if not session.collected.get("idea_brief"):
             return "collect_idea_brief"
         if not session.collected.get("feature_focus"):
@@ -886,8 +920,11 @@ class VideoAISkill(BaseSkill):
     @classmethod
     def _restart_collection(cls, session: SkillSession, *, message: str) -> SkillResult:
         """Reset collected fields and restart from appropriate step based on mode."""
+        creative_input_mode = session.collected.get("creative_input_mode", "idea_brief")
         for field in _RESETTABLE_FIELDS:
             session.collected[field] = None
+        session.collected["creative_input_mode"] = None
+        session.collected["plan_decision"] = None
         session.artifacts["talking_head_optional"] = False
         session.artifacts["production_note"] = None
         session.artifacts["concept_brief"] = None
@@ -901,24 +938,81 @@ class VideoAISkill(BaseSkill):
         session.artifacts["demo_preview_summary"] = None
         session.artifacts["demo_preview_confirmed"] = False
         session.artifacts["demo_preview_timeout_at"] = None
+        session.artifacts["plan_confirmed"] = False
         session.control.workflow_id = None
         session.control.approval_required = False
         session.control.error_message = None
         session.control.status = SkillStatus.collecting
 
         # Determine restart step based on mode
-        creative_input_mode = session.collected.get("creative_input_mode", "idea_brief")
         if creative_input_mode == "recorded_demo_video":
             session.step_key = "upload_demo_video"
             next_step = "upload_demo_video"
         else:
-            session.step_key = "collect_idea_brief"
-            next_step = "collect_idea_brief"
+            session.step_key = "collect_objective"
+            next_step = "collect_objective"
 
         return SkillResult(
             success=True,
             next_step=next_step,
             output={"message": message},
+            session=session,
+        )
+
+    @classmethod
+    def _restart_from_review_plan(
+        cls,
+        session: SkillSession,
+        *,
+        message: str,
+    ) -> SkillResult:
+        for field in _RESETTABLE_FIELDS:
+            session.collected[field] = None
+        session.collected["creative_input_mode"] = None
+        session.collected["plan_decision"] = None
+        session.artifacts["talking_head_optional"] = False
+        session.artifacts["production_note"] = None
+        session.artifacts["concept_brief"] = None
+        session.artifacts["beat_sheet"] = None
+        session.artifacts["approved_production_package"] = None
+        session.artifacts["workflow_id"] = None
+        session.artifacts["concept_approved"] = False
+        session.artifacts["beat_sheet_approved"] = False
+        session.artifacts["demo_evidence"] = None
+        session.artifacts["demo_preview_summary"] = None
+        session.artifacts["demo_preview_confirmed"] = False
+        session.artifacts["demo_preview_timeout_at"] = None
+        session.artifacts["plan_confirmed"] = False
+        session.control.workflow_id = None
+        session.control.approval_required = False
+        session.control.error_message = None
+        session.control.status = SkillStatus.collecting
+
+        has_review_inputs = (
+            cls._has_value(session.collected.get("objective"))
+            and cls._has_value(session.collected.get("target_url"))
+            and cls._has_value(session.collected.get("persona_id"))
+            and cls._has_value(session.collected.get("execution_mode"))
+            and bool(session.artifacts.get("page_review"))
+        )
+        if not has_review_inputs:
+            session.step_key = "collect_objective"
+            return SkillResult(
+                success=True,
+                next_step="collect_objective",
+                output={"message": message},
+                session=session,
+            )
+
+        plan = cls._build_or_refresh_review_plan(session, confirmed=False)
+        session.step_key = "confirm_plan"
+        return SkillResult(
+            success=True,
+            next_step="confirm_plan",
+            output={
+                "message": message,
+                "video_review_plan": plan.model_dump(mode="json"),
+            },
             session=session,
         )
 
@@ -988,9 +1082,12 @@ class VideoAISkill(BaseSkill):
                     current.artifacts["demo_preview_timeout_at"] = None
                 return await cls.execute(current, backend_url, http_client)
             if action == "edit":
-                return cls._restart_collection(
+                return cls._restart_from_review_plan(
                     current,
-                    message="Okay. Send an updated video idea and I will rebuild the concept from scratch.",
+                    message=(
+                        "Okay. Review the plan again and change the objective, URL, "
+                        "persona, or execution mode before I rebuild the concept."
+                    ),
                 )
         if current.step_key == "confirm_beats":
             if action == "approve":
@@ -1002,9 +1099,12 @@ class VideoAISkill(BaseSkill):
                 current.artifacts["approved_production_package"] = None
                 return await cls.execute(current, backend_url, http_client)
             if action == "edit":
-                return cls._restart_collection(
+                return cls._restart_from_review_plan(
                     current,
-                    message="Okay. Let's revise the concept inputs first, then I will rebuild the beat plan.",
+                    message=(
+                        "Okay. Review the plan again and change the objective, URL, "
+                        "persona, or execution mode before I rebuild the beats."
+                    ),
                 )
         return cls._error_result(
             current, f"Unsupported action for {current.step_key}: {action}"
@@ -1391,35 +1491,28 @@ class VideoAISkill(BaseSkill):
                 current.artifacts["demo_preview_timeout_at"] = None
                 current.step_key = None
 
-        next_step = cls._missing_step(current)
-
-        if (
-            current.artifacts.get("plan_confirmed")
-            and current.collected.get("creative_input_mode") == "idea_brief"
-            and next_step
-            in {
-                "collect_idea_brief",
-                "collect_feature_focus",
-                "choose_video_goal",
-                "collect_audience",
-                "collect_cta",
-            }
-        ):
+        if cls._needs_plan_autofill(current):
             try:
                 persona_snapshot = await cls._resolve_persona_snapshot(
                     current, backend_url, http_client
                 )
                 await cls._auto_fill_idea_brief_inputs(current, persona_snapshot)
-                next_step = cls._missing_step(current)
+                if str(current.step_key or "").strip() in _PLAN_AUTOFILL_STEPS:
+                    current.step_key = None
+                    if current.control.status == SkillStatus.failed:
+                        current.control.status = SkillStatus.collecting
+                    current.control.error_message = None
             except Exception as exc:
                 return cls._retryable_error_result(
                     current,
-                    step_key=next_step,
+                    step_key="confirm_plan",
                     error=(
                         "Could not build the video plan yet. "
                         f"Please try again. ({exc})"
                     ),
                 )
+
+        next_step = cls._missing_step(current)
 
         if next_step == "website_review":
             try:

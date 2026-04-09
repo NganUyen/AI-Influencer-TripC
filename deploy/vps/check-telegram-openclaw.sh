@@ -51,6 +51,36 @@ def _http_json(method: str, url: str, headers: dict | None = None, payload: dict
         return exc.code, parsed
 
 
+def _failed_response_message(payload: object) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+
+    error = payload.get("error")
+    status = str(payload.get("status") or "").strip().lower()
+    if status != "failed" and not isinstance(error, dict):
+        return None
+
+    parts: list[str] = []
+    response_id = str(payload.get("id") or "").strip()
+    model = str(payload.get("model") or "").strip()
+    if response_id:
+        parts.append(f"id={response_id}")
+    if model:
+        parts.append(f"model={model}")
+    if status:
+        parts.append(f"status={status}")
+
+    if isinstance(error, dict):
+        code = str(error.get("code") or "").strip()
+        message = str(error.get("message") or "").strip()
+        if code:
+            parts.append(f"code={code}")
+        if message:
+            parts.append(f"message={message}")
+
+    return ", ".join(parts) if parts else "request failed"
+
+
 def check_openclaw() -> None:
     base = (os.environ.get("OPENCLAW_API_URL") or "").rstrip("/")
     if not base:
@@ -61,6 +91,29 @@ def check_openclaw() -> None:
         raise SystemExit(f"OpenClaw: healthz returned {status}")
 
     print("OpenClaw: healthz reachable with status 200")
+
+    api_key = (os.environ.get("OPENCLAW_API_KEY") or "").strip()
+    agent_id = (os.environ.get("OPENCLAW_AGENT_ID") or "main").strip() or "main"
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
+    probe_payload = {
+        "model": f"openclaw:{agent_id}",
+        "input": "Reply with plain text ok.",
+        "user": "healthcheck:telegram-openclaw",
+    }
+    status, payload = _http_json(
+        "POST",
+        f"{base}/v1/responses",
+        headers=headers,
+        payload=probe_payload,
+    )
+    if status != 200:
+        raise SystemExit(f"OpenClaw: /v1/responses returned {status} ({payload})")
+
+    failed_message = _failed_response_message(payload)
+    if failed_message:
+        raise SystemExit(f"OpenClaw: /v1/responses failed ({failed_message})")
+
+    print("OpenClaw: /v1/responses probe succeeded")
 
 
 def check_telegram_webhook() -> None:

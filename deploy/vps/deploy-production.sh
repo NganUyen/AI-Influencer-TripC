@@ -67,8 +67,17 @@ expected_frontend_api_url="${NEXT_PUBLIC_API_URL:-${FRONTEND_PUBLIC_URL:-http://
 expected_supabase_url="${NEXT_PUBLIC_SUPABASE_URL:-${SUPABASE_URL:-}}"
 expected_supabase_anon_key="${NEXT_PUBLIC_SUPABASE_ANON_KEY:-${SUPABASE_KEY:-}}"
 expected_supabase_publishable_key="${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_PUBLISHABLE_KEY:-}}"
+OPENCLAW_CONFIG_DIR="${REPO_ROOT}/.docker-data/openclaw/config"
+OPENCLAW_WORKSPACE_DIR="${REPO_ROOT}/.docker-data/openclaw/workspace"
 
 cd "${REPO_ROOT}"
+
+prepare_openclaw_volume_permissions() {
+    echo "Preparing OpenClaw bind-mount permissions..."
+    mkdir -p "${OPENCLAW_CONFIG_DIR}" "${OPENCLAW_WORKSPACE_DIR}"
+    chown -R 1000:1000 "${OPENCLAW_CONFIG_DIR}" "${OPENCLAW_WORKSPACE_DIR}"
+    chmod -R u+rwX,g+rX,o-rwx "${OPENCLAW_CONFIG_DIR}" "${OPENCLAW_WORKSPACE_DIR}"
+}
 
 if [[ "${sync_repo_before_deploy}" =~ ^(1|true|yes)$ ]]; then
     if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
@@ -155,6 +164,7 @@ else
 fi
 
 echo "Starting production services..."
+prepare_openclaw_volume_permissions
 docker compose -f "${COMPOSE_FILE}" up -d
 docker compose -f "${COMPOSE_FILE}" ps
 

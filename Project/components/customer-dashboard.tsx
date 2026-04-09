@@ -28,6 +28,8 @@ import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
+import { Footer } from "@/components/layout/Footer";
+import openClawLogo from "@/app/dashboard/openclaw-logo.svg";
 import { Panel } from "@/components/ui/Panel";
 import { PanelHeader } from "@/components/ui/PanelHeader";
 import { StatCard } from "@/components/ui/StatCard";
@@ -1018,12 +1020,12 @@ export default function CustomerDashboard() {
 
         {/* ─── Quota Warning Banner ─── */}
         {activeTab === "overview" && quotaWarnings.length > 0 && !quotaBannerDismissed && (
-          <div className="flex items-start justify-between gap-4 rounded-2xl border border-aura-secondary/30 bg-aura-secondary-container/40 px-5 py-4">
+          <div className="flex items-start justify-between gap-4 rounded-2xl border border-aura-error/20 bg-aura-error-container/15 px-5 py-4">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="w-4 h-4 text-aura-secondary flex-shrink-0 mt-0.5 stroke-[1.75]" />
+              <AlertTriangle className="w-4 h-4 text-aura-error flex-shrink-0 mt-0.5 stroke-[1.75]" />
               <div>
-                <p className="font-semibold text-aura-secondary text-sm">Quota cảnh báo vượt ngưỡng hôm nay</p>
-                <p className="text-xs text-aura-on-surface-variant mt-0.5">
+                <p className="text-sm font-semibold text-aura-error">Quota cảnh báo vượt ngưỡng hôm nay</p>
+                <p className="mt-0.5 text-xs text-aura-on-surface-variant">
                   {quotaWarnings.map((q) => {
                     const pct = Math.round((q.used / q.total) * 100);
                     return `${q.name} (${pct}%)`;
@@ -1033,7 +1035,7 @@ export default function CustomerDashboard() {
             </div>
             <button
               onClick={() => setQuotaBannerDismissed(true)}
-              className="flex-shrink-0 text-aura-secondary/60 hover:text-aura-secondary transition-colors"
+              className="flex-shrink-0 text-aura-error/60 hover:text-aura-error transition-colors"
             >
               <X className="w-4 h-4 stroke-[1.75]" />
             </button>
@@ -1077,18 +1079,18 @@ export default function CustomerDashboard() {
               ].map((stat) => (
                 <div
                   key={stat.label}
-                  className="bg-white rounded-2xl p-5 shadow-aura flex flex-col gap-2"
+                  className="bg-white rounded-2xl p-5 md:p-6 shadow-aura flex flex-col justify-between gap-3"
                 >
-                  <span className="text-[10px] uppercase tracking-widest text-aura-on-surface-variant font-body">
+                  <span className="text-[9px] font-semibold uppercase tracking-[0.18em] text-aura-outline font-body">
                     {stat.label}
                   </span>
-                  <div className="flex items-baseline gap-2 mt-1">
-                    <span className="text-3xl font-extrabold text-aura-on-surface font-headline">
+                  <div className="pt-1">
+                    <span className="text-5xl font-black tracking-tight text-aura-on-surface font-headline">
                       {stat.value}
                     </span>
-                    <span className={`text-xs font-semibold ${stat.color}`}>{stat.sub}</span>
+                    <p className={`mt-2 text-xs font-semibold ${stat.color}`}>{stat.sub}</p>
                   </div>
-                  <div className={`h-1 rounded-full mt-1 ${stat.bg}`} />
+                  <div className={`h-1 rounded-full ${stat.bg}`} />
                 </div>
               ))}
             </section>
@@ -1181,9 +1183,9 @@ export default function CustomerDashboard() {
 
                     <div>
                       <label className="text-[10px] uppercase font-bold text-aura-on-surface-variant block mb-1.5">Status</label>
-                      <p className="text-xs text-aura-on-surface-variant px-1">
-                        {aiBackbone?.effective_status.message || "Initializing workspace access."}
-                      </p>
+                        <p className="px-1 text-[11px] leading-5 text-aura-on-surface-variant/80">
+                          {aiBackbone?.effective_status.message || "Initializing workspace access."}
+                        </p>
                     </div>
 
                     <div>
@@ -1246,39 +1248,39 @@ export default function CustomerDashboard() {
                         const isOverThreshold = pct >= 80;
                         const isCritical = pct >= 95;
                         return (
-                          <div key={q.name} className="space-y-2.5">
-                            <div className="flex justify-between items-end">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-semibold text-aura-on-surface">{q.name}</span>
-                                {isOverThreshold && (
-                                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                                    isCritical
-                                      ? "bg-aura-error-container/30 text-aura-error"
-                                      : "bg-aura-secondary-container/50 text-aura-secondary"
-                                  }`}>
-                                    {isCritical ? "⚠ Critical" : "⚠ High"}
-                                  </span>
-                                )}
+                          <div key={q.name} className="space-y-3">
+                            <div className="flex justify-between items-end gap-3">
+                              <div className="flex flex-col gap-1">
+                                <span className={`text-lg font-black text-aura-on-surface leading-tight ${
+                                  isCritical ? "text-aura-secondary" : isOverThreshold ? "text-aura-secondary" : "text-aura-tertiary"
+                                }`}>
+                                  {Math.round(pct)}%
+                                </span>
+                                <span className="text-xs font-medium text-aura-on-surface-variant uppercase tracking-wide">{q.name}</span>
                               </div>
-                              <span className={`text-sm font-bold ${
-                                isCritical ? "text-aura-error" : isOverThreshold ? "text-aura-secondary" : "text-aura-on-surface"
-                              }`}>
-                                {Math.round(pct)}% consumed
-                              </span>
+                              {isOverThreshold && (
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap ${
+                                  isCritical
+                                    ? "bg-aura-secondary-container/50 text-aura-secondary"
+                                    : "bg-aura-secondary-container/50 text-aura-secondary"
+                                }`}>
+                                  {isCritical ? "Critical" : "High"}
+                                </span>
+                              )}
                             </div>
                             <div className="h-2.5 bg-aura-surface-container-high rounded-full overflow-hidden">
                               <div
                                 className={`h-full rounded-full transition-all duration-700 ${
                                   isCritical
-                                    ? "bg-gradient-to-r from-aura-error to-aura-error-container"
+                                    ? "bg-gradient-to-r from-aura-secondary to-aura-secondary-fixed"
                                     : isOverThreshold
                                     ? "bg-gradient-to-r from-aura-secondary to-aura-secondary-fixed"
-                                    : "bg-gradient-to-r from-aura-primary to-aura-primary-container"
-                                }`}
-                                style={{ width: `${pct}%` }}
-                              />
+                                    : "bg-gradient-to-r from-aura-tertiary to-aura-tertiary-container"
+                                 }`}
+                                 style={{ width: `${pct}%` }}
+                               />
                             </div>
-                            <p className="text-[10px] text-aura-outline">
+                            <p className="text-[10px] text-aura-on-surface-variant">
                               {q.used.toLocaleString()} / {q.total.toLocaleString()} {q.unit}
                             </p>
                           </div>
@@ -1346,18 +1348,23 @@ export default function CustomerDashboard() {
                 </div>
 
                 {/* Recent Activity */}
-                <div className="bg-white rounded-2xl p-7 shadow-aura">
-                  <h3 className="text-base font-bold text-aura-on-surface font-headline mb-5">Recent Activity</h3>
+                <div className="bg-white rounded-2xl p-7 shadow-aura border border-aura-outline-variant/10">
+                  <div className="mb-6">
+                    <h3 className="text-lg font-extrabold text-aura-on-surface font-headline">Recent Activity</h3>
+                    <p className="mt-1 text-xs text-aura-on-surface-variant">Latest events and updates</p>
+                  </div>
                   {activityItems.length === 0 ? (
-                    <p className="text-sm text-aura-outline">No recent activity yet.</p>
+                    <p className="text-sm text-aura-on-surface-variant">No recent activity yet.</p>
                   ) : (
-                    <div className="space-y-3">
-                      {activityItems.map((item) => (
-                        <div key={item.id} className="flex items-start gap-3">
-                          <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${auraActivityDotClass(item.tone)}` } />
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-aura-on-surface truncate">{item.title}</p>
-                            <p className="text-xs text-aura-on-surface-variant truncate">{item.detail}</p>
+                      <div className="space-y-0 divide-y divide-aura-surface-container-high">
+                        {activityItems.map((item) => (
+                        <div key={item.id} className="flex items-start gap-4 py-5 first:pt-0 last:pb-0">
+                          <div className="flex flex-shrink-0 mt-1">
+                            <span className={`w-2.5 h-2.5 rounded-full ${auraActivityDotClass(item.tone)}`} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold line-clamp-2 text-aura-on-surface">{item.title}</p>
+                            <p className="mt-1.5 text-xs leading-relaxed text-aura-on-surface-variant line-clamp-2">{item.detail}</p>
                           </div>
                         </div>
                       ))}
@@ -1402,9 +1409,9 @@ export default function CustomerDashboard() {
                   { label: "Published Content", value: content.filter(c => c.status === "published").length, border: "border-aura-tertiary" },
                   { label: "AI Personas", value: personas?.length ?? 0, border: "border-aura-outline" },
                 ].map(stat => (
-                  <div key={stat.label} className={`bg-white p-6 rounded-xl shadow-aura-sm border-l-4 ${stat.border}`}>
-                    <p className="text-aura-on-surface-variant text-[10px] font-body uppercase tracking-widest mb-1">{stat.label}</p>
-                    <p className="text-4xl font-headline font-extrabold text-aura-on-surface">{stat.value}</p>
+                  <div key={stat.label} className={`bg-white p-6 rounded-xl shadow-aura-sm border-l-4 ${stat.border} flex min-h-[132px] flex-col justify-between`}>
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-aura-outline">{stat.label}</p>
+                    <p className="pt-4 text-5xl font-headline font-black tracking-tight text-aura-on-surface">{stat.value}</p>
                   </div>
                 ))}
               </div>
@@ -1441,14 +1448,14 @@ export default function CustomerDashboard() {
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
                             service.status === "online" ? "bg-aura-tertiary" :
-                            service.status === "warning" ? "bg-aura-secondary" : "bg-aura-error"
+                            service.status === "warning" ? "bg-aura-secondary" : "bg-aura-secondary"
                           }`} />
                           <span className="text-sm font-body text-aura-on-surface">{service.name}</span>
                         </div>
                         <div className="text-right">
                           <span className={`block text-[10px] font-bold uppercase ${
                             service.status === "online" ? "text-aura-tertiary" :
-                            service.status === "warning" ? "text-aura-secondary" : "text-aura-error"
+                            service.status === "warning" ? "text-aura-secondary" : "text-aura-secondary"
                           }`}>{service.status}</span>
                           <span className="block text-[10px] text-aura-on-surface-variant">{service.latency}</span>
                         </div>
@@ -1484,7 +1491,7 @@ export default function CustomerDashboard() {
                       <p className="text-[10px] text-aura-on-surface-variant mb-1 font-body uppercase tracking-wider">Status</p>
                       <div className="flex items-center gap-2">
                         <span className={`w-2 h-2 rounded-full ${aiBackbone?.effective_status.ready ? "bg-aura-tertiary" : "bg-aura-secondary animate-pulse"}`} />
-                        <p className="text-xs text-aura-on-surface">
+                        <p className="text-[11px] leading-5 text-aura-on-surface/80">
                           {aiBackbone?.effective_status.message || "Initializing…"}
                         </p>
                       </div>
@@ -1527,7 +1534,7 @@ export default function CustomerDashboard() {
                       const pct = q.total > 0 ? Math.min((q.used / q.total) * 100, 100) : 0;
                       const isHigh = pct >= 80;
                       const isCritical = pct >= 95;
-                      const barColor = isCritical ? "bg-aura-error" : isHigh ? "bg-aura-secondary" : "bg-aura-primary";
+                      const barColor = isCritical ? "bg-aura-secondary" : isHigh ? "bg-aura-secondary" : "bg-aura-tertiary";
                       return (
                         <div key={q.name} className="space-y-1">
                           <div className="flex justify-between text-xs font-body">
@@ -1535,13 +1542,13 @@ export default function CustomerDashboard() {
                               {q.name}
                               {isHigh && (
                                 <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${
-                                  isCritical ? "bg-aura-error/20 text-aura-error" : "bg-aura-secondary/20 text-aura-secondary"
+                                  isCritical ? "bg-aura-secondary/20 text-aura-secondary" : "bg-aura-secondary/20 text-aura-secondary"
                                 }`}>
                                   {isCritical ? "⚠ Critical" : "⚠ High"}
                                 </span>
                               )}
                             </span>
-                            <span className={`font-bold ${isCritical ? "text-aura-error" : isHigh ? "text-aura-secondary" : "text-aura-on-surface-variant"}`}>
+                            <span className={`font-bold ${isCritical ? "text-aura-secondary" : isHigh ? "text-aura-secondary" : "text-aura-on-surface-variant"}`}>
                               {Math.round(pct)}%
                             </span>
                           </div>
@@ -1644,11 +1651,11 @@ export default function CustomerDashboard() {
               </div>
             </section>
 
-            {/* ── Campaign Control + Output Stream ── */}
-            <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white rounded-2xl p-7 shadow-aura">
-                <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Campaign Control</h3>
-                <div className="space-y-3">
+             {/* ── Campaign Control + Output Stream ── */}
+             <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+               <div className="bg-white rounded-2xl p-8 shadow-aura">
+                 <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Campaign Control</h3>
+                 <div className="space-y-3">
                   {campaigns.map(c => (
                     <div key={c.id} className="p-4 bg-aura-surface-container-low border border-aura-outline-variant/20 rounded-xl flex items-center justify-between">
                       <div className="min-w-0 mr-3">
@@ -1670,9 +1677,9 @@ export default function CustomerDashboard() {
                 </div>
               </div>
 
-              <div className="bg-white rounded-2xl p-7 shadow-aura">
-                <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Output Stream</h3>
-                <div className="space-y-2">
+               <div className="bg-white rounded-2xl p-8 shadow-aura">
+                 <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Output Stream</h3>
+                 <div className="space-y-2">
                   {content.slice(0, 6).map(item => (
                     <div key={item.id} className="p-3 bg-aura-surface-container-low border border-aura-outline-variant/15 rounded-xl flex justify-between items-center">
                       <span className="text-sm text-aura-on-surface truncate mr-2">{item.title}</span>
@@ -2125,7 +2132,7 @@ export default function CustomerDashboard() {
                         <Check className="w-4 h-4 text-aura-tertiary stroke-[2.5]" />
                       </div>
                       <div className="flex items-center justify-between w-full p-5 bg-aura-surface-container-low rounded-2xl border-2 border-transparent">
-                        <span className="font-medium text-aura-on-surface-variant text-sm">
+                        <span className="text-sm font-medium text-aura-on-surface-variant/80">
                           {aiBackbone?.effective_status.message || "Initializing…"}
                         </span>
                         <span className={`w-2 h-2 rounded-full ${aiBackbone?.effective_status.ready ? "bg-aura-tertiary" : "bg-aura-secondary animate-pulse"}`} />
@@ -2236,12 +2243,12 @@ export default function CustomerDashboard() {
                     })}
                   </div>
 
-                  {/* Memory capacity bar */}
-                  <div className="mt-8 pt-8 border-t border-aura-outline-variant/20">
-                    <div className="flex items-end justify-between mb-3">
-                      <span className="text-[10px] font-semibold uppercase tracking-widest text-aura-on-surface-variant">Khả năng Ghi nhớ</span>
-                      <span className="text-3xl font-extrabold text-aura-primary leading-none">84%</span>
-                    </div>
+                   {/* Memory capacity bar */}
+                   <div className="mt-8 pt-8 border-t border-aura-outline-variant/20">
+                     <div className="flex items-end justify-between mb-3">
+                       <span className="text-[10px] font-semibold uppercase tracking-widest text-aura-on-surface-variant">Khả năng Ghi nhớ</span>
+                       <span className="text-5xl font-black text-aura-primary leading-none">84%</span>
+                     </div>
                     <div className="w-full bg-aura-surface-container-lowest h-2 rounded-full overflow-hidden">
                       <div className="bg-gradient-to-r from-aura-primary to-aura-primary-container h-full w-[84%] rounded-full shadow-aura-sm" />
                     </div>
@@ -2377,27 +2384,16 @@ export default function CustomerDashboard() {
 
           {/* Page Footer branding */}
           <footer className="mt-12 py-10 border-t border-aura-outline-variant/10 flex justify-center">
-            <a
-              href="https://openclaw.ai"
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-3 px-6 py-3 rounded-2xl border border-transparent hover:border-aura-outline-variant/20 hover:bg-white/50 transition-all group shadow-aura-sm hover:shadow-aura-md"
-            >
-              <div className="w-10 h-10 rounded-xl bg-aura-on-surface/5 flex items-center justify-center transition-all group-hover:bg-aura-primary/10 group-hover:scale-110">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-aura-on-surface-variant group-hover:text-aura-primary transition-colors">
-                  <path d="M12 2v8" />
-                  <path d="M16.4 18a4.4 4.4 0 0 0 .6-5.4l-1-1.6" />
-                  <path d="m15 13-1-1.6" />
-                  <path d="M9 13 8 11.4" />
-                  <path d="M7.6 18a4.4 4.4 0 0 1-.6-5.4l1-1.6" />
-                  <path d="M12 18h.01" />
-                </svg>
-              </div>
-              <div className="leading-tight">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-aura-on-surface-variant/50">Operated by</p>
-                <p className="text-base font-black text-aura-on-surface-variant group-hover:text-aura-primary transition-colors">OpenClaw</p>
-              </div>
-            </a>
+            <div className="flex items-center gap-2">
+              <img 
+                src={openClawLogo.src} 
+                alt="OpenClaw" 
+                className="h-4 w-auto opacity-75"
+              />
+              <span className="text-xs text-aura-on-surface-variant font-body">
+                Operated by OpenClaw
+              </span>
+            </div>
           </footer>
         </main>
       </div>
@@ -2461,11 +2457,11 @@ function ActivityFeed({
   emptyMessage?: string;
 }) {
   if (items.length === 0) {
-    return <p className="text-sm text-aura-on-surface-variant">{emptyMessage}</p>;
+    return <div className="py-8 text-center"><p className="text-sm text-aura-on-surface-variant">{emptyMessage}</p></div>;
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-1">
       {items.map((item) => {
         const variant = item.tone === "success" 
           ? "success" as const
@@ -2474,13 +2470,14 @@ function ActivityFeed({
             : "info" as const;
         
         return (
-          <TimelineItem
-            key={item.id}
-            id={item.id}
-            title={item.title}
-            description={item.detail}
-            variant={variant}
-          />
+          <div key={item.id} className="py-3 first:pt-0 last:pb-0">
+            <TimelineItem
+              id={item.id}
+              title={item.title}
+              description={item.detail}
+              variant={variant}
+            />
+          </div>
         );
       })}
     </div>
@@ -2631,6 +2628,5 @@ function formatDateLabel(value: string): string {
 function auraActivityDotClass(tone: ActivityItemTone = "default"): string {
   if (tone === "success") return "bg-aura-tertiary";
   if (tone === "warning") return "bg-aura-secondary";
-  return "bg-aura-primary";
+  return "bg-aura-on-surface-variant";
 }
-

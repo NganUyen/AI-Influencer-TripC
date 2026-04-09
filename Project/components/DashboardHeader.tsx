@@ -2,6 +2,7 @@
 
 import { Bell, Settings, Search, Menu } from "lucide-react";
 import { SocialIcon } from "@/components/ui/SocialIcon";
+import tripCLogo from "@/app/dashboard/tripc-logo.png";
 
 interface DashboardHeaderProps {
   userName: string | undefined;
@@ -45,10 +46,12 @@ export function DashboardHeader({
               </button>
             )}
             {/* Icon mark */}
-            <div className="w-8 h-8 rounded-xl bg-brand-primary flex items-center justify-center flex-shrink-0 shadow-brand-sm">
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M9 2L10.8 6.6L15.5 7.3L12.2 10.5L13.1 15.2L9 13L4.9 15.2L5.8 10.5L2.5 7.3L7.2 6.6L9 2Z" fill="white" />
-              </svg>
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 shadow-brand-sm overflow-hidden">
+              <img 
+                src={tripCLogo.src} 
+                alt="TripC" 
+                className="w-full h-full object-cover"
+              />
             </div>
             {/* Brand text */}
             <div className="leading-none">

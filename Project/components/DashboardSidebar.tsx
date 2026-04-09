@@ -52,23 +52,27 @@ export function DashboardSidebar({
       )}
 
       <aside className={sidebarClasses}>
-        {/* Desktop expand/collapse toggle */}
-        <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          className="hidden md:flex absolute -right-3 top-8 w-6 h-6 rounded-full bg-brand-surface-container-high border border-brand-outline-variant/30 items-center justify-center text-brand-on-surface hover:text-brand-primary hover:bg-white shadow-brand-sm transition-colors z-[60]"
-          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {isCollapsed
-            ? <ChevronRight className="w-3.5 h-3.5 stroke-[2.5]" />
-            : <ChevronLeft className="w-3.5 h-3.5 stroke-[2.5]" />}
-        </button>
-
         {/* Brand tagline */}
         <div className={`mb-6 px-3 pt-2 flex items-center justify-between ${isCollapsed ? "md:justify-center md:px-0" : ""}`}>
           <div className={`${isCollapsed ? "md:hidden" : ""}`}>
             <h2 className="text-base font-bold text-brand-on-surface font-headline">AI-Influencer</h2>
             <p className="text-xs text-brand-outline mt-0.5 uppercase tracking-widest">Factory</p>
           </div>
+
+          {/* Desktop expand/collapse toggle */}
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className={`hidden md:flex w-7 h-7 rounded-full bg-white/95 border border-brand-outline-variant/40 items-center justify-center text-brand-on-surface-variant hover:text-brand-primary hover:bg-white shadow-brand-md transition-all duration-300 ease-in-out z-[70] backdrop-blur-sm flex-shrink-0 ${
+              isCollapsed 
+                ? "absolute top-6 left-1/2 -translate-x-1/2 p-1" 
+                : ""
+            }`}
+            aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {isCollapsed
+              ? <ChevronRight className="w-3.5 h-3.5 stroke-[2.5]" />
+              : <ChevronLeft className="w-3.5 h-3.5 stroke-[2.5]" />}
+          </button>
 
           <button
             onClick={onMobileClose}

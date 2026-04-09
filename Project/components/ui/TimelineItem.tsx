@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { AlertCircle, CheckCircle, Clock, Zap } from "lucide-react";
+import { AlertCircle, CheckCircle, Clock } from "lucide-react";
 
 type TimelineVariant = "success" | "warning" | "error" | "info";
 
@@ -25,30 +25,38 @@ export function TimelineItem({
     success: {
       dotBg: "bg-aura-tertiary",
       lineBg: "from-aura-tertiary/50 to-aura-tertiary/10",
-      cardBg: "bg-gradient-to-r from-aura-tertiary/10 to-aura-tertiary/5",
+      cardBg: "bg-white",
       cardBorder: "border-aura-tertiary/20",
       icon: <CheckCircle className="w-5 h-5 text-aura-tertiary" />,
+      titleColor: "text-aura-on-surface",
+      textColor: "text-aura-on-surface-variant",
     },
     warning: {
       dotBg: "bg-aura-secondary",
       lineBg: "from-aura-secondary/50 to-aura-secondary/10",
-      cardBg: "bg-gradient-to-r from-aura-secondary/10 to-aura-secondary/5",
+      cardBg: "bg-white",
       cardBorder: "border-aura-secondary/20",
       icon: <AlertCircle className="w-5 h-5 text-aura-secondary" />,
+      titleColor: "text-aura-on-surface",
+      textColor: "text-aura-on-surface-variant",
     },
     error: {
-      dotBg: "bg-aura-error",
-      lineBg: "from-aura-error/50 to-aura-error/10",
-      cardBg: "bg-gradient-to-r from-aura-error/10 to-aura-error/5",
-      cardBorder: "border-aura-error/20",
-      icon: <AlertCircle className="w-5 h-5 text-aura-error" />,
+      dotBg: "bg-aura-secondary",
+      lineBg: "from-aura-secondary/50 to-aura-secondary/10",
+      cardBg: "bg-white",
+      cardBorder: "border-aura-secondary/20",
+      icon: <AlertCircle className="w-5 h-5 text-aura-secondary" />,
+      titleColor: "text-aura-on-surface",
+      textColor: "text-aura-on-surface-variant",
     },
     info: {
-      dotBg: "bg-aura-primary",
-      lineBg: "from-aura-primary/50 to-aura-primary/10",
-      cardBg: "bg-gradient-to-r from-aura-primary/10 to-aura-primary/5",
-      cardBorder: "border-aura-primary/20",
-      icon: <Zap className="w-5 h-5 text-aura-primary" />,
+      dotBg: "bg-aura-on-surface-variant",
+      lineBg: "from-aura-outline-variant/60 to-aura-surface-container-high",
+      cardBg: "bg-white",
+      cardBorder: "border-aura-outline-variant/20",
+      icon: <Clock className="w-5 h-5 text-aura-on-surface-variant" />,
+      titleColor: "text-aura-on-surface",
+      textColor: "text-aura-on-surface-variant",
     },
   };
 
@@ -72,25 +80,25 @@ export function TimelineItem({
 
       {/* Content card */}
       <div className={cn(
-        "flex-1 rounded-2xl border p-5 transition-all duration-300 shadow-sm hover:shadow-aura-md hover:-translate-y-0.5 relative overflow-hidden",
+        "flex-1 rounded-2xl border px-5 py-4 transition-all duration-300 shadow-sm hover:shadow-aura-sm relative overflow-hidden",
         style.cardBg,
         style.cardBorder
       )}>
-        <div className="flex items-start gap-3 mb-2 relative z-10">
+        <div className="relative z-10 mb-3 flex items-start gap-3">
           {icon || style.icon}
           <div className="flex-1">
-            <h4 className="font-bold text-aura-on-surface text-sm font-headline">
+            <h4 className={cn("text-[15px] font-extrabold leading-5 font-headline", style.titleColor)}>
               {title}
             </h4>
             {timestamp && (
-              <p className="text-xs text-aura-on-surface-variant mt-0.5">
+              <p className={cn("mt-1 text-[11px]", style.textColor)}>
                 {timestamp}
               </p>
             )}
           </div>
         </div>
 
-        <p className="text-sm text-aura-on-surface-variant ml-8 relative z-10">
+        <p className={cn("relative z-10 ml-8 text-[13px] leading-6", style.textColor)}>
           {description}
         </p>
       </div>

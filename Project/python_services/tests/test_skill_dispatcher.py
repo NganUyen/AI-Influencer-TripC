@@ -11,7 +11,8 @@ from services import heygen_service as heygen_service_module
 from services import persona_registry_service as persona_registry_service_module
 from services.skill_dispatcher import SkillDispatcher
 from services.skill_session_store import TelegramSkillSessionStore
-from skills.base import SkillControl, SkillSession, SkillStatus
+from skills import SKILL_REGISTRY
+from skills.base import SkillControl, SkillResult, SkillSession, SkillStatus
 
 
 class _AsyncClientContext:
@@ -435,3 +436,52 @@ async def test_prepare_prompt_session_filters_video_planner_personas_to_ready(mo
     prepared = await SkillDispatcher._prepare_prompt_session(object(), session)
 
     assert prepared.artifacts["available_personas"][0]["persona_id"] == "persona-1"
+
+
+@pytest.mark.asyncio
+async def test_video_ai_demo_preview_approve_routes_to_preview_handler(monkeypatch):
+    chat_id = 998877
+    await TelegramSkillSessionStore.clear_session(chat_id)
+    session = SkillSession(
+        skill_name="video-ai",
+        step_key="demo_preview_confirm",
+        collected={},
+        artifacts={"telegram_chat_id": str(chat_id)},
+        control=SkillControl(status=SkillStatus.collecting),
+    )
+    await TelegramSkillSessionStore.set_session(chat_id, session)
+
+    class _FakeVideoSkill:
+        @classmethod
+        async def handle_demo_preview_action(
+            cls,
+            session,
+            action,
+            backend_url,
+            client,
+            *,
+            correction_text=None,
+            reemphasis_text=None,
+        ):
+            return SkillResult(
+                success=True,
+                next_step="confirm_concept",
+                session=session,
+                output={"routed_to": "demo_preview", "action": action},
+            )
+
+        @classmethod
+        async def handle_preproduction_action(cls, *args, **kwargs):
+            raise AssertionError("preproduction handler should not be used")
+
+    monkeypatch.setitem(SKILL_REGISTRY, "video-ai", _FakeVideoSkill)
+    monkeypatch.setattr(
+        SkillDispatcher,
+        "_transport_client",
+        lambda _app: _AsyncClientContext(SimpleNamespace()),
+    )
+
+    result = await SkillDispatcher.handle_action(chat_id, "approve", app=object())
+
+    assert result.success is True
+    assert result.output == {"routed_to": "demo_preview", "action": "approve"}

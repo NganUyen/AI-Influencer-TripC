@@ -671,6 +671,34 @@ class SkillDispatcher:
                     )
                 return await cls._save_or_clear(chat_id, result)
 
+        # Demo preview reuses some approval action names, so route it first when the
+        # session is explicitly waiting on preview confirmation.
+        if session.skill_name == "video-ai" and action in {
+            "approve",
+            "confirm",
+            "pick_alternate",
+            "rewrite",
+            "correct",
+            "reemphasize",
+            "reupload",
+        }:
+            if session.step_key == "demo_preview_confirm":
+                correction_text = session.collected.get("feature_correction")
+                reemphasis_text = session.collected.get("feature_reemphasis")
+
+                async with cls._transport_client(app) as client:
+                    result = await skill_cls.handle_demo_preview_action(
+                        session,
+                        action,
+                        "http://backend",
+                        client,
+                        correction_text=correction_text,
+                        reemphasis_text=reemphasis_text,
+                    )
+                if result.session is not None:
+                    await cls._prepare_prompt_session(app, result.session)
+                return await cls._save_or_clear(chat_id, result)
+
         if session.skill_name == "video-ai" and action in {
             "approve",
             "edit",
@@ -683,30 +711,6 @@ class SkillDispatcher:
                     action,
                     "http://backend",
                     client,
-                )
-            if result.session is not None:
-                await cls._prepare_prompt_session(app, result.session)
-            return await cls._save_or_clear(chat_id, result)
-
-        # Phase 5: Demo preview confirmation actions
-        if session.skill_name == "video-ai" and action in {
-            "confirm",
-            "correct",
-            "reemphasize",
-            "reupload",
-        }:
-            # Get correction/reemphasis text from collected fields if already captured
-            correction_text = session.collected.get("feature_correction")
-            reemphasis_text = session.collected.get("feature_reemphasis")
-
-            async with cls._transport_client(app) as client:
-                result = await skill_cls.handle_demo_preview_action(
-                    session,
-                    action,
-                    "http://backend",
-                    client,
-                    correction_text=correction_text,
-                    reemphasis_text=reemphasis_text,
                 )
             if result.session is not None:
                 await cls._prepare_prompt_session(app, result.session)

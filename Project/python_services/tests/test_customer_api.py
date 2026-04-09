@@ -319,3 +319,75 @@ def test_complete_video_capture_handoff_starts_workflow(monkeypatch):
     payload = response.json()
     assert payload["workflow_id"] == "video-auth-1"
     assert payload["credential_handoff"]["status"] == "completed"
+
+
+def test_get_system_summary_includes_recent_videos(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_get_summary(days=0, user_id=None):
+        return {"providers": []}
+
+    async def fake_list_recent_assets(*, user_id, asset_type=None, limit=5):
+        assert user_id == _session().user_id
+        assert asset_type == "video"
+        return [
+            {
+                "asset_id": "asset-1",
+                "persona_id": "persona-1",
+                "title": "Launch walkthrough",
+                "access_url": "https://cdn.example/video.mp4",
+                "created_at": "2026-04-09T12:00:00Z",
+            }
+        ]
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.QuotaMonitorService, "get_summary", fake_get_summary)
+    monkeypatch.setattr(customer.CustomerMediaService, "list_recent_assets", fake_list_recent_assets)
+
+    client = _build_client()
+    response = client.get(
+        "/api/customer/system/summary",
+        headers={"Authorization": "Bearer customer-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["recent_videos"][0]["asset_id"] == "asset-1"
+    assert payload["recent_videos"][0]["access_url"] == "https://cdn.example/video.mp4"
+
+
+def test_list_recent_customer_media_returns_assets(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_list_recent_assets(*, user_id, asset_type=None, limit=10):
+        assert user_id == _session().user_id
+        assert asset_type == "video"
+        assert limit == 3
+        return [
+            {
+                "asset_id": "asset-1",
+                "persona_id": "persona-1",
+                "type": "video",
+                "status": "available",
+                "filename": "launch.mp4",
+                "title": "Launch walkthrough",
+                "access_url": "https://cdn.example/video.mp4",
+                "created_at": "2026-04-09T12:00:00Z",
+            }
+        ]
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.CustomerMediaService, "list_recent_assets", fake_list_recent_assets)
+
+    client = _build_client()
+    response = client.get(
+        "/api/customer/media/recent?limit=3",
+        headers={"Authorization": "Bearer customer-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assets"][0]["asset_id"] == "asset-1"
+    assert payload["assets"][0]["title"] == "Launch walkthrough"

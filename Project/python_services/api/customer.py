@@ -120,6 +120,17 @@ class VideoCaptureHandoffCompleteRequest(BaseModel):
     notes: str = ""
 
 
+class RecentMediaAssetResponse(BaseModel):
+    asset_id: str
+    persona_id: Optional[str] = None
+    type: Optional[str] = None
+    status: Optional[str] = None
+    filename: Optional[str] = None
+    title: Optional[str] = None
+    access_url: Optional[str] = None
+    created_at: Optional[str] = None
+
+
 @router.get("/brand")
 async def get_brand_profile(
     session: CustomerSession = Depends(require_customer_session),
@@ -554,7 +565,7 @@ async def list_customer_personas(
 @router.get("/system/summary")
 async def get_system_summary(
     request: Request,
-    _session: CustomerSession = Depends(require_customer_session),
+    session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
     """Get real-time system health and quota summary for the dashboard."""
     try:
@@ -585,11 +596,17 @@ async def get_system_summary(
             {"name": "Postiz Publisher", "status": "online" if settings.POSTIZ_API_URL else "warning", "latency": "80ms"},
             {"name": "GrowChief Growth", "status": "online" if settings.GROWCHIEF_API_URL else "warning", "latency": "120ms"},
         ]
+        recent_videos = await CustomerMediaService.list_recent_assets(
+            user_id=session.user_id,
+            asset_type="video",
+            limit=5,
+        )
         
         return {
             "quota": quota_list,
             "services": services,
-            "status": "healthy" if temporal_client else "degraded"
+            "status": "healthy" if temporal_client else "degraded",
+            "recent_videos": recent_videos,
         }
     except Exception as exc:
         # Fallback to empty/healthy-ish structure to avoid dashboard crash
@@ -598,9 +615,26 @@ async def get_system_summary(
             "services": [
                 {"name": "System Status", "status": "error", "latency": "0ms"}
             ],
+            "recent_videos": [],
             "status": "error",
             "detail": str(exc)
         }
+
+
+@router.get("/media/recent")
+async def list_recent_customer_media(
+    session: CustomerSession = Depends(require_customer_session),
+    asset_type: Optional[str] = Query(default="video"),
+    limit: int = Query(default=10, ge=1, le=20),
+) -> Dict[str, Any]:
+    assets = await CustomerMediaService.list_recent_assets(
+        user_id=session.user_id,
+        asset_type=asset_type,
+        limit=limit,
+    )
+    return {
+        "assets": [RecentMediaAssetResponse(**asset).model_dump() for asset in assets]
+    }
 
 
 @router.get("/system/workflows")

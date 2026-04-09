@@ -670,7 +670,7 @@ def _help_text() -> str:
         "Commands:\n"
         "  /start — Launch the video planner\n"
         "  /media — Open studio\n"
-        "  /create_video — Start AI video creation\n"
+        "  /create_video — Start video planning\n"
         "  /create_image — Create marketing images\n"
         "  /personas — Inspect your personas\n"
         "  /quota — Check usage quota\n"
@@ -1197,10 +1197,10 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         "/create-image": "menu_image",
     }
     _SHORTCUT_SKILL_MAP = {
-        # Canonical video command - starts video-ai directly (deterministic)
-        "/create_video": "video-ai",
+        # Canonical video command - starts the planner directly (deterministic)
+        "/create_video": "video-planner",
         # Legacy aliases for video
-        "/create-video": "video-ai",
+        "/create-video": "video-planner",
         # Canonical persona inspection command
         "/personas": "persona-inspector",
         # Legacy aliases for persona
@@ -1215,9 +1215,9 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
     # ── Plain text shortcuts (case-insensitive) ────────────────────────────
     # These are deterministic triggers that bypass OpenClaw routing
     _TEXT_SKILL_MAP = {
-        "create video": "video-ai",
-        "make video": "video-ai",
-        "video": "video-ai",
+        "create video": "video-planner",
+        "make video": "video-planner",
+        "video": "video-planner",
         "create persona": "persona-creator",
         "new persona": "persona-creator",
         "inspect persona": "persona-inspector",

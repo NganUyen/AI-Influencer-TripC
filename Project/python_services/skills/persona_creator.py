@@ -81,6 +81,8 @@ class PersonaCreatorSkill(BaseSkill):
         display_name = f"{nat.title()} Creator"
         appearance = (
             f"A realistic portrait of a {nat} content creator, {brief_clean}. "
+            "Preserve the requested cultural background and styling cues. "
+            "Do not genericize into a default Western or white influencer look. "
             "Natural lighting, clean background, confident expression, social-media-ready style."
         )
 
@@ -133,6 +135,8 @@ class PersonaCreatorSkill(BaseSkill):
             return (
                 "Photorealistic head-and-shoulders portrait avatar of a single social media creator. "
                 f"Appearance: {description}. "
+                "Preserve the requested ethnicity, nationality, age range, styling, and cultural cues from the brief. "
+                "Do not default to a generic white English-speaking influencer unless the brief explicitly asks for it. "
                 "Looking at camera, plain neutral background, natural lighting, centered composition, "
                 "no text, no logos, no props, no extra people, no collage."
             )
@@ -141,6 +145,8 @@ class PersonaCreatorSkill(BaseSkill):
         return (
             "Create a clean, realistic head-and-shoulders portrait avatar for a social media creator.\n"
             f"Appearance brief: {normalized}\n"
+            "Preserve the requested ethnicity, nationality, age range, styling, and cultural context from the brief.\n"
+            "Avoid collapsing into a generic Western or white influencer look unless the brief explicitly requests that.\n"
             "Style: premium, natural lighting, plain background, centered composition."
         )
 
@@ -205,6 +211,12 @@ Suggest a realistic, culturally accurate persona identity.
 
 Nationality: {nationality}
 Brief: {brief}
+
+Hard requirements:
+- Preserve the requested nationality and cultural context in both the name and appearance.
+- The result must feel locally plausible, not generic.
+- Do not default to an average white, Western, or English-coded influencer unless the brief explicitly asks for that.
+- Reflect the brief's age, style, profession, and environment in the appearance description.
 
 You MUST return valid JSON with these keys:
 - persona_id: A unique URL-safe slug (e.g., 'kaito_tanaka')

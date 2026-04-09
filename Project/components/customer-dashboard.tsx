@@ -156,6 +156,13 @@ type SystemSummaryData = {
   services: { name: string; status: "online" | "warning" | "error"; latency: string }[];
   quota: { name: string; used: number; total: number; unit: string }[];
   telegram_bot_url?: string | null;
+  recent_videos?: {
+    asset_id: string;
+    persona_id?: string | null;
+    title?: string | null;
+    access_url?: string | null;
+    created_at?: string | null;
+  }[];
 };
 
 type SystemWorkflowData = {
@@ -2331,6 +2338,31 @@ export default function CustomerDashboard() {
                   <p className="text-xs font-semibold uppercase tracking-widest text-aura-on-surface-variant">
                     Recent Output
                   </p>
+                  {(systemSummary?.recent_videos || []).map((video) => (
+                    <div
+                      key={video.asset_id}
+                      className="flex items-center justify-between gap-4 rounded-[16px] border border-aura-outline-variant/30 bg-aura-surface-container-high p-4"
+                    >
+                      <div>
+                        <p className="font-medium text-aura-on-surface">{video.title || "Generated video"}</p>
+                        <p className="text-xs uppercase tracking-widest text-aura-on-surface-variant">
+                          {video.persona_id || "unassigned persona"}
+                        </p>
+                      </div>
+                      {video.access_url ? (
+                        <a
+                          href={video.access_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-semibold uppercase tracking-widest text-sky-300"
+                        >
+                          Open
+                        </a>
+                      ) : (
+                        <span className="text-xs text-zinc-400">Unavailable</span>
+                      )}
+                    </div>
+                  ))}
                   {content.slice(0, 5).map((item) => (
                     <div
                       key={item.id}
@@ -2351,7 +2383,7 @@ export default function CustomerDashboard() {
                       </div>
                     </div>
                   ))}
-                  {content.length === 0 && (
+                  {content.length === 0 && (systemSummary?.recent_videos || []).length === 0 && (
                     <p className="text-sm text-zinc-400">No recent output yet.</p>
                   )}
                 </div>

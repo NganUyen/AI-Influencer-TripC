@@ -125,6 +125,7 @@ class FinalVideoContract(BaseModel):
     url: Optional[str] = None
     video_url: str
     preview_url: Optional[str] = None
+    media_asset_id: Optional[str] = None
     storage_key: str
     metadata: Dict[str, Any] = Field(default_factory=dict)
     status: str = "completed"
@@ -746,10 +747,12 @@ class VideoReviewPlanContract(BaseModel):
 
 
 class VideoWorkflowPersonaSnapshotContract(BaseModel):
+    persona_id: Optional[str] = None
     language: str = "English"
     tts_voice: str
     heygen_avatar_id: Optional[str] = None
     display_name: Optional[str] = None
+    avatar_image_url: Optional[str] = None
 
 
 class VideoWorkflowStartPayloadContract(BaseModel):

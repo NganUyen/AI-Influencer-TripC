@@ -893,6 +893,7 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
             if storage_result and storage_result.get("access_url"):
                 video_url = storage_result["access_url"]
                 storage_key = storage_result.get("storage_path") or storage_key
+                media_asset_id = storage_result.get("media_asset_id")
             else:
                 storage = StorageService()
                 video_url = await storage.upload_bytes(
@@ -900,6 +901,7 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                     filename=storage_key,
                     content_type="video/mp4",
                 )
+                media_asset_id = None
         except Exception as exc:
             raise StorageUploadError(f"Failed to upload final video: {exc}") from exc
 
@@ -918,6 +920,7 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
             url=video_url,
             video_url=video_url,
             preview_url=video_url,
+            media_asset_id=media_asset_id,
             storage_key=storage_key,
             metadata=metadata,
             status="completed",

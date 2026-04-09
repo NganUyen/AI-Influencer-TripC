@@ -97,8 +97,22 @@ async def test_video_planner_confirm_routes_to_handoff_and_persists_workflow(mon
         }
     )
 
+    async def fake_request_json(cls, _client, method, backend_url, path, *, params=None, json=None):
+        assert method == "GET"
+        assert path == "/api/personas/persona-1"
+        return {
+            "persona_id": "persona-1",
+            "display_name": "Persona One",
+            "language": "English",
+            "tts_voice": "en-US-Neural2-A",
+            "heygen_avatar_id": "avatar-1",
+            "avatar_image_url": "https://cdn.example/persona-1.png",
+            "status": "ready",
+        }
+
     async def fake_handoff(**kwargs):
         assert kwargs["plan"].status == "confirmed"
+        assert kwargs["persona_snapshot"]["tts_voice"] == "en-US-Neural2-A"
         return {
             "status": "started",
             "workflow_id": "video-xyz",
@@ -110,12 +124,53 @@ async def test_video_planner_confirm_routes_to_handoff_and_persists_workflow(mon
         "skills.video_planner.VideoPlannerHandoffService.start_confirmed_plan",
         fake_handoff,
     )
+    monkeypatch.setattr(VideoPlannerSkill, "_request_json", classmethod(fake_request_json))
 
     result = await VideoPlannerSkill.execute(session, "http://backend", AsyncMock())
 
     assert result.success is True
     assert result.output["workflow_id"] == "video-xyz"
     assert result.session.control.workflow_id == "video-xyz"
+
+
+@pytest.mark.asyncio
+async def test_video_planner_confirm_blocks_mismatched_persona_language(monkeypatch):
+    session = VideoPlannerSkill.initial_session()
+    session.step_key = "confirm_plan"
+    session.collected.update(
+        {
+            "objective": "Create a short product review",
+            "target_url": "https://example.com",
+            "language": "Vietnamese",
+            "persona_id": "persona-1",
+            "execution_mode": "autonomous_screen_recording",
+            "plan_decision": "confirm",
+        }
+    )
+    session.artifacts.update(
+        {
+            "telegram_chat_id": "555",
+            "video_review_plan": _confirmed_plan().model_copy(update={"status": "draft", "language": "Vietnamese"}).model_dump(mode="json"),
+        }
+    )
+
+    async def fake_request_json(cls, _client, method, backend_url, path, *, params=None, json=None):
+        return {
+            "persona_id": "persona-1",
+            "display_name": "Persona One",
+            "language": "English",
+            "tts_voice": "en-US-Neural2-A",
+            "heygen_avatar_id": "avatar-1",
+            "status": "ready",
+        }
+
+    monkeypatch.setattr(VideoPlannerSkill, "_request_json", classmethod(fake_request_json))
+
+    result = await VideoPlannerSkill.execute(session, "http://backend", AsyncMock())
+
+    assert result.success is True
+    assert result.next_step == "choose_language"
+    assert "does not match" in result.output["message"]
 
 
 @pytest.mark.asyncio
@@ -135,6 +190,12 @@ async def test_video_planner_confirm_manual_mode_waits_for_upload(monkeypatch):
     session.artifacts.update(
         {
             "telegram_chat_id": "555",
+            "persona_snapshot": {
+                "persona_id": "persona-1",
+                "display_name": "Persona One",
+                "language": "English",
+                "tts_voice": "en-US-Neural2-A",
+            },
             "video_review_plan": _confirmed_plan("manual_mobile_recording")
             .model_copy(update={"status": "draft"})
             .model_dump(mode="json"),

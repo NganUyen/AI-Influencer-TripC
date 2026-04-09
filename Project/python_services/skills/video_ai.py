@@ -75,7 +75,6 @@ _LEGACY_PREPRODUCTION_FIELDS = [
     "audience",
     "cta",
     "reference_url",
-    "access_level",
     "demo_video_telegram_file_id",
     "demo_video_asset_url",
 ]

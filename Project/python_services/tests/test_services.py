@@ -11,6 +11,7 @@ from services.errors import (
 from services.fal_service import FalAIService
 from services.google_tts_service import GoogleTTSService
 from services.growchief_service import GrowChiefService
+from services.did_service import DIDService
 from services.heygen_service import HeyGenService
 from services.openclaw_service import OpenClawService
 from services.postiz_service import PostizService
@@ -1092,6 +1093,110 @@ async def test_heygen_service_records_remaining_quota(monkeypatch):
     assert captured["quota"]["source"] == "provider_live_endpoint"
     assert captured["quota"]["exact"] is True
     assert captured["metadata"]["operation"] == "get_remaining_quota"
+
+
+@pytest.mark.asyncio
+async def test_did_service_creates_clip_and_records_usage(monkeypatch):
+    captured = {}
+
+    class StubResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"id": "clp_123", "status": "created", "object": "clip"}
+
+    class StubClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers=None, json=None):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["json"] = json
+            return StubResponse()
+
+    async def fake_record_runtime_usage(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "services.did_service.httpx.AsyncClient",
+        lambda **_: StubClient(),
+    )
+    monkeypatch.setattr(
+        "services.did_service.QuotaMonitorService.record_runtime_usage",
+        fake_record_runtime_usage,
+    )
+    monkeypatch.setattr(
+        "services.did_service.settings.DID_API_KEY",
+        "test_did_key",
+    )
+    monkeypatch.setattr(
+        "services.did_service.settings.DID_DEFAULT_PRESENTER_ID",
+        "v2_public_Adam@0GLJgELXjc",
+    )
+
+    service = DIDService()
+    result = await service.create_clip(
+        presenter_id="v2_public_Adam@0GLJgELXjc",
+        script_text="Hello from D-ID fallback.",
+    )
+
+    assert result["clip_id"] == "clp_123"
+    assert captured["url"] == "https://api.d-id.com/clips"
+    assert captured["headers"]["Authorization"] == "Basic test_did_key"
+    assert captured["json"]["presenter_id"] == "v2_public_Adam@0GLJgELXjc"
+    assert captured["json"]["script"] == {
+        "type": "text",
+        "input": "Hello from D-ID fallback.",
+    }
+    assert captured["json"]["config"]["result_format"] == "mp4"
+    assert captured["provider"] == "did"
+    assert captured["usage"]["clips"] == 1
+    assert captured["metadata"]["operation"] == "create_clip"
+
+
+@pytest.mark.asyncio
+async def test_did_service_blocks_before_outbound_call_when_quota_exceeded(
+    monkeypatch,
+):
+    blocked = QuotaExceededError("D-ID quota exhausted before create_clip.")
+
+    class StubClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers=None, json=None):
+            raise AssertionError(f"D-ID should not be called when quota is blocked: {url}")
+
+    async def raise_quota(*_args, **_kwargs):
+        raise blocked
+
+    monkeypatch.setattr(
+        "services.did_service.httpx.AsyncClient",
+        lambda **_: StubClient(),
+    )
+    monkeypatch.setattr(
+        "services.did_service.QuotaMonitorService.assert_within_budget",
+        raise_quota,
+    )
+    monkeypatch.setattr(
+        "services.did_service.settings.DID_API_KEY",
+        "test_did_key",
+    )
+
+    service = DIDService()
+    with pytest.raises(QuotaExceededError, match="D-ID quota exhausted"):
+        await service.create_clip(
+            presenter_id="v2_public_Adam@0GLJgELXjc",
+            script_text="Hello from D-ID fallback.",
+        )
 
 
 @pytest.mark.asyncio

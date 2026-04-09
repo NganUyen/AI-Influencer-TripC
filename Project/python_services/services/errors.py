@@ -80,6 +80,18 @@ class HeyGenAvatarSetupError(HeyGenServiceError):
     retryable = False
 
 
+# D-ID
+
+class DIDServiceError(PipelineError):
+    """Generic D-ID error."""
+    retryable = True
+
+
+class DIDTimeoutError(DIDServiceError):
+    """D-ID polling timed out. Retryable."""
+    retryable = True
+
+
 # ─── ffmpeg Assembly ──────────────────────────────────────────────────────────
 
 class AssemblyError(PipelineError):

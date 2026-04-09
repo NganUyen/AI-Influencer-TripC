@@ -13,12 +13,15 @@ import asyncio
 import os
 from io import BytesIO
 
+from config.settings import settings
+from services.did_service import DIDService
 from services.fal_service import FalAIService
 from services.google_tts_service import GoogleTTSService
 from services.heygen_service import HeyGenService
 from services.storage_service import StorageService
 from services.media_storage_service import MediaStorageService
 from services.image_generation_service import ImageGenerationService
+from services.errors import QuotaExceededError
 from services.contracts import (
     AudioInput,
     ImageInput,
@@ -521,18 +524,156 @@ def _is_heygen_insufficient_credit_error(exc: Exception) -> bool:
     )
 
 
+def _is_provider_quota_error(exc: Exception, provider_name: str) -> bool:
+    if isinstance(exc, QuotaExceededError):
+        return provider_name.lower() in str(exc).lower()
+    return False
+
+
+def _raise_talking_head_activity_error(
+    message: str,
+    *,
+    exc: Exception,
+) -> None:
+    if isinstance(exc, QuotaExceededError):
+        raise ApplicationError(message, non_retryable=True) from exc
+
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+        status_code = exc.response.status_code
+        raise ApplicationError(
+            message,
+            non_retryable=400 <= status_code < 500 and status_code != 429,
+        ) from exc
+
+    raise ApplicationError(
+        message,
+        non_retryable=not getattr(exc, "retryable", False),
+    ) from exc
+
+
+async def _download_video_bytes(video_url: str) -> bytes:
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.get(video_url)
+        response.raise_for_status()
+        return response.content
+
+
+async def _store_talking_head_video(
+    *,
+    source_video_url: str,
+    config: Dict[str, Any],
+    provider: str,
+    provider_job_id_key: str,
+    provider_job_id: str,
+) -> Dict[str, Any]:
+    day: int = config.get("day", 1)
+    topic: str = config.get("topic", "episode")
+    persona_id: str = config.get("persona_id", "legacy")
+    owner_key = config.get("owner_key")
+    user_id = config.get("user_id")
+
+    storage = StorageService()
+    video_bytes = await _download_video_bytes(source_video_url)
+
+    storage_result = None
+    if persona_id or user_id or owner_key:
+        storage_result = await MediaStorageService().upload_bytes(
+            data=video_bytes,
+            content_type="video/mp4",
+            campaign_id=config.get("campaign_id"),
+            asset_type="VIDEO",
+            asset_kind="video",
+            generation_prompt=topic,
+            user_id=user_id,
+            owner_key=owner_key,
+            persona_id=persona_id,
+            metadata={"day": day, "source": "talking_head", "provider": provider},
+            file_name_hint=topic,
+        )
+
+    if storage_result and storage_result.get("access_url"):
+        public_url = storage_result["access_url"]
+    else:
+        filename = (
+            f"videos/{persona_id}/talking_head/day{day}/{topic.replace(' ', '_')[:30]}.mp4"
+        )
+        public_url = await storage.upload_bytes(
+            data=video_bytes,
+            filename=filename,
+            content_type="video/mp4",
+        )
+
+    return {
+        "type": "talking_head_video",
+        "provider": provider,
+        "url": public_url,
+        "storage_url": public_url,
+        provider_job_id_key: provider_job_id,
+        "status": "completed",
+        "day": day,
+        "topic": topic,
+        "metadata": {
+            **config,
+            "talking_head_provider": provider,
+        },
+    }
+
+
+async def _create_did_talking_head_fallback(config: Dict[str, Any]) -> Dict[str, Any]:
+    script_text = str(config.get("script_text") or "").strip()
+    presenter_id = (
+        str(config.get("did_presenter_id") or settings.DID_DEFAULT_PRESENTER_ID or "")
+        .strip()
+    )
+    user_id = config.get("user_id")
+
+    if not settings.DID_API_KEY:
+        raise ValueError("D-ID fallback is unavailable because DID_API_KEY is not configured")
+    if not script_text:
+        raise ValueError("D-ID fallback requires script_text in the talking-head config")
+    if not presenter_id:
+        raise ValueError(
+            "D-ID fallback requires DID_DEFAULT_PRESENTER_ID or did_presenter_id"
+        )
+
+    did = DIDService()
+    clip_job = await did.create_clip(
+        presenter_id=presenter_id,
+        script_text=script_text,
+        user_id=user_id,
+    )
+    clip_id = clip_job.get("clip_id")
+    if not clip_id:
+        raise ValueError("D-ID did not return clip_id")
+
+    logger.warning(
+        "Falling back from HeyGen to D-ID | presenter_id=%s | clip_id=%s",
+        presenter_id,
+        clip_id,
+    )
+    did_video_url = await did.poll_clip_status(
+        clip_id,
+        timeout_seconds=600,
+        user_id=user_id,
+    )
+    return await _store_talking_head_video(
+        source_video_url=did_video_url,
+        config=config,
+        provider="d_id",
+        provider_job_id_key="did_clip_id",
+        provider_job_id=clip_id,
+    )
+
+
 @activity.defn
 async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Generate a talking-head asset via HeyGen and store it in object storage."""
+    """Generate a talking-head asset via HeyGen, with D-ID fallback on quota exhaustion."""
     avatar_id: str = config.get("avatar_id", "")
     audio_url: str = config.get("audio_url", "")
     background: str = config.get("background", "blur")
     platform: str = str(config.get("platform", "tiktok")).lower().strip()
     requested_ratio: str = str(config.get("aspect_ratio") or "").strip()
     day: int = config.get("day", 1)
-    topic: str = config.get("topic", "episode")
-    persona_id: str = config.get("persona_id", "legacy")
-    owner_key = config.get("owner_key")
     user_id = config.get("user_id")
 
     if not avatar_id or not audio_url:
@@ -542,7 +683,6 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     heygen = HeyGenService()
-    storage = StorageService()
 
     logger.info(f"Creating talking head | avatar: {avatar_id} | day: {day}")
 
@@ -568,12 +708,27 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
             user_id=user_id,
         )
     except Exception as exc:
-        if _is_heygen_insufficient_credit_error(exc):
-            raise ApplicationError(
-                "HeyGen has insufficient API credits. Top up credits or switch to voiceover-only mode.",
-                non_retryable=True,
-            ) from exc
-        raise
+        if _is_heygen_insufficient_credit_error(exc) or _is_provider_quota_error(
+            exc, "heygen"
+        ):
+            try:
+                return await _create_did_talking_head_fallback(config)
+            except Exception as fallback_exc:
+                if isinstance(fallback_exc, ValueError) and "d-id fallback" in str(
+                    fallback_exc
+                ).lower():
+                    raise ApplicationError(
+                        f"HeyGen has insufficient API credits and D-ID fallback is unavailable: {fallback_exc}",
+                        non_retryable=True,
+                    ) from fallback_exc
+                _raise_talking_head_activity_error(
+                    "HeyGen quota is exhausted and D-ID fallback failed.",
+                    exc=fallback_exc,
+                )
+        _raise_talking_head_activity_error(
+            "Talking-head generation failed during HeyGen create_video.",
+            exc=exc,
+        )
 
     video_id = video_job.get("video_id")
     if not video_id:
@@ -587,54 +742,41 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
             user_id=user_id,
         )
     except Exception as exc:
-        if _is_heygen_insufficient_credit_error(exc):
-            raise ApplicationError(
-                "HeyGen has insufficient API credits. Top up credits or switch to voiceover-only mode.",
-                non_retryable=True,
-            ) from exc
-        raise
-
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.get(heygen_video_url)
-        response.raise_for_status()
-        video_bytes = response.content
-
-    storage_result = None
-    if persona_id or user_id or owner_key:
-        storage_result = await MediaStorageService().upload_bytes(
-            data=video_bytes,
-            content_type="video/mp4",
-            campaign_id=config.get("campaign_id"),
-            asset_type="VIDEO",
-            asset_kind="video",
-            generation_prompt=topic,
-            user_id=user_id,
-            owner_key=owner_key,
-            persona_id=persona_id,
-            metadata={"day": day, "source": "talking_head"},
-            file_name_hint=topic,
+        if _is_heygen_insufficient_credit_error(exc) or _is_provider_quota_error(
+            exc, "heygen"
+        ):
+            try:
+                return await _create_did_talking_head_fallback(config)
+            except Exception as fallback_exc:
+                if isinstance(fallback_exc, ValueError) and "d-id fallback" in str(
+                    fallback_exc
+                ).lower():
+                    raise ApplicationError(
+                        f"HeyGen has insufficient API credits and D-ID fallback is unavailable: {fallback_exc}",
+                        non_retryable=True,
+                    ) from fallback_exc
+                _raise_talking_head_activity_error(
+                    "HeyGen quota is exhausted and D-ID fallback failed.",
+                    exc=fallback_exc,
+                )
+        _raise_talking_head_activity_error(
+            "Talking-head generation failed while polling HeyGen status.",
+            exc=exc,
         )
 
-    if storage_result and storage_result.get("access_url"):
-        public_url = storage_result["access_url"]
-    else:
-        filename = f"videos/{persona_id}/talking_head/day{day}/{topic.replace(' ', '_')[:30]}.mp4"
-        public_url = await storage.upload_bytes(
-            data=video_bytes,
-            filename=filename,
-            content_type="video/mp4",
+    try:
+        return await _store_talking_head_video(
+            source_video_url=heygen_video_url,
+            config=config,
+            provider="heygen",
+            provider_job_id_key="heygen_video_id",
+            provider_job_id=video_id,
         )
-
-    return {
-        "type": "talking_head_video",
-        "url": public_url,
-        "storage_url": public_url,
-        "heygen_video_id": video_id,
-        "status": "completed",
-        "day": day,
-        "topic": topic,
-        "metadata": config,
-    }
+    except Exception as exc:
+        _raise_talking_head_activity_error(
+            "Talking-head video storage failed after HeyGen completed.",
+            exc=exc,
+        )
 
 
 @activity.defn

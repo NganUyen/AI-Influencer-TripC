@@ -130,6 +130,7 @@ class QuotaMonitorService:
         "google_tts": 0.000004,  # $4 per 1M chars
         "fal_ai": 0.05,  # $0.05 per request avg
         "heygen": 2.0,  # $2.00 per job
+        "did": 2.0,  # $2.00 per clip (configurable spend limits can override)
     }
 
     PROVIDERS = {
@@ -201,6 +202,18 @@ class QuotaMonitorService:
             "remaining_support": "live_endpoint",
             "remaining_note": (
                 "Remaining quota is refreshed from HeyGen's remaining quota endpoint."
+            ),
+        },
+        "did": {
+            "label": "D-ID",
+            "api_key_attr": "DID_API_KEY",
+            "usage_unit": "clips",
+            "billing_type": "subscription",
+            "limit_attr": "DID_MONTHLY_CLIP_LIMIT",
+            "remaining_support": "configured_limit_only",
+            "remaining_note": (
+                "This integration tracks D-ID clip usage locally; live remaining quota"
+                " is not exposed in the current adapter."
             ),
         },
         "openclaw": {

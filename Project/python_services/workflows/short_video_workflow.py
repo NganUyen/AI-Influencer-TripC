@@ -500,6 +500,7 @@ class ShortVideoWorkflow:
                         {
                             "avatar_id": heygen_avatar_id,
                             "audio_url": audio_result["url"],
+                            "script_text": script_json.get("script", ""),
                             "platform": platform,
                             "day": 1,
                             "topic": topic,

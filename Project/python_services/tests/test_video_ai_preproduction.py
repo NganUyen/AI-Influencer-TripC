@@ -254,6 +254,39 @@ async def test_video_ai_collects_required_fields_in_order(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_video_ai_keeps_planning_flow_when_website_review_sets_access_level():
+    session = VideoAISkill.initial_session()
+    session.collected.update(
+        {
+            "objective": "Need a product demo.",
+            "target_url": "https://tripc.ai",
+            "persona_id": "minh_vn",
+            "access_level": "public_page_only",
+        }
+    )
+    session.artifacts["page_review"] = {
+        "target_url": "https://tripc.ai",
+        "normalized_url": "https://tripc.ai",
+        "page_title": "TripC",
+        "product_summary": "Trip planner",
+        "access_level": "public_page_only",
+        "login_required": False,
+        "visible_features": [],
+        "visible_flows": [],
+        "recording_candidates": [],
+        "risks": [],
+        "assumptions": [],
+    }
+
+    result = await VideoAISkill.execute(session, "http://backend", object())
+
+    assert result.success is True
+    assert result.next_step == "choose_execution_mode"
+    assert result.session.step_key == "choose_execution_mode"
+    assert result.session.collected["creative_input_mode"] is None
+
+
+@pytest.mark.asyncio
 async def test_video_ai_autofills_stale_reference_url_step_after_plan_confirmation(
     monkeypatch,
 ):

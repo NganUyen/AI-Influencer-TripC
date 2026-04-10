@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from temporalio.api.enums.v1 import WorkflowExecutionStatus
 
 from api import workflows
-from services.contracts import ConceptBriefContract
+from services.contracts import ConceptBriefContract, VideoWorkflowStartPayloadContract
 from skills import video_ai as video_ai_module
 from skills.video_ai import VideoAISkill
 
@@ -329,6 +329,7 @@ async def test_start_video_workflow_rejects_missing_heygen_avatar_when_talking_h
         tone="natural",
         platform="tiktok",
         telegram_chat_id="123456",
+        approved_package=_approved_package_payload("persona-1"),
         # talking_head_optional defaults to False
     )
 
@@ -367,6 +368,7 @@ async def test_start_video_workflow_passes_talking_head_optional(monkeypatch):
         topic="Hoi An cafe guide",
         telegram_chat_id="999",
         talking_head_optional=True,
+        approved_package=_approved_package_payload("persona-2"),
     )
 
     response = await workflows.start_video_workflow(request, payload)
@@ -383,6 +385,43 @@ async def test_start_video_workflow_passes_talking_head_optional(monkeypatch):
         "heygen_avatar_id": None,
         "avatar_image_url": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_start_video_workflow_rejects_missing_approved_package(monkeypatch):
+    handle = SimpleNamespace(id="run-video-missing-package")
+    mock_client = AsyncMock()
+    mock_client.start_workflow.return_value = handle
+
+    async def fake_get_temporal_client(_request):
+        return mock_client
+
+    async def fake_get_persona(_persona_id, user_id=None, owner_key=None):
+        return {
+            "persona_id": "persona-missing-package",
+            "status": "ready",
+            "tts_voice": "male_friendly",
+            "heygen_avatar_id": "avatar-ready",
+        }
+
+    monkeypatch.setattr(workflows, "get_temporal_client", fake_get_temporal_client)
+    monkeypatch.setattr(
+        workflows.PersonaRegistryService, "get_persona", fake_get_persona
+    )
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    payload = workflows.StartVideoRequest(
+        persona_id="persona-missing-package",
+        topic="Nha Trang itinerary ideas",
+        telegram_chat_id="555",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await workflows.start_video_workflow(request, payload)
+
+    assert exc_info.value.status_code == 400
+    assert "approved_package is required" in exc_info.value.detail
+    mock_client.start_workflow.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -433,6 +472,57 @@ async def test_start_video_workflow_passes_validated_approved_package_and_snapsh
         "heygen_avatar_id": "avatar-3",
         "avatar_image_url": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_start_video_workflow_rejects_unconfirmed_review_plan(monkeypatch):
+    handle = SimpleNamespace(id="run-video-draft-plan")
+    mock_client = AsyncMock()
+    mock_client.start_workflow.return_value = handle
+
+    async def fake_get_temporal_client(_request):
+        return mock_client
+
+    async def fake_get_persona(_persona_id, user_id=None, owner_key=None):
+        return {
+            "persona_id": "persona-draft-plan",
+            "display_name": "Persona Draft",
+            "language": "English",
+            "status": "ready",
+            "tts_voice": "en-US-Neural2-A",
+            "heygen_avatar_id": None,
+        }
+
+    monkeypatch.setattr(workflows, "get_temporal_client", fake_get_temporal_client)
+    monkeypatch.setattr(
+        workflows.PersonaRegistryService, "get_persona", fake_get_persona
+    )
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    payload = workflows.StartVideoRequest(
+        persona_id="persona-draft-plan",
+        topic="Create a short product review",
+        telegram_chat_id="446",
+        talking_head_optional=True,
+        execution_mode="autonomous_screen_recording",
+        review_plan={
+            "planning_mode": "webpage_review",
+            "objective": "Create a short product review",
+            "target_url": "https://example.com",
+            "language": "English",
+            "persona_id": "persona-draft-plan",
+            "execution_mode": "autonomous_screen_recording",
+            "access_level": "public_page_only",
+            "status": "draft",
+        },
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await workflows.start_video_workflow(request, payload)
+
+    assert exc_info.value.status_code == 400
+    assert "review_plan must be confirmed" in exc_info.value.detail
+    mock_client.start_workflow.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -500,6 +590,20 @@ def test_start_video_request_rejects_invalid_approved_package():
             persona_id="persona-4",
             topic="Broken package",
             approved_package={"concept_brief": {"persona_id": "persona-4"}},
+        )
+
+
+def test_video_workflow_start_payload_requires_approval_artifact():
+    with pytest.raises(ValidationError):
+        VideoWorkflowStartPayloadContract(
+            persona_id="persona-approval",
+            topic="Start without approval",
+            persona_snapshot={
+                "persona_id": "persona-approval",
+                "language": "English",
+                "tts_voice": "en-US-Neural2-A",
+                "heygen_avatar_id": "avatar-approval",
+            },
         )
 
 

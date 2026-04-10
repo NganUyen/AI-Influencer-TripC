@@ -53,6 +53,40 @@ class StartVideoRequest(BaseModel):
     audio_policy: Optional[VideoAudioPolicyContract] = None
 
 
+def _ensure_video_start_is_approved(payload: StartVideoRequest) -> None:
+    review_execution_modes = {
+        "autonomous_screen_recording",
+        "authenticated_pc_recording",
+    }
+
+    if payload.approved_package is not None:
+        return
+
+    if payload.review_plan is not None:
+        if payload.review_plan.status != "confirmed":
+            raise HTTPException(
+                status_code=400,
+                detail="review_plan must be confirmed before media generation can start.",
+            )
+        if payload.execution_mode not in review_execution_modes:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "review_plan start requires autonomous_screen_recording or "
+                    "authenticated_pc_recording execution_mode."
+                ),
+            )
+        return
+
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            "approved_package is required before starting media generation. "
+            "Approve the best plan/package first."
+        ),
+    )
+
+
 def _normalize_execution_status(status_value: Any) -> Optional[str]:
     """Convert Temporal WorkflowExecutionStatus enum to lowercase string."""
     try:
@@ -238,6 +272,7 @@ async def start_video_workflow(request: Request, payload: StartVideoRequest):
             status_code=400,
             detail="Persona is missing tts_voice.",
         )
+    _ensure_video_start_is_approved(payload)
     # When talking_head is required, verify heygen_avatar_id exists
     if not payload.talking_head_optional and not persona.get("heygen_avatar_id"):
         raise HTTPException(

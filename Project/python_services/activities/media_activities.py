@@ -6,18 +6,22 @@ Integrates with fal.ai, PlayHT, Google TTS, HeyGen, and storage services
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from typing import Dict, Any, List
+import json
 import logging
 import httpx
 import asyncio
 import os
 from io import BytesIO
 
+from config.settings import settings
+from services.did_service import DIDService
 from services.fal_service import FalAIService
 from services.google_tts_service import GoogleTTSService
 from services.heygen_service import HeyGenService
 from services.storage_service import StorageService
 from services.media_storage_service import MediaStorageService
 from services.image_generation_service import ImageGenerationService
+from services.errors import QuotaExceededError
 from services.contracts import (
     AudioInput,
     ImageInput,
@@ -144,7 +148,8 @@ async def generate_image(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to generate image: {str(e)}")
         raise ApplicationError(
-            f"Image generation failed: {str(e)}", non_retryable=False
+            f"Image generation failed: {str(e)}",
+            non_retryable=not getattr(e, "retryable", False),
         )
     finally:
         await image_service.close()
@@ -196,7 +201,8 @@ async def generate_video(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to generate video: {str(e)}")
         raise ApplicationError(
-            f"Video generation failed: {str(e)}", non_retryable=False
+            f"Video generation failed: {str(e)}",
+            non_retryable=not getattr(e, "retryable", False),
         )
     finally:
         await fal_service.close()
@@ -361,7 +367,7 @@ async def generate_audio(prompt_config: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"Failed to generate audio: {str(e)}")
         raise ApplicationError(
             f"Failed to generate audio via Google TTS: {str(e)}",
-            non_retryable=False,
+            non_retryable=not getattr(e, "retryable", False),
         )
 
 
@@ -493,63 +499,81 @@ async def create_slideshow(config: Dict[str, Any]) -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@activity.defn
-async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Generate a talking-head asset via HeyGen and store it in object storage."""
-    avatar_id: str = config.get("avatar_id", "")
-    audio_url: str = config.get("audio_url", "")
-    background: str = config.get("background", "blur")
-    platform: str = str(config.get("platform", "tiktok")).lower().strip()
-    requested_ratio: str = str(config.get("aspect_ratio") or "").strip()
+def _is_heygen_insufficient_credit_error(exc: Exception) -> bool:
+    candidates = [str(exc)]
+    response = getattr(exc, "response", None)
+    if response is not None:
+        try:
+            response_text = (response.text or "").strip()
+        except Exception:
+            response_text = ""
+        if response_text:
+            candidates.append(response_text)
+
+        try:
+            response_json = response.json()
+        except Exception:
+            response_json = None
+        if response_json is not None:
+            candidates.append(json.dumps(response_json, ensure_ascii=True))
+
+    return any(
+        "MOVIO_PAYMENT_INSUFFICIENT_CREDIT" in candidate
+        or "Insufficient credit" in candidate
+        for candidate in candidates
+    )
+
+
+def _is_provider_quota_error(exc: Exception, provider_name: str) -> bool:
+    if isinstance(exc, QuotaExceededError):
+        return provider_name.lower() in str(exc).lower()
+    return False
+
+
+def _raise_talking_head_activity_error(
+    message: str,
+    *,
+    exc: Exception,
+) -> None:
+    if isinstance(exc, QuotaExceededError):
+        raise ApplicationError(message, non_retryable=True) from exc
+
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+        status_code = exc.response.status_code
+        raise ApplicationError(
+            message,
+            non_retryable=400 <= status_code < 500 and status_code != 429,
+        ) from exc
+
+    raise ApplicationError(
+        message,
+        non_retryable=not getattr(exc, "retryable", False),
+    ) from exc
+
+
+async def _download_video_bytes(video_url: str) -> bytes:
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.get(video_url)
+        response.raise_for_status()
+        return response.content
+
+
+async def _store_talking_head_video(
+    *,
+    source_video_url: str,
+    config: Dict[str, Any],
+    provider: str,
+    provider_job_id_key: str,
+    provider_job_id: str,
+) -> Dict[str, Any]:
     day: int = config.get("day", 1)
     topic: str = config.get("topic", "episode")
     persona_id: str = config.get("persona_id", "legacy")
     owner_key = config.get("owner_key")
     user_id = config.get("user_id")
 
-    if not avatar_id or not audio_url:
-        raise ApplicationError(
-            "create_talking_head_video: missing 'avatar_id' or 'audio_url'",
-            non_retryable=True,
-        )
-
-    heygen = HeyGenService()
     storage = StorageService()
-
-    logger.info(f"Creating talking head | avatar: {avatar_id} | day: {day}")
-
-    # HeyGen currently supports only 9:16 and 16:9 for create_video.
-    if requested_ratio in {"9:16", "16:9"}:
-        aspect_ratio = requested_ratio
-    elif platform in {"youtube", "linkedin", "x", "twitter"}:
-        aspect_ratio = "16:9"
-    else:
-        aspect_ratio = "9:16"
-
-    width, height = (1920, 1080) if aspect_ratio == "16:9" else (1080, 1920)
-
-    video_job = await heygen.create_video(
-        avatar_id=avatar_id,
-        audio_url=audio_url,
-        background=background,
-        aspect_ratio=aspect_ratio,
-        width=width,
-        height=height,
-        allow_aspect_ratio_fallback=True,
-        user_id=user_id,
-    )
-
-    video_id = video_job.get("video_id")
-    if not video_id:
-        raise ApplicationError("HeyGen did not return video_id", non_retryable=False)
-
-    logger.info(f"Polling HeyGen video {video_id}...")
-    heygen_video_url = await heygen.poll_video_status(video_id, timeout_seconds=600, user_id=user_id)
-
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.get(heygen_video_url)
-        response.raise_for_status()
-        video_bytes = response.content
+    video_bytes = await _download_video_bytes(source_video_url)
 
     storage_result = None
     if persona_id or user_id or owner_key:
@@ -563,14 +587,16 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
             user_id=user_id,
             owner_key=owner_key,
             persona_id=persona_id,
-            metadata={"day": day, "source": "talking_head"},
+            metadata={"day": day, "source": "talking_head", "provider": provider},
             file_name_hint=topic,
         )
 
     if storage_result and storage_result.get("access_url"):
         public_url = storage_result["access_url"]
     else:
-        filename = f"videos/{persona_id}/talking_head/day{day}/{topic.replace(' ', '_')[:30]}.mp4"
+        filename = (
+            f"videos/{persona_id}/talking_head/day{day}/{topic.replace(' ', '_')[:30]}.mp4"
+        )
         public_url = await storage.upload_bytes(
             data=video_bytes,
             filename=filename,
@@ -579,14 +605,178 @@ async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "type": "talking_head_video",
+        "provider": provider,
         "url": public_url,
         "storage_url": public_url,
-        "heygen_video_id": video_id,
+        provider_job_id_key: provider_job_id,
         "status": "completed",
         "day": day,
         "topic": topic,
-        "metadata": config,
+        "metadata": {
+            **config,
+            "talking_head_provider": provider,
+        },
     }
+
+
+async def _create_did_talking_head_fallback(config: Dict[str, Any]) -> Dict[str, Any]:
+    script_text = str(config.get("script_text") or "").strip()
+    presenter_id = (
+        str(config.get("did_presenter_id") or settings.DID_DEFAULT_PRESENTER_ID or "")
+        .strip()
+    )
+    user_id = config.get("user_id")
+
+    if not settings.DID_API_KEY:
+        raise ValueError("D-ID fallback is unavailable because DID_API_KEY is not configured")
+    if not script_text:
+        raise ValueError("D-ID fallback requires script_text in the talking-head config")
+    if not presenter_id:
+        raise ValueError(
+            "D-ID fallback requires DID_DEFAULT_PRESENTER_ID or did_presenter_id"
+        )
+
+    did = DIDService()
+    clip_job = await did.create_clip(
+        presenter_id=presenter_id,
+        script_text=script_text,
+        user_id=user_id,
+    )
+    clip_id = clip_job.get("clip_id")
+    if not clip_id:
+        raise ValueError("D-ID did not return clip_id")
+
+    logger.warning(
+        "Falling back from HeyGen to D-ID | presenter_id=%s | clip_id=%s",
+        presenter_id,
+        clip_id,
+    )
+    did_video_url = await did.poll_clip_status(
+        clip_id,
+        timeout_seconds=600,
+        user_id=user_id,
+    )
+    return await _store_talking_head_video(
+        source_video_url=did_video_url,
+        config=config,
+        provider="d_id",
+        provider_job_id_key="did_clip_id",
+        provider_job_id=clip_id,
+    )
+
+
+@activity.defn
+async def create_talking_head_video(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate a talking-head asset via HeyGen, with D-ID fallback on quota exhaustion."""
+    avatar_id: str = config.get("avatar_id", "")
+    audio_url: str = config.get("audio_url", "")
+    background: str = config.get("background", "blur")
+    platform: str = str(config.get("platform", "tiktok")).lower().strip()
+    requested_ratio: str = str(config.get("aspect_ratio") or "").strip()
+    day: int = config.get("day", 1)
+    user_id = config.get("user_id")
+
+    if not avatar_id or not audio_url:
+        raise ApplicationError(
+            "create_talking_head_video: missing 'avatar_id' or 'audio_url'",
+            non_retryable=True,
+        )
+
+    heygen = HeyGenService()
+
+    logger.info(f"Creating talking head | avatar: {avatar_id} | day: {day}")
+
+    # HeyGen currently supports only 9:16 and 16:9 for create_video.
+    if requested_ratio in {"9:16", "16:9"}:
+        aspect_ratio = requested_ratio
+    elif platform in {"youtube", "linkedin", "x", "twitter"}:
+        aspect_ratio = "16:9"
+    else:
+        aspect_ratio = "9:16"
+
+    width, height = (1920, 1080) if aspect_ratio == "16:9" else (1080, 1920)
+
+    try:
+        video_job = await heygen.create_video(
+            avatar_id=avatar_id,
+            audio_url=audio_url,
+            background=background,
+            aspect_ratio=aspect_ratio,
+            width=width,
+            height=height,
+            allow_aspect_ratio_fallback=True,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        if _is_heygen_insufficient_credit_error(exc) or _is_provider_quota_error(
+            exc, "heygen"
+        ):
+            try:
+                return await _create_did_talking_head_fallback(config)
+            except Exception as fallback_exc:
+                if isinstance(fallback_exc, ValueError) and "d-id fallback" in str(
+                    fallback_exc
+                ).lower():
+                    raise ApplicationError(
+                        f"HeyGen has insufficient API credits and D-ID fallback is unavailable: {fallback_exc}",
+                        non_retryable=True,
+                    ) from fallback_exc
+                _raise_talking_head_activity_error(
+                    "HeyGen quota is exhausted and D-ID fallback failed.",
+                    exc=fallback_exc,
+                )
+        _raise_talking_head_activity_error(
+            "Talking-head generation failed during HeyGen create_video.",
+            exc=exc,
+        )
+
+    video_id = video_job.get("video_id")
+    if not video_id:
+        raise ApplicationError("HeyGen did not return video_id", non_retryable=False)
+
+    logger.info(f"Polling HeyGen video {video_id}...")
+    try:
+        heygen_video_url = await heygen.poll_video_status(
+            video_id,
+            timeout_seconds=600,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        if _is_heygen_insufficient_credit_error(exc) or _is_provider_quota_error(
+            exc, "heygen"
+        ):
+            try:
+                return await _create_did_talking_head_fallback(config)
+            except Exception as fallback_exc:
+                if isinstance(fallback_exc, ValueError) and "d-id fallback" in str(
+                    fallback_exc
+                ).lower():
+                    raise ApplicationError(
+                        f"HeyGen has insufficient API credits and D-ID fallback is unavailable: {fallback_exc}",
+                        non_retryable=True,
+                    ) from fallback_exc
+                _raise_talking_head_activity_error(
+                    "HeyGen quota is exhausted and D-ID fallback failed.",
+                    exc=fallback_exc,
+                )
+        _raise_talking_head_activity_error(
+            "Talking-head generation failed while polling HeyGen status.",
+            exc=exc,
+        )
+
+    try:
+        return await _store_talking_head_video(
+            source_video_url=heygen_video_url,
+            config=config,
+            provider="heygen",
+            provider_job_id_key="heygen_video_id",
+            provider_job_id=video_id,
+        )
+    except Exception as exc:
+        _raise_talking_head_activity_error(
+            "Talking-head video storage failed after HeyGen completed.",
+            exc=exc,
+        )
 
 
 @activity.defn
@@ -1985,11 +2175,11 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                 if top_half_type in _STRICT_BROWSER_CAPTURE_TYPES:
                     raise ApplicationError(
                         f"Playwright top-half recording failed for scene {scene_id}: {e}",
-                        non_retryable=False,
+                        non_retryable=not getattr(e, "retryable", False),
                     )
                 raise ApplicationError(
                     f"Top-half generation failed for scene {scene_id}: {e}",
-                    non_retryable=False,
+                    non_retryable=not getattr(e, "retryable", False),
                 )
 
     logger.info(

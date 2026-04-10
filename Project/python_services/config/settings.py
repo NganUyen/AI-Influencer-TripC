@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     FAL_AI_API_KEY: str
     GOOGLE_AI_API_KEY: Optional[str] = None
     HEYGEN_API_KEY: Optional[str] = None
+    DID_API_KEY: Optional[str] = None
+    DID_DEFAULT_PRESENTER_ID: Optional[str] = "v2_public_Adam@0GLJgELXjc"
     GOOGLE_TTS_API_KEY: Optional[str] = None
 
     # Object storage
@@ -186,6 +188,7 @@ class Settings(BaseSettings):
     GOOGLE_TTS_MONTHLY_CHAR_LIMIT: Optional[int] = None
     FAL_AI_MONTHLY_REQUEST_LIMIT: Optional[int] = None
     HEYGEN_MONTHLY_JOB_LIMIT: Optional[int] = None
+    DID_MONTHLY_CLIP_LIMIT: Optional[int] = None
 
     # Legacy S3-compatible storage settings
     R2_ENDPOINT_URL: Optional[str] = None
@@ -221,6 +224,8 @@ class Settings(BaseSettings):
         "SUPABASE_STORAGE_PUBLIC_URL",
         "STORAGE_BUCKET_NAME",
         "STORAGE_PUBLIC_URL",
+        "DID_API_KEY",
+        "DID_DEFAULT_PRESENTER_ID",
         "LINKEDIN_OAUTH_CLIENT_ID",
         "LINKEDIN_OAUTH_CLIENT_SECRET",
         "FACEBOOK_OAUTH_CLIENT_ID",

@@ -16,9 +16,11 @@ from config.settings import settings
 from services.errors import (
     PostizAuthError,
     PostizConfigurationError,
+    QuotaExceededError,
     PostizRetryableError,
     PostizServiceError,
 )
+from services.quota_monitor_service import QuotaMonitorService
 
 logger = logging.getLogger(__name__)
 
@@ -429,6 +431,14 @@ class PostizService:
         scheduled_time: Optional[str] = None,
     ) -> Dict[str, Any]:
         logger.info("Publishing to %s via Postiz public API", platform)
+        try:
+            await QuotaMonitorService.assert_within_budget(
+                provider="postiz",
+                estimated_usage={"requests": 1, "posts": 1},
+                operation=f"publish:{platform}",
+            )
+        except QuotaExceededError as exc:
+            raise PostizServiceError(str(exc)) from exc
 
         integration_id = await self._resolve_integration_id(platform)
         uploaded_media = await self._upload_media(media_urls or [])

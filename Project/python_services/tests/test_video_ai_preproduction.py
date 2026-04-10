@@ -1,5 +1,5 @@
 from copy import deepcopy
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -374,6 +374,101 @@ async def test_video_ai_autofills_stale_reference_url_step_after_plan_confirmati
     assert result.session.step_key == "confirm_concept"
     assert result.session.collected["reference_url"] == "https://tripc.ai"
     assert result.session.collected["video_goal"] == "walkthrough"
+
+
+@pytest.mark.asyncio
+async def test_video_ai_manual_mobile_recording_uses_plan_autofill_after_upload(
+    monkeypatch,
+):
+    _patch_persona_lookup(monkeypatch)
+    auto_plan = {
+        "idea_brief": "Walk through TripC login and booking.",
+        "feature_focus": "Login and booking flow",
+        "video_goal": "walkthrough",
+        "audience": "travelers booking their first trip",
+        "cta": "Try TripC free",
+        "reference_url": "https://tripc.ai",
+        "access_level": "public_page_only",
+    }
+
+    async def fake_build_preproduction_plan_from_review(
+        cls,
+        *,
+        objective,
+        target_url,
+        page_review,
+        persona_snapshot,
+        platform="tiktok",
+    ):
+        assert objective == "Record a walkthrough"
+        assert target_url == "https://tripc.ai"
+        assert persona_snapshot["persona_id"] == "minh_vn"
+        return auto_plan
+
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_preproduction_plan_from_review",
+        classmethod(fake_build_preproduction_plan_from_review),
+    )
+
+    session = VideoAISkill.initial_session()
+    session.step_key = "upload_demo_video"
+    session.collected.update(
+        {
+            "objective": "Record a walkthrough",
+            "target_url": "https://tripc.ai",
+            "persona_id": "minh_vn",
+            "execution_mode": "manual_mobile_recording",
+            "creative_input_mode": "recorded_demo_video",
+            "demo_video_telegram_file_id": "file_12345",
+            "demo_video_asset_url": "https://storage.example.com/demo.mp4",
+        }
+    )
+    session.artifacts["plan_confirmed"] = True
+    session.artifacts["page_review"] = {
+        "target_url": "https://tripc.ai",
+        "normalized_url": "https://tripc.ai",
+        "page_title": "TripC",
+        "product_summary": "Trip planner",
+        "access_level": "public_page_only",
+        "login_required": False,
+        "visible_features": [],
+        "visible_flows": [],
+        "recording_candidates": [],
+        "risks": [],
+        "assumptions": [],
+    }
+
+    with patch.object(
+        VideoAISkill,
+        "_run_demo_analysis_and_grounding",
+        new_callable=AsyncMock,
+    ) as mock_run_analysis:
+        mock_run_analysis.return_value = MagicMock(model_dump=lambda mode="json": {})
+
+        with patch(
+            "skills.video_ai.IdeaResolverService.resolve",
+            new_callable=AsyncMock,
+        ) as mock_resolve:
+            mock_resolve.return_value = MagicMock(
+                resolved_main_idea="TripC walkthrough",
+                idea_confidence="high",
+                model_dump=lambda mode="json": {},
+            )
+            with patch("skills.video_ai.build_preview_summary", return_value={}):
+                with patch("skills.video_ai.build_preview_warnings", return_value=[]):
+                    result = await VideoAISkill.execute(
+                        session, "http://backend", object()
+                    )
+
+    assert result.success is True
+    assert result.next_step == "demo_preview_confirm"
+    assert result.session.step_key == "demo_preview_confirm"
+    assert result.session.collected["video_goal"] == "walkthrough"
+    assert result.session.collected["audience"] == auto_plan["audience"]
+    assert result.session.collected["cta"] == auto_plan["cta"]
+    assert result.session.collected["reference_url"] == auto_plan["reference_url"]
+    assert result.session.collected["access_level"] == auto_plan["access_level"]
 
 
 @pytest.mark.asyncio

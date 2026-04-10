@@ -166,6 +166,49 @@ def _demo_session_at_preview_confirm():
     return session
 
 
+def test_recorded_demo_missing_step_skips_legacy_video_goal_prompt():
+    session = VideoAISkill.initial_session()
+    session.collected.update(
+        {
+            "objective": "Record a walkthrough of TripC itinerary booking",
+            "persona_id": "minh_vn",
+            "creative_input_mode": "recorded_demo_video",
+            "demo_video_telegram_file_id": "file_12345",
+            "demo_video_asset_url": "https://storage.example.com/demo.mp4",
+            "reference_url": "https://tripc.ai",
+            "access_level": "public_page_only",
+            "cta": "Try TripC free",
+        }
+    )
+
+    next_step = VideoAISkill._missing_step(session)
+
+    assert next_step == "collect_audience"
+    assert session.collected["video_goal"] == "walkthrough"
+
+
+def test_recorded_demo_missing_step_reaches_preview_without_manual_video_goal():
+    session = VideoAISkill.initial_session()
+    session.collected.update(
+        {
+            "objective": "Record a walkthrough of TripC itinerary booking",
+            "persona_id": "minh_vn",
+            "creative_input_mode": "recorded_demo_video",
+            "demo_video_telegram_file_id": "file_12345",
+            "demo_video_asset_url": "https://storage.example.com/demo.mp4",
+            "reference_url": "https://tripc.ai",
+            "access_level": "public_page_only",
+            "audience": "travelers aged 22-35",
+            "cta": "Try TripC free",
+        }
+    )
+
+    next_step = VideoAISkill._missing_step(session)
+
+    assert next_step == "demo_preview_confirm"
+    assert session.collected["video_goal"] == "walkthrough"
+
+
 # =============================================================================
 # DemoFeatureGroundingService Tests
 # =============================================================================

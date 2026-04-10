@@ -223,7 +223,10 @@ class VideoAISkill(BaseSkill):
     def _needs_plan_autofill(cls, session: SkillSession) -> bool:
         if not session.artifacts.get("plan_confirmed"):
             return False
-        if str(session.collected.get("creative_input_mode") or "").strip() != "idea_brief":
+        creative_input_mode = str(
+            session.collected.get("creative_input_mode") or ""
+        ).strip()
+        if creative_input_mode not in {"idea_brief", "recorded_demo_video"}:
             return False
         if str(session.step_key or "").strip() in _PLAN_AUTOFILL_STEPS:
             return True
@@ -338,6 +341,17 @@ class VideoAISkill(BaseSkill):
         )
 
     @classmethod
+    def _ensure_recorded_demo_video_goal(cls, session: SkillSession) -> None:
+        if cls._has_value(session.collected.get("video_goal")):
+            return
+        objective = str(session.collected.get("objective") or "").strip()
+        if not objective:
+            return
+        session.collected["video_goal"] = CreativeDirectorService._fallback_video_goal(
+            objective
+        )
+
+    @classmethod
     async def _request_authenticated_handoff(
         cls,
         session: SkillSession,
@@ -442,16 +456,15 @@ class VideoAISkill(BaseSkill):
 
         # For recorded_demo_video mode
         if creative_input_mode == "recorded_demo_video":
+            cls._ensure_recorded_demo_video_goal(session)
             # Check both file_id AND asset_url - both are required for analysis
             # If only one is set (stale session state), force re-upload
             if not session.collected.get(
                 "demo_video_telegram_file_id"
             ) or not session.collected.get("demo_video_asset_url"):
                 return "upload_demo_video"
-            # Skip idea_brief and feature_focus, they're not required
+            # Skip legacy idea-brief-only collection steps for recorded demos.
             # Continue with other required fields
-            if not session.collected.get("video_goal"):
-                return "choose_video_goal"
             if not session.collected.get("audience"):
                 return "collect_audience"
             if not session.collected.get("cta"):

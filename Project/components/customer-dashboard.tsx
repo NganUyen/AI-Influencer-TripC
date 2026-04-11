@@ -112,6 +112,21 @@ export type ContentItem = {
   published_at: string | null;
 };
 
+type VideoContextDraft = {
+  title: string;
+  description: string;
+  duration: string;
+  style: string;
+  targetAudience: string;
+  keyMessages: string;
+  callToAction: string;
+  tone: string;
+  personaId: string;
+  platforms: string;
+  language: string;
+  subtitles: boolean;
+};
+
 export type AIBackboneSettings = {
   access_mode: "workspace_default" | "customer_api_key" | "chatgpt_oauth";
   customer_api: {

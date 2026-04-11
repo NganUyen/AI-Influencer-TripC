@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
@@ -47,6 +47,33 @@ async function customerApiRequest<T>(
   }
 
   return (await response.json()) as T;
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={<AuthPageFallback />}>
+      <AuthPageContent />
+    </Suspense>
+  );
+}
+
+function AuthPageFallback() {
+  return (
+    <div className="bg-background text-on-surface min-h-screen flex flex-col items-center selection:bg-primary-container/20">
+      <main className="flex-1 w-full max-w-5xl mx-auto pt-32 pb-20 px-6">
+        <div className="mx-auto max-w-xl rounded-3xl border border-outline-variant/10 bg-surface/70 p-10 text-center shadow-sm backdrop-blur-xl">
+          <p className="text-[10px] font-black uppercase tracking-widest text-primary">Aura Influencer</p>
+          <h1 className="mt-4 text-3xl font-headline font-bold tracking-tight text-on-surface">
+            Preparing authentication
+          </h1>
+          <p className="mt-4 text-sm text-on-surface-variant">
+            Loading your login options...
+          </p>
+        </div>
+      </main>
+      <Footer variant="page" />
+    </div>
+  );
 }
 
 function AuthPageContent() {
@@ -515,7 +542,7 @@ function AuthPageContent() {
           <a className="text-xs font-label text-on-surface-variant hover:text-primary underline" href="#">Privacy Protocol</a>
           <a className="text-xs font-label text-on-surface-variant hover:text-primary underline" href="#">Terms of Production</a>
         </div>
-      </main>
+      </footer>
 
       <Footer variant="page" />
     </div>

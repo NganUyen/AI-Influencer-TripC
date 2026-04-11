@@ -15,7 +15,10 @@ from services.contracts import (
     ScriptContract,
     SceneContract,
     ApprovedProductionPackageContract,
+    RecordingScriptContract,
+    RecordingScriptStepContract,
     VALID_TOP_HALF_SOURCE_TYPES,
+    VideoReviewPlanContract,
     URL_REQUIRED_SOURCE_TYPES,
 )
 from services.errors import ScriptGenerationError, ScriptContractError
@@ -70,6 +73,26 @@ class ScriptService:
     Follows the v2 pattern: service → contract validation → pipeline.
     """
 
+    @staticmethod
+    def _runtime_hints(runtime_context: Optional[dict]) -> dict:
+        context = runtime_context or {}
+        return {
+            "owner_key": str(context.get("_openclaw_owner_key") or "").strip() or None,
+            "user_id": str(context.get("_openclaw_user_id") or "").strip() or None,
+        }
+
+    async def _make_openclaw_service(
+        self,
+        runtime_context: Optional[dict] = None,
+    ) -> OpenClawService:
+        runtime_hints = self._runtime_hints(runtime_context)
+        if runtime_hints["owner_key"] or runtime_hints["user_id"]:
+            return await OpenClawService.create_for_owner(
+                owner_key=runtime_hints["owner_key"],
+                user_id=runtime_hints["user_id"],
+            )
+        return OpenClawService()
+
     async def generate_script(
         self,
         app_name: str,
@@ -77,6 +100,8 @@ class ScriptService:
         language: str = "Vietnamese",
         voice_style: str = "friendly and energetic",
         market: str = "Vietnam",
+        runtime_context: Optional[dict] = None,
+        model: Optional[str] = None,
     ) -> ScriptContract:
         """
         Generate a validated ScriptContract using OpenClaw.
@@ -108,7 +133,7 @@ class ScriptService:
         )
 
         try:
-            openclaw = OpenClawService()
+            openclaw = await self._make_openclaw_service(runtime_context)
             full_prompt = f"{SYSTEM_PROMPT}\n\n{user_prompt}"
             result = await openclaw.execute_task(
                 task_type="script_generation",
@@ -143,6 +168,7 @@ class ScriptService:
         app_name: str,
         topic: str,
         persona_config: dict,
+        model: Optional[str] = None,
     ) -> ScriptContract:
         """
         Convenience method: generate script using persona config directly.
@@ -155,6 +181,8 @@ class ScriptService:
             language=persona_config.get("language_name", "English"),
             voice_style=f"natural, conversational, targeting {persona_config.get('language_name', 'global')} audience",
             market=persona_config.get("language_name", "Global"),
+            runtime_context=persona_config,
+            model=model,
         )
 
     async def generate_script_from_package(
@@ -277,3 +305,146 @@ class ScriptService:
         )
 
         return contract
+
+    async def generate_script_from_review_plan(
+        self,
+        *,
+        app_name: str,
+        review_plan: dict,
+        persona_config: dict,
+    ) -> tuple[ScriptContract, RecordingScriptContract]:
+        plan = VideoReviewPlanContract.model_validate(review_plan)
+        page_review = plan.page_review.model_dump(mode="json") if plan.page_review else {}
+
+        prompt = (
+            "You are a product video planner for an autonomous browser recording agent.\n\n"
+            "Return ONLY valid JSON with exactly these keys:\n"
+            "{\n"
+            '  "script": "<full narration, max 150 words>",\n'
+            '  "duration_estimate": 42,\n'
+            '  "steps": [\n'
+            "    {\n"
+            '      "idx": 1,\n'
+            '      "purpose": "hook|problem|solution_intro|feature_demo|social_proof|cta",\n'
+            '      "screen_target": "Hero section",\n'
+            '      "action": "Open the homepage and pause on the hero copy",\n'
+            '      "visual_success_criteria": "The value proposition and CTA are fully visible",\n'
+            '      "narration_intent": "Introduce the product promise clearly",\n'
+            '      "capture_hint": "scroll",\n'
+            '      "requires_login": false,\n'
+            '      "max_capture_seconds": 8\n'
+            "    }\n"
+            "  ]\n"
+            "}\n\n"
+            "Rules:\n"
+            "- Build 5 or 6 steps only.\n"
+            "- This is for autonomous public website recording. Avoid login-only steps.\n"
+            "- Each step should create a coherent visual progression for the viewer.\n"
+            "- Use concrete on-screen actions, not abstract advice.\n"
+            "- `screen_target` must describe the visible section or UI state to capture.\n"
+            "- `narration_intent` should match the spoken line for that step.\n"
+            "- Keep `max_capture_seconds` between 8 and 12 seconds.\n"
+            "- No markdown, no extra keys.\n\n"
+            f"App: {app_name}\n"
+            f"Objective: {plan.objective}\n"
+            f"Language: {plan.language}\n"
+            f"Target URL: {plan.target_url}\n"
+            f"Execution mode: {plan.execution_mode}\n"
+            f"Page review JSON: {json.dumps(page_review, ensure_ascii=True, sort_keys=True)}\n"
+        )
+
+        service = await self._make_openclaw_service(persona_config)
+        try:
+            result = await service.execute_task(
+                task_type="review_plan_script_generation",
+                prompt=prompt,
+                user_id=f"review-plan:{plan.persona_id}",
+                context={
+                    "app_name": app_name,
+                    "objective": plan.objective,
+                    "language": plan.language,
+                    "target_url": plan.target_url,
+                    "page_review": page_review,
+                },
+            )
+        except Exception as exc:
+            raise ScriptGenerationError(f"AI call failed: {exc}") from exc
+        finally:
+            try:
+                await service.close()
+            except Exception:
+                pass
+
+        data = result if isinstance(result, dict) else {"result": result}
+        if isinstance(data.get("result"), str) and not data.get("steps"):
+            data = extract_json_from_llm_response(data["result"])
+
+        try:
+            raw_steps = data.get("steps") or []
+            if not raw_steps:
+                raise ValueError("No recording steps were returned")
+            steps = [
+                RecordingScriptStepContract(
+                    idx=int(item.get("idx") or index),
+                    purpose=str(item.get("purpose") or "feature_demo").strip(),
+                    screen_target=str(item.get("screen_target") or "Product page").strip(),
+                    action=str(item.get("action") or "Open the page and hold the main section").strip(),
+                    visual_success_criteria=str(
+                        item.get("visual_success_criteria") or "The intended UI section is clearly visible."
+                    ).strip(),
+                    narration_intent=str(item.get("narration_intent") or "Explain what the viewer is seeing.").strip(),
+                    capture_hint=str(item.get("capture_hint") or "scroll").strip(),
+                    requires_login=bool(item.get("requires_login")),
+                    source_ref=plan.target_url,
+                    max_capture_seconds=max(8, min(60, int(item.get("max_capture_seconds") or 8))),
+                )
+                for index, item in enumerate(raw_steps, start=1)
+                if isinstance(item, dict)
+            ]
+            recording_script = RecordingScriptContract(
+                execution_mode=plan.execution_mode,
+                estimated_total_seconds=int(data.get("duration_estimate") or 40),
+                steps=steps,
+            )
+            scenes = []
+            current_timestamp = 0.0
+            scene_duration = max(4.0, round((float(data.get("duration_estimate") or 40) / max(len(steps), 1)), 2))
+            for step in steps:
+                scenes.append(
+                    SceneContract(
+                        id=step.idx,
+                        timestamp_start=current_timestamp,
+                        timestamp_end=current_timestamp + scene_duration,
+                        caption=step.narration_intent[:30],
+                        narration_text=step.narration_intent,
+                        prompt=step.action,
+                        browser_action=step.action,
+                        visual_success_criteria=step.visual_success_criteria,
+                        top_half_source_type=(
+                            "authenticated_capture_later"
+                            if step.requires_login
+                            else "public_page_capture"
+                        ),
+                        top_half_target=step.screen_target,
+                        top_half_capture_hint=(
+                            "static"
+                            if str(step.capture_hint or "").strip().lower() == "static"
+                            else "orchestrated"
+                        ),
+                        top_half_follow_links=True,
+                        top_half_max_capture_seconds=max(8, min(60, step.max_capture_seconds)),
+                        source_ref=plan.target_url,
+                    )
+                )
+                current_timestamp += scene_duration
+            script = ScriptContract(
+                script=str(data.get("script") or "").strip(),
+                duration_estimate=float(data.get("duration_estimate") or current_timestamp or 40.0),
+                scenes=scenes,
+            )
+        except Exception as exc:
+            raise ScriptContractError(
+                f"Review-plan script does not match the expected schema: {exc}"
+            ) from exc
+
+        return script, recording_script

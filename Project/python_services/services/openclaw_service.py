@@ -11,11 +11,13 @@ from typing import Any, Dict, Optional
 import httpx
 
 from config.settings import settings
+from services.quota_monitor_service import QuotaMonitorService
 from utils.json_helpers import extract_json_from_llm_response
 
 logger = logging.getLogger(__name__)
 
 _shared_client: Optional[httpx.AsyncClient] = None
+
 
 def _get_shared_client() -> httpx.AsyncClient:
     global _shared_client
@@ -102,6 +104,36 @@ class OpenClawService:
 
         self.client = _get_shared_client()
 
+    @classmethod
+    async def create_for_owner(
+        cls,
+        *,
+        owner_key: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> "OpenClawService":
+        resolved_user_id = str(user_id or "").strip() or None
+
+        if not resolved_user_id and owner_key:
+            from services.telegram_link_service import TelegramLinkService
+
+            resolved_user_id = await TelegramLinkService.resolve_user_id_for_owner_key(
+                owner_key
+            )
+
+        if not resolved_user_id:
+            return cls()
+
+        from services.customer_ai_backbone_service import CustomerAIBackboneService
+
+        runtime_config = await CustomerAIBackboneService.resolve_runtime_config(
+            resolved_user_id
+        )
+        return cls(
+            base_url=runtime_config.get("base_url"),
+            api_key=runtime_config.get("api_key"),
+            connector_session_token=runtime_config.get("connector_session_token"),
+        )
+
     async def _record_usage(
         self,
         operation: str,
@@ -147,6 +179,36 @@ class OpenClawService:
             return body
         return str(exc)
 
+    @staticmethod
+    def _extract_failed_response_message(payload: Dict[str, Any]) -> Optional[str]:
+        if not isinstance(payload, dict):
+            return None
+
+        error = payload.get("error")
+        status = str(payload.get("status") or "").strip().lower()
+        if status != "failed" and not isinstance(error, dict):
+            return None
+
+        parts: list[str] = []
+        response_id = str(payload.get("id") or "").strip()
+        model = str(payload.get("model") or "").strip()
+        if response_id:
+            parts.append(f"id={response_id}")
+        if model:
+            parts.append(f"model={model}")
+        if status:
+            parts.append(f"status={status}")
+
+        if isinstance(error, dict):
+            code = str(error.get("code") or "").strip()
+            message = str(error.get("message") or "").strip()
+            if code:
+                parts.append(f"code={code}")
+            if message:
+                parts.append(f"message={message}")
+
+        return ", ".join(parts) if parts else "request failed"
+
     @classmethod
     def _raise_provider_error(cls, exc: httpx.HTTPStatusError, transport: str) -> None:
         status_code = exc.response.status_code if exc.response is not None else None
@@ -186,6 +248,12 @@ class OpenClawService:
         user_id: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        await QuotaMonitorService.assert_within_budget(
+            provider="openclaw",
+            estimated_usage={"requests": 1},
+            operation=f"execute_task:{task_type}",
+            user_id=user_id,
+        )
         if self.transport == "connector":
             logger.info("Executing OpenClaw task via ChatGPT connector: %s", task_type)
             payload = {
@@ -256,6 +324,10 @@ class OpenClawService:
             self._raise_provider_error(exc, transport="responses")
 
         raw = response.json()
+        failed_message = self._extract_failed_response_message(raw)
+        if failed_message:
+            raise ValueError(f"OpenClaw request failed: {failed_message}")
+
         output_text = _extract_output_text(raw)
         result = extract_json_from_llm_response(output_text)
 

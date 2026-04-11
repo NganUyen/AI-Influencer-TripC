@@ -13,7 +13,10 @@ from services.contracts import (
     ApprovedProductionPackageContract,
     BeatSheetContract,
     ConceptBriefContract,
+    CredentialHandoffContract,
     RecordedDemoEvidenceContract,
+    VideoReviewPlanContract,
+    WebPageReviewContract,
 )
 from services.ai_service import AIService
 from services.creative_director_service import CreativeDirectorService
@@ -30,6 +33,9 @@ from services.recorded_demo_failure_policy import (
     build_preview_warnings,
     should_block_before_concept,
 )
+from services.telegram_link_service import TelegramLinkService
+from services.video_capture_handoff_service import VideoCaptureHandoffService
+from services.website_review_service import WebsiteReviewService
 
 from .base import BaseSkill, SkillResult, SkillSession, SkillStatus
 from .definitions import get_skill_definition
@@ -61,6 +67,35 @@ _RESETTABLE_FIELDS = [
     "demo_video_telegram_file_id",
     "demo_video_asset_url",
 ]
+_LEGACY_PREPRODUCTION_FIELDS = [
+    "creative_input_mode",
+    "idea_brief",
+    "feature_focus",
+    "video_goal",
+    "audience",
+    "cta",
+    "reference_url",
+    "demo_video_telegram_file_id",
+    "demo_video_asset_url",
+]
+_PLAN_AUTOFILL_FIELDS = [
+    "idea_brief",
+    "feature_focus",
+    "video_goal",
+    "audience",
+    "cta",
+    "reference_url",
+    "access_level",
+]
+_PLAN_AUTOFILL_STEPS = {
+    "collect_idea_brief",
+    "collect_feature_focus",
+    "choose_video_goal",
+    "collect_audience",
+    "collect_cta",
+    "collect_reference_url",
+    "choose_access_level",
+}
 
 
 def _normalize_reference_url(reference_url: str) -> str:
@@ -88,9 +123,14 @@ class VideoAISkill(BaseSkill):
     def initial_session(cls) -> SkillSession:
         session = super().initial_session()
         session.collected["platform"] = session.collected.get("platform") or "tiktok"
-        # Don't default creative_input_mode - let select_mode step handle it
+        # creative_input_mode will be auto-set from execution_mode after confirm_plan
+        # or default to "idea_brief" if not set via plan confirmation
         session.artifacts.setdefault("persona_snapshot", None)
         session.artifacts.setdefault("persona_readiness", None)
+        session.artifacts.setdefault("page_review", None)
+        session.artifacts.setdefault("video_review_plan", None)
+        session.artifacts.setdefault("credential_handoff", None)
+        session.artifacts.setdefault("plan_confirmed", False)
         session.artifacts.setdefault("workflow_id", None)
         session.artifacts.setdefault("talking_head_optional", False)
         session.artifacts.setdefault("production_note", None)
@@ -126,13 +166,275 @@ class VideoAISkill(BaseSkill):
         )
 
     @classmethod
-    def _missing_step(cls, session: SkillSession) -> Optional[str]:
-        """Determine next required step based on creative_input_mode and missing params."""
-        creative_input_mode = session.collected.get("creative_input_mode")
+    def _owner_key(cls, session: SkillSession) -> Optional[str]:
+        telegram_chat_id = str(session.artifacts.get("telegram_chat_id") or "").strip()
+        if not telegram_chat_id:
+            return None
+        return f"telegram:{telegram_chat_id}"
 
-        # Mode selection is first if not set
+    @classmethod
+    def _attach_openclaw_runtime_hints(
+        cls,
+        session: SkillSession,
+        persona_snapshot: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        enriched = dict(persona_snapshot or {})
+        owner_key = cls._owner_key(session)
+        if owner_key:
+            enriched["_openclaw_owner_key"] = owner_key
+        user_id = str(session.artifacts.get("customer_user_id") or "").strip()
+        if user_id:
+            enriched["_openclaw_user_id"] = user_id
+        session.artifacts["persona_snapshot"] = enriched
+        return enriched
+
+    @classmethod
+    async def _auto_fill_idea_brief_inputs(
+        cls,
+        session: SkillSession,
+        persona_snapshot: Dict[str, Any],
+    ) -> None:
+        plan = await CreativeDirectorService.build_preproduction_plan_from_review(
+            objective=str(session.collected.get("objective") or "").strip(),
+            target_url=str(session.collected.get("target_url") or "").strip(),
+            page_review=session.artifacts.get("page_review") or {},
+            persona_snapshot=persona_snapshot,
+            platform=str(session.collected.get("platform") or "tiktok"),
+        )
+
+        objective = str(session.collected.get("objective") or "").strip()
+        existing_idea_brief = str(session.collected.get("idea_brief") or "").strip()
+        if not existing_idea_brief or existing_idea_brief == objective:
+            session.collected["idea_brief"] = plan["idea_brief"]
+        session.collected["feature_focus"] = plan["feature_focus"]
+        session.collected["video_goal"] = plan["video_goal"]
+        session.collected["audience"] = plan["audience"]
+        session.collected["cta"] = plan["cta"]
+        session.collected["reference_url"] = (
+            str(session.collected.get("reference_url") or "").strip()
+            or plan["reference_url"]
+        )
+        session.collected["access_level"] = (
+            str(session.collected.get("access_level") or "").strip()
+            or plan["access_level"]
+        )
+
+    @classmethod
+    def _needs_plan_autofill(cls, session: SkillSession) -> bool:
+        if not session.artifacts.get("plan_confirmed"):
+            return False
+        if str(session.collected.get("creative_input_mode") or "").strip() != "idea_brief":
+            return False
+        if str(session.step_key or "").strip() in _PLAN_AUTOFILL_STEPS:
+            return True
+        return any(
+            not cls._has_value(session.collected.get(field))
+            for field in _PLAN_AUTOFILL_FIELDS
+        )
+
+    @classmethod
+    def _uses_legacy_preproduction_state(cls, session: SkillSession) -> bool:
+        return any(
+            cls._has_value(session.collected.get(field))
+            for field in _LEGACY_PREPRODUCTION_FIELDS
+        )
+
+    @classmethod
+    def _persona_language(cls, session: SkillSession) -> str:
+        persona_id = str(session.collected.get("persona_id") or "").strip()
+        snapshot = session.artifacts.get("persona_snapshot") or {}
+        if snapshot.get("persona_id") == persona_id:
+            language = str(snapshot.get("language") or "").strip()
+            if language:
+                return language
+
+        for item in session.artifacts.get("available_personas") or []:
+            if str(item.get("persona_id") or "").strip() == persona_id:
+                language = str(item.get("language") or "").strip()
+                if language:
+                    return language
+
+        return "English"
+
+    @classmethod
+    def _build_credential_handoff(
+        cls,
+        execution_mode: str,
+    ) -> CredentialHandoffContract:
+        if execution_mode == "authenticated_pc_recording":
+            return CredentialHandoffContract(
+                status="required",
+                handoff_method="workspace_link",
+                credential_label="workspace login handoff",
+                notes=[
+                    "Raw credentials must not be collected in Telegram chat.",
+                    "Execution stays blocked until secure workspace handoff is completed.",
+                ],
+            )
+        return CredentialHandoffContract(status="not_required", handoff_method="none")
+
+    @classmethod
+    def _build_or_refresh_review_plan(
+        cls,
+        session: SkillSession,
+        *,
+        confirmed: bool,
+    ) -> VideoReviewPlanContract:
+        page_review = WebPageReviewContract.model_validate(
+            session.artifacts.get("page_review") or {}
+        )
+        execution_mode = str(session.collected.get("execution_mode") or "").strip()
+        credential_handoff = cls._build_credential_handoff(execution_mode)
+        access_level = (
+            "has_logged_in_access"
+            if execution_mode == "authenticated_pc_recording"
+            else page_review.access_level
+        )
+        existing_payload = session.artifacts.get("video_review_plan") or {}
+        existing = None
+        if existing_payload:
+            try:
+                existing = VideoReviewPlanContract.model_validate(existing_payload)
+            except ValidationError:
+                existing = None
+
+        plan_kwargs = {
+            "planning_mode": "webpage_review",
+            "objective": str(session.collected.get("objective") or "").strip(),
+            "target_url": str(session.collected.get("target_url") or "").strip(),
+            "language": cls._persona_language(session),
+            "persona_id": str(session.collected.get("persona_id") or "").strip(),
+            "execution_mode": execution_mode,
+            "access_level": access_level,
+            "page_review": page_review,
+            "credential_handoff": credential_handoff,
+            "assumptions": [
+                "The confirmed plan seeds pre-production before the workflow starts.",
+            ],
+            "risks": list(page_review.risks),
+            "status": "confirmed" if confirmed else "draft",
+        }
+        if existing:
+            plan_kwargs["plan_id"] = existing.plan_id
+        plan = VideoReviewPlanContract(**plan_kwargs)
+        session.artifacts["video_review_plan"] = plan.model_dump(mode="json")
+        session.artifacts["credential_handoff"] = plan.credential_handoff.model_dump(
+            mode="json"
+        )
+        return plan
+
+    @classmethod
+    def _seed_preproduction_from_plan(cls, session: SkillSession) -> None:
+        plan = cls._build_or_refresh_review_plan(session, confirmed=True)
+        execution_mode = plan.execution_mode
+        session.artifacts["plan_confirmed"] = True
+        session.collected["idea_brief"] = str(plan.objective or "").strip()
+        session.collected["reference_url"] = str(plan.target_url or "").strip()
+        session.collected["access_level"] = str(plan.access_level or "unknown").strip()
+        session.collected["creative_input_mode"] = (
+            "recorded_demo_video"
+            if execution_mode == "manual_mobile_recording"
+            else "idea_brief"
+        )
+
+    @classmethod
+    async def _request_authenticated_handoff(
+        cls,
+        session: SkillSession,
+    ) -> Dict[str, Any]:
+        plan = cls._build_or_refresh_review_plan(session, confirmed=True)
+        telegram_chat_id = (
+            str(session.artifacts.get("telegram_chat_id") or "").strip() or None
+        )
+        owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
+        user_id = await TelegramLinkService.resolve_user_id_for_owner_key(owner_key)
+        if not user_id:
+            credential_handoff = plan.credential_handoff.model_copy(
+                update={"status": "required"}
+            )
+            session.artifacts["credential_handoff"] = credential_handoff.model_dump(
+                mode="json"
+            )
+            session.artifacts["video_review_plan"] = plan.model_copy(
+                update={"credential_handoff": credential_handoff}
+            ).model_dump(mode="json")
+            return {
+                "status": "handoff_blocked",
+                "message": (
+                    "This video needs authenticated PC capture, but this Telegram chat is not linked to a workspace user yet. "
+                    "Link Telegram to the workspace first, then retry start."
+                ),
+            }
+
+        token = VideoCaptureHandoffService.create_token(
+            user_id=user_id,
+            plan_id=plan.plan_id,
+            objective=plan.objective,
+            target_url=plan.target_url,
+            persona_id=plan.persona_id,
+            execution_mode=plan.execution_mode,
+            review_plan=plan.model_dump(mode="json"),
+            telegram_chat_id=telegram_chat_id,
+        )
+        credential_handoff = plan.credential_handoff.model_copy(
+            update={
+                "status": "requested",
+                "handoff_url": token["handoff_url"],
+                "expires_at": token["expires_at"],
+            }
+        )
+        session.artifacts["credential_handoff"] = credential_handoff.model_dump(
+            mode="json"
+        )
+        session.artifacts["video_review_plan"] = plan.model_copy(
+            update={"credential_handoff": credential_handoff}
+        ).model_dump(mode="json")
+        return {
+            "status": "handoff_required",
+            "handoff_url": token["handoff_url"],
+            "credential_handoff": credential_handoff.model_dump(mode="json"),
+            "message": (
+                "This video needs authenticated PC capture before execution can start. "
+                "Open the secure workspace handoff link, complete the setup, then return here and tap Retry Start."
+            ),
+        }
+
+    @classmethod
+    def _missing_step(cls, session: SkillSession) -> Optional[str]:
+        """Determine next required step based on creative_input_mode and missing params.
+
+        creative_input_mode is auto-set from execution_mode after confirm_plan.
+        Defaults to 'idea_brief' if not set via plan confirmation or legacy state.
+        """
+        if not session.artifacts.get(
+            "plan_confirmed"
+        ) and not cls._uses_legacy_preproduction_state(session):
+            if not cls._has_value(session.collected.get("objective")):
+                return "collect_objective"
+            if not cls._has_value(session.collected.get("target_url")):
+                return "collect_target_url"
+            if not session.artifacts.get("page_review"):
+                return "website_review"
+            if not session.collected.get("persona_id"):
+                return "pick_persona"
+            if not session.collected.get("execution_mode"):
+                return "choose_execution_mode"
+            return "confirm_plan"
+
+        creative_input_mode = session.collected.get("creative_input_mode")
+        if not creative_input_mode and cls._uses_legacy_preproduction_state(session):
+            creative_input_mode = (
+                "recorded_demo_video"
+                if session.collected.get("demo_video_telegram_file_id")
+                or session.collected.get("demo_video_asset_url")
+                else "idea_brief"
+            )
+            session.collected["creative_input_mode"] = creative_input_mode
+
+        # Auto-set mode if not already set (default to idea_brief)
         if not creative_input_mode:
-            return "select_mode"
+            creative_input_mode = "idea_brief"
+            session.collected["creative_input_mode"] = creative_input_mode
 
         # Check persona_id first (required for both modes)
         if not session.collected.get("persona_id"):
@@ -164,7 +466,10 @@ class VideoAISkill(BaseSkill):
             return None
 
         # For idea_brief mode (original flow)
-        # idea_brief and feature_focus are required in this mode
+        if session.artifacts.get("plan_confirmed"):
+            return None
+
+        # Legacy idea_brief-only sessions still collect the manual brief fields.
         if not session.collected.get("idea_brief"):
             return "collect_idea_brief"
         if not session.collected.get("feature_focus"):
@@ -191,7 +496,7 @@ class VideoAISkill(BaseSkill):
             session.artifacts["production_note"] = cls._production_note(
                 talking_head_optional=session.artifacts["talking_head_optional"]
             )
-            return snapshot
+            return cls._attach_openclaw_runtime_hints(session, snapshot)
 
         # Build owner_key from telegram_chat_id for proper scoping
         telegram_chat_id = session.artifacts.get("telegram_chat_id")
@@ -254,8 +559,7 @@ class VideoAISkill(BaseSkill):
             "talking_head_optional": talking_head_optional,
             "status": persona.get("status"),
         }
-        session.artifacts["persona_snapshot"] = resolved_snapshot
-        return resolved_snapshot
+        return cls._attach_openclaw_runtime_hints(session, resolved_snapshot)
 
     @classmethod
     async def _run_demo_analysis_and_grounding(
@@ -328,8 +632,8 @@ class VideoAISkill(BaseSkill):
             official_catalog_service = OfficialFeatureCatalogService(
                 ai_service=ai_service
             )
-            verified_feature_urls = (
-                await official_source_resolver.resolve_feature_urls(reference_url)
+            verified_feature_urls = await official_source_resolver.resolve_feature_urls(
+                reference_url
             )
             official_catalog = await official_catalog_service.extract_catalog(
                 verified_feature_urls
@@ -446,6 +750,9 @@ class VideoAISkill(BaseSkill):
         persona_id = session.collected.get("persona_id")
         telegram_chat_id = session.artifacts.get("telegram_chat_id")
         platform = session.collected.get("platform", "tiktok")
+        execution_mode = (
+            str(session.collected.get("execution_mode") or "").strip() or None
+        )
         # Ensure topic is always a string (could be None from session)
         topic = session.collected.get("idea_brief") or ""
         if not isinstance(topic, str):
@@ -455,6 +762,39 @@ class VideoAISkill(BaseSkill):
             talking_head_optional=talking_head_optional
         )
         session.artifacts["production_note"] = production_note
+        session.artifacts["approved_production_package"] = package.model_dump(
+            mode="json"
+        )
+
+        if execution_mode == "authenticated_pc_recording":
+            credential_handoff = session.artifacts.get("credential_handoff") or {}
+            if str(credential_handoff.get("status") or "").strip() != "completed":
+                handoff = await cls._request_authenticated_handoff(session)
+                session.step_key = "package_ready"
+                return SkillResult(
+                    success=False,
+                    next_step="package_ready",
+                    output={
+                        "message": handoff.get("message")
+                        or "Secure handoff is required before execution can start.",
+                        "approved_production_package": package.model_dump(mode="json"),
+                        "handoff_required": True,
+                        "handoff_url": handoff.get("handoff_url"),
+                        "credential_handoff": session.artifacts.get(
+                            "credential_handoff"
+                        ),
+                        "talking_head_optional": talking_head_optional,
+                        "production_mode": (
+                            "voiceover_only"
+                            if talking_head_optional
+                            else "talking_head"
+                        ),
+                        "production_note": production_note,
+                    },
+                    error=handoff.get("message")
+                    or "Secure authenticated handoff required.",
+                    session=session,
+                )
 
         production_payload = {
             "persona_id": persona_id,
@@ -466,6 +806,7 @@ class VideoAISkill(BaseSkill):
             "owner_key": f"telegram:{telegram_chat_id}" if telegram_chat_id else None,
             "talking_head_optional": talking_head_optional,
             "approved_package": package.model_dump(mode="json"),
+            "execution_mode": execution_mode,
         }
 
         # Call the production workflow API
@@ -578,8 +919,11 @@ class VideoAISkill(BaseSkill):
     @classmethod
     def _restart_collection(cls, session: SkillSession, *, message: str) -> SkillResult:
         """Reset collected fields and restart from appropriate step based on mode."""
+        creative_input_mode = session.collected.get("creative_input_mode", "idea_brief")
         for field in _RESETTABLE_FIELDS:
             session.collected[field] = None
+        session.collected["creative_input_mode"] = None
+        session.collected["plan_decision"] = None
         session.artifacts["talking_head_optional"] = False
         session.artifacts["production_note"] = None
         session.artifacts["concept_brief"] = None
@@ -593,24 +937,81 @@ class VideoAISkill(BaseSkill):
         session.artifacts["demo_preview_summary"] = None
         session.artifacts["demo_preview_confirmed"] = False
         session.artifacts["demo_preview_timeout_at"] = None
+        session.artifacts["plan_confirmed"] = False
         session.control.workflow_id = None
         session.control.approval_required = False
         session.control.error_message = None
         session.control.status = SkillStatus.collecting
 
         # Determine restart step based on mode
-        creative_input_mode = session.collected.get("creative_input_mode", "idea_brief")
         if creative_input_mode == "recorded_demo_video":
             session.step_key = "upload_demo_video"
             next_step = "upload_demo_video"
         else:
-            session.step_key = "collect_idea_brief"
-            next_step = "collect_idea_brief"
+            session.step_key = "collect_objective"
+            next_step = "collect_objective"
 
         return SkillResult(
             success=True,
             next_step=next_step,
             output={"message": message},
+            session=session,
+        )
+
+    @classmethod
+    def _restart_from_review_plan(
+        cls,
+        session: SkillSession,
+        *,
+        message: str,
+    ) -> SkillResult:
+        for field in _RESETTABLE_FIELDS:
+            session.collected[field] = None
+        session.collected["creative_input_mode"] = None
+        session.collected["plan_decision"] = None
+        session.artifacts["talking_head_optional"] = False
+        session.artifacts["production_note"] = None
+        session.artifacts["concept_brief"] = None
+        session.artifacts["beat_sheet"] = None
+        session.artifacts["approved_production_package"] = None
+        session.artifacts["workflow_id"] = None
+        session.artifacts["concept_approved"] = False
+        session.artifacts["beat_sheet_approved"] = False
+        session.artifacts["demo_evidence"] = None
+        session.artifacts["demo_preview_summary"] = None
+        session.artifacts["demo_preview_confirmed"] = False
+        session.artifacts["demo_preview_timeout_at"] = None
+        session.artifacts["plan_confirmed"] = False
+        session.control.workflow_id = None
+        session.control.approval_required = False
+        session.control.error_message = None
+        session.control.status = SkillStatus.collecting
+
+        has_review_inputs = (
+            cls._has_value(session.collected.get("objective"))
+            and cls._has_value(session.collected.get("target_url"))
+            and cls._has_value(session.collected.get("persona_id"))
+            and cls._has_value(session.collected.get("execution_mode"))
+            and bool(session.artifacts.get("page_review"))
+        )
+        if not has_review_inputs:
+            session.step_key = "collect_objective"
+            return SkillResult(
+                success=True,
+                next_step="collect_objective",
+                output={"message": message},
+                session=session,
+            )
+
+        plan = cls._build_or_refresh_review_plan(session, confirmed=False)
+        session.step_key = "confirm_plan"
+        return SkillResult(
+            success=True,
+            next_step="confirm_plan",
+            output={
+                "message": message,
+                "video_review_plan": plan.model_dump(mode="json"),
+            },
             session=session,
         )
 
@@ -680,9 +1081,12 @@ class VideoAISkill(BaseSkill):
                     current.artifacts["demo_preview_timeout_at"] = None
                 return await cls.execute(current, backend_url, http_client)
             if action == "edit":
-                return cls._restart_collection(
+                return cls._restart_from_review_plan(
                     current,
-                    message="Okay. Send an updated video idea and I will rebuild the concept from scratch.",
+                    message=(
+                        "Okay. Review the plan again and change the objective, URL, "
+                        "persona, or execution mode before I rebuild the concept."
+                    ),
                 )
         if current.step_key == "confirm_beats":
             if action == "approve":
@@ -694,9 +1098,12 @@ class VideoAISkill(BaseSkill):
                 current.artifacts["approved_production_package"] = None
                 return await cls.execute(current, backend_url, http_client)
             if action == "edit":
-                return cls._restart_collection(
+                return cls._restart_from_review_plan(
                     current,
-                    message="Okay. Let's revise the concept inputs first, then I will rebuild the beat plan.",
+                    message=(
+                        "Okay. Review the plan again and change the objective, URL, "
+                        "persona, or execution mode before I rebuild the beats."
+                    ),
                 )
         return cls._error_result(
             current, f"Unsupported action for {current.step_key}: {action}"
@@ -878,7 +1285,7 @@ class VideoAISkill(BaseSkill):
     ) -> SkillResult:
         current = cls._normalize_session(session)
         current.collected["platform"] = current.collected.get("platform") or "tiktok"
-        # Don't default creative_input_mode here - it should be set via select_mode step
+        # creative_input_mode is auto-set from execution_mode after confirm_plan
 
         active_workflow_id = cls._active_workflow_id(current)
         if active_workflow_id:
@@ -886,6 +1293,69 @@ class VideoAISkill(BaseSkill):
                 current,
                 workflow_id=active_workflow_id,
             )
+
+        target_url = WebsiteReviewService.normalize_url(
+            str(current.collected.get("target_url") or "")
+        )
+        if target_url:
+            current.collected["target_url"] = target_url
+
+        decision = str(current.collected.get("plan_decision") or "").strip()
+        if current.step_key == "confirm_plan" and decision:
+            current.collected["plan_decision"] = None
+            if decision == "confirm":
+                cls._seed_preproduction_from_plan(current)
+                current.step_key = None
+                return await cls.execute(current, backend_url, http_client)
+            if decision == "revise_objective":
+                current.collected["objective"] = None
+                current.artifacts["video_review_plan"] = None
+                current.artifacts["credential_handoff"] = None
+                current.artifacts["plan_confirmed"] = False
+                return cls._collecting_result(
+                    current,
+                    next_step="collect_objective",
+                    output={"message": "Send the updated objective for this video."},
+                )
+            if decision == "revise_url":
+                current.collected["target_url"] = None
+                current.collected["reference_url"] = None
+                current.collected["access_level"] = None
+                current.artifacts["page_review"] = None
+                current.artifacts["video_review_plan"] = None
+                current.artifacts["credential_handoff"] = None
+                current.artifacts["plan_confirmed"] = False
+                return cls._collecting_result(
+                    current,
+                    next_step="collect_target_url",
+                    output={"message": "Send the updated target URL."},
+                )
+            if decision == "revise_persona":
+                current.collected["persona_id"] = None
+                current.artifacts["persona_snapshot"] = None
+                current.artifacts["persona_readiness"] = None
+                current.artifacts["video_review_plan"] = None
+                current.artifacts["credential_handoff"] = None
+                current.artifacts["plan_confirmed"] = False
+                return cls._collecting_result(
+                    current,
+                    next_step="pick_persona",
+                    output={"message": "Choose a different persona for this video."},
+                )
+            if decision == "revise_mode":
+                current.collected["execution_mode"] = None
+                current.collected["creative_input_mode"] = None
+                current.artifacts["video_review_plan"] = None
+                current.artifacts["credential_handoff"] = None
+                current.artifacts["plan_confirmed"] = False
+                return cls._collecting_result(
+                    current,
+                    next_step="choose_execution_mode",
+                    output={
+                        "message": "Choose a different execution mode for this video."
+                    },
+                )
+            return cls._error_result(current, f"Unsupported plan decision: {decision}")
 
         # P0.4: Handle feature correction/reemphasis free-text submissions
         # When user types correction text after clicking "correct" button
@@ -1020,7 +1490,68 @@ class VideoAISkill(BaseSkill):
                 current.artifacts["demo_preview_timeout_at"] = None
                 current.step_key = None
 
+        if cls._needs_plan_autofill(current):
+            try:
+                persona_snapshot = await cls._resolve_persona_snapshot(
+                    current, backend_url, http_client
+                )
+                await cls._auto_fill_idea_brief_inputs(current, persona_snapshot)
+                if str(current.step_key or "").strip() in _PLAN_AUTOFILL_STEPS:
+                    current.step_key = None
+                    if current.control.status == SkillStatus.failed:
+                        current.control.status = SkillStatus.collecting
+                    current.control.error_message = None
+            except Exception as exc:
+                return cls._retryable_error_result(
+                    current,
+                    step_key="confirm_plan",
+                    error=(
+                        "Could not build the video plan yet. "
+                        f"Please try again. ({exc})"
+                    ),
+                )
+
         next_step = cls._missing_step(current)
+
+        if next_step == "website_review":
+            try:
+                page_review = await WebsiteReviewService.review_url(
+                    current.collected["target_url"],
+                    objective=str(current.collected.get("objective") or "").strip(),
+                    user_id=f"telegram:{current.artifacts.get('telegram_chat_id', 'unknown')}",
+                )
+            except Exception as exc:
+                return cls._retryable_error_result(
+                    current,
+                    step_key="collect_target_url",
+                    error=f"Could not review that URL yet. Please try again. ({exc})",
+                )
+            current.artifacts["page_review"] = page_review.model_dump(mode="json")
+            current.collected["access_level"] = str(
+                page_review.access_level or "unknown"
+            )
+            current.step_key = "pick_persona"
+            current.control.status = SkillStatus.collecting
+            return SkillResult(
+                success=True,
+                next_step="pick_persona",
+                output={
+                    "message": "Website review ready.",
+                    "page_review": current.artifacts["page_review"],
+                },
+                session=current,
+            )
+
+        if next_step == "confirm_plan":
+            plan = cls._build_or_refresh_review_plan(current, confirmed=False)
+            return cls._collecting_result(
+                current,
+                next_step="confirm_plan",
+                output={
+                    "message": "Review the video plan below.",
+                    "video_review_plan": plan.model_dump(mode="json"),
+                },
+            )
 
         # Phase 5: For recorded_demo_video mode, run analysis and grounding before preview
         if (

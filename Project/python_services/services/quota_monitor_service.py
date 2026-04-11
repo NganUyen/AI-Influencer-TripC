@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from config.settings import settings
 from services.content_persistence_service import ContentPersistenceService
+from services.errors import QuotaExceededError
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,11 @@ def _looks_like_real_secret(value: Any) -> bool:
     return True
 
 
+def _quota_enforcement_enabled() -> bool:
+    raw = os.getenv("API_QUOTA_ENFORCEMENT_ENABLED", "true").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
 class QuotaMonitorService:
     """
     Tracks provider usage, cost, and quota snapshots.
@@ -124,6 +130,7 @@ class QuotaMonitorService:
         "google_tts": 0.000004,  # $4 per 1M chars
         "fal_ai": 0.05,  # $0.05 per request avg
         "heygen": 2.0,  # $2.00 per job
+        "did": 2.0,  # $2.00 per clip (configurable spend limits can override)
     }
 
     PROVIDERS = {
@@ -195,6 +202,18 @@ class QuotaMonitorService:
             "remaining_support": "live_endpoint",
             "remaining_note": (
                 "Remaining quota is refreshed from HeyGen's remaining quota endpoint."
+            ),
+        },
+        "did": {
+            "label": "D-ID",
+            "api_key_attr": "DID_API_KEY",
+            "usage_unit": "clips",
+            "billing_type": "subscription",
+            "limit_attr": "DID_MONTHLY_CLIP_LIMIT",
+            "remaining_support": "configured_limit_only",
+            "remaining_note": (
+                "This integration tracks D-ID clip usage locally; live remaining quota"
+                " is not exposed in the current adapter."
             ),
         },
         "openclaw": {
@@ -317,6 +336,143 @@ class QuotaMonitorService:
             )
         except Exception as exc:  # pragma: no cover - defensive fallback
             logger.warning("Failed to record runtime usage for %s: %s", provider, exc)
+
+    @classmethod
+    async def assert_within_budget(
+        cls,
+        provider: str,
+        *,
+        estimated_usage: Optional[Dict[str, Any]] = None,
+        estimated_cost_usd: Optional[float] = None,
+        operation: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> None:
+        if not _quota_enforcement_enabled():
+            return
+
+        provider_key = _normalize_provider(provider)
+        provider_profile = cls._provider_definition(provider_key)
+        if not provider_profile.get("configured"):
+            return
+
+        if provider_profile.get("remaining_support") == "live_endpoint":
+            await cls._refresh_provider_live_snapshot(provider_key)
+
+        snapshots = await cls.list_snapshots(
+            provider=provider_key,
+            limit=50000,
+            days=0,
+            user_id=user_id,
+        )
+        provider_rollup = cls._aggregate_snapshots(snapshots).get(
+            provider_key,
+            {
+                "provider": provider_key,
+                "snapshot_count": 0,
+                "cost_usd": 0.0,
+                "usage": {},
+                "latest_snapshot": None,
+            },
+        )
+        remaining_details = cls._derive_remaining_details(
+            provider_profile=provider_profile,
+            provider_rollup=provider_rollup,
+        )
+
+        normalized_usage: Dict[str, Any] = {"requests": 1}
+        if estimated_usage:
+            normalized_usage.update(
+                {
+                    key: value
+                    for key, value in estimated_usage.items()
+                    if value is not None
+                }
+            )
+
+        reasons: List[str] = []
+        remaining_requests = _safe_float(remaining_details.get("remaining_requests"))
+        requests_needed = _safe_float(normalized_usage.get("requests")) or 0.0
+        if remaining_requests is not None and requests_needed > remaining_requests:
+            reasons.append(
+                f"needs {requests_needed:g} requests but only {remaining_requests:g} remain"
+            )
+
+        usage_unit = provider_profile.get("usage_unit")
+        unit_needed = _safe_float(normalized_usage.get(usage_unit)) if usage_unit else None
+        remaining_value = _safe_float(remaining_details.get("remaining_value"))
+        remaining_unit = str(remaining_details.get("remaining_unit") or "").strip() or None
+        remaining_exact = bool(remaining_details.get("remaining_exact"))
+
+        if (
+            unit_needed is not None
+            and remaining_value is not None
+            and usage_unit
+            and remaining_unit == usage_unit
+            and unit_needed > remaining_value
+        ):
+            reasons.append(
+                f"needs {unit_needed:g} {usage_unit} but only {remaining_value:g} remain"
+            )
+        elif (
+            remaining_value is not None
+            and remaining_value <= 0
+            and (requests_needed > 0 or (unit_needed is not None and unit_needed > 0))
+            and (remaining_exact or remaining_unit in {usage_unit, None})
+        ):
+            reasons.append(
+                f"remaining {remaining_unit or usage_unit or 'quota'} is exhausted"
+            )
+
+        spend_needed = estimated_cost_usd
+        if spend_needed is None and usage_unit and unit_needed is not None:
+            price_per_unit = cls.PRICE_MAP.get(provider_key)
+            if price_per_unit is not None:
+                spend_needed = round(unit_needed * price_per_unit, 6)
+
+        remaining_usd = _safe_float(remaining_details.get("remaining_usd"))
+        if (
+            spend_needed is not None
+            and remaining_usd is not None
+            and spend_needed > remaining_usd
+        ):
+            reasons.append(
+                f"needs about ${spend_needed:.4f} but only ${remaining_usd:.4f} remain"
+            )
+
+        if not reasons:
+            return
+
+        provider_label = provider_profile.get("label") or provider_key
+        action = operation or "requested operation"
+        message = f"{provider_label} quota exhausted before {action}: {'; '.join(reasons)}."
+        blocked_error = QuotaExceededError(message)
+
+        quota_snapshot = {
+            "remaining": remaining_value,
+            "limit": remaining_details.get("remaining_limit"),
+            "unit": remaining_unit,
+            "source": remaining_details.get("remaining_source"),
+            "exact": remaining_exact,
+            "requests_remaining": remaining_requests,
+            "requests_limit": remaining_details.get("remaining_requests_limit"),
+        }
+        await cls.record_runtime_usage(
+            provider=provider_key,
+            usage={},
+            cost_usd=0.0,
+            quota=quota_snapshot,
+            metadata={
+                "service": "quota_monitor_service",
+                "operation": operation or "quota_guard",
+                "status": "blocked",
+                "error_type": type(blocked_error).__name__,
+                "error_message": str(blocked_error),
+                "estimated_usage": normalized_usage,
+                "estimated_cost_usd": spend_needed,
+            },
+            user_id=user_id,
+        )
+        raise blocked_error
 
     @classmethod
     def provider_catalog(cls) -> List[Dict[str, Any]]:

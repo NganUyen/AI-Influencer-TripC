@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 
 from api import customer
 from services.customer_auth_service import CustomerSession
@@ -216,3 +217,242 @@ def test_launch_campaign_returns_temporal_payload(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["workflow_id"] == "weekly-marketing-1"
+
+
+def test_inspect_video_capture_handoff_requires_matching_customer(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    def fake_inspect_token(token, expected_user_id=None):
+        assert token == "secure-handoff-token"
+        assert expected_user_id == "11111111-1111-1111-1111-111111111111"
+        return {
+            "user_id": expected_user_id,
+            "plan_id": "plan_1",
+            "objective": "Capture a dashboard review",
+            "target_url": "https://example.com/app",
+            "persona_id": "persona-1",
+            "execution_mode": "authenticated_pc_recording",
+            "review_plan": {"plan_id": "plan_1"},
+            "expires_at": "2026-04-08T12:00:00Z",
+        }
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(
+        customer.VideoCaptureHandoffService,
+        "inspect_token",
+        fake_inspect_token,
+    )
+
+    client = _build_client()
+    response = client.post(
+        "/api/customer/video-capture/handoff/inspect",
+        headers={"Authorization": "Bearer customer-token"},
+        json={"token": "secure-handoff-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["handoff"]
+    assert payload["objective"] == "Capture a dashboard review"
+    assert payload["secure_collection_required"] is True
+    assert "workspace_session_capture" in payload["allowed_methods"]
+
+
+def test_complete_video_capture_handoff_starts_workflow(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    def fake_inspect_token(token, expected_user_id=None):
+        assert token == "secure-handoff-token"
+        return {
+            "user_id": expected_user_id,
+            "plan_id": "plan_1",
+            "objective": "Capture a dashboard review",
+            "target_url": "https://example.com/app",
+            "persona_id": "persona-1",
+            "execution_mode": "authenticated_pc_recording",
+            "review_plan": {
+                "planning_mode": "webpage_review",
+                "plan_id": "plan_1",
+                "objective": "Capture a dashboard review",
+                "target_url": "https://example.com/app",
+                "language": "English",
+                "persona_id": "persona-1",
+                "execution_mode": "authenticated_pc_recording",
+                "access_level": "has_logged_in_access",
+                "status": "confirmed",
+            },
+            "telegram_chat_id": "555",
+            "expires_at": "2026-04-08T12:00:00Z",
+        }
+
+    async def fake_complete_authenticated_handoff(**kwargs):
+        assert kwargs["method"] == "workspace_session_capture"
+        return {
+            "status": "started",
+            "message": "Workflow started.",
+            "workflow_id": "video-auth-1",
+            "execution_mode": "authenticated_pc_recording",
+            "credential_handoff": {"status": "completed"},
+            "video_review_plan": {"plan_id": "plan_1"},
+        }
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.VideoCaptureHandoffService, "inspect_token", fake_inspect_token)
+    monkeypatch.setattr(
+        customer.VideoPlannerHandoffService,
+        "complete_authenticated_handoff",
+        fake_complete_authenticated_handoff,
+    )
+
+    client = _build_client()
+    response = client.post(
+        "/api/customer/video-capture/handoff/complete",
+        headers={"Authorization": "Bearer customer-token"},
+        json={
+            "token": "secure-handoff-token",
+            "method": "workspace_session_capture",
+            "notes": "Secure session is ready.",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_id"] == "video-auth-1"
+    assert payload["credential_handoff"]["status"] == "completed"
+
+
+def test_get_system_summary_includes_recent_videos(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_get_summary(days=0, user_id=None):
+        return {"providers": []}
+
+    async def fake_list_recent_assets(*, user_id, asset_type=None, limit=5):
+        assert user_id == _session().user_id
+        assert asset_type == "video"
+        return [
+            {
+                "asset_id": "asset-1",
+                "persona_id": "persona-1",
+                "title": "Launch walkthrough",
+                "access_url": "https://cdn.example/video.mp4",
+                "created_at": "2026-04-09T12:00:00Z",
+            }
+        ]
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.QuotaMonitorService, "get_summary", fake_get_summary)
+    monkeypatch.setattr(customer.CustomerMediaService, "list_recent_assets", fake_list_recent_assets)
+
+    client = _build_client()
+    response = client.get(
+        "/api/customer/system/summary",
+        headers={"Authorization": "Bearer customer-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["recent_videos"][0]["asset_id"] == "asset-1"
+    assert payload["recent_videos"][0]["access_url"] == "https://cdn.example/video.mp4"
+
+
+def test_list_recent_customer_media_returns_assets(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_list_recent_assets(*, user_id, asset_type=None, limit=10):
+        assert user_id == _session().user_id
+        assert asset_type == "video"
+        assert limit == 3
+        return [
+            {
+                "asset_id": "asset-1",
+                "persona_id": "persona-1",
+                "type": "video",
+                "status": "available",
+                "filename": "launch.mp4",
+                "title": "Launch walkthrough",
+                "access_url": "https://cdn.example/video.mp4",
+                "created_at": "2026-04-09T12:00:00Z",
+            }
+        ]
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.CustomerMediaService, "list_recent_assets", fake_list_recent_assets)
+
+    client = _build_client()
+    response = client.get(
+        "/api/customer/media/recent?limit=3",
+        headers={"Authorization": "Bearer customer-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assets"][0]["asset_id"] == "asset-1"
+    assert payload["assets"][0]["title"] == "Launch walkthrough"
+
+
+def test_list_system_workflows_includes_persona_owned_video_workflows(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_list_personas(user_id=None, owner_key=None, status=None):
+        assert user_id == _session().user_id
+        return [{"persona_id": "persona-1"}]
+
+    class _WorkflowList:
+        def __init__(self, items):
+            self._items = items
+
+        def __aiter__(self):
+            self._iter = iter(self._items)
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._iter)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    temporal_client = SimpleNamespace(
+        list_workflows=lambda query: _WorkflowList(
+            [
+                SimpleNamespace(
+                    id="video-persona-1-abcd1234",
+                    workflow_type="ShortVideoWorkflow",
+                    type="ShortVideoWorkflow",
+                    status=SimpleNamespace(name="COMPLETED"),
+                    start_time=None,
+                ),
+                SimpleNamespace(
+                    id="video-persona-2-ignored",
+                    workflow_type="ShortVideoWorkflow",
+                    type="ShortVideoWorkflow",
+                    status=SimpleNamespace(name="RUNNING"),
+                    start_time=None,
+                ),
+            ]
+        )
+    )
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.PersonaRegistryService, "list_personas", fake_list_personas)
+
+    app = FastAPI()
+    app.state.temporal_client = temporal_client
+    app.include_router(customer.router, prefix="/api/customer")
+    client = TestClient(app)
+    response = client.get(
+        "/api/customer/system/workflows",
+        headers={"Authorization": "Bearer customer-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert len(payload["workflows"]) == 1
+    assert payload["workflows"][0]["id"] == "video-persona-1-abcd1234"
+    assert payload["workflows"][0]["name"] == "ShortVideoWorkflow"
+    assert payload["workflows"][0]["progress"] == 100

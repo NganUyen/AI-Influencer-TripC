@@ -221,21 +221,53 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
     },
     "video-ai": {
-        "select_mode": {
-            "input_type": "inline_keyboard",
-            "field": "creative_input_mode",
-            "prompt_text": "🎬 How would you like to create your video?\n\n"
-            "Choose your input method:",
-            "options": _options(
-                ("💡 Idea Brief", "idea_brief"),
-                ("📹 Recorded Demo Video", "recorded_demo_video"),
-            ),
+        "collect_objective": {
+            "input_type": "free_text",
+            "field": "objective",
+            "prompt_text": "What is your objective for this video?\n\nExample: Explain the product quickly, record a walkthrough, or create a short review that drives signups.",
+        },
+        "collect_target_url": {
+            "input_type": "free_text",
+            "field": "target_url",
+            "prompt_text": "Send the target URL to review.\n\nExample: https://tripc.ai",
+        },
+        "website_review": {
+            "input_type": "automatic",
+            "prompt_text": "",
         },
         "pick_persona": {
             "input_type": "persona_picker",
             "field": "persona_id",
             "prompt_text": "Select a ready persona for this video concept.",
             "allow_skip": False,
+        },
+        "choose_execution_mode": {
+            "input_type": "inline_keyboard",
+            "field": "execution_mode",
+            "prompt_text": "Choose how this video should be executed.\n\n"
+            "🤖 Autonomous Screen Recording\n"
+            "Best for full end-to-end automation. The system navigates the product, captures the screen, and assembles the production flow for you.\n\n"
+            "🔐 Authenticated PC Recording\n"
+            "Best for login-required or protected product flows. You complete a secure PC handoff first, then recording continues inside the authenticated session.\n\n"
+            "📱 Manual Mobile Recording\n"
+            "Best for mobile-first apps or when you already have raw footage. You record the demo on your phone and upload it for production.",
+            "options": _options(
+                ("🤖 Auto Record", "autonomous_screen_recording"),
+                ("🔐 Auth PC", "authenticated_pc_recording"),
+                ("📱 Mobile Demo", "manual_mobile_recording"),
+            ),
+        },
+        "confirm_plan": {
+            "input_type": "inline_keyboard",
+            "field": "plan_decision",
+            "prompt_text": "Review the video plan below, then confirm it or revise one part.",
+            "options": _options(
+                ("Confirm Plan", "confirm"),
+                ("Change Objective", "revise_objective"),
+                ("Change URL", "revise_url"),
+                ("Change Persona", "revise_persona"),
+                ("Change Mode", "revise_mode"),
+            ),
         },
         "upload_demo_video": {
             "input_type": "video_upload",
@@ -394,6 +426,62 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
             "input_type": "preview_actions",
             "prompt_text": "Review the beat plan before packaging the concept.",
             "options": PREPRO_APPROVAL_ACTIONS,
+        },
+    },
+    "video-planner": {
+        "collect_objective": {
+            "input_type": "free_text",
+            "field": "objective",
+            "prompt_text": "What is your objective for this video?\n\nExample: Explain the product quickly, record a walkthrough, or create a short review that drives signups.",
+        },
+        "collect_target_url": {
+            "input_type": "free_text",
+            "field": "target_url",
+            "prompt_text": "Send the target URL to review.\n\nExample: https://tripc.ai",
+        },
+        "choose_language": {
+            "input_type": "free_text",
+            "field": "language",
+            "prompt_text": "What language should be used?\n\nExample: English or Vietnamese.",
+        },
+        "pick_persona": {
+            "input_type": "persona_picker",
+            "field": "persona_id",
+            "prompt_text": "Which persona should be applied to this video plan?",
+            "allow_skip": False,
+        },
+        "choose_execution_mode": {
+            "input_type": "inline_keyboard",
+            "field": "execution_mode",
+            "prompt_text": "Choose how this video should be executed.\n\n"
+            "🤖 Autonomous Screen Recording\n"
+            "Best for full end-to-end automation. The system navigates the product, captures the screen, and assembles the production flow for you.\n\n"
+            "🔐 Authenticated PC Recording\n"
+            "Best for login-required or protected product flows. You complete a secure PC handoff first, then recording continues inside the authenticated session.\n\n"
+            "📱 Manual Mobile Recording\n"
+            "Best for mobile-first apps or when you already have raw footage. You record the demo on your phone and upload it for production.",
+            "options": _options(
+                ("🤖 Auto Record", "autonomous_screen_recording"),
+                ("🔐 Auth PC", "authenticated_pc_recording"),
+                ("📱 Mobile Demo", "manual_mobile_recording"),
+            ),
+        },
+        "confirm_plan": {
+            "input_type": "inline_keyboard",
+            "field": "plan_decision",
+            "prompt_text": "Review the video plan below, then confirm it or revise one part.",
+            "options": _options(
+                ("Confirm Plan", "confirm"),
+                ("Change Objective", "revise_objective"),
+                ("Change URL", "revise_url"),
+                ("Change Persona", "revise_persona"),
+                ("Change Mode", "revise_mode"),
+            ),
+        },
+        "upload_manual_video": {
+            "input_type": "free_text",
+            "field": "manual_upload_note",
+            "prompt_text": "Upload the mobile-recorded demo video now. Keep the footage in the current vertical format so the final output stays on the existing 9:16 canvas.",
         },
     },
     "publish-manager": {

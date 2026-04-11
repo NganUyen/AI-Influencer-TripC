@@ -37,9 +37,10 @@ class TestTalkingHeadGeneration:
 
     @pytest.mark.asyncio
     @patch("activities.media_activities.StorageService")
+    @patch("activities.media_activities.MediaStorageService")
     @patch("activities.media_activities.HeyGenService")
     async def test_create_talking_head_video_requests_supported_portrait_output(
-        self, MockHeyGen, MockStorage
+        self, MockHeyGen, MockMediaStorage, MockStorage
     ):
         from activities.media_activities import create_talking_head_video
 
@@ -53,6 +54,10 @@ class TestTalkingHeadGeneration:
             "https://storage.example/talking-head.mp4"
         )
         MockStorage.return_value = mock_storage
+
+        mock_media_storage = AsyncMock()
+        mock_media_storage.upload_bytes.return_value = None
+        MockMediaStorage.return_value = mock_media_storage
 
         response = httpx.Response(
             200,
@@ -90,8 +95,165 @@ class TestTalkingHeadGeneration:
             width=1080,
             height=1920,
             allow_aspect_ratio_fallback=True,
+            user_id=None,
         )
         assert result["url"] == "https://storage.example/talking-head.mp4"
+
+    @pytest.mark.asyncio
+    @patch("activities.media_activities.HeyGenService")
+    async def test_create_talking_head_video_marks_create_video_insufficient_credit_non_retryable(
+        self, MockHeyGen, monkeypatch
+    ):
+        from temporalio.exceptions import ApplicationError
+        from activities.media_activities import create_talking_head_video
+
+        monkeypatch.setattr("activities.media_activities.settings.DID_API_KEY", None)
+
+        mock_heygen = AsyncMock()
+        request = httpx.Request("POST", "https://api.heygen.com/v2/videos")
+        response = httpx.Response(
+            400,
+            request=request,
+            json={
+                "error": "Insufficient credit. This operation requires 'api' credits.",
+                "error_code": "MOVIO_PAYMENT_INSUFFICIENT_CREDIT",
+            },
+        )
+        mock_heygen.create_video.side_effect = httpx.HTTPStatusError(
+            "HeyGen create_video failed with status 400",
+            request=request,
+            response=response,
+        )
+        MockHeyGen.return_value = mock_heygen
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await create_talking_head_video(
+                {
+                    "avatar_id": "avatar-123",
+                    "audio_url": "https://cdn.example/audio.mp3",
+                    "persona_id": "persona-1",
+                    "topic": "tripc-demo",
+                }
+            )
+
+        assert exc_info.value.non_retryable is True
+        assert "insufficient API credits" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @patch("activities.media_activities.HeyGenService")
+    async def test_create_talking_head_video_marks_insufficient_credit_non_retryable(
+        self, MockHeyGen, monkeypatch
+    ):
+        from temporalio.exceptions import ApplicationError
+        from activities.media_activities import create_talking_head_video
+
+        monkeypatch.setattr("activities.media_activities.settings.DID_API_KEY", None)
+
+        mock_heygen = AsyncMock()
+        mock_heygen.create_video.return_value = {"video_id": "video-123"}
+        mock_heygen.poll_video_status.side_effect = ValueError(
+            "HeyGen video failed: Insufficient credit. This operation requires 'api' credits. "
+            "(code=MOVIO_PAYMENT_INSUFFICIENT_CREDIT, video_id=video-123)"
+        )
+        MockHeyGen.return_value = mock_heygen
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await create_talking_head_video(
+                {
+                    "avatar_id": "avatar-123",
+                    "audio_url": "https://cdn.example/audio.mp3",
+                    "persona_id": "persona-1",
+                    "topic": "tripc-demo",
+                }
+            )
+
+        assert exc_info.value.non_retryable is True
+        assert "insufficient API credits" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @patch("activities.media_activities.StorageService")
+    @patch("activities.media_activities.MediaStorageService")
+    @patch("activities.media_activities.DIDService")
+    @patch("activities.media_activities.HeyGenService")
+    async def test_create_talking_head_video_falls_back_to_did_when_heygen_quota_exhausted(
+        self,
+        MockHeyGen,
+        MockDID,
+        MockMediaStorage,
+        MockStorage,
+        monkeypatch,
+    ):
+        from activities.media_activities import create_talking_head_video
+        from services.errors import QuotaExceededError
+
+        monkeypatch.setattr(
+            "activities.media_activities.settings.DID_API_KEY",
+            "test_did_key",
+        )
+        monkeypatch.setattr(
+            "activities.media_activities.settings.DID_DEFAULT_PRESENTER_ID",
+            "v2_public_Adam@0GLJgELXjc",
+        )
+
+        mock_heygen = AsyncMock()
+        mock_heygen.create_video.side_effect = QuotaExceededError(
+            "HeyGen quota exhausted before create_video."
+        )
+        MockHeyGen.return_value = mock_heygen
+
+        mock_did = AsyncMock()
+        mock_did.create_clip.return_value = {"clip_id": "clp_123"}
+        mock_did.poll_clip_status.return_value = "https://cdn.example/did-video.mp4"
+        MockDID.return_value = mock_did
+
+        mock_storage = AsyncMock()
+        mock_storage.upload_bytes.return_value = (
+            "https://storage.example/talking-head-did.mp4"
+        )
+        MockStorage.return_value = mock_storage
+
+        mock_media_storage = AsyncMock()
+        mock_media_storage.upload_bytes.return_value = None
+        MockMediaStorage.return_value = mock_media_storage
+
+        response = httpx.Response(
+            200,
+            request=httpx.Request("GET", "https://cdn.example/did-video.mp4"),
+            content=b"fake-did-mp4-bytes",
+        )
+
+        class StubClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            async def get(self, url):
+                assert url == "https://cdn.example/did-video.mp4"
+                return response
+
+        with patch(
+            "activities.media_activities.httpx.AsyncClient", lambda **_: StubClient()
+        ):
+            result = await create_talking_head_video(
+                {
+                    "avatar_id": "avatar-123",
+                    "audio_url": "https://cdn.example/audio.mp3",
+                    "script_text": "Hello from approved TripC plan.",
+                    "persona_id": "persona-1",
+                    "topic": "tripc-demo",
+                }
+            )
+
+        mock_did.create_clip.assert_awaited_once_with(
+            presenter_id="v2_public_Adam@0GLJgELXjc",
+            script_text="Hello from approved TripC plan.",
+            user_id=None,
+        )
+        assert result["provider"] == "d_id"
+        assert result["did_clip_id"] == "clp_123"
+        assert result["url"] == "https://storage.example/talking-head-did.mp4"
 
 
 class TestDurationMismatchDetection:

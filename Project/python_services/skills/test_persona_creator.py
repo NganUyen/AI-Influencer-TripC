@@ -96,6 +96,14 @@ async def test_persona_creator_resumes_existing_persona_when_create_reports_dupl
 
     assert result.success is True
     assert result.session is not None
+    assert result.session.artifacts.get("avatar_media_asset_id") == "asset-123"
+    assert result.session.artifacts.get("avatar_image_url") == "https://storage.example/avatar.png"
+    assert len(PersonaCreatorSkill._request_json.await_args_list) == 2
+    create_payload = PersonaCreatorSkill._request_json.await_args_list[0].kwargs["json"]
+    assert create_payload["tts_voice"] == "en-US-Studio-O"
+    attach_payload = PersonaCreatorSkill._request_json.await_args_list[1].kwargs["json"]
+    assert attach_payload["avatar_media_asset_id"] == "asset-123"
+    assert attach_payload["avatar_source_type"] == "telegram_upload"
     assert result.session.artifacts["resumed_existing_persona"] is True
     assert result.session.artifacts["avatar_media_asset_id"] == "asset-generated-1"
 
@@ -218,14 +226,28 @@ async def test_persona_creator_uses_uploaded_reference_avatar_when_present(monke
 
     assert result.success is True
     assert result.session is not None
-    assert result.session.artifacts.get("avatar_media_asset_id") == "asset-123"
-    assert result.session.artifacts.get("avatar_image_url") == "https://storage.example/avatar.png"
-    assert len(PersonaCreatorSkill._request_json.await_args_list) == 2
-    create_payload = PersonaCreatorSkill._request_json.await_args_list[0].kwargs["json"]
-    assert create_payload["tts_voice"] == "en-US-Studio-O"
-    attach_payload = PersonaCreatorSkill._request_json.await_args_list[1].kwargs["json"]
-    assert attach_payload["avatar_media_asset_id"] == "asset-123"
-    assert attach_payload["avatar_source_type"] == "telegram_upload"
+
+
+def test_avatar_prompt_preserves_requested_identity_markers():
+    prompt = PersonaCreatorSkill._build_avatar_prompt(
+        "Jamaican fintech founder in Kingston, dark skin, locs, tailored navy blazer",
+        simplified=True,
+    )
+
+    assert "Preserve the requested ethnicity, nationality" in prompt
+    assert "Do not default to a generic white English-speaking influencer" in prompt
+    assert "Jamaican fintech founder" in prompt
+
+
+def test_dream_fallback_avoids_generic_western_defaulting():
+    result = PersonaCreatorSkill._dream_persona_details_fallback(
+        "Vietnamese",
+        "young street-food creator in Ho Chi Minh City",
+        reason="offline",
+    )
+
+    assert result["display_name"] == "Vietnamese Creator"
+    assert "Do not genericize into a default Western or white influencer look" in result["appearance"]
 
 
 @pytest.mark.asyncio

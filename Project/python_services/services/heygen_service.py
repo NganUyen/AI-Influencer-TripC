@@ -79,6 +79,12 @@ class HeyGenService:
             str: avatar_id để dùng lại cho tất cả video sau
         """
         logger.info(f"Tạo HeyGen avatar từ: {image_url}")
+        await QuotaMonitorService.assert_within_budget(
+            provider="heygen",
+            estimated_usage={"requests": 1, "jobs": 1},
+            operation="create_avatar",
+            user_id=user_id,
+        )
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
@@ -246,6 +252,12 @@ class HeyGenService:
             dict chứa video_id để polling
         """
         logger.info(f"Tạo HeyGen video | avatar: {avatar_id} | ratio: {aspect_ratio}")
+        await QuotaMonitorService.assert_within_budget(
+            provider="heygen",
+            estimated_usage={"requests": 1, "jobs": 1},
+            operation="create_video",
+            user_id=user_id,
+        )
 
         requested_ratio = (aspect_ratio or "").strip()
         if requested_ratio not in {"9:16", "16:9"}:

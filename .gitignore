@@ -59,6 +59,7 @@ coverage/
 # ---- Tooling / deployment artifacts ----
 .vercel/
 .codex/
+.opencode/
 .tmp/
 .tmp-*/
 .cache/

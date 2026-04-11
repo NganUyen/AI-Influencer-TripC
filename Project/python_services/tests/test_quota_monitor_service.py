@@ -7,6 +7,7 @@ os.environ["DEBUG"] = "true"
 import pytest
 
 from services.quota_monitor_service import QuotaMonitorService
+from services.errors import QuotaExceededError
 
 
 @pytest.fixture(autouse=True)
@@ -21,10 +22,18 @@ def disable_live_refresh(monkeypatch):
     async def fake_refresh_live_provider_snapshots(force: bool = False):
         return None
 
+    async def fake_refresh_provider_live_snapshot(_provider: str, force: bool = False):
+        return None
+
     monkeypatch.setattr(
         QuotaMonitorService,
         "refresh_live_provider_snapshots",
         fake_refresh_live_provider_snapshots,
+    )
+    monkeypatch.setattr(
+        QuotaMonitorService,
+        "_refresh_provider_live_snapshot",
+        fake_refresh_provider_live_snapshot,
     )
 
 
@@ -261,3 +270,59 @@ async def test_summary_marks_configured_provider_without_quota_data(monkeypatch)
     assert gemini["snapshot_count"] == 0
     assert gemini["remaining_value"] is None
     assert gemini["status"] == "configured"
+
+
+@pytest.mark.asyncio
+async def test_assert_within_budget_blocks_when_estimated_usage_exceeds_remaining(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "services.quota_monitor_service.settings.OPENAI_API_KEY",
+        "test_openai_key",
+    )
+
+    await QuotaMonitorService.record_snapshot(
+        provider="openai",
+        usage={"requests": 1, "tokens": 950},
+        quota={
+            "limit": 1000,
+            "remaining": 50,
+            "unit": "tokens",
+            "exact": True,
+            "source": "provider_response_headers",
+        },
+        metadata={"operation": "generate_text", "status": "success"},
+    )
+
+    with pytest.raises(QuotaExceededError, match="OpenAI quota exhausted"):
+        await QuotaMonitorService.assert_within_budget(
+            "openai",
+            estimated_usage={"requests": 1, "tokens": 60},
+            operation="generate_text:gpt-4",
+        )
+
+
+@pytest.mark.asyncio
+async def test_assert_within_budget_blocks_when_exact_remaining_is_zero(monkeypatch):
+    monkeypatch.setattr(
+        "services.quota_monitor_service.settings.HEYGEN_API_KEY",
+        "test_heygen_key",
+    )
+
+    await QuotaMonitorService.record_snapshot(
+        provider="heygen",
+        quota={
+            "remaining": 0,
+            "unit": "quota_units",
+            "exact": True,
+            "source": "provider_live_endpoint",
+        },
+        metadata={"operation": "get_remaining_quota", "status": "success"},
+    )
+
+    with pytest.raises(QuotaExceededError, match="HeyGen quota exhausted"):
+        await QuotaMonitorService.assert_within_budget(
+            "heygen",
+            estimated_usage={"requests": 1, "jobs": 1},
+            operation="create_video",
+        )

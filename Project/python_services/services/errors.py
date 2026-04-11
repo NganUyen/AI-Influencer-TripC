@@ -14,6 +14,11 @@ class PipelineError(Exception):
     retryable: bool = False
 
 
+class QuotaExceededError(PipelineError):
+    """Provider quota or spend budget has been exhausted."""
+    retryable = False
+
+
 # ─── fal.ai ───────────────────────────────────────────────────────────────────
 
 class FalAIServiceError(PipelineError):
@@ -73,6 +78,18 @@ class HeyGenTimeoutError(HeyGenServiceError):
 class HeyGenAvatarSetupError(HeyGenServiceError):
     """Failed to create or validate avatar. Non-retryable without operator input."""
     retryable = False
+
+
+# D-ID
+
+class DIDServiceError(PipelineError):
+    """Generic D-ID error."""
+    retryable = True
+
+
+class DIDTimeoutError(DIDServiceError):
+    """D-ID polling timed out. Retryable."""
+    retryable = True
 
 
 # ─── ffmpeg Assembly ──────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
+import { Footer } from "@/components/layout/Footer";
 
 interface TelegramLinkToken {
   start_token: string;
@@ -48,8 +49,9 @@ async function customerApiRequest<T>(
   return (await response.json()) as T;
 }
 
-export default function AuthPage() {
+function AuthPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const {
     establishSessionFromAccessToken,
     loginWithTelegram,
@@ -78,6 +80,16 @@ export default function AuthPage() {
     linkToken?.start_token,
     "TripCInternBot",
   );
+  const nextPath = searchParams.get("next") || "/dashboard";
+
+  const resolveNextPath = (value: string | null) => {
+    const fallback = "/dashboard";
+    const normalized = (value || "").trim();
+    if (!normalized.startsWith("/") || normalized.startsWith("//")) {
+      return fallback;
+    }
+    return normalized;
+  };
 
   useEffect(() => {
     void initialize();
@@ -85,9 +97,9 @@ export default function AuthPage() {
 
   useEffect(() => {
     if (initialized && isAuthenticated) {
-      router.replace("/dashboard");
+      router.replace(resolveNextPath(nextPath));
     }
-  }, [initialized, isAuthenticated, router]);
+  }, [initialized, isAuthenticated, nextPath, router]);
 
   useEffect(() => {
     if (!linkToken) {
@@ -135,7 +147,7 @@ export default function AuthPage() {
           setLinkToken(null);
           setIsAwaitingTelegram(false);
           setIsCompletingSession(false);
-          router.replace("/dashboard");
+          router.replace(resolveNextPath(nextPath));
           return;
         }
 
@@ -503,7 +515,9 @@ export default function AuthPage() {
           <a className="text-xs font-label text-on-surface-variant hover:text-primary underline" href="#">Privacy Protocol</a>
           <a className="text-xs font-label text-on-surface-variant hover:text-primary underline" href="#">Terms of Production</a>
         </div>
-      </footer>
+      </main>
+
+      <Footer variant="page" />
     </div>
   );
 }

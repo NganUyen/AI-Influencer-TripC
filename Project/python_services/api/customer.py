@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -29,6 +30,11 @@ from services.customer_campaign_service import CustomerCampaignService
 from services.database_service import DatabaseService
 from services.customer_media_service import CustomerMediaService
 from services.telegram_link_service import TelegramLinkService
+from services.video_capture_handoff_service import (
+    VideoCaptureHandoffError,
+    VideoCaptureHandoffService,
+)
+from services.video_planner_handoff_service import VideoPlannerHandoffService
 from services.persona_registry_service import PersonaRegistryService
 from services.quota_monitor_service import QuotaMonitorService
 from fastapi import Request
@@ -104,6 +110,27 @@ class TelegramLinkStartRequest(BaseModel):
     expires_in_minutes: int = 15
 
 
+class VideoCaptureHandoffInspectRequest(BaseModel):
+    token: str
+
+
+class VideoCaptureHandoffCompleteRequest(BaseModel):
+    token: str
+    method: str
+    notes: str = ""
+
+
+class RecentMediaAssetResponse(BaseModel):
+    asset_id: str
+    persona_id: Optional[str] = None
+    type: Optional[str] = None
+    status: Optional[str] = None
+    filename: Optional[str] = None
+    title: Optional[str] = None
+    access_url: Optional[str] = None
+    created_at: Optional[str] = None
+
+
 @router.get("/brand")
 async def get_brand_profile(
     session: CustomerSession = Depends(require_customer_session),
@@ -154,6 +181,85 @@ async def start_telegram_link(
     return token
 
 
+@router.post("/video-capture/handoff/inspect")
+async def inspect_video_capture_handoff(
+    payload: VideoCaptureHandoffInspectRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    try:
+        handoff = VideoCaptureHandoffService.inspect_token(
+            payload.token,
+            expected_user_id=session.user_id,
+        )
+    except VideoCaptureHandoffError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "handoff": {
+            **handoff,
+            "secure_collection_required": True,
+            "allowed_methods": [
+                "workspace_session_capture",
+                "temporary_username_password",
+                "guided_manual_login",
+            ],
+            "next_step": (
+                "Collect credentials only inside the authenticated workspace UI. "
+                "Do not send credentials in Telegram chat."
+            ),
+        }
+    }
+
+
+@router.post("/video-capture/handoff/complete")
+async def complete_video_capture_handoff(
+    payload: VideoCaptureHandoffCompleteRequest,
+    request: Request,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    allowed_methods = {
+        "workspace_session_capture",
+        "temporary_username_password",
+        "guided_manual_login",
+    }
+    if payload.method not in allowed_methods:
+        raise HTTPException(
+            status_code=400, detail="Unsupported handoff completion method."
+        )
+
+    try:
+        handoff = VideoCaptureHandoffService.inspect_token(
+            payload.token,
+            expected_user_id=session.user_id,
+        )
+        transport = httpx.ASGITransport(app=request.app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://backend",
+        ) as client:
+            result = await VideoPlannerHandoffService.complete_authenticated_handoff(
+                handoff_payload=handoff,
+                method=payload.method,
+                notes=payload.notes,
+                backend_url="http://backend",
+                http_client=client,
+            )
+    except VideoCaptureHandoffError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "status": result.get("status", "handoff_completed"),
+        "message": result.get("message")
+        or "Authenticated PC capture handoff completed. Return to Telegram and retry start.",
+        "workflow_id": result.get("workflow_id"),
+        "execution_mode": result.get("execution_mode"),
+        "credential_handoff": result.get("credential_handoff"),
+        "video_review_plan": result.get("video_review_plan"),
+    }
+
+
 @router.get("/media/{asset_id}/access-url")
 async def get_media_access_url(
     asset_id: str,
@@ -196,7 +302,9 @@ async def oauth_callback(
     state: Optional[str] = Query(default=None),
     error: Optional[str] = Query(default=None),
 ) -> RedirectResponse:
-    dashboard_url = (settings.FRONTEND_PUBLIC_URL or "http://localhost:3000").rstrip("/")
+    dashboard_url = (settings.FRONTEND_PUBLIC_URL or "http://localhost:3000").rstrip(
+        "/"
+    )
     if error:
         return RedirectResponse(
             url=(
@@ -416,11 +524,19 @@ async def list_customer_content(
                 "content": row["content"],
                 "status": row["status"],
                 "platform": row["platform"] or [],
-                "scheduled_at": row["scheduled_at"].isoformat() if row["scheduled_at"] else None,
-                "published_at": row["published_at"].isoformat() if row["published_at"] else None,
+                "scheduled_at": row["scheduled_at"].isoformat()
+                if row["scheduled_at"]
+                else None,
+                "published_at": row["published_at"].isoformat()
+                if row["published_at"]
+                else None,
                 "metadata": row["metadata"] or {},
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+                "created_at": row["created_at"].isoformat()
+                if row["created_at"]
+                else None,
+                "updated_at": row["updated_at"].isoformat()
+                if row["updated_at"]
+                else None,
             }
         )
     return {"items": items}
@@ -430,7 +546,11 @@ async def list_customer_content(
 async def list_customer_approvals(
     session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
-    return {"approvals": await CustomerCampaignService.list_pending_approvals(session.user_id)}
+    return {
+        "approvals": await CustomerCampaignService.list_pending_approvals(
+            session.user_id
+        )
+    }
 
 
 @router.get("/personas")
@@ -438,9 +558,7 @@ async def list_customer_personas(
     session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
     # This ensures personas are strictly filtered by the authenticated user's ID
-    personas = await PersonaRegistryService.list_personas(
-        user_id=session.user_id
-    )
+    personas = await PersonaRegistryService.list_personas(user_id=session.user_id)
     return {
         "personas": [
             {
@@ -461,7 +579,7 @@ async def list_customer_personas(
 @router.get("/system/summary")
 async def get_system_summary(
     request: Request,
-    _session: CustomerSession = Depends(require_customer_session),
+    session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
     """Get real-time system health and quota summary for the dashboard."""
     try:
@@ -472,31 +590,61 @@ async def get_system_summary(
             raw_quota = summary_data.get("providers", [])
         except Exception:
             raw_quota = []
-            
+
         # Format quota for frontend
         quota_list = []
         for q in raw_quota:
-            quota_list.append({
-                "name": str(q.get("label", q.get("name", "Unknown"))),
-                "used": float(q.get("usage_value") or q.get("used") or 0),
-                "total": float(q.get("remaining_limit") or q.get("monthly_limit") or q.get("total") or 100),
-                "unit": str(q.get("usage_unit") or q.get("unit") or "units")
-            })
+            quota_list.append(
+                {
+                    "name": str(q.get("label", q.get("name", "Unknown"))),
+                    "used": float(q.get("usage_value") or q.get("used") or 0),
+                    "total": float(
+                        q.get("remaining_limit")
+                        or q.get("monthly_limit")
+                        or q.get("total")
+                        or 100
+                    ),
+                    "unit": str(q.get("usage_unit") or q.get("unit") or "units"),
+                }
+            )
 
         # 2. Service Health
         temporal_client = getattr(request.app.state, "temporal_client", None)
-        
+
         services = [
-            {"name": "Temporal Cluster", "status": "online" if temporal_client else "error", "latency": "12ms"},
-            {"name": "OpenClaw AI", "status": "online" if settings.OPENCLAW_API_URL else "warning", "latency": "450ms"},
-            {"name": "Postiz Publisher", "status": "online" if settings.POSTIZ_API_URL else "warning", "latency": "80ms"},
-            {"name": "GrowChief Growth", "status": "online" if settings.GROWCHIEF_API_URL else "warning", "latency": "120ms"},
+            {
+                "name": "Temporal Cluster",
+                "status": "online" if temporal_client else "error",
+                "latency": "12ms",
+            },
+            {
+                "name": "OpenClaw AI",
+                "status": "online" if settings.OPENCLAW_API_URL else "warning",
+                "latency": "450ms",
+            },
+            {
+                "name": "Postiz Publisher",
+                "status": "online" if settings.POSTIZ_API_URL else "warning",
+                "latency": "80ms",
+            },
+            {
+                "name": "GrowChief Growth",
+                "status": "online" if settings.GROWCHIEF_API_URL else "warning",
+                "latency": "120ms",
+            },
         ]
-        
+
+        recent_videos = await CustomerMediaService.list_recent_assets(
+            user_id=session.user_id,
+            asset_type="video",
+            limit=5,
+        )
+
         return {
             "quota": quota_list,
             "services": services,
-            "status": "healthy" if temporal_client else "degraded"
+            "recent_videos": recent_videos,
+            "status": "healthy" if temporal_client else "degraded",
         }
     except Exception as exc:
         # Fallback to empty/healthy-ish structure to avoid dashboard crash
@@ -505,9 +653,26 @@ async def get_system_summary(
             "services": [
                 {"name": "System Status", "status": "error", "latency": "0ms"}
             ],
+            "recent_videos": [],
             "status": "error",
-            "detail": str(exc)
+            "detail": str(exc),
         }
+
+
+@router.get("/media/recent")
+async def list_recent_customer_media(
+    session: CustomerSession = Depends(require_customer_session),
+    asset_type: Optional[str] = Query(default="video"),
+    limit: int = Query(default=10, ge=1, le=20),
+) -> Dict[str, Any]:
+    assets = await CustomerMediaService.list_recent_assets(
+        user_id=session.user_id,
+        asset_type=asset_type,
+        limit=limit,
+    )
+    return {
+        "assets": [RecentMediaAssetResponse(**asset).model_dump() for asset in assets]
+    }
 
 
 @router.get("/system/workflows")
@@ -520,26 +685,51 @@ async def list_system_workflows(
     temporal_client = getattr(request.app.state, "temporal_client", None)
     if not temporal_client:
         return {"workflows": [], "status": "temporal_unavailable"}
-        
+
     workflows = []
     try:
-        # Filter by user_id if possible, or just list recent ones
-        # For weekly marketing workflows, we can query by ID pattern
-        query = f"WorkflowType = 'WeeklyMarketingWorkflow' AND ExecutionStatus = 'Running'"
-        # Note: Advanced visibility might be required for complex queries
-        
+        personas = await PersonaRegistryService.list_personas(user_id=session.user_id)
+        video_prefixes = {
+            f"video-{str(item.get('persona_id') or '').strip()}-"
+            for item in personas
+            if str(item.get("persona_id") or "").strip()
+        }
+        query = (
+            "WorkflowType = 'WeeklyMarketingWorkflow' "
+            "OR WorkflowType = 'ShortVideoWorkflow'"
+        )
+
         async for item in temporal_client.list_workflows(query):
-            # Only include workflows that belong to this user (id pattern: weekly-marketing-{user_id})
-            if item.id.startswith(f"weekly-marketing-{session.user_id}") or item.id.startswith(f"video-{session.user_id}"):
-                workflows.append({
-                    "id": item.id,
-                    "type": item.type,
-                    "status": item.status.name.lower(),
-                    "start_time": item.start_time.isoformat() if item.start_time else None,
-                })
+            workflow_id = str(getattr(item, "id", "") or "")
+            belongs_to_customer = workflow_id.startswith(
+                f"weekly-marketing-{session.user_id}"
+            ) or any(workflow_id.startswith(prefix) for prefix in video_prefixes)
+            if belongs_to_customer:
+                raw_status = getattr(item, "status", None)
+                status_name = getattr(raw_status, "name", raw_status)
+                normalized_status = str(status_name or "unknown").lower()
+                workflows.append(
+                    {
+                        "id": workflow_id,
+                        "name": getattr(item, "workflow_type", None)
+                        or getattr(item, "type", None)
+                        or workflow_id,
+                        "type": getattr(item, "workflow_type", None)
+                        or getattr(item, "type", None),
+                        "status": normalized_status,
+                        "progress": 100
+                        if normalized_status == "completed"
+                        else 0
+                        if normalized_status in {"failed", "error", "terminated"}
+                        else 50,
+                        "start_time": item.start_time.isoformat()
+                        if item.start_time
+                        else None,
+                    }
+                )
             if len(workflows) >= limit:
                 break
-                
+
         return {"workflows": workflows, "status": "ok"}
     except Exception as exc:
         return {"workflows": [], "status": "error", "detail": str(exc)}

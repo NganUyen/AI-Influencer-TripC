@@ -255,6 +255,12 @@ class GoogleTTSService:
         url = GOOGLE_TTS_ENDPOINT
         headers = {"X-Goog-Api-Key": self.api_key}
         logger.info(f"Gọi Google TTS | Voice: {resolved_voice} | {len(text)} ký tự")
+        await QuotaMonitorService.assert_within_budget(
+            provider="google_tts",
+            estimated_usage={"requests": 1, "characters": len(text)},
+            operation="generate_audio",
+            user_id=user_id,
+        )
 
         # Calculate timeout based on text length
         timeout = min(

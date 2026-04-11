@@ -349,6 +349,25 @@ async def generate_script_from_approved_package_activity(config: dict) -> dict:
 
 
 @activity.defn
+async def generate_script_from_review_plan_activity(config: dict) -> dict:
+    """Generate script plus recording steps from a confirmed review plan."""
+    if "review_plan" not in config:
+        raise ValueError("Missing 'review_plan' in activity config")
+
+    svc = ScriptService()
+    contract, recording_script = await svc.generate_script_from_review_plan(
+        app_name=config.get("app_name", "TripC"),
+        review_plan=config["review_plan"],
+        persona_config=config.get("persona_config", {}),
+    )
+    return {
+        "script_json": contract.model_dump(mode="json"),
+        "recording_script": recording_script.model_dump(mode="json"),
+        "status": "ready",
+    }
+
+
+@activity.defn
 async def send_telegram_progress_update(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Send a best-effort Telegram progress update for long-running video workflows.

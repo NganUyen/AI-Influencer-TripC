@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import FastAPI
 
+from config.settings import settings
 from services.contracts import BeatSheetContract, ConceptBriefContract
 from services.skill_dispatcher import SkillDispatcher
 from services.skill_session_store import TelegramSkillSessionStore
@@ -23,11 +24,20 @@ class _AsyncClientContext:
 
 
 @pytest.fixture(autouse=True)
-def reset_skill_session_store():
+def reset_skill_session_store(monkeypatch):
     TelegramSkillSessionStore._redis_client = None
     TelegramSkillSessionStore._redis_enabled = False
     TelegramSkillSessionStore._redis_init_attempted = True
     TelegramSkillSessionStore._memory_sessions.clear()
+    monkeypatch.setattr(settings, "ENVIRONMENT", "development")
+    monkeypatch.setattr(settings, "DEBUG", True)
+    monkeypatch.setattr(settings, "FRONTEND_PUBLIC_URL", "http://localhost:3000")
+    monkeypatch.setattr(settings, "BACKEND_PUBLIC_URL", "http://localhost:8000")
+    monkeypatch.setattr(
+        settings,
+        "CHATGPT_CONNECTOR_PUBLIC_URL",
+        "http://localhost:8000",
+    )
     yield
     TelegramSkillSessionStore._memory_sessions.clear()
 
@@ -145,39 +155,225 @@ def _patch_persona_lookup_missing_heygen(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_video_ai_collects_required_fields_in_order():
+async def test_video_ai_collects_required_fields_in_order(monkeypatch):
+    _patch_persona_lookup(monkeypatch)
+    auto_plan = {
+        "idea_brief": "Show how TripC handles login and booking.",
+        "feature_focus": "Login and booking flow",
+        "video_goal": "walkthrough",
+        "audience": "travelers comparing booking tools",
+        "cta": "Try TripC free",
+        "reference_url": "https://tripc.ai",
+        "access_level": "public_page_only",
+    }
+
+    async def fake_build_preproduction_plan_from_review(
+        cls,
+        *,
+        objective,
+        target_url,
+        page_review,
+        persona_snapshot,
+        platform="tiktok",
+    ):
+        assert objective == "Need a product demo."
+        assert target_url == "https://tripc.ai"
+        assert persona_snapshot["persona_id"] == "minh_vn"
+        return auto_plan
+
+    async def fake_build_concept_brief(cls, collected, persona_snapshot):
+        assert collected["feature_focus"] == auto_plan["feature_focus"]
+        assert collected["video_goal"] == auto_plan["video_goal"]
+        assert collected["audience"] == auto_plan["audience"]
+        assert collected["cta"] == auto_plan["cta"]
+        return _concept_contract().model_copy(
+            update={
+                "feature_focus": auto_plan["feature_focus"],
+                "video_goal": auto_plan["video_goal"],
+                "audience": auto_plan["audience"],
+                "cta": auto_plan["cta"],
+            }
+        )
+
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_preproduction_plan_from_review",
+        classmethod(fake_build_preproduction_plan_from_review),
+    )
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_concept_brief",
+        classmethod(fake_build_concept_brief),
+    )
     session = VideoAISkill.initial_session()
 
+    result = await VideoAISkill.execute(session, "http://backend", object())
+    assert result.next_step == "collect_objective"
+
+    session.collected["objective"] = "Need a product demo."
+    result = await VideoAISkill.execute(session, "http://backend", object())
+    assert result.next_step == "collect_target_url"
+
+    session.collected["target_url"] = "https://tripc.ai"
+    session.artifacts["page_review"] = {
+        "target_url": "https://tripc.ai",
+        "normalized_url": "https://tripc.ai",
+        "page_title": "TripC",
+        "product_summary": "Trip planner",
+        "access_level": "public_page_only",
+        "login_required": False,
+        "visible_features": [],
+        "visible_flows": [],
+        "recording_candidates": [],
+        "risks": [],
+        "assumptions": [],
+    }
     result = await VideoAISkill.execute(session, "http://backend", object())
     assert result.next_step == "pick_persona"
 
     session.collected["persona_id"] = "minh_vn"
     result = await VideoAISkill.execute(session, "http://backend", object())
-    assert result.next_step == "collect_idea_brief"
+    assert result.next_step == "choose_execution_mode"
 
-    session.collected["idea_brief"] = "Need a product demo."
+    session.collected["execution_mode"] = "autonomous_screen_recording"
     result = await VideoAISkill.execute(session, "http://backend", object())
-    assert result.next_step == "collect_feature_focus"
+    assert result.next_step == "confirm_plan"
 
-    session.collected["feature_focus"] = "AI itinerary planner"
+    session.step_key = "confirm_plan"
+    session.collected["plan_decision"] = "confirm"
     result = await VideoAISkill.execute(session, "http://backend", object())
-    assert result.next_step == "choose_video_goal"
+    assert result.next_step == "confirm_concept"
 
-    session.collected["video_goal"] = "feature_demo"
-    result = await VideoAISkill.execute(session, "http://backend", object())
-    assert result.next_step == "collect_audience"
+    assert result.session.collected["idea_brief"] == auto_plan["idea_brief"]
+    assert result.session.collected["reference_url"] == "https://tripc.ai"
+    assert result.session.collected["creative_input_mode"] == "idea_brief"
+    assert result.session.collected["feature_focus"] == auto_plan["feature_focus"]
+    assert result.session.collected["video_goal"] == auto_plan["video_goal"]
+    assert result.session.collected["audience"] == auto_plan["audience"]
+    assert result.session.collected["cta"] == auto_plan["cta"]
 
-    session.collected["audience"] = "travelers aged 22-35"
-    result = await VideoAISkill.execute(session, "http://backend", object())
-    assert result.next_step == "collect_cta"
 
-    session.collected["cta"] = "Try TripC free"
-    result = await VideoAISkill.execute(session, "http://backend", object())
-    assert result.next_step == "collect_reference_url"
+@pytest.mark.asyncio
+async def test_video_ai_keeps_planning_flow_when_website_review_sets_access_level():
+    session = VideoAISkill.initial_session()
+    session.collected.update(
+        {
+            "objective": "Need a product demo.",
+            "target_url": "https://tripc.ai",
+            "persona_id": "minh_vn",
+            "access_level": "public_page_only",
+        }
+    )
+    session.artifacts["page_review"] = {
+        "target_url": "https://tripc.ai",
+        "normalized_url": "https://tripc.ai",
+        "page_title": "TripC",
+        "product_summary": "Trip planner",
+        "access_level": "public_page_only",
+        "login_required": False,
+        "visible_features": [],
+        "visible_flows": [],
+        "recording_candidates": [],
+        "risks": [],
+        "assumptions": [],
+    }
 
-    session.collected["reference_url"] = "https://tripc.ai"
     result = await VideoAISkill.execute(session, "http://backend", object())
-    assert result.next_step == "choose_access_level"
+
+    assert result.success is True
+    assert result.next_step == "choose_execution_mode"
+    assert result.session.step_key == "choose_execution_mode"
+    assert result.session.collected["creative_input_mode"] is None
+
+
+@pytest.mark.asyncio
+async def test_video_ai_autofills_stale_reference_url_step_after_plan_confirmation(
+    monkeypatch,
+):
+    _patch_persona_lookup(monkeypatch)
+    auto_plan = {
+        "idea_brief": "Walk through TripC login and booking.",
+        "feature_focus": "Login and booking flow",
+        "video_goal": "walkthrough",
+        "audience": "travelers booking their first trip",
+        "cta": "Try TripC free",
+        "reference_url": "https://tripc.ai",
+        "access_level": "public_page_only",
+    }
+
+    async def fake_build_preproduction_plan_from_review(
+        cls,
+        *,
+        objective,
+        target_url,
+        page_review,
+        persona_snapshot,
+        platform="tiktok",
+    ):
+        assert objective == "Record a walkthrough"
+        assert target_url == "https://tripc.ai"
+        assert persona_snapshot["persona_id"] == "minh_vn"
+        return auto_plan
+
+    async def fake_build_concept_brief(cls, collected, persona_snapshot):
+        assert collected["reference_url"] == "https://tripc.ai"
+        assert collected["feature_focus"] == auto_plan["feature_focus"]
+        return _concept_contract().model_copy(
+            update={
+                "feature_focus": auto_plan["feature_focus"],
+                "video_goal": auto_plan["video_goal"],
+                "audience": auto_plan["audience"],
+                "cta": auto_plan["cta"],
+                "reference_url": auto_plan["reference_url"],
+                "access_level": auto_plan["access_level"],
+            }
+        )
+
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_preproduction_plan_from_review",
+        classmethod(fake_build_preproduction_plan_from_review),
+    )
+    monkeypatch.setattr(
+        video_ai_module.CreativeDirectorService,
+        "build_concept_brief",
+        classmethod(fake_build_concept_brief),
+    )
+
+    session = VideoAISkill.initial_session()
+    session.step_key = "collect_reference_url"
+    session.collected.update(
+        {
+            "objective": "Record a walkthrough",
+            "target_url": "https://tripc.ai",
+            "persona_id": "minh_vn",
+            "execution_mode": "autonomous_screen_recording",
+            "creative_input_mode": "idea_brief",
+            "idea_brief": "Record a walkthrough",
+        }
+    )
+    session.artifacts["plan_confirmed"] = True
+    session.artifacts["page_review"] = {
+        "target_url": "https://tripc.ai",
+        "normalized_url": "https://tripc.ai",
+        "page_title": "TripC",
+        "product_summary": "Trip planner",
+        "access_level": "public_page_only",
+        "login_required": False,
+        "visible_features": [],
+        "visible_flows": [],
+        "recording_candidates": [],
+        "risks": [],
+        "assumptions": [],
+    }
+
+    result = await VideoAISkill.execute(session, "http://backend", object())
+
+    assert result.success is True
+    assert result.next_step == "confirm_concept"
+    assert result.session.step_key == "confirm_concept"
+    assert result.session.collected["reference_url"] == "https://tripc.ai"
+    assert result.session.collected["video_goal"] == "walkthrough"
 
 
 @pytest.mark.asyncio
@@ -374,6 +570,59 @@ async def test_video_ai_beat_generation_failure_stays_retryable(monkeypatch):
     assert failed_result.session.step_key == "confirm_beats"
     assert failed_result.output["retryable"] is True
     assert failed_result.session.artifacts["concept_approved"] is True
+
+
+@pytest.mark.asyncio
+async def test_video_ai_edit_restarts_from_review_plan(monkeypatch):
+    session = VideoAISkill.initial_session()
+    session.step_key = "confirm_concept"
+    session.collected.update(
+        {
+            "objective": "Record a walkthrough",
+            "target_url": "https://tripc.ai",
+            "persona_id": "minh_vn",
+            "execution_mode": "autonomous_screen_recording",
+            "creative_input_mode": "idea_brief",
+            "idea_brief": "Walk through TripC login and booking.",
+            "feature_focus": "Login and booking flow",
+            "video_goal": "walkthrough",
+            "audience": "travelers booking their first trip",
+            "cta": "Try TripC free",
+            "reference_url": "https://tripc.ai",
+            "access_level": "public_page_only",
+        }
+    )
+    session.artifacts["plan_confirmed"] = True
+    session.artifacts["page_review"] = {
+        "target_url": "https://tripc.ai",
+        "normalized_url": "https://tripc.ai",
+        "page_title": "TripC",
+        "product_summary": "Trip planner",
+        "access_level": "public_page_only",
+        "login_required": False,
+        "visible_features": [],
+        "visible_flows": [],
+        "recording_candidates": [],
+        "risks": [],
+        "assumptions": [],
+    }
+    session.artifacts["concept_brief"] = _concept_contract().model_dump(mode="json")
+
+    result = await VideoAISkill.handle_preproduction_action(
+        session,
+        "edit",
+        "http://backend",
+        object(),
+    )
+
+    assert result.success is True
+    assert result.next_step == "confirm_plan"
+    assert result.session.step_key == "confirm_plan"
+    assert result.session.artifacts["plan_confirmed"] is False
+    assert result.session.collected["objective"] == "Record a walkthrough"
+    assert result.session.collected["target_url"] == "https://tripc.ai"
+    assert result.session.collected["reference_url"] is None
+    assert result.output["video_review_plan"]["target_url"] == "https://tripc.ai"
 
 
 @pytest.mark.asyncio

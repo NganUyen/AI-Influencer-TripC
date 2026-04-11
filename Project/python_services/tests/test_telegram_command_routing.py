@@ -26,6 +26,8 @@ _TEST_ENV = {
     "TELEGRAM_WEBHOOK_SECRET": "test-secret",
     "TELEGRAM_CHAT_ID": "999",
     "BACKEND_PUBLIC_URL": "http://localhost:8000",
+    "FRONTEND_PUBLIC_URL": "http://localhost:3000",
+    "CHATGPT_CONNECTOR_PUBLIC_URL": "http://localhost:8000",
     "DATABASE_URL": "postgresql://localhost/test",
     "SUPABASE_URL": "https://test.supabase.co",
     "SUPABASE_KEY": "test-key",
@@ -143,9 +145,9 @@ async def test_start_command_returns_welcome_not_video_ai(tg_calls):
 # Test: /create_video starts video-ai directly
 # -----------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_create_video_command_starts_video_ai_directly(tg_calls):
+async def test_create_video_command_starts_video_planner_directly(tg_calls):
     """
-    /create_video should start video-ai skill directly without OpenClaw routing.
+    /create_video should start video-ai directly without OpenClaw routing.
     """
     message = {
         "text": "/create_video",
@@ -155,10 +157,10 @@ async def test_create_video_command_starts_video_ai_directly(tg_calls):
 
     mock_skill_result = SkillResult(
         success=True,
-        next_step="select_mode",
+        next_step="collect_objective",
         session=SkillSession(
             skill_name="video-ai",
-            step_key="select_mode",
+            step_key="collect_objective",
             collected={},
             artifacts={},
             control=SkillControl(status=SkillStatus.collecting),
@@ -192,10 +194,10 @@ async def test_create_video_command_does_not_call_openclaw(tg_calls):
 
     mock_skill_result = SkillResult(
         success=True,
-        next_step="select_mode",
+        next_step="collect_objective",
         session=SkillSession(
             skill_name="video-ai",
-            step_key="select_mode",
+            step_key="collect_objective",
             collected={},
             artifacts={},
             control=SkillControl(status=SkillStatus.collecting),
@@ -268,7 +270,7 @@ async def test_personas_command_starts_persona_inspector(tg_calls):
 # Test: skill_video-ai callback starts video-ai directly
 # -----------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_skill_video_ai_callback_starts_directly(tg_calls):
+async def test_skill_video_planner_callback_starts_directly(tg_calls):
     """
     Callback data 'skill_video-ai' should start video-ai directly without OpenClaw.
     """
@@ -284,10 +286,10 @@ async def test_skill_video_ai_callback_starts_directly(tg_calls):
 
     mock_skill_result = SkillResult(
         success=True,
-        next_step="select_mode",
+        next_step="collect_objective",
         session=SkillSession(
             skill_name="video-ai",
-            step_key="select_mode",
+            step_key="collect_objective",
             collected={},
             artifacts={},
             control=SkillControl(status=SkillStatus.collecting),
@@ -309,7 +311,7 @@ async def test_skill_video_ai_callback_starts_directly(tg_calls):
 
 
 @pytest.mark.asyncio
-async def test_skill_video_ai_callback_does_not_call_openclaw(tg_calls):
+async def test_skill_video_planner_callback_does_not_call_openclaw(tg_calls):
     """
     Callback 'skill_video-ai' should NOT route through OpenClaw.
     """
@@ -325,10 +327,10 @@ async def test_skill_video_ai_callback_does_not_call_openclaw(tg_calls):
 
     mock_skill_result = SkillResult(
         success=True,
-        next_step="select_mode",
+        next_step="collect_objective",
         session=SkillSession(
             skill_name="video-ai",
-            step_key="select_mode",
+            step_key="collect_objective",
             collected={},
             artifacts={},
             control=SkillControl(status=SkillStatus.collecting),
@@ -430,10 +432,10 @@ async def test_create_video_text_shortcut_bypasses_openclaw(tg_calls):
 
     mock_skill_result = SkillResult(
         success=True,
-        next_step="select_mode",
+        next_step="collect_objective",
         session=SkillSession(
             skill_name="video-ai",
-            step_key="select_mode",
+            step_key="collect_objective",
             collected={},
             artifacts={},
             control=SkillControl(status=SkillStatus.collecting),
@@ -500,12 +502,12 @@ async def test_free_text_still_routes_through_openclaw(tg_calls):
 
 
 # -----------------------------------------------------------------------------
-# Test: Video-ai fresh session has select_mode step
+# Test: Video-ai fresh session has collect_objective step
 # -----------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_video_ai_fresh_session_has_select_mode_step(tg_calls):
+async def test_video_ai_fresh_session_has_collect_objective_step(tg_calls):
     """
-    A fresh video-ai session should start at step_key='select_mode'.
+    A fresh video-ai session should start at step_key='collect_objective'.
     """
     message = {
         "text": "/create_video",
@@ -521,20 +523,20 @@ async def test_video_ai_fresh_session_has_select_mode_step(tg_calls):
     ):
         await _handle_message(FastAPI(), message)
 
-    # Check that session was created with select_mode
+    # Check that session was created with collect_objective
     session = await TelegramSkillSessionStore.get_session(123456789)
     assert session is not None
     assert session.skill_name == "video-ai"
-    assert session.step_key == "select_mode"
+    assert session.step_key == "collect_objective"
 
 
 # -----------------------------------------------------------------------------
-# Test: Video-ai result includes mode options
+# Test: Video planner result prompts for objective
 # -----------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_video_ai_result_includes_mode_options(tg_calls):
+async def test_video_planner_result_prompts_for_objective(tg_calls):
     """
-    Rendering a fresh video-ai result should include both mode options.
+    Rendering a fresh video-planner result should prompt for the planning objective.
     """
     message = {
         "text": "/create_video",
@@ -549,20 +551,8 @@ async def test_video_ai_result_includes_mode_options(tg_calls):
     ):
         await _handle_message(FastAPI(), message)
 
-    # Find the sendMessage call
     send_calls = [call for call in tg_calls if call["method"] == "sendMessage"]
     assert len(send_calls) >= 1
 
-    # Check that mode options are rendered
     last_send = send_calls[-1]
-    reply_markup = last_send["payload"].get("reply_markup", {})
-    keyboard = reply_markup.get("inline_keyboard", [])
-
-    # Flatten to get all callback_data values
-    callback_data_values = [
-        btn.get("callback_data", "") for row in keyboard for btn in row
-    ]
-
-    # Should have both mode options
-    assert any("idea_brief" in data for data in callback_data_values)
-    assert any("recorded_demo_video" in data for data in callback_data_values)
+    assert "What is your objective for this video?" in last_send["payload"]["text"]

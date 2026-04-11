@@ -16,9 +16,11 @@ from config.settings import settings
 from services.errors import (
     GrowChiefAuthError,
     GrowChiefConfigurationError,
+    QuotaExceededError,
     GrowChiefRetryableError,
     GrowChiefServiceError,
 )
+from services.quota_monitor_service import QuotaMonitorService
 
 logger = logging.getLogger(__name__)
 
@@ -298,6 +300,14 @@ class GrowChiefService:
         delay_minutes: int = 30,
     ) -> Dict[str, Any]:
         logger.info("Triggering GrowChief workflow for %s", post_url)
+        try:
+            await QuotaMonitorService.assert_within_budget(
+                provider="growchief",
+                estimated_usage={"requests": 1, "workflows": 1},
+                operation=f"trigger_engagement:{platform}",
+            )
+        except QuotaExceededError as exc:
+            raise GrowChiefServiceError(str(exc)) from exc
 
         workflow_id = await self._resolve_workflow_id(platform)
         payload = {"urls": [post_url]}

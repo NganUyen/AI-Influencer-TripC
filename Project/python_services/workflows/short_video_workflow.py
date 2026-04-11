@@ -20,6 +20,7 @@ with workflow.unsafe.imports_passed_through():
         send_preview_to_telegram,
         wait_for_publish_decision,
         generate_script_from_approved_package_activity,
+        generate_script_from_review_plan_activity,
         send_telegram_progress_update,
         send_telegram_error_notification,
     )
@@ -240,6 +241,24 @@ class ShortVideoWorkflow:
             tts_voice = persona_snapshot.tts_voice
             heygen_avatar_id = persona_snapshot.heygen_avatar_id
             user_id = start_payload.user_id
+            talking_head_optional = bool(start_payload.talking_head_optional)
+            audio_policy = (
+                start_payload.audio_policy.model_dump(mode="json")
+                if start_payload.audio_policy
+                else {
+                    "voiceover_required": True,
+                    "bgm_fallback_enabled": True,
+                    "bgm_library_profile": "product_explainer",
+                    "bgm_duck_under_voiceover": True,
+                    "max_bgm_duration_seconds": 60,
+                }
+            )
+            review_plan = (
+                start_payload.review_plan.model_dump(mode="json")
+                if start_payload.review_plan
+                else None
+            )
+            execution_mode = (start_payload.execution_mode or "").strip()
 
             # Check if this workflow was kicked off with an approved production package
             approved_package = (
@@ -248,7 +267,40 @@ class ShortVideoWorkflow:
                 else None
             )
 
-            if approved_package:
+            if review_plan and execution_mode in {
+                "autonomous_screen_recording",
+                "authenticated_pc_recording",
+            }:
+                self.workflow_status = "generating_script_from_review_plan"
+                self.current_step = "generating_script"
+                log_step_change("generating_script", "from confirmed review plan")
+                await notify_progress(
+                    "Generating recording script from approved plan",
+                    "Converting the confirmed website review plan into autonomous recording scenes.",
+                )
+                script_result = await workflow.execute_activity(
+                    generate_script_from_review_plan_activity,
+                    args=[
+                        {
+                            "app_name": "TripC",
+                            "review_plan": review_plan,
+                            "persona_config": {
+                                "language_name": language,
+                                "voice": tts_voice,
+                                "tts_voice": tts_voice,
+                                "_openclaw_owner_key": owner_key,
+                                "_openclaw_user_id": user_id,
+                            },
+                        }
+                    ],
+                    start_to_close_timeout=timedelta(minutes=3),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                await notify_progress(
+                    "Recording script ready",
+                    "Autonomous screen recording steps are ready. Starting asset generation next.",
+                )
+            elif approved_package:
                 self.workflow_status = "generating_script_from_package"
                 self.current_step = "generating_script"
                 log_step_change("generating_script", "from approved package")
@@ -268,6 +320,8 @@ class ShortVideoWorkflow:
                                 "language_name": language,
                                 "voice": tts_voice,
                                 "tts_voice": tts_voice,
+                                "_openclaw_owner_key": owner_key,
+                                "_openclaw_user_id": user_id,
                             },
                         }
                     ],
@@ -291,6 +345,8 @@ class ShortVideoWorkflow:
                                 "language_name": language,
                                 "voice": tts_voice,
                                 "tts_voice": tts_voice,
+                                "_openclaw_owner_key": owner_key,
+                                "_openclaw_user_id": user_id,
                             },
                             "telegram_chat_id": telegram_chat_id,
                         }
@@ -336,6 +392,9 @@ class ShortVideoWorkflow:
                     "id": scene.get("id"),
                     "caption": scene.get("caption", ""),
                     "image_prompt": scene.get("prompt", ""),
+                    "prompt": scene.get("prompt", ""),
+                    "browser_action": scene.get("browser_action"),
+                    "visual_success_criteria": scene.get("visual_success_criteria"),
                     "config": {},
                     "top_half_source_type": scene.get("top_half_source_type"),
                     "top_half_target": scene.get("top_half_target"),
@@ -351,27 +410,29 @@ class ShortVideoWorkflow:
 
             # Stage A: Start audio and scenes in parallel
             # Temporal 1.5.1 returns ActivityHandle; start both first, then await
-            audio_handle = workflow.execute_activity(
-                generate_audio,
-                args=[
-                    {
-                        "script": script_json.get("script", ""),
-                        "metadata": {
-                            "day": 1,
-                            "platform": platform,
+            audio_handle = None
+            if bool(audio_policy.get("voiceover_required", True)):
+                audio_handle = workflow.execute_activity(
+                    generate_audio,
+                    args=[
+                        {
+                            "script": script_json.get("script", ""),
+                            "metadata": {
+                                "day": 1,
+                                "platform": platform,
+                                "persona_id": persona_id,
+                                "owner_key": owner_key,
+                                "user_id": user_id,
+                            },
                             "persona_id": persona_id,
                             "owner_key": owner_key,
                             "user_id": user_id,
-                        },
-                        "persona_id": persona_id,
-                        "owner_key": owner_key,
-                        "user_id": user_id,
-                        "config": {"voice": tts_voice},
-                    }
-                ],
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=MEDIA_RETRY_POLICY,
-            )
+                            "config": {"voice": tts_voice},
+                        }
+                    ],
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=MEDIA_RETRY_POLICY,
+                )
             scenes_handle = workflow.execute_activity(
                 generate_scene_images,
                 args=[
@@ -397,18 +458,37 @@ class ShortVideoWorkflow:
             )
 
             # Await audio first so talking head can start immediately
-            audio_result = await audio_handle
+            audio_result = None
+            if audio_handle is not None:
+                try:
+                    audio_result = await audio_handle
+                except Exception as exc:
+                    if bool(audio_policy.get("bgm_fallback_enabled", True)):
+                        workflow.logger.warning(
+                            "Primary audio generation failed; falling back to local BGM | workflow_id=%s | error=%s",
+                            workflow_id,
+                            exc,
+                        )
+                        audio_result = None
+                    else:
+                        raise
             talking_head_handle = None
 
             # Stage B: Start talking head as soon as audio is ready
-            if not heygen_avatar_id:
+            if not heygen_avatar_id and talking_head_optional:
+                workflow.logger.info(
+                    "Talking head skipped | persona=%s | reason=no heygen avatar and talking head optional",
+                    persona_id,
+                )
+                talking_head_result = {"url": None, "status": "skipped"}
+            elif not heygen_avatar_id:
                 raise PersonaConfigurationError(
                     (
                         "heygen_avatar_id is required for split-screen output. "
                         f"Cannot generate bottom-half talking head for persona {persona_id}."
                     )
                 )
-            else:
+            elif audio_result is not None:
                 self.current_step = "generating_talking_head"
                 await notify_progress(
                     "Bottom-half audio ready",
@@ -420,6 +500,7 @@ class ShortVideoWorkflow:
                         {
                             "avatar_id": heygen_avatar_id,
                             "audio_url": audio_result["url"],
+                            "script_text": script_json.get("script", ""),
                             "platform": platform,
                             "day": 1,
                             "topic": topic,
@@ -431,6 +512,8 @@ class ShortVideoWorkflow:
                     start_to_close_timeout=timedelta(minutes=20),
                     retry_policy=MEDIA_RETRY_POLICY,
                 )
+            else:
+                talking_head_result = {"url": None, "status": "skipped_no_audio"}
 
             # Now await scenes (may already be done while talking head was starting)
             self.current_step = "generating_top_half"
@@ -565,7 +648,7 @@ class ShortVideoWorkflow:
                 args=[
                     {
                         "image_urls": image_urls,
-                        "audio_url": audio_result["url"],
+                        "audio_url": audio_result.get("url") if audio_result else None,
                         "talking_head_url": talking_head_result.get("url") or None,
                         "subtitle_script": script_json.get("script", ""),
                         "subtitle_segments": aligned_subtitle_segments,
@@ -576,6 +659,7 @@ class ShortVideoWorkflow:
                         "user_id": user_id,
                         "topic": topic,
                         "duration_per_image": 4.0,
+                        "audio_policy": audio_policy,
                     }
                 ],
                 start_to_close_timeout=timedelta(minutes=20),

@@ -11,14 +11,25 @@ import {
   Zap,
   Clock,
   CheckCircle,
+  AlertTriangle,
+  X,
+  Check,
+  Cpu,
+  BookOpen,
+  Brain,
+  Link2,
+  RefreshCw,
   type LucideIcon,
 } from "lucide-react";
+import { SocialIcon } from "@/components/ui/SocialIcon";
 
 import { customerApiRequest } from "@/lib/customer-api";
 import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
+import { Footer } from "@/components/layout/Footer";
+import openClawLogo from "@/app/dashboard/openclaw-logo.svg";
 import { Panel } from "@/components/ui/Panel";
 import { PanelHeader } from "@/components/ui/PanelHeader";
 import { StatCard } from "@/components/ui/StatCard";
@@ -147,6 +158,13 @@ export type SystemSummaryData = {
   services: { name: string; status: "online" | "warning" | "error"; latency: string }[];
   quota: { name: string; used: number; total: number; unit: string }[];
   telegram_bot_url?: string | null;
+  recent_videos?: {
+    asset_id: string;
+    persona_id?: string | null;
+    title?: string | null;
+    access_url?: string | null;
+    created_at?: string | null;
+  }[];
 };
 
 export type SystemWorkflowData = {
@@ -205,6 +223,38 @@ const AI_BACKBONE_OPTIONS = [
   },
 ] as const;
 
+const VIDEO_DURATION_OPTIONS = [
+  { value: "15s", label: "15 seconds" },
+  { value: "30s", label: "30 seconds" },
+  { value: "60s", label: "60 seconds" },
+  { value: "90s", label: "90 seconds" },
+  { value: "2m", label: "2 minutes" },
+] as const;
+
+const VIDEO_STYLE_OPTIONS = [
+  { value: "educational", label: "Educational" },
+  { value: "promotional", label: "Promotional" },
+  { value: "storytelling", label: "Storytelling" },
+  { value: "tutorial", label: "Tutorial" },
+  { value: "testimonial", label: "Testimonial" },
+] as const;
+
+const VIDEO_TONE_OPTIONS = [
+  { value: "professional", label: "Professional" },
+  { value: "casual", label: "Casual" },
+  { value: "energetic", label: "Energetic" },
+  { value: "bold", label: "Bold" },
+] as const;
+
+const VIDEO_PLATFORM_OPTIONS = [
+  { value: "tiktok", label: "TikTok" },
+  { value: "instagram", label: "Instagram" },
+  { value: "linkedin", label: "LinkedIn" },
+  { value: "facebook", label: "Facebook" },
+  { value: "twitter", label: "Twitter / X" },
+  { value: "youtube", label: "YouTube" },
+] as const;
+
 const DASHBOARD_TABS: DashboardTab[] = [
   { id: "overview", label: "Tổng quan", icon: LayoutDashboard },
   { id: "ops", label: "AI vận hành", icon: Bot },
@@ -232,15 +282,16 @@ export default function CustomerDashboard() {
   const searchParams = useSearchParams();
   const { user, isAuthenticated, initialized, isLoading, logout, initialize } = useCustomerAuthStore();
 // // Replace the destructuring with mock values:
-//   const { user, isAuthenticated, initialized, isLoading, logout } = {
-//     user: { name: "Preview User", email: "preview@example.com" },
-//     isAuthenticated: true,
-//     initialized: true,
-//     isLoading: false,
-//     logout: () => console.log("Logout clicked"),
-//   };
+  // const { user, isAuthenticated, initialized, isLoading, logout } = {
+  //   user: { name: "Preview User", email: "preview@example.com" },
+  //   isAuthenticated: true,
+  //   initialized: true,
+  //   isLoading: false,
+  //   logout: () => console.log("Logout clicked"),
+  // };
   
   const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [systemSummary, setSystemSummary] = useState<SystemSummaryData | null>(null);
   const [systemWorkflows, setSystemWorkflows] = useState<SystemWorkflowData[]>([]);
 
@@ -282,6 +333,22 @@ export default function CustomerDashboard() {
     description: "",
     targetPlatforms: "linkedin,facebook,twitter",
   });
+
+  const [videoContextDraft, setVideoContextDraft] = useState<VideoContextDraft>({
+    title: "",
+    description: "",
+    duration: "60s",
+    style: "promotional",
+    targetAudience: "",
+    keyMessages: "",
+    callToAction: "",
+    tone: "professional",
+    personaId: "",
+    platforms: "tiktok,instagram,linkedin",
+    language: "Vietnamese",
+    subtitles: false,
+  });
+  const [isVideoContextModalOpen, setIsVideoContextModalOpen] = useState(false);
 
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -790,6 +857,14 @@ export default function CustomerDashboard() {
     }
   }
 
+  function handleVideoContextSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusyKey("video-context");
+    setBanner("Video context saved locally. Ready for AI generation.");
+    setBusyKey(null);
+    console.log("videoContextDraft", videoContextDraft);
+  }
+
   async function handleApprove(campaignId: string, approved: boolean) {
     setBusyKey(`approve-${campaignId}`);
     try {
@@ -906,14 +981,17 @@ export default function CustomerDashboard() {
         telegramBotUrl={telegramBotUrl}
         onLogout={() => void handleLogout()}
         isSigningOut={busyKey === "signout"}
+        onMobileMenuToggle={() => setIsMobileMenuOpen(prev => !prev)}
       />
 
-      <div className="flex pt-16 min-h-[calc(100vh-64px)]">
+      <div className="flex pt-16 min-h-[calc(100vh-64px)] relative">
         <DashboardSidebar
           tabs={DASHBOARD_TABS}
           activeTab={activeTab}
           onTabChange={setActiveTab}
           telegramBotUrl={telegramBotUrl}
+          isMobileOpen={isMobileMenuOpen}
+          onMobileClose={() => setIsMobileMenuOpen(false)}
         />
 
         <main className="flex-1 min-w-0 px-6 md:px-10 py-8">
@@ -931,19 +1009,21 @@ export default function CustomerDashboard() {
         {/* Error banner */}
         {pageError && (
           <div className="flex items-center justify-between rounded-2xl border border-aura-error/20 bg-aura-error-container/20 px-5 py-3 text-sm text-aura-error font-medium">
-            <span>⚠ {pageError}</span>
-            <button onClick={() => setPageError(null)} className="ml-4 text-aura-error/60 hover:text-aura-error transition-colors">✕</button>
+            <span>{pageError}</span>
+            <button onClick={() => setPageError(null)} className="ml-4 text-aura-error/60 hover:text-aura-error transition-colors">
+              <X className="w-4 h-4 stroke-[1.75]" />
+            </button>
           </div>
         )}
 
         {/* ─── Quota Warning Banner ─── */}
         {activeTab === "overview" && quotaWarnings.length > 0 && !quotaBannerDismissed && (
-          <div className="flex items-start justify-between gap-4 rounded-2xl border border-aura-secondary/30 bg-aura-secondary-container/40 px-5 py-4">
+          <div className="flex items-start justify-between gap-4 rounded-2xl border border-aura-error/20 bg-aura-error-container/15 px-5 py-4">
             <div className="flex items-start gap-3">
-              <span className="text-xl leading-none mt-0.5">⚠️</span>
+              <AlertTriangle className="w-4 h-4 text-aura-error flex-shrink-0 mt-0.5 stroke-[1.75]" />
               <div>
-                <p className="font-semibold text-aura-secondary text-sm">Quota cảnh báo vượt ngưỡng hôm nay</p>
-                <p className="text-xs text-aura-on-surface-variant mt-0.5">
+                <p className="text-sm font-semibold text-aura-error">Quota cảnh báo vượt ngưỡng hôm nay</p>
+                <p className="mt-0.5 text-xs text-aura-on-surface-variant">
                   {quotaWarnings.map((q) => {
                     const pct = Math.round((q.used / q.total) * 100);
                     return `${q.name} (${pct}%)`;
@@ -953,9 +1033,9 @@ export default function CustomerDashboard() {
             </div>
             <button
               onClick={() => setQuotaBannerDismissed(true)}
-              className="flex-shrink-0 text-aura-secondary/60 hover:text-aura-secondary transition-colors text-sm"
+              className="flex-shrink-0 text-aura-error/60 hover:text-aura-error transition-colors"
             >
-              ✕
+              <X className="w-4 h-4 stroke-[1.75]" />
             </button>
           </div>
         )}
@@ -1006,9 +1086,9 @@ export default function CustomerDashboard() {
                   { label: "Published Content", value: content.filter(c => c.status === "published").length, border: "border-aura-tertiary" },
                   { label: "AI Personas", value: personas?.length ?? 0, border: "border-aura-outline" },
                 ].map(stat => (
-                  <div key={stat.label} className={`bg-white p-6 rounded-xl shadow-aura-sm border-l-4 ${stat.border}`}>
-                    <p className="text-aura-on-surface-variant text-[10px] font-body uppercase tracking-widest mb-1">{stat.label}</p>
-                    <p className="text-4xl font-headline font-extrabold text-aura-on-surface">{stat.value}</p>
+                  <div key={stat.label} className={`bg-white p-6 rounded-xl shadow-aura-sm border-l-4 ${stat.border} flex min-h-[132px] flex-col justify-between`}>
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-aura-outline">{stat.label}</p>
+                    <p className="pt-4 text-5xl font-headline font-black tracking-tight text-aura-on-surface">{stat.value}</p>
                   </div>
                 ))}
               </div>
@@ -1026,14 +1106,14 @@ export default function CustomerDashboard() {
                 <div className="space-y-3">
                   {(systemSummary?.services || []).length === 0 ? (
                     [
-                      { name: "Temporal Cluster", icon: "☁" },
-                      { name: "OpenClaw AI", icon: "🧠" },
-                      { name: "Postiz Publisher", icon: "📡" },
-                      { name: "GrowChief Growth", icon: "📈" },
+                      { name: "Temporal Cluster", Icon: Radio },
+                      { name: "OpenClaw AI", Icon: Cpu },
+                      { name: "Postiz Publisher", Icon: Bot },
+                      { name: "GrowChief Growth", Icon: Zap },
                     ].map(s => (
                       <div key={s.name} className="flex items-center justify-between p-3 bg-white rounded-xl">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm">{s.icon}</span>
+                          <s.Icon className="w-4 h-4 text-aura-outline stroke-[1.75]" />
                           <span className="text-sm font-body text-aura-on-surface-variant">{s.name}</span>
                         </div>
                         <div className="h-3 w-16 bg-aura-surface-container rounded animate-pulse" />
@@ -1045,14 +1125,14 @@ export default function CustomerDashboard() {
                         <div className="flex items-center gap-2">
                           <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
                             service.status === "online" ? "bg-aura-tertiary" :
-                            service.status === "warning" ? "bg-aura-secondary" : "bg-aura-error"
+                            service.status === "warning" ? "bg-aura-secondary" : "bg-aura-secondary"
                           }`} />
                           <span className="text-sm font-body text-aura-on-surface">{service.name}</span>
                         </div>
                         <div className="text-right">
                           <span className={`block text-[10px] font-bold uppercase ${
                             service.status === "online" ? "text-aura-tertiary" :
-                            service.status === "warning" ? "text-aura-secondary" : "text-aura-error"
+                            service.status === "warning" ? "text-aura-secondary" : "text-aura-secondary"
                           }`}>{service.status}</span>
                           <span className="block text-[10px] text-aura-on-surface-variant">{service.latency}</span>
                         </div>
@@ -1067,10 +1147,7 @@ export default function CustomerDashboard() {
                 <div className="space-y-5">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-aura-primary/10 rounded-full flex items-center justify-center">
-                      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                        <circle cx="9" cy="9" r="3" fill="#a03929"/>
-                        <path d="M9 2v2M9 14v2M2 9h2M14 9h2M4.22 4.22l1.42 1.42M12.36 12.36l1.42 1.42M4.22 13.78l1.42-1.42M12.36 5.64l1.42-1.42" stroke="#a03929" strokeWidth="1.5" strokeLinecap="round"/>
-                      </svg>
+                      <Cpu className="w-5 h-5 text-aura-primary stroke-[1.5]" />
                     </div>
                     <h3 className="text-base font-headline font-bold text-aura-on-surface">AI Backbone</h3>
                   </div>
@@ -1091,7 +1168,7 @@ export default function CustomerDashboard() {
                       <p className="text-[10px] text-aura-on-surface-variant mb-1 font-body uppercase tracking-wider">Status</p>
                       <div className="flex items-center gap-2">
                         <span className={`w-2 h-2 rounded-full ${aiBackbone?.effective_status.ready ? "bg-aura-tertiary" : "bg-aura-secondary animate-pulse"}`} />
-                        <p className="text-xs text-aura-on-surface">
+                        <p className="text-[11px] leading-5 text-aura-on-surface/80">
                           {aiBackbone?.effective_status.message || "Initializing…"}
                         </p>
                       </div>
@@ -1134,7 +1211,7 @@ export default function CustomerDashboard() {
                       const pct = q.total > 0 ? Math.min((q.used / q.total) * 100, 100) : 0;
                       const isHigh = pct >= 80;
                       const isCritical = pct >= 95;
-                      const barColor = isCritical ? "bg-aura-error" : isHigh ? "bg-aura-secondary" : "bg-aura-primary";
+                      const barColor = isCritical ? "bg-aura-secondary" : isHigh ? "bg-aura-secondary" : "bg-aura-tertiary";
                       return (
                         <div key={q.name} className="space-y-1">
                           <div className="flex justify-between text-xs font-body">
@@ -1142,13 +1219,13 @@ export default function CustomerDashboard() {
                               {q.name}
                               {isHigh && (
                                 <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${
-                                  isCritical ? "bg-aura-error/20 text-aura-error" : "bg-aura-secondary/20 text-aura-secondary"
+                                  isCritical ? "bg-aura-secondary/20 text-aura-secondary" : "bg-aura-secondary/20 text-aura-secondary"
                                 }`}>
                                   {isCritical ? "⚠ Critical" : "⚠ High"}
                                 </span>
                               )}
                             </span>
-                            <span className={`font-bold ${isCritical ? "text-aura-error" : isHigh ? "text-aura-secondary" : "text-aura-on-surface-variant"}`}>
+                            <span className={`font-bold ${isCritical ? "text-aura-secondary" : isHigh ? "text-aura-secondary" : "text-aura-on-surface-variant"}`}>
                               {Math.round(pct)}%
                             </span>
                           </div>
@@ -1251,11 +1328,11 @@ export default function CustomerDashboard() {
               </div>
             </section>
 
-            {/* ── Campaign Control + Output Stream ── */}
-            <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white rounded-2xl p-7 shadow-aura">
-                <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Campaign Control</h3>
-                <div className="space-y-3">
+             {/* ── Campaign Control + Output Stream ── */}
+             <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+               <div className="bg-white rounded-2xl p-8 shadow-aura">
+                 <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Campaign Control</h3>
+                 <div className="space-y-3">
                   {campaigns.map(c => (
                     <div key={c.id} className="p-4 bg-aura-surface-container-low border border-aura-outline-variant/20 rounded-xl flex items-center justify-between">
                       <div className="min-w-0 mr-3">
@@ -1277,9 +1354,9 @@ export default function CustomerDashboard() {
                 </div>
               </div>
 
-              <div className="bg-white rounded-2xl p-7 shadow-aura">
-                <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Output Stream</h3>
-                <div className="space-y-2">
+               <div className="bg-white rounded-2xl p-8 shadow-aura">
+                 <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Output Stream</h3>
+                 <div className="space-y-2">
                   {content.slice(0, 6).map(item => (
                     <div key={item.id} className="p-3 bg-aura-surface-container-low border border-aura-outline-variant/15 rounded-xl flex justify-between items-center">
                       <span className="text-sm text-aura-on-surface truncate mr-2">{item.title}</span>
@@ -1301,6 +1378,145 @@ export default function CustomerDashboard() {
               </div>
             </section>
 
+          </div>
+        )}
+
+        {isVideoContextModalOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-8"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                setIsVideoContextModalOpen(false);
+              }
+            }}
+          >
+            <div
+              className="w-full max-w-3xl rounded-2xl border border-white/[0.08] bg-zinc-950/95 p-6 shadow-2xl shadow-black/40 backdrop-blur-xl"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-4 pb-4 border-b border-white/[0.08]">
+                <div>
+                  <h2 className="text-xl font-semibold text-white">Video Creation Context</h2>
+                  <p className="text-sm text-zinc-400 mt-1">Fill in the AI video brief and save it for later generation.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsVideoContextModalOpen(false)}
+                  className="rounded-full border border-white/[0.08] bg-white/5 px-3 py-2 text-sm text-white transition-all duration-200 hover:bg-white/10"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="max-h-[calc(100vh-10rem)] overflow-y-auto overflow-x-visible pr-2 pt-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                <form className="space-y-4" onSubmit={(event) => {
+                  handleVideoContextSave(event);
+                  setIsVideoContextModalOpen(false);
+                }}>
+                  <FormField
+                    label="Video Title"
+                    value={videoContextDraft.title}
+                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, title: (event.target as HTMLInputElement).value }))}
+                    placeholder="Short, descriptive title"
+                  />
+                  <TextAreaField
+                    label="Video Description"
+                    value={videoContextDraft.description}
+                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, description: (event.target as HTMLTextAreaElement).value }))}
+                    placeholder="What should this video communicate?"
+                    minHeight="100px"
+                  />
+                  <TextAreaField
+                    label="Target Audience"
+                    value={videoContextDraft.targetAudience}
+                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, targetAudience: (event.target as HTMLTextAreaElement).value }))}
+                    placeholder="Who is this for?"
+                    minHeight="80px"
+                  />
+                  <FormField
+                    label="Call To Action"
+                    value={videoContextDraft.callToAction}
+                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, callToAction: (event.target as HTMLInputElement).value }))}
+                    placeholder="What should viewers do next?"
+                  />
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <SelectField
+                      label="Duration"
+                      value={videoContextDraft.duration}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, duration: (event.target as HTMLSelectElement).value }))}
+                      options={VIDEO_DURATION_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    />
+                    <SelectField
+                      label="Video Style"
+                      value={videoContextDraft.style}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, style: (event.target as HTMLSelectElement).value }))}
+                      options={VIDEO_STYLE_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <SelectField
+                      label="Tone"
+                      value={videoContextDraft.tone}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, tone: (event.target as HTMLSelectElement).value }))}
+                      options={VIDEO_TONE_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    />
+                    <FormField
+                      label="Persona"
+                      value={videoContextDraft.personaId}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, personaId: (event.target as HTMLInputElement).value }))}
+                      placeholder="Choose or type persona ID"
+                    />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <SelectField
+                      label="Target Platforms"
+                      value={videoContextDraft.platforms}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, platforms: (event.target as HTMLSelectElement).value }))}
+                      options={VIDEO_PLATFORM_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    />
+                    <FormField
+                      label="Language"
+                      value={videoContextDraft.language}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, language: (event.target as HTMLInputElement).value }))}
+                      placeholder="Language for narration/captions"
+                    />
+                  </div>
+                  <TextAreaField
+                    label="Key Messages"
+                    value={videoContextDraft.keyMessages}
+                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, keyMessages: (event.target as HTMLTextAreaElement).value }))}
+                    placeholder="List the most important messages or bullet points."
+                    minHeight="80px"
+                  />
+                  <div className="flex items-center gap-3">
+                    <input
+                      id="video-subtitles"
+                      type="checkbox"
+                      checked={videoContextDraft.subtitles}
+                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, subtitles: event.target.checked }))}
+                      className="h-4 w-4 rounded border-white/10 bg-white/5 text-blue-500 focus:ring-blue-500"
+                    />
+                    <label htmlFor="video-subtitles" className="text-sm text-zinc-400">
+                      Generate subtitles automatically
+                    </label>
+                  </div>
+                  <button type="submit" className="w-full bg-blue-500 text-white font-semibold py-2.5 rounded-lg shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98]">
+                    Save Video Context
+                  </button>
+                </form>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1329,7 +1545,7 @@ export default function CustomerDashboard() {
                 <div className="bg-white rounded-2xl p-8 shadow-aura">
                   <div className="flex items-center gap-3 mb-8">
                     <div className="w-12 h-12 rounded-2xl bg-aura-primary/10 flex items-center justify-center">
-                      <span className="text-xl">📖</span>
+                      <BookOpen className="w-5 h-5 text-aura-primary stroke-[1.5]" />
                     </div>
                     <h3 className="text-xl font-bold text-aura-on-surface font-headline">Bối cảnh Thương hiệu</h3>
                   </div>
@@ -1389,7 +1605,7 @@ export default function CustomerDashboard() {
                     <div>
                       <div className="flex items-center gap-3 mb-6">
                         <div className="w-10 h-10 rounded-xl bg-aura-tertiary/10 flex items-center justify-center">
-                          <span className="text-lg">🧠</span>
+                          <Brain className="w-5 h-5 text-aura-tertiary stroke-[1.5]" />
                         </div>
                         <h3 className="font-bold text-aura-on-surface font-headline">Chế độ Trí tuệ</h3>
                       </div>
@@ -1402,10 +1618,10 @@ export default function CustomerDashboard() {
                         <span className="font-bold text-aura-on-surface text-sm">
                           {aiBackbone?.access_mode.replace(/_/g, " ") || "Platform Managed"}
                         </span>
-                        <span className="text-aura-tertiary text-lg">✓</span>
+                        <Check className="w-4 h-4 text-aura-tertiary stroke-[2.5]" />
                       </div>
                       <div className="flex items-center justify-between w-full p-5 bg-aura-surface-container-low rounded-2xl border-2 border-transparent">
-                        <span className="font-medium text-aura-on-surface-variant text-sm">
+                        <span className="text-sm font-medium text-aura-on-surface-variant/80">
                           {aiBackbone?.effective_status.message || "Initializing…"}
                         </span>
                         <span className={`w-2 h-2 rounded-full ${aiBackbone?.effective_status.ready ? "bg-aura-tertiary" : "bg-aura-secondary animate-pulse"}`} />
@@ -1418,7 +1634,7 @@ export default function CustomerDashboard() {
                     <div>
                       <div className="flex items-center gap-3 mb-6">
                         <div className="w-10 h-10 rounded-xl bg-aura-secondary/10 flex items-center justify-center">
-                          <span className="text-lg">🔗</span>
+                          <Link2 className="w-5 h-5 text-aura-secondary stroke-[1.5]" />
                         </div>
                         <h3 className="font-bold text-aura-on-surface font-headline">Cầu nối Hệ thống</h3>
                       </div>
@@ -1428,8 +1644,10 @@ export default function CustomerDashboard() {
                     </div>
 
                     {telegramLink?.linked ? (
-                      <div className="p-5 bg-blue-50 rounded-2xl flex items-center gap-4">
-                        <div className="w-10 h-10 bg-[#0088cc] text-white rounded-full flex items-center justify-center text-lg flex-shrink-0">✈</div>
+                      <div className="p-5 bg-aura-surface-container rounded-2xl flex items-center gap-4">
+                        <div className="w-10 h-10 bg-aura-surface-container rounded-full flex items-center justify-center flex-shrink-0 shadow-aura-sm">
+                          <SocialIcon platform="telegram" size={20} />
+                        </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-bold text-aura-on-surface">@{telegramLink.link?.telegram_username || "Linked Account"}</p>
                           <p className="text-[10px] text-aura-on-surface-variant">ID: {telegramLink.link?.chat_id}</p>
@@ -1438,19 +1656,21 @@ export default function CustomerDashboard() {
                         <button
                           type="button"
                           onClick={handleStartTelegramLink}
-                          className="text-aura-on-surface-variant hover:text-aura-primary transition-colors text-sm"
-                        >↻</button>
+                          className="text-aura-on-surface-variant hover:text-aura-primary transition-colors"
+                          aria-label="Re-link Telegram"
+                        ><RefreshCw className="w-4 h-4 stroke-[1.75]" /></button>
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        <button
-                          type="button"
-                          onClick={handleStartTelegramLink}
-                          disabled={busyKey === "telegram-link"}
-                          className="w-full py-3 bg-[#0088cc] text-white font-bold rounded-full hover:opacity-90 active:scale-95 transition-all disabled:opacity-50"
-                        >
-                          {busyKey === "telegram-link" ? "Đang tạo liên kết…" : "Kết nối Telegram"}
-                        </button>
+                         <button
+                           type="button"
+                           onClick={handleStartTelegramLink}
+                           disabled={busyKey === "telegram-link"}
+                           className="w-full py-3 bg-white text-aura-on-surface border border-aura-outline/20 font-bold rounded-full hover:bg-aura-surface-container-low active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-aura-sm"
+                         >
+                           {busyKey !== "telegram-link" && <SocialIcon platform="telegram" size={18} />}
+                           {busyKey === "telegram-link" ? "Đang tạo liên kết…" : "Kết nối Telegram"}
+                         </button>
                         {linkToken && telegramVerificationUrl && (
                           <div className="p-4 bg-aura-secondary-container/30 border border-aura-secondary/20 rounded-xl text-center">
                             <p className="text-xs text-aura-secondary mb-3 font-medium">
@@ -1485,23 +1705,13 @@ export default function CustomerDashboard() {
                   <div className="grid grid-cols-2 gap-4">
                     {SUPPORTED_PLATFORMS.map(p => {
                       const acc = accounts.find(a => a.platform === p);
-                      const platformIcons: Record<string, { emoji: string; color: string; bg: string }> = {
-                        linkedin:  { emoji: "🔷", color: "text-blue-600",  bg: "bg-blue-50"  },
-                        twitter:   { emoji: "🐦", color: "text-stone-900", bg: "bg-stone-100" },
-                        x:         { emoji: "✖",  color: "text-stone-900", bg: "bg-stone-100" },
-                        youtube:   { emoji: "▶",  color: "text-red-600",   bg: "bg-red-50"   },
-                        instagram: { emoji: "📸", color: "text-pink-600",  bg: "bg-pink-50"  },
-                        tiktok:    { emoji: "🎵", color: "text-stone-900", bg: "bg-stone-100" },
-                        facebook:  { emoji: "📘", color: "text-blue-700",  bg: "bg-blue-50"  },
-                      };
-                      const meta = platformIcons[p.toLowerCase()] ?? { emoji: "🌐", color: "text-aura-primary", bg: "bg-aura-surface-container" };
                       return (
                         <div
                           key={p}
                           className="bg-white/60 backdrop-blur p-4 rounded-3xl flex flex-col items-center justify-center gap-3 hover:bg-white cursor-pointer group shadow-aura-sm transition-all"
                         >
-                          <div className={`w-12 h-12 ${meta.bg} ${meta.color} rounded-full flex items-center justify-center group-hover:scale-110 transition-transform text-xl`}>
-                            {meta.emoji}
+                          <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center group-hover:scale-110 group-hover:shadow-aura-md transition-all border border-aura-outline/5">
+                            <SocialIcon platform={p} size={24} />
                           </div>
                           <span className="text-xs font-bold text-aura-on-surface capitalize">{p}</span>
                           {acc ? (
@@ -1522,14 +1732,14 @@ export default function CustomerDashboard() {
                     })}
                   </div>
 
-                  {/* Memory capacity bar */}
-                  <div className="mt-8 pt-8 border-t border-aura-outline-variant/20">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-xs font-bold text-aura-on-surface-variant">Khả năng Ghi nhớ</span>
-                      <span className="text-xs font-bold text-aura-primary">84%</span>
-                    </div>
+                   {/* Memory capacity bar */}
+                   <div className="mt-8 pt-8 border-t border-aura-outline-variant/20">
+                     <div className="flex items-end justify-between mb-3">
+                       <span className="text-[10px] font-semibold uppercase tracking-widest text-aura-on-surface-variant">Khả năng Ghi nhớ</span>
+                       <span className="text-5xl font-black text-aura-primary leading-none">84%</span>
+                     </div>
                     <div className="w-full bg-aura-surface-container-lowest h-2 rounded-full overflow-hidden">
-                      <div className="bg-gradient-to-r from-aura-primary to-aura-primary-container h-full w-[84%] rounded-full" />
+                      <div className="bg-gradient-to-r from-aura-primary to-aura-primary-container h-full w-[84%] rounded-full shadow-aura-sm" />
                     </div>
                     <p className="text-[10px] text-aura-on-surface-variant mt-4 leading-relaxed italic font-body">
                       Tỷ lệ lưu giữ cao hơn cho phép AI nhớ lại các sở thích thương hiệu sắc thái từ các tương tác trước đó chính xác hơn.
@@ -1559,7 +1769,7 @@ export default function CustomerDashboard() {
                         <h4 className="text-white font-bold text-xl font-headline">{personas[0]?.display_name}</h4>
                         <p className="text-white/70 text-xs font-body mt-0.5">Persona đang hoạt động</p>
                         <div className="mt-4 flex items-center gap-2">
-                          <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                          <span className="w-2 h-2 bg-aura-tertiary rounded-full animate-pulse" />
                           <span className="text-[10px] text-white/90 font-body font-medium uppercase tracking-widest">
                             {personas[0]?.status === "active" ? "Đã tối ưu & Đồng bộ" : "Chờ kích hoạt"}
                           </span>
@@ -1584,6 +1794,20 @@ export default function CustomerDashboard() {
           />
         )}
           </div>
+
+          {/* Page Footer branding */}
+          <footer className="mt-12 py-10 border-t border-aura-outline-variant/10 flex justify-center">
+            <div className="flex items-center gap-2">
+              <img 
+                src={openClawLogo.src} 
+                alt="OpenClaw" 
+                className="h-4 w-auto opacity-75"
+              />
+              <span className="text-xs text-aura-on-surface-variant font-body">
+                Operated by OpenClaw
+              </span>
+            </div>
+          </footer>
         </main>
       </div>
     </div>
@@ -1660,13 +1884,14 @@ function ActivitySnapshot({
             : ("info" as const);
 
         return (
-          <TimelineItem
-            key={item.id}
-            id={item.id}
-            title={item.title}
-            description={item.detail}
-            variant={variant}
-          />
+          <div key={item.id} className="py-3 first:pt-0 last:pb-0">
+            <TimelineItem
+              id={item.id}
+              title={item.title}
+              description={item.detail}
+              variant={variant}
+            />
+          </div>
         );
       })}
     </div>
@@ -1786,18 +2011,8 @@ function formatDateLabel(value: string): string {
   return new Date(parsed).toLocaleString();
 }
 
-function activityToneClass(tone: ActivityItemTone = "default"): string {
-  if (tone === "success") {
-    return "bg-emerald-300";
-  }
-  if (tone === "warning") {
-    return "bg-amber-300";
-  }
-  return "bg-sky-300";
-}
-
 function auraActivityDotClass(tone: ActivityItemTone = "default"): string {
   if (tone === "success") return "bg-aura-tertiary";
   if (tone === "warning") return "bg-aura-secondary";
-  return "bg-aura-primary-container";
+  return "bg-aura-on-surface-variant";
 }

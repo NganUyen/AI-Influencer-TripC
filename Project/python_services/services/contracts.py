@@ -15,6 +15,8 @@ class SceneContract(BaseModel):
     caption: str
     narration_text: Optional[str] = None
     prompt: Optional[str] = None
+    browser_action: Optional[str] = None
+    visual_success_criteria: Optional[str] = None
     top_half_source_type: Optional[str] = None
     top_half_target: Optional[str] = None
     top_half_capture_hint: Optional[str] = None
@@ -66,7 +68,7 @@ class AudioInput(BaseModel):
 
 class SplitScreenVideoInput(BaseModel):
     image_urls: List[str]
-    audio_url: str
+    audio_url: Optional[str] = None
     talking_head_url: Optional[str] = None
     subtitle_script: str = ""
     subtitle_segments: List[Dict[str, Any]] = Field(default_factory=list)
@@ -76,6 +78,7 @@ class SplitScreenVideoInput(BaseModel):
     persona_id: str = "unknown"
     topic: str = "topic"
     duration_per_image: float = 4.0
+    audio_policy: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ImageContract(BaseModel):
@@ -122,6 +125,7 @@ class FinalVideoContract(BaseModel):
     url: Optional[str] = None
     video_url: str
     preview_url: Optional[str] = None
+    media_asset_id: Optional[str] = None
     storage_key: str
     metadata: Dict[str, Any] = Field(default_factory=dict)
     status: str = "completed"
@@ -166,6 +170,23 @@ _ACCESS_LEVELS = {
     "has_logged_in_access",
     "login_required_but_not_available",
     "unknown",
+}
+_VIDEO_PLANNER_INPUT_MODES = {
+    "idea_brief",
+    "recorded_demo_video",
+    "webpage_review",
+}
+_VIDEO_EXECUTION_MODES = {
+    "autonomous_screen_recording",
+    "authenticated_pc_recording",
+    "manual_mobile_recording",
+}
+_CREDENTIAL_HANDOFF_STATUSES = {
+    "not_required",
+    "required",
+    "requested",
+    "completed",
+    "expired",
 }
 _BEAT_PURPOSES = {
     "hook",
@@ -551,11 +572,187 @@ class ApprovedProductionPackageContract(BaseModel):
     persona_snapshot: Dict[str, Any] = Field(default_factory=dict)
 
 
+class WebPageReviewFindingContract(BaseModel):
+    label: str
+    summary: str
+    evidence: List[str] = Field(default_factory=list)
+    source_url: Optional[str] = None
+
+
+class WebPageReviewContract(BaseModel):
+    target_url: str
+    normalized_url: str
+    page_title: Optional[str] = None
+    product_summary: str = ""
+    page_fetch_method: Literal[
+        "public_http_fetch",
+        "browser_capture",
+        "manual_summary",
+        "jina_reader",
+    ] = (
+        "public_http_fetch"
+    )
+    access_level: str = "unknown"
+    login_required: bool = False
+    visible_features: List[WebPageReviewFindingContract] = Field(default_factory=list)
+    visible_flows: List[WebPageReviewFindingContract] = Field(default_factory=list)
+    recording_candidates: List[str] = Field(default_factory=list)
+    risks: List[str] = Field(default_factory=list)
+    assumptions: List[str] = Field(default_factory=list)
+
+    @field_validator("access_level")
+    @classmethod
+    def validate_access_level(cls, value: str) -> str:
+        normalized = str(value).strip()
+        if normalized not in _ACCESS_LEVELS:
+            raise ValueError(f"Unsupported access_level: {value}")
+        return normalized
+
+    @field_validator("target_url", "normalized_url")
+    @classmethod
+    def validate_http_url(cls, value: str) -> str:
+        normalized = str(value).strip()
+        if not normalized.startswith(("http://", "https://")):
+            raise ValueError("URL fields must start with http:// or https://")
+        return normalized
+
+
+class CredentialHandoffContract(BaseModel):
+    status: Literal[
+        "not_required",
+        "required",
+        "requested",
+        "completed",
+        "expired",
+    ] = "not_required"
+    handoff_method: Literal["none", "workspace_link", "workspace_vault"] = "none"
+    credential_label: Optional[str] = None
+    handoff_url: Optional[str] = None
+    expires_at: Optional[str] = None
+    notes: List[str] = Field(default_factory=list)
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        normalized = str(value).strip()
+        if normalized not in _CREDENTIAL_HANDOFF_STATUSES:
+            raise ValueError(f"Unsupported credential handoff status: {value}")
+        return normalized
+
+
+class RecordingScriptStepContract(BaseModel):
+    idx: int
+    purpose: str
+    screen_target: str
+    action: str
+    visual_success_criteria: str
+    narration_intent: str
+    capture_hint: str = "scroll"
+    requires_login: bool = False
+    source_ref: Optional[str] = None
+    max_capture_seconds: int = 45
+
+    @field_validator("max_capture_seconds")
+    @classmethod
+    def validate_max_capture_seconds(cls, value: int) -> int:
+        if value < 5 or value > 120:
+            raise ValueError("max_capture_seconds must be between 5 and 120")
+        return value
+
+
+class RecordingScriptContract(BaseModel):
+    script_id: str = Field(default_factory=lambda: f"recording_{uuid4().hex[:8]}")
+    execution_mode: str
+    estimated_total_seconds: Optional[int] = None
+    steps: List[RecordingScriptStepContract] = Field(default_factory=list)
+
+    @field_validator("execution_mode")
+    @classmethod
+    def validate_execution_mode(cls, value: str) -> str:
+        normalized = str(value).strip()
+        if normalized not in _VIDEO_EXECUTION_MODES:
+            raise ValueError(f"Unsupported execution_mode: {value}")
+        return normalized
+
+
+class VideoAudioPolicyContract(BaseModel):
+    voiceover_required: bool = True
+    bgm_fallback_enabled: bool = True
+    bgm_library_profile: str = "product_explainer"
+    bgm_duck_under_voiceover: bool = True
+    max_bgm_duration_seconds: int = 60
+
+    @field_validator("max_bgm_duration_seconds")
+    @classmethod
+    def validate_max_bgm_duration_seconds(cls, value: int) -> int:
+        if value <= 0 or value > 60:
+            raise ValueError("max_bgm_duration_seconds must be between 1 and 60")
+        return value
+
+
+class VideoReviewPlanContract(BaseModel):
+    plan_id: str = Field(default_factory=lambda: f"plan_{uuid4().hex[:8]}")
+    planning_mode: Literal["idea_brief", "recorded_demo_video", "webpage_review"] = (
+        "webpage_review"
+    )
+    objective: str
+    target_url: str
+    language: str
+    persona_id: str
+    execution_mode: str
+    access_level: str = "unknown"
+    page_review: Optional[WebPageReviewContract] = None
+    credential_handoff: CredentialHandoffContract = Field(
+        default_factory=CredentialHandoffContract
+    )
+    recording_script: Optional[RecordingScriptContract] = None
+    audio_policy: VideoAudioPolicyContract = Field(
+        default_factory=VideoAudioPolicyContract
+    )
+    assumptions: List[str] = Field(default_factory=list)
+    risks: List[str] = Field(default_factory=list)
+    status: Literal["draft", "confirmed"] = "draft"
+
+    @field_validator("planning_mode")
+    @classmethod
+    def validate_planning_mode(cls, value: str) -> str:
+        normalized = str(value).strip()
+        if normalized not in _VIDEO_PLANNER_INPUT_MODES:
+            raise ValueError(f"Unsupported planning_mode: {value}")
+        return normalized
+
+    @field_validator("execution_mode")
+    @classmethod
+    def validate_execution_mode(cls, value: str) -> str:
+        normalized = str(value).strip()
+        if normalized not in _VIDEO_EXECUTION_MODES:
+            raise ValueError(f"Unsupported execution_mode: {value}")
+        return normalized
+
+    @field_validator("access_level")
+    @classmethod
+    def validate_access_level(cls, value: str) -> str:
+        normalized = str(value).strip()
+        if normalized not in _ACCESS_LEVELS:
+            raise ValueError(f"Unsupported access_level: {value}")
+        return normalized
+
+    @field_validator("target_url")
+    @classmethod
+    def validate_target_url(cls, value: str) -> str:
+        normalized = str(value).strip()
+        if not normalized.startswith(("http://", "https://")):
+            raise ValueError("target_url must start with http:// or https://")
+        return normalized
+
+
 class VideoWorkflowPersonaSnapshotContract(BaseModel):
+    persona_id: Optional[str] = None
     language: str = "English"
     tts_voice: str
     heygen_avatar_id: Optional[str] = None
     display_name: Optional[str] = None
+    avatar_image_url: Optional[str] = None
 
 
 class VideoWorkflowStartPayloadContract(BaseModel):
@@ -568,4 +765,42 @@ class VideoWorkflowStartPayloadContract(BaseModel):
     owner_key: Optional[str] = None
     talking_head_optional: bool = False
     approved_package: Optional[ApprovedProductionPackageContract] = None
+    review_plan: Optional[VideoReviewPlanContract] = None
+    execution_mode: Optional[str] = None
+    audio_policy: Optional[VideoAudioPolicyContract] = None
     persona_snapshot: VideoWorkflowPersonaSnapshotContract
+
+    @field_validator("execution_mode")
+    @classmethod
+    def validate_execution_mode(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        if normalized not in _VIDEO_EXECUTION_MODES:
+            raise ValueError(f"Unsupported execution_mode: {value}")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_approved_start_state(self) -> "VideoWorkflowStartPayloadContract":
+        review_execution_modes = {
+            "autonomous_screen_recording",
+            "authenticated_pc_recording",
+        }
+
+        if self.approved_package is not None:
+            return self
+
+        if self.review_plan is not None:
+            if self.review_plan.status != "confirmed":
+                raise ValueError(
+                    "review_plan must be confirmed before media generation can start"
+                )
+            if self.execution_mode not in review_execution_modes:
+                raise ValueError(
+                    "review_plan start requires an autonomous or authenticated recording execution_mode"
+                )
+            return self
+
+        raise ValueError(
+            "approved_package or confirmed review_plan is required before media generation can start"
+        )

@@ -15,6 +15,8 @@ _TEST_ENV = {
     "TELEGRAM_WEBHOOK_SECRET": "test-secret",
     "TELEGRAM_CHAT_ID": "999",
     "BACKEND_PUBLIC_URL": "http://localhost:8000",
+    "FRONTEND_PUBLIC_URL": "http://localhost:3000",
+    "CHATGPT_CONNECTOR_PUBLIC_URL": "http://localhost:8000",
     "DATABASE_URL": "postgresql://localhost/test",
     "SUPABASE_URL": "https://test.supabase.co",
     "SUPABASE_KEY": "test-key",
@@ -76,19 +78,23 @@ def reset_telegram_skill_session_store():
 
 @pytest.fixture(autouse=True)
 def stub_telegram_presence_updates():
-    with patch.object(
-        telegram_webhook.TelegramSubscriberService,
-        "touch",
-        AsyncMock(),
-    ), patch.object(
-        telegram_webhook.TelegramLinkService,
-        "touch_link",
-        AsyncMock(),
+    with (
+        patch.object(
+            telegram_webhook.TelegramSubscriberService,
+            "touch",
+            AsyncMock(),
+        ),
+        patch.object(
+            telegram_webhook.TelegramLinkService,
+            "touch_link",
+            AsyncMock(),
+        ),
     ):
         yield
 
+
 @pytest.mark.asyncio
-async def test_start_command_sends_welcome_message(tg_calls):
+async def test_start_command_opens_studio_menu(tg_calls):
     message = {
         "text": "/start",
         "chat": {"id": 123456789, "type": "private"},
@@ -98,13 +104,13 @@ async def test_start_command_sends_welcome_message(tg_calls):
     await _handle_message(None, message)
 
     send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
-    assert "AI Influencer Bot is online" in send_call["payload"]["text"]
-    assert "start from the web dashboard or auth page" in send_call["payload"]["text"]
-    assert send_call["payload"]["reply_markup"]["inline_keyboard"][0][1]["callback_data"] == "status_check"
+    assert "Welcome to the TripC Media Studio" in send_call["payload"]["text"]
+    restored = await TelegramSkillSessionStore.get_session(123456789)
+    assert restored is None
 
 
 @pytest.mark.asyncio
-async def test_start_command_clears_active_session(tg_calls):
+async def test_start_command_replaces_active_session_with_menu_only(tg_calls):
     session = SkillSession(
         skill_name="persona-creator",
         step_key="choose_language",
@@ -127,6 +133,89 @@ async def test_start_command_clears_active_session(tg_calls):
 
 
 @pytest.mark.asyncio
+async def test_create_video_command_starts_video_ai_directly(tg_calls):
+    message = {
+        "text": "/create_video",
+        "chat": {"id": 123456789, "type": "private"},
+        "from": {"first_name": "TripC", "username": "tripc"},
+    }
+
+    mock_skill_result = SkillResult(
+        success=True,
+        next_step="collect_objective",
+        session=SkillSession(
+            skill_name="video-ai",
+            step_key="collect_objective",
+            collected={},
+            artifacts={},
+            control=SkillControl(status=SkillStatus.collecting),
+        ),
+    )
+
+    mock_openclaw = AsyncMock()
+    mock_openclaw.execute_task = AsyncMock(
+        return_value={"text": "Should not be called"}
+    )
+    mock_openclaw.close = AsyncMock()
+
+    with (
+        patch.object(
+            telegram_webhook.SkillDispatcher,
+            "start_skill",
+            AsyncMock(return_value=mock_skill_result),
+        ) as start_skill,
+        patch(
+            "api.telegram_webhook.OpenClawService",
+            return_value=mock_openclaw,
+        ),
+    ):
+        await _handle_message(FastAPI(), message)
+
+    start_skill.assert_awaited_once()
+    call_args = start_skill.call_args
+    assert call_args[0][0] == 123456789
+    assert call_args[0][1] == "video-ai"
+    mock_openclaw.execute_task.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_legacy_video_planner_callback_aliases_to_video_ai(tg_calls):
+    callback_query = {
+        "id": "cq_skill_video_001",
+        "data": "skill_video-planner",
+        "from": {"id": 123456789, "first_name": "TripC"},
+        "message": {
+            "message_id": 42,
+            "chat": {"id": 123456789},
+        },
+    }
+
+    mock_skill_result = SkillResult(
+        success=True,
+        next_step="collect_objective",
+        session=SkillSession(
+            skill_name="video-ai",
+            step_key="collect_objective",
+            collected={},
+            artifacts={},
+            control=SkillControl(status=SkillStatus.collecting),
+        ),
+    )
+
+    with patch.object(
+        telegram_webhook.SkillDispatcher,
+        "start_skill",
+        AsyncMock(return_value=mock_skill_result),
+    ) as start_skill:
+        await _handle_callback_query(FastAPI(), callback_query)
+
+    start_skill.assert_awaited_once()
+    call_args = start_skill.call_args
+    assert call_args[0][0] == 123456789
+    assert call_args[0][1] == "video-ai"
+
+
+@pytest.mark.asyncio
 async def test_start_command_without_token_does_not_register_or_link(tg_calls):
     message = {
         "text": "/start",
@@ -134,15 +223,18 @@ async def test_start_command_without_token_does_not_register_or_link(tg_calls):
         "from": {"first_name": "TripC", "username": "tripc"},
     }
 
-    with patch.object(
-        telegram_webhook.TelegramSubscriberService,
-        "upsert",
-        AsyncMock(),
-    ) as upsert_subscriber, patch.object(
-        telegram_webhook.TelegramLinkService,
-        "consume_link_token",
-        AsyncMock(),
-    ) as consume_link_token:
+    with (
+        patch.object(
+            telegram_webhook.TelegramSubscriberService,
+            "upsert",
+            AsyncMock(),
+        ) as upsert_subscriber,
+        patch.object(
+            telegram_webhook.TelegramLinkService,
+            "consume_link_token",
+            AsyncMock(),
+        ) as consume_link_token,
+    ):
         await _handle_message(None, message)
 
     upsert_subscriber.assert_not_awaited()
@@ -157,21 +249,24 @@ async def test_start_command_with_link_token_consumes_token_and_confirms_link(tg
         "from": {"first_name": "TripC", "username": "tripc"},
     }
 
-    with patch.object(
-        telegram_webhook.TelegramSubscriberService,
-        "upsert",
-        AsyncMock(),
-    ) as upsert_subscriber, patch.object(
-        telegram_webhook.TelegramLinkService,
-        "consume_link_token",
-        AsyncMock(
-            return_value={
-                "chat_id": 123456789,
-                "user_id": "550e8400-e29b-41d4-a716-446655440000",
-                "telegram_username": "tripc",
-            }
-        ),
-    ) as consume_link_token:
+    with (
+        patch.object(
+            telegram_webhook.TelegramSubscriberService,
+            "upsert",
+            AsyncMock(),
+        ) as upsert_subscriber,
+        patch.object(
+            telegram_webhook.TelegramLinkService,
+            "consume_link_token",
+            AsyncMock(
+                return_value={
+                    "chat_id": 123456789,
+                    "user_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "telegram_username": "tripc",
+                }
+            ),
+        ) as consume_link_token,
+    ):
         await _handle_message(None, message)
 
     upsert_subscriber.assert_awaited_once()
@@ -181,7 +276,10 @@ async def test_start_command_with_link_token_consumes_token_and_confirms_link(tg
         telegram_username="tripc",
     )
     send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
-    assert "Telegram is now linked to your customer workspace." in send_call["payload"]["text"]
+    assert (
+        "Telegram is now linked to your customer workspace."
+        in send_call["payload"]["text"]
+    )
     assert "550e8400-e29b-41d4-a716-446655440000" in send_call["payload"]["text"]
 
 
@@ -193,19 +291,25 @@ async def test_start_command_with_invalid_link_token_returns_friendly_error(tg_c
         "from": {"first_name": "TripC", "username": "tripc"},
     }
 
-    with patch.object(
-        telegram_webhook.TelegramSubscriberService,
-        "upsert",
-        AsyncMock(),
-    ), patch.object(
-        telegram_webhook.TelegramLinkService,
-        "consume_link_token",
-        AsyncMock(side_effect=TelegramLinkError("Telegram link token is invalid.")),
+    with (
+        patch.object(
+            telegram_webhook.TelegramSubscriberService,
+            "upsert",
+            AsyncMock(),
+        ),
+        patch.object(
+            telegram_webhook.TelegramLinkService,
+            "consume_link_token",
+            AsyncMock(side_effect=TelegramLinkError("Telegram link token is invalid.")),
+        ),
     ):
         await _handle_message(None, message)
 
     send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
-    assert "Telegram link failed: Telegram link token is invalid." in send_call["payload"]["text"]
+    assert (
+        "Telegram link failed: Telegram link token is invalid."
+        in send_call["payload"]["text"]
+    )
     assert "generate a fresh link token" in send_call["payload"]["text"]
 
 
@@ -233,12 +337,17 @@ async def test_plain_text_is_forwarded_to_openclaw(tg_calls):
     mock_service.execute_task = AsyncMock(return_value={"text": "Hi from OpenClaw"})
     mock_service.close = AsyncMock()
 
-    with patch("api.telegram_webhook.OpenClawService", return_value=mock_service):
+    with patch.object(
+        telegram_webhook.OpenClawService,
+        "create_for_owner",
+        AsyncMock(return_value=mock_service),
+    ) as create_for_owner:
         await _handle_message(None, message)
 
     send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
     assert send_call["payload"]["text"] == "Hi from OpenClaw"
     assert "parse_mode" not in send_call["payload"]
+    create_for_owner.assert_awaited_once_with(owner_key="telegram:123456789")
     mock_service.execute_task.assert_awaited_once()
     mock_service.close.assert_awaited_once()
 
@@ -265,16 +374,55 @@ async def test_plain_text_agent_can_start_skill(tg_calls):
         error="brand_config is required.",
     )
 
-    with patch("api.telegram_webhook.OpenClawService", return_value=mock_service), patch.object(
-        telegram_webhook.SkillDispatcher,
-        "start_skill",
-        AsyncMock(return_value=mock_skill_result),
-    ) as start_skill:
+    with (
+        patch.object(
+            telegram_webhook.OpenClawService,
+            "create_for_owner",
+            AsyncMock(return_value=mock_service),
+        ) as create_for_owner,
+        patch.object(
+            telegram_webhook.SkillDispatcher,
+            "start_skill",
+            AsyncMock(return_value=mock_skill_result),
+        ) as start_skill,
+    ):
         await _handle_message(None, message)
 
+    create_for_owner.assert_awaited_once_with(owner_key="telegram:123456789")
     start_skill.assert_awaited_once_with(123456789, "weekly-planner", None)
     send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
     assert send_call["payload"]["text"] == "brand_config is required."
+    mock_service.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_plain_text_openclaw_value_error_is_sent_to_user(tg_calls):
+    message = {
+        "text": "Hello bot!",
+        "chat": {"id": 123456789, "type": "private"},
+    }
+
+    mock_service = AsyncMock()
+    mock_service.execute_task = AsyncMock(
+        side_effect=ValueError(
+            "Your GPT OAuth session expired. Reconnect it from the dashboard."
+        )
+    )
+    mock_service.close = AsyncMock()
+
+    with patch.object(
+        telegram_webhook.OpenClawService,
+        "create_for_owner",
+        AsyncMock(return_value=mock_service),
+    ):
+        await _handle_message(None, message)
+
+    send_call = next(call for call in tg_calls if call["method"] == "sendMessage")
+    assert (
+        send_call["payload"]["text"]
+        == "Your GPT OAuth session expired. Reconnect it from the dashboard."
+    )
+    assert "temporarily unavailable" not in send_call["payload"]["text"].lower()
     mock_service.close.assert_awaited_once()
 
 
@@ -346,15 +494,18 @@ async def test_photo_message_routes_into_persona_creator_upload_flow(tg_calls):
         "from": {"first_name": "TripC", "username": "tripc"},
     }
 
-    with patch.object(
-        telegram_webhook,
-        "_download_telegram_image",
-        AsyncMock(return_value=(b"image-bytes", "image/png", "avatar.png")),
-    ), patch.object(
-        telegram_webhook.SkillDispatcher,
-        "handle_image_upload",
-        AsyncMock(return_value=preview_result),
-    ) as handle_image_upload:
+    with (
+        patch.object(
+            telegram_webhook,
+            "_download_telegram_image",
+            AsyncMock(return_value=(b"image-bytes", "image/png", "avatar.png")),
+        ),
+        patch.object(
+            telegram_webhook.SkillDispatcher,
+            "handle_image_upload",
+            AsyncMock(return_value=preview_result),
+        ) as handle_image_upload,
+    ):
         await _handle_message(None, message)
 
     handle_image_upload.assert_awaited_once_with(
@@ -393,7 +544,12 @@ async def test_status_button_edits_message_with_help_text(tg_calls):
 
 @pytest.mark.asyncio
 async def test_send_photo_falls_back_to_multipart_upload_when_url_send_fails():
-    initial_send = AsyncMock(return_value={"ok": False, "description": "Wrong file identifier/http url specified"})
+    initial_send = AsyncMock(
+        return_value={
+            "ok": False,
+            "description": "Wrong file identifier/http url specified",
+        }
+    )
     multipart_send = AsyncMock(return_value={"ok": True, "result": {"message_id": 99}})
 
     class _FakeImageResponse:
@@ -408,9 +564,11 @@ async def test_send_photo_falls_back_to_multipart_upload_when_url_send_fails():
     fake_http_client.__aenter__.return_value = fake_http_client
     fake_http_client.__aexit__.return_value = False
 
-    with patch("api.telegram_webhook._tg_call", initial_send), patch(
-        "api.telegram_webhook._tg_call_multipart", multipart_send
-    ), patch("api.telegram_webhook.httpx.AsyncClient", return_value=fake_http_client):
+    with (
+        patch("api.telegram_webhook._tg_call", initial_send),
+        patch("api.telegram_webhook._tg_call_multipart", multipart_send),
+        patch("api.telegram_webhook.httpx.AsyncClient", return_value=fake_http_client),
+    ):
         response = await send_photo(
             chat_id=123456789,
             photo="https://cdn.example/generated-image.png",
@@ -419,7 +577,9 @@ async def test_send_photo_falls_back_to_multipart_upload_when_url_send_fails():
 
     assert response["ok"] is True
     initial_send.assert_awaited_once()
-    fake_http_client.get.assert_awaited_once_with("https://cdn.example/generated-image.png")
+    fake_http_client.get.assert_awaited_once_with(
+        "https://cdn.example/generated-image.png"
+    )
     multipart_send.assert_awaited_once()
 
 
@@ -457,7 +617,10 @@ async def test_expired_option_callback_prompts_user_to_restart_flow(tg_calls):
     await _handle_callback_query(None, callback_query)
 
     edit_call = next(call for call in tg_calls if call["method"] == "editMessageText")
-    assert edit_call["payload"]["text"] == "Skill session expired. Use /media to start again."
+    assert (
+        edit_call["payload"]["text"]
+        == "Skill session expired. Use /media to start again."
+    )
 
 
 @pytest.mark.asyncio
@@ -480,7 +643,10 @@ async def test_option_callback_sends_photo_preview_and_keeps_controls(tg_calls):
             skill_name="image-scene",
             step_key="confirm_or_regenerate",
             collected={"topic_or_prompt": "beer scene", "style": "clean"},
-            artifacts={"preview_image_url": preview_url, "final_image_url": preview_url},
+            artifacts={
+                "preview_image_url": preview_url,
+                "final_image_url": preview_url,
+            },
             control=SkillControl(status=SkillStatus.preview_ready),
         ),
     )
@@ -503,11 +669,13 @@ async def test_option_callback_sends_photo_preview_and_keeps_controls(tg_calls):
         "Review the image below and choose an action."
     )
     assert tg_calls[1]["payload"]["text"] == expected_text
-    assert tg_calls[1]["payload"]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "action::use_images"
+    assert (
+        tg_calls[1]["payload"]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
+        == "action::use_images"
+    )
     assert tg_calls[2]["payload"]["photo"] == preview_url
     expected_caption = (
-        "🎨 Style: clean | 📐 Ratio: 16:9\n"
-        "Review the image and choose an action."
+        "🎨 Style: clean | 📐 Ratio: 16:9\nReview the image and choose an action."
     )
     assert tg_calls[2]["payload"]["caption"] == expected_caption
 
@@ -523,7 +691,9 @@ async def test_receive_telegram_update_requires_matching_secret():
         }
     )
 
-    with patch.object(telegram_webhook.settings, "TELEGRAM_WEBHOOK_SECRET", "test-secret"):
+    with patch.object(
+        telegram_webhook.settings, "TELEGRAM_WEBHOOK_SECRET", "test-secret"
+    ):
         with pytest.raises(HTTPException) as exc_info:
             await telegram_webhook.receive_telegram_update(
                 request,
@@ -541,3 +711,52 @@ def test_markdown_escape_handles_special_characters():
 
     for ch in ["!", ".", "-"]:
         assert f"\\{ch}" in escaped
+
+
+@pytest.mark.asyncio
+async def test_manual_mobile_upload_routes_video_planner_uploads(tg_calls):
+    chat_id = 123456789
+    await TelegramSkillSessionStore.set_session(
+        chat_id,
+        SkillSession(
+            skill_name="video-planner",
+            step_key="upload_manual_video",
+            artifacts={"telegram_chat_id": str(chat_id)},
+            control=SkillControl(status=SkillStatus.collecting),
+        ),
+    )
+    message = {
+        "chat": {"id": chat_id, "type": "private"},
+        "video": {"file_id": "telegram-video-1", "mime_type": "video/mp4"},
+    }
+
+    with (
+        patch(
+            "api.telegram_webhook._download_telegram_video",
+            AsyncMock(return_value=(b"video-bytes", "video/mp4", "mobile.mp4")),
+        ) as download_video,
+        patch(
+            "api.telegram_webhook.SkillDispatcher.handle_video_upload",
+            AsyncMock(
+                return_value=SkillResult(
+                    success=True,
+                    next_step="poll_status",
+                    output={"message": "Upload processed."},
+                    session=SkillSession(
+                        skill_name="video-ai",
+                        step_key="package_ready",
+                        artifacts={},
+                        control=SkillControl(status=SkillStatus.waiting_approval),
+                    ),
+                )
+            ),
+        ) as handle_upload,
+    ):
+        await _handle_message(None, message)
+
+    download_video.assert_awaited_once()
+    handle_upload.assert_awaited_once()
+    kwargs = handle_upload.await_args.kwargs
+    assert kwargs["file_id"] == "telegram-video-1"
+    assert kwargs["content_type"] == "video/mp4"
+    assert kwargs["filename"] == "mobile.mp4"

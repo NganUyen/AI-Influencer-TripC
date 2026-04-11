@@ -18,6 +18,15 @@ from .step_config import get_step_definition
 class SkillDispatcher:
     """Load, update, execute, and persist skill sessions."""
 
+    @staticmethod
+    def _session_accepts_video_upload(session: SkillSession) -> bool:
+        if session.skill_name == "video-ai" and session.step_key == "upload_demo_video":
+            return True
+        return (
+            session.skill_name == "video-planner"
+            and session.step_key == "upload_manual_video"
+        )
+
     @classmethod
     def _check_demo_preview_timeout(
         cls, session: SkillSession
@@ -99,7 +108,7 @@ class SkillDispatcher:
         step = get_step_definition(session.skill_name, session.step_key)
         input_type = step.get("input_type")
         if input_type in {"persona_picker", "persona_selector"}:
-            ready_only = session.skill_name in {"video-ai", "carousel"}
+            ready_only = session.skill_name in {"video-ai", "video-planner", "carousel"}
             telegram_chat_id = session.artifacts.get("telegram_chat_id")
             owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
             session.artifacts["available_personas"] = await cls._fetch_personas(
@@ -330,8 +339,7 @@ class SkillDispatcher:
             return None
         session.artifacts.setdefault("telegram_chat_id", str(chat_id))
 
-        # Only handle video uploads for video-ai skill in upload_demo_video step
-        if session.skill_name != "video-ai" or session.step_key != "upload_demo_video":
+        if not cls._session_accepts_video_upload(session):
             return SkillResult(
                 success=False,
                 error="This step does not accept video uploads yet. Please follow the current prompt or send /cancel.",
@@ -410,13 +418,6 @@ class SkillDispatcher:
 
         access_url = storage_result.get("access_url") or storage_result.get("url")
 
-        # Store file_id and URL in session
-        session.collected["demo_video_telegram_file_id"] = file_id
-        session.collected["demo_video_asset_url"] = access_url
-        session.artifacts["demo_video_asset_id"] = storage_result.get("media_asset_id")
-        session.artifacts["demo_video_filename"] = filename
-        session.artifacts["demo_video_quality_report"] = quality_report.model_dump()
-
         # Build success message with warnings if any
         success_msg = f"✅ Video uploaded successfully!\n\n"
         success_msg += f"Duration: {quality_report.duration_sec:.1f}s\n"
@@ -428,10 +429,36 @@ class SkillDispatcher:
                 success_msg += f"• {warning}\n"
             success_msg += "\nYou can continue, but consider the warnings above."
 
-        # Execute skill to move to next step
-        skill_cls = SKILL_REGISTRY[session.skill_name]
+        # Store file_id and URL in session
+        session.collected["demo_video_telegram_file_id"] = file_id
+        session.collected["demo_video_asset_url"] = access_url
+        session.artifacts["demo_video_asset_id"] = storage_result.get("media_asset_id")
+        session.artifacts["demo_video_filename"] = filename
+        session.artifacts["demo_video_quality_report"] = quality_report.model_dump()
+
+        # Execute the active video flow.
+        # Legacy video-planner manual-upload sessions still exist in Redis for some chats;
+        # bridge them into video-ai instead of treating them as expired.
         async with cls._transport_client(app) as client:
-            result = await skill_cls.execute(session, "http://backend", client)
+            if (
+                session.skill_name == "video-planner"
+                and session.step_key == "upload_manual_video"
+            ):
+                from skills.video_planner import VideoPlannerSkill
+
+                result = await VideoPlannerSkill.continue_manual_mobile_pipeline(
+                    session,
+                    backend_url="http://backend",
+                    http_client=client,
+                    file_id=file_id,
+                    asset_url=access_url,
+                    asset_id=storage_result.get("media_asset_id"),
+                    filename=filename,
+                    quality_report=quality_report.model_dump(),
+                )
+            else:
+                skill_cls = SKILL_REGISTRY[session.skill_name]
+                result = await skill_cls.execute(session, "http://backend", client)
 
         # Prepend success message to the result
         if result.session is not None:
@@ -647,6 +674,48 @@ class SkillDispatcher:
                     )
                 return await cls._save_or_clear(chat_id, result)
 
+        if (
+            session.skill_name == "video-ai"
+            and session.step_key == "demo_preview_confirm"
+            and action in {"approve", "pick_alternate", "rewrite", "reupload"}
+        ):
+            async with cls._transport_client(app) as client:
+                result = await skill_cls.handle_demo_preview_action(
+                    session,
+                    action,
+                    "http://backend",
+                    client,
+                )
+            if result.session is not None:
+                await cls._prepare_prompt_session(app, result.session)
+            return await cls._save_or_clear(chat_id, result)
+
+        if session.skill_name == "video-ai" and action in {
+            "approve",
+            "confirm",
+            "pick_alternate",
+            "rewrite",
+            "correct",
+            "reemphasize",
+            "reupload",
+        }:
+            if session.step_key == "demo_preview_confirm":
+                correction_text = session.collected.get("feature_correction")
+                reemphasis_text = session.collected.get("feature_reemphasis")
+
+                async with cls._transport_client(app) as client:
+                    result = await skill_cls.handle_demo_preview_action(
+                        session,
+                        action,
+                        "http://backend",
+                        client,
+                        correction_text=correction_text,
+                        reemphasis_text=reemphasis_text,
+                    )
+                if result.session is not None:
+                    await cls._prepare_prompt_session(app, result.session)
+                return await cls._save_or_clear(chat_id, result)
+
         if session.skill_name == "video-ai" and action in {
             "approve",
             "edit",
@@ -659,30 +728,6 @@ class SkillDispatcher:
                     action,
                     "http://backend",
                     client,
-                )
-            if result.session is not None:
-                await cls._prepare_prompt_session(app, result.session)
-            return await cls._save_or_clear(chat_id, result)
-
-        # Phase 5: Demo preview confirmation actions
-        if session.skill_name == "video-ai" and action in {
-            "confirm",
-            "correct",
-            "reemphasize",
-            "reupload",
-        }:
-            # Get correction/reemphasis text from collected fields if already captured
-            correction_text = session.collected.get("feature_correction")
-            reemphasis_text = session.collected.get("feature_reemphasis")
-
-            async with cls._transport_client(app) as client:
-                result = await skill_cls.handle_demo_preview_action(
-                    session,
-                    action,
-                    "http://backend",
-                    client,
-                    correction_text=correction_text,
-                    reemphasis_text=reemphasis_text,
                 )
             if result.session is not None:
                 await cls._prepare_prompt_session(app, result.session)

@@ -4,13 +4,80 @@ Customer-scoped media access helpers.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from services.database_service import DatabaseService
 from services.storage_service import StorageService
 
 
 class CustomerMediaService:
+    @staticmethod
+    async def list_recent_assets(
+        *,
+        user_id: str,
+        asset_type: Optional[str] = None,
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        normalized_limit = max(1, min(int(limit or 5), 20))
+        pool = await DatabaseService.get_pool()
+        query = """
+            SELECT
+                id,
+                user_id,
+                persona_id,
+                url,
+                filename,
+                bucket_name,
+                storage_path,
+                type,
+                status,
+                metadata,
+                created_at
+            FROM public.media_assets
+            WHERE user_id = $1::uuid
+        """
+        args: List[Any] = [user_id]
+        if asset_type:
+            query += " AND type = $2"
+            args.append(str(asset_type).lower())
+            limit_arg_index = 3
+        else:
+            limit_arg_index = 2
+        query += (
+            f" ORDER BY created_at DESC NULLS LAST, id DESC LIMIT ${limit_arg_index}"
+        )
+        args.append(normalized_limit)
+
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(query, *args)
+
+        assets: List[Dict[str, Any]] = []
+        for row in rows:
+            metadata = row.get("metadata") or {}
+            access = await CustomerMediaService.build_access_url(
+                bucket_name=row.get("bucket_name"),
+                storage_path=row.get("storage_path"),
+            )
+            access_url = (access or {}).get("access_url") or row.get("url")
+            created_at = row.get("created_at")
+            assets.append(
+                {
+                    "asset_id": str(row.get("id")),
+                    "persona_id": row.get("persona_id"),
+                    "type": row.get("type"),
+                    "status": row.get("status"),
+                    "filename": row.get("filename"),
+                    "title": metadata.get("topic")
+                    or metadata.get("generation_prompt")
+                    or row.get("filename"),
+                    "access_url": access_url,
+                    "created_at": created_at.isoformat()
+                    if hasattr(created_at, "isoformat")
+                    else created_at,
+                }
+            )
+        return assets
+
     @staticmethod
     async def get_access_url(*, user_id: str, asset_id: str) -> Dict[str, Any]:
         pool = await DatabaseService.get_pool()

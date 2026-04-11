@@ -308,7 +308,7 @@ async def _download_telegram_video(
 
     Returns:
         tuple of (file_content, content_type, filename) or None if no video found
-    
+
     Raises:
         ValueError: If file size exceeds Telegram's download limit
     """
@@ -591,6 +591,8 @@ async def _handle_skill_callback(
 
     if data.startswith("skill_"):
         skill_name = data.split("skill_", 1)[1]
+        if skill_name == "video-planner":
+            skill_name = "video-ai"
 
         # All skills (including video-ai) start directly for deterministic UI actions.
         # OpenClaw routing is reserved for free-text conversational input only.
@@ -664,12 +666,13 @@ def _system_status_text() -> str:
 def _help_text() -> str:
     return (
         "TripC Bot Help\n\n"
+        "Use /start to open the studio menu.\n"
         "Use /media to open the studio menu.\n"
         "Or send a normal message to chat with OpenClaw AI.\n\n"
         "Commands:\n"
-        "  /start — Welcome / onboarding\n"
+        "  /start — Open studio\n"
         "  /media — Open studio\n"
-        "  /create_video — Start AI video creation\n"
+        "  /create_video — Start video planning\n"
         "  /create_image — Create marketing images\n"
         "  /personas — Inspect your personas\n"
         "  /quota — Check usage quota\n"
@@ -707,6 +710,8 @@ def _extract_openclaw_reply(result: Any) -> str:
 def _skill_catalog_for_agent() -> list[Dict[str, str]]:
     catalog: list[Dict[str, str]] = []
     for skill_name in sorted(SKILL_REGISTRY.keys()):
+        if skill_name == "video-planner":
+            continue
         definition = get_skill_definition(skill_name) or {}
         catalog.append(
             {
@@ -764,8 +769,9 @@ def _extract_agent_decision(result: Any) -> Optional[Dict[str, str]]:
 
 
 async def _handle_openclaw_message(chat_id: int, text: str, app: Any) -> None:
-    service = OpenClawService()
+    service = None
     try:
+        service = await OpenClawService.create_for_owner(owner_key=f"telegram:{chat_id}")
         catalog_json = json.dumps(_skill_catalog_for_agent(), ensure_ascii=False)
         agent_prompt = (
             "You are the Telegram orchestrator for TripC. "
@@ -806,6 +812,22 @@ async def _handle_openclaw_message(chat_id: int, text: str, app: Any) -> None:
         if len(reply) > 3500:
             reply = f"{reply[:3500]}\n\n…(truncated)"
         await send_message(chat_id, reply, parse_mode=None)
+    except ValueError as exc:
+        logger.warning(
+            "OpenClaw Telegram chat request failed for chat_id=%s: %s",
+            chat_id,
+            exc,
+        )
+        message = str(exc).strip() or (
+            "AI assistant is temporarily unavailable. Please try again in a moment."
+        )
+        if len(message) > 3500:
+            message = f"{message[:3500]}\n\n…(truncated)"
+        await send_message(
+            chat_id,
+            message,
+            parse_mode=None,
+        )
     except Exception:
         logger.exception("OpenClaw Telegram chat failed for chat_id=%s", chat_id)
         await send_message(
@@ -814,7 +836,8 @@ async def _handle_openclaw_message(chat_id: int, text: str, app: Any) -> None:
             parse_mode=None,
         )
     finally:
-        await service.close()
+        if service is not None:
+            await service.close()
 
 
 async def _handle_system_callback(
@@ -989,13 +1012,12 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
             active_session = await TelegramSkillSessionStore.get_session(chat_id)
             if (
                 active_session is not None
-                and active_session.skill_name == "video-ai"
-                and active_session.step_key == "upload_demo_video"
+                and SkillDispatcher._session_accepts_video_upload(active_session)
             ):
                 await send_chat_action(chat_id, action="upload_video")
                 telegram_video = None
                 error_message = None
-                
+
                 try:
                     telegram_video = await _download_telegram_video(message)
                 except ValueError as exc:
@@ -1014,6 +1036,7 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                     )
                     # Check if it's an HTTP error with specific status codes
                     import httpx
+
                     if isinstance(exc, httpx.HTTPStatusError):
                         if exc.response.status_code in (400, 413):
                             error_message = (
@@ -1030,7 +1053,7 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                             "❌ Video download failed.\n\n"
                             "Please try uploading again or send /cancel to restart."
                         )
-                
+
                 # Send error message if download failed
                 if error_message:
                     await send_message(chat_id, error_message, parse_mode=None)
@@ -1068,7 +1091,7 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                         rendered = TelegramRenderer.render_skill_result(skill_result)
                         await _send_rendered_message(chat_id, rendered)
                         return
-            
+
             # Video detected but no active video-ai session - provide recovery hint
             await send_message(
                 chat_id,
@@ -1176,19 +1199,8 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
                     ),
                 )
                 return
-        await send_message(
-            chat_id,
-            (
-                "Welcome! AI Influencer Bot is online.\n\n"
-                "Use /media to open the studio menu, or wait for daily story approvals.\n\n"
-                "To link this Telegram account to a customer workspace, start from the web dashboard or auth page and open the secure bot link there."
-            ),
-            parse_mode=None,
-            reply_markup=inline_keyboard(
-                [("Open Studio", "menu_main"), ("Status", "status_check")],
-                [("Help", "help")],
-            ),
-        )
+        rendered = TelegramRenderer.render_menu("menu_main")
+        await _send_rendered_message(chat_id, rendered)
         return
 
     # ── Shortcut slash commands ───────────────────────────────────────────
@@ -1202,7 +1214,7 @@ async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
         "/create-image": "menu_image",
     }
     _SHORTCUT_SKILL_MAP = {
-        # Canonical video command - starts video-ai directly (deterministic)
+        # Canonical video command - starts the planner directly (deterministic)
         "/create_video": "video-ai",
         # Legacy aliases for video
         "/create-video": "video-ai",

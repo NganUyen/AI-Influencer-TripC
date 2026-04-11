@@ -414,8 +414,12 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "implementation_priority": 3,
         "integration_note": "Pre-production review now hands off directly into the live production workflow. Phase 2 adds recorded_demo_video mode.",
         "steps": [
-            "select_mode",
+            "collect_objective",
+            "collect_target_url",
+            "website_review",
             "pick_persona",
+            "choose_execution_mode",
+            "confirm_plan",
             "upload_demo_video",
             "collect_reference_url",
             "collect_user_video_thesis",
@@ -437,10 +441,14 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "confirm_beats",
         ],
         "session_shape": {
-            "step_key": "select_mode",
+            "step_key": "collect_objective",
             "collected": {
+                "objective": None,
+                "target_url": None,
                 "creative_input_mode": None,
                 "persona_id": None,
+                "execution_mode": None,
+                "plan_decision": None,
                 "demo_video_telegram_file_id": None,
                 "demo_video_asset_url": None,
                 "reference_url": None,
@@ -464,6 +472,10 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
             },
             "artifacts": {
                 "persona_snapshot": None,
+                "page_review": None,
+                "video_review_plan": None,
+                "credential_handoff": None,
+                "plan_confirmed": False,
                 "demo_evidence": None,
                 "demo_preview_summary": None,
                 "concept_brief": None,
@@ -471,6 +483,68 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "approved_production_package": None,
                 "concept_approved": False,
                 "beat_sheet_approved": False,
+            },
+        },
+    },
+    "video-planner": {
+        "name": "VideoPlanner",
+        "command": "/start",
+        "role": "Planning-first Telegram entrypoint for video execution",
+        "description": (
+            "Collect the user's objective, target URL, language, persona, and execution mode, "
+            "then produce a reviewable video plan before any production workflow starts."
+        ),
+        "status": "partial",
+        "kind": "leaf",
+        "parent": None,
+        "menu_options": [],
+        "required_params": [
+            "objective",
+            "target_url",
+            "language",
+            "persona_id",
+            "execution_mode",
+        ],
+        "optional_params": ["plan_decision"],
+        "input_contract": {
+            "mode": "structured_conversational_planner",
+            "freeform_fields": ["objective", "target_url", "language"],
+            "note": (
+                "This planner is the new plain /start experience. It captures planning inputs first and waits for explicit confirmation before execution."
+            ),
+        },
+        "internal_skills": ["persona-picker", "creative-director"],
+        "api_call": {
+            "target": "Internal Telegram planner state machine",
+            "current_repo_support": True,
+            "note": (
+                "Step 2 only collects and stores the review plan. URL fetching and workflow execution land in later implementation steps."
+            ),
+        },
+        "output": "Confirmed video review plan",
+        "implementation_priority": 1,
+        "integration_note": "Designed to replace menu-only /start with a planning-first Telegram flow.",
+        "steps": [
+            "collect_objective",
+            "collect_target_url",
+            "choose_language",
+            "pick_persona",
+            "choose_execution_mode",
+            "confirm_plan",
+        ],
+        "session_shape": {
+            "step_key": "collect_objective",
+            "collected": {
+                "objective": None,
+                "target_url": None,
+                "language": None,
+                "persona_id": None,
+                "execution_mode": None,
+                "plan_decision": None,
+            },
+            "artifacts": {
+                "page_review": None,
+                "video_review_plan": None,
             },
         },
     },

@@ -44,8 +44,14 @@ import { MessageBubble } from "@/components/ui/MessageBubble";
 import { TimelineItem } from "@/components/ui/TimelineItem";
 import { FieldSet } from "@/components/ui/FieldSet";
 
+import { OverviewTab } from "./dashboard/OverviewTab";
+import { OpsTab } from "./dashboard/OpsTab";
+import { PersonasTab } from "./dashboard/PersonasTab";
+import { MemoryTab } from "./dashboard/MemoryTab";
+import { LiveFeedTab } from "./dashboard/LiveFeedTab";
 
-type BrandProfile = {
+
+export type BrandProfile = {
   product_name: string | null;
   website_url: string | null;
   audience: string | null;
@@ -57,7 +63,7 @@ type BrandProfile = {
   telegram_contact: string | null;
 };
 
-type SocialAccount = {
+export type SocialAccount = {
   id: string;
   platform: string;
   account_handle: string | null;
@@ -65,21 +71,21 @@ type SocialAccount = {
   connection_status: string;
 };
 
-type AssistantThread = {
+export type AssistantThread = {
   id: string;
   title: string;
   created_at: string;
   last_message_preview: string | null;
 };
 
-type AssistantMessage = {
+export type AssistantMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
   created_at: string;
 };
 
-type AssistantArtifact = {
+export type AssistantArtifact = {
   id: string;
   title: string;
   type: string;
@@ -87,7 +93,7 @@ type AssistantArtifact = {
   created_at: string;
 };
 
-type Campaign = {
+export type Campaign = {
   id: string;
   name: string;
   description: string | null;
@@ -97,22 +103,7 @@ type Campaign = {
   active_workflow_id: string | null;
 };
 
-type VideoContextDraft = {
-  title: string;
-  description: string;
-  duration: string;
-  style: string;
-  targetAudience: string;
-  keyMessages: string;
-  callToAction: string;
-  tone: string;
-  personaId: string;
-  platforms: string;
-  language: string;
-  subtitles: boolean;
-};
-
-type ContentItem = {
+export type ContentItem = {
   id: string;
   title: string;
   platform: string[];
@@ -121,7 +112,7 @@ type ContentItem = {
   published_at: string | null;
 };
 
-type AIBackboneSettings = {
+export type AIBackboneSettings = {
   access_mode: "workspace_default" | "customer_api_key" | "chatgpt_oauth";
   customer_api: {
     api_url: string | null;
@@ -142,7 +133,7 @@ type AIBackboneSettings = {
   };
 };
 
-type Persona = {
+export type Persona = {
   persona_id: string;
   display_name: string;
   avatar_image_url: string | null;
@@ -150,7 +141,7 @@ type Persona = {
   video_count: number;
 };
 
-type TelegramLinkStatus = {
+export type TelegramLinkStatus = {
   linked: boolean;
   link?: {
     telegram_username: string | null;
@@ -158,12 +149,12 @@ type TelegramLinkStatus = {
   };
 };
 
-type TelegramLinkToken = {
+export type TelegramLinkToken = {
   start_token: string;
   expires_at: string;
 };
 
-type SystemSummaryData = {
+export type SystemSummaryData = {
   services: { name: string; status: "online" | "warning" | "error"; latency: string }[];
   quota: { name: string; used: number; total: number; unit: string }[];
   telegram_bot_url?: string | null;
@@ -176,7 +167,7 @@ type SystemSummaryData = {
   }[];
 };
 
-type SystemWorkflowData = {
+export type SystemWorkflowData = {
   id: string;
   name: string;
   status: "idle" | "running" | "completed" | "error";
@@ -191,9 +182,9 @@ export type DashboardTab = {
   icon: LucideIcon;
 };
 
-type ActivityItemTone = "default" | "success" | "warning";
+export type ActivityItemTone = "default" | "success" | "warning";
 
-type ActivityItem = {
+export type ActivityItem = {
   id: string;
   title: string;
   detail: string;
@@ -1050,337 +1041,16 @@ export default function CustomerDashboard() {
         )}
 
         {activeTab === "overview" && (
-          <div className="space-y-8 animate-fade-in">
-
-            {/* ── Quick Stats Row ── */}
-            <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                {
-                  label: "Active Campaigns",
-                  value: campaigns.filter((c) => c.status === "active").length,
-                  sub: `${campaigns.length} total`,
-                  color: "text-aura-tertiary",
-                  bg: "bg-aura-tertiary-container/30",
-                },
-                {
-                  label: "Pending Approvals",
-                  value: approvals.length,
-                  sub: approvals.length > 0 ? "Action needed" : "All clear",
-                  color: approvals.length > 0 ? "text-aura-secondary" : "text-aura-tertiary",
-                  bg: approvals.length > 0 ? "bg-aura-secondary-container/30" : "bg-aura-tertiary-container/20",
-                },
-                {
-                  label: "Published Content",
-                  value: content.filter((c) => c.status === "published").length,
-                  sub: `${content.length} total items`,
-                  color: "text-aura-primary",
-                  bg: "bg-aura-primary-container/20",
-                },
-                {
-                  label: "AI Personas",
-                  value: personas?.length ?? 0,
-                  sub: personas && personas.length > 0 ? `${personas.filter(p => p.status === 'active').length} active` : "None yet",
-                  color: "text-aura-on-surface",
-                  bg: "bg-aura-surface-container",
-                },
-              ].map((stat) => (
-                <div
-                  key={stat.label}
-                  className="bg-white rounded-2xl p-5 md:p-6 shadow-aura flex flex-col justify-between gap-3"
-                >
-                  <span className="text-[9px] font-semibold uppercase tracking-[0.18em] text-aura-outline font-body">
-                    {stat.label}
-                  </span>
-                  <div className="pt-1">
-                    <span className="text-5xl font-black tracking-tight text-aura-on-surface font-headline">
-                      {stat.value}
-                    </span>
-                    <p className={`mt-2 text-xs font-semibold ${stat.color}`}>{stat.sub}</p>
-                  </div>
-                  <div className={`h-1 rounded-full ${stat.bg}`} />
-                </div>
-              ))}
-            </section>
-
-            {/* ── Main Grid ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-
-              {/* Left: System Health + AI Backbone */}
-              <div className="lg:col-span-4 space-y-6">
-
-                {/* System Health */}
-                <div className="bg-aura-surface-container-high rounded-2xl p-6">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-base font-bold text-aura-on-surface font-headline">System Health</h3>
-                    <span className="flex items-center gap-1.5 px-3 py-1 bg-aura-tertiary-fixed text-aura-on-tertiary-fixed rounded-full text-[10px] font-bold uppercase tracking-wider">
-                      <span className="w-1.5 h-1.5 rounded-full bg-aura-tertiary animate-pulse-slow" />
-                      {(systemSummary?.services || []).length > 0 ? "OPERATIONAL" : "LOADING"}
-                    </span>
-                  </div>
-
-                  <div className="space-y-4">
-                    {(systemSummary?.services || []).length === 0 ? (
-                      <div className="space-y-3">
-                        {["Core API", "Vector DB", "Edge Proxy"].map((name) => (
-                          <div key={name} className="flex items-center justify-between">
-                            <span className="text-sm text-aura-on-surface-variant">{name}</span>
-                            <div className="h-4 w-12 bg-aura-surface-container rounded animate-pulse" />
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      (systemSummary?.services || []).map((service) => (
-                        <div key={service.name} className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                                service.status === "online"
-                                  ? "bg-aura-tertiary"
-                                  : service.status === "warning"
-                                  ? "bg-aura-secondary"
-                                  : "bg-aura-error"
-                              }`}
-                            />
-                            <span className="text-sm font-medium text-aura-on-surface">{service.name}</span>
-                          </div>
-                          <span className="text-xs font-mono bg-aura-surface px-2 py-0.5 rounded-full text-aura-on-surface-variant">
-                            {service.latency}
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  {/* Load bars */}
-                  <div className="mt-6 p-3 bg-aura-surface rounded-xl">
-                    <span className="text-[10px] uppercase font-bold text-aura-outline tracking-wider mb-2 block">Real-time Load</span>
-                    <div className="h-14 flex items-end gap-1">
-                      {[40, 60, 45, 85, 70, 55, 40, 65, 50, 80].map((h, i) => (
-                        <div
-                          key={i}
-                          className={`flex-1 rounded-t-sm transition-all duration-500 ${
-                            h > 75 ? "bg-aura-primary" : "bg-aura-primary-container"
-                          }`}
-                          style={{ height: `${h}%` }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* AI Backbone */}
-                <div className="bg-aura-surface-container-highest rounded-2xl p-6">
-                  <h3 className="text-base font-bold text-aura-on-surface font-headline mb-5">AI Backbone</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-[10px] uppercase font-bold text-aura-on-surface-variant block mb-1.5">Access Mode</label>
-                      <div className="flex items-center justify-between px-4 py-2.5 bg-aura-surface rounded-full">
-                        <span className="text-sm font-semibold text-aura-on-surface capitalize">
-                          {aiBackbone?.access_mode.replace(/_/g, " ") || "Loading…"}
-                        </span>
-                        {aiBackbone?.effective_status.ready ? (
-                          <span className="w-4 h-4 rounded-full bg-aura-tertiary flex items-center justify-center">
-                            <Check className="w-2.5 h-2.5 text-white stroke-[3]" />
-                          </span>
-                        ) : (
-                          <span className="w-2 h-2 rounded-full bg-aura-secondary animate-pulse" />
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] uppercase font-bold text-aura-on-surface-variant block mb-1.5">Status</label>
-                        <p className="px-1 text-[11px] leading-5 text-aura-on-surface-variant/80">
-                          {aiBackbone?.effective_status.message || "Initializing workspace access."}
-                        </p>
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] uppercase font-bold text-aura-on-surface-variant block mb-1.5">Endpoint</label>
-                      <div className="flex items-center text-xs font-mono text-aura-on-surface-variant truncate bg-aura-surface px-3 py-2 rounded-xl">
-                        <span className="truncate">{aiBackbone?.workspace_default.api_url || "Not configured"}</span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="text-center bg-aura-surface rounded-xl p-3">
-                        <label className="text-[10px] uppercase font-bold text-aura-on-surface-variant block mb-1">Customer Key</label>
-                        <span className="text-sm font-bold text-aura-on-surface">
-                          {aiBackbone?.customer_api.has_api_key ? "Set" : "Shared"}
-                        </span>
-                      </div>
-                      <div className="text-center bg-aura-surface rounded-xl p-3">
-                        <label className="text-[10px] uppercase font-bold text-aura-on-surface-variant block mb-1">GPT OAuth</label>
-                        <span className="text-sm font-bold text-aura-on-surface">
-                          {aiBackbone?.chatgpt_oauth.linked ? "Linked" : "—"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right: Quota + Personas */}
-              <div className="lg:col-span-8 space-y-6">
-
-                {/* Quota Snapshot */}
-                <div className="bg-white rounded-2xl p-7 shadow-aura">
-                  <div className="flex items-center justify-between mb-7">
-                    <div>
-                      <h2 className="text-2xl font-extrabold text-aura-on-surface font-headline leading-tight">Quota Snapshot</h2>
-                      <p className="text-xs text-aura-on-surface-variant mt-0.5">Provider-specific consumption today</p>
-                    </div>
-                    {quotaWarnings.length > 0 && (
-                      <span className="flex items-center gap-1.5 px-3 py-1.5 bg-aura-secondary-container rounded-full text-xs font-bold text-aura-on-secondary-container">
-                        <AlertTriangle className="w-3 h-3 stroke-[2]" /> {quotaWarnings.length} over 80%
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-8">
-                    {(systemSummary?.quota || []).length === 0 ? (
-                      // Skeleton placeholder when no data
-                      ["OpenAI", "Anthropic", "Image Gen"].map((name) => (
-                        <div key={name} className="space-y-2">
-                          <div className="flex justify-between">
-                            <span className="text-sm font-medium text-aura-on-surface-variant">{name}</span>
-                            <span className="text-xs text-aura-outline">—</span>
-                          </div>
-                          <div className="h-2.5 bg-aura-surface-container-high rounded-full" />
-                        </div>
-                      ))
-                    ) : (
-                      (systemSummary?.quota || []).map((q) => {
-                        const pct = q.total > 0 ? Math.min((q.used / q.total) * 100, 100) : 0;
-                        const isOverThreshold = pct >= 80;
-                        const isCritical = pct >= 95;
-                        return (
-                          <div key={q.name} className="space-y-3">
-                            <div className="flex justify-between items-end gap-3">
-                              <div className="flex flex-col gap-1">
-                                <span className={`text-lg font-black text-aura-on-surface leading-tight ${
-                                  isCritical ? "text-aura-secondary" : isOverThreshold ? "text-aura-secondary" : "text-aura-tertiary"
-                                }`}>
-                                  {Math.round(pct)}%
-                                </span>
-                                <span className="text-xs font-medium text-aura-on-surface-variant uppercase tracking-wide">{q.name}</span>
-                              </div>
-                              {isOverThreshold && (
-                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap ${
-                                  isCritical
-                                    ? "bg-aura-secondary-container/50 text-aura-secondary"
-                                    : "bg-aura-secondary-container/50 text-aura-secondary"
-                                }`}>
-                                  {isCritical ? "Critical" : "High"}
-                                </span>
-                              )}
-                            </div>
-                            <div className="h-2.5 bg-aura-surface-container-high rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all duration-700 ${
-                                  isCritical
-                                    ? "bg-gradient-to-r from-aura-secondary to-aura-secondary-fixed"
-                                    : isOverThreshold
-                                    ? "bg-gradient-to-r from-aura-secondary to-aura-secondary-fixed"
-                                    : "bg-gradient-to-r from-aura-tertiary to-aura-tertiary-container"
-                                 }`}
-                                 style={{ width: `${pct}%` }}
-                               />
-                            </div>
-                            <p className="text-[10px] text-aura-on-surface-variant">
-                              {q.used.toLocaleString()} / {q.total.toLocaleString()} {q.unit}
-                            </p>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-
-                {/* AI Persona Bento */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  {personas.length === 0 ? (
-                    <div className="sm:col-span-2 bg-aura-surface-container-low rounded-2xl p-6 text-center text-sm text-aura-outline">
-                      No personas configured yet.
-                    </div>
-                  ) : (
-                    personas.slice(0, 4).map((persona) => (
-                      <div
-                        key={persona.persona_id}
-                        className="bg-white rounded-2xl p-5 shadow-aura border border-aura-outline-variant/15 flex flex-col gap-4 hover:shadow-aura-md transition-shadow duration-200"
-                      >
-                        <div className="flex gap-3">
-                          <div className="w-14 h-14 rounded-xl bg-aura-primary-container/30 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                            {persona.avatar_image_url ? (
-                              <img
-                                src={persona.avatar_image_url}
-                                alt={persona.display_name}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <span className="text-xl font-bold text-aura-primary">
-                                {persona.display_name.charAt(0).toUpperCase()}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-bold text-aura-on-surface truncate">{persona.display_name}</h4>
-                            <p className="text-xs text-aura-on-surface-variant mt-0.5 truncate">{persona.status}</p>
-                            <span className={`inline-block mt-1.5 text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                              persona.status === "active"
-                                ? "bg-aura-tertiary-container/50 text-aura-tertiary"
-                                : "bg-aura-surface-container text-aura-on-surface-variant"
-                            }`}>
-                              {persona.status === "active" ? "● LIVE" : "● IDLE"}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 pt-3 border-t border-aura-surface-container">
-                          <div className="text-center">
-                            <p className="text-[10px] text-aura-on-surface-variant uppercase font-bold">Videos</p>
-                            <p className="text-base font-bold text-aura-on-surface mt-0.5">{persona.video_count}</p>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-[10px] text-aura-on-surface-variant uppercase font-bold">Status</p>
-                            <p className={`text-sm font-bold mt-0.5 ${
-                              persona.status === "active" ? "text-aura-tertiary" : "text-aura-outline"
-                            }`}>
-                              {persona.status === "active" ? "ZEN" : "IDLE"}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                {/* Recent Activity */}
-                <div className="bg-white rounded-2xl p-7 shadow-aura border border-aura-outline-variant/10">
-                  <div className="mb-6">
-                    <h3 className="text-lg font-extrabold text-aura-on-surface font-headline">Recent Activity</h3>
-                    <p className="mt-1 text-xs text-aura-on-surface-variant">Latest events and updates</p>
-                  </div>
-                  {activityItems.length === 0 ? (
-                    <p className="text-sm text-aura-on-surface-variant">No recent activity yet.</p>
-                  ) : (
-                      <div className="space-y-0 divide-y divide-aura-surface-container-high">
-                        {activityItems.map((item) => (
-                        <div key={item.id} className="flex items-start gap-4 py-5 first:pt-0 last:pb-0">
-                          <div className="flex flex-shrink-0 mt-1">
-                            <span className={`w-2.5 h-2.5 rounded-full ${auraActivityDotClass(item.tone)}`} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold line-clamp-2 text-aura-on-surface">{item.title}</p>
-                            <p className="mt-1.5 text-xs leading-relaxed text-aura-on-surface-variant line-clamp-2">{item.detail}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+          <OverviewTab
+            campaigns={campaigns}
+            approvals={approvals}
+            content={content}
+            personas={personas}
+            systemSummary={systemSummary}
+            onTabChange={setActiveTab}
+            activityItems={activityItems}
+            quotaWarnings={quotaWarnings}
+          />
         )}
 
         {activeTab === "ops" && (
@@ -1851,195 +1521,7 @@ export default function CustomerDashboard() {
         )}
 
         {activeTab === "skills" && (
-          <div className="space-y-10 animate-fade-in">
-
-            {/* Page header */}
-            <header className="flex justify-between items-end">
-              <div>
-                <h1 className="text-4xl font-extrabold text-aura-on-surface font-headline tracking-tight mb-2">Quản lý AI Personas</h1>
-                <p className="text-aura-on-surface-variant max-w-xl text-sm font-body">
-                  Tùy chỉnh và điều phối các nhân vật ảo liên kết với tài khoản của bạn để tối ưu sức ảnh hưởng.
-                </p>
-              </div>
-              {telegramBotUrl && (
-                <a
-                  href={telegramBotUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hidden sm:flex items-center gap-2 bg-gradient-to-br from-aura-primary to-aura-primary-container text-aura-on-primary px-7 py-3 rounded-full font-bold shadow-aura-md hover:scale-105 active:scale-95 transition-all text-sm"
-                >
-                  <span>+</span> Tạo Persona mới
-                </a>
-              )}
-            </header>
-
-            {/* Persona bento grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-              {personas.map(p => {
-                const isActive = p.status === "active";
-                return (
-                  <div
-                    key={p.persona_id}
-                    className="group relative overflow-hidden rounded-2xl bg-white shadow-aura transition-all duration-300 hover:-translate-y-2 hover:shadow-aura-md"
-                  >
-                    {/* Photo area */}
-                    <div className="aspect-[4/5] overflow-hidden bg-aura-surface-container-high">
-                      {p.avatar_image_url ? (
-                        <img
-                          src={p.avatar_image_url}
-                          alt={p.display_name}
-                          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-aura-primary/10 to-aura-primary-container/20">
-                          <span className="text-7xl font-extrabold font-headline text-aura-primary/20">
-                            {p.display_name.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                      )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60" />
-                    </div>
-
-                    {/* Glass info panel */}
-                    <div className="absolute bottom-0 left-0 right-0 m-4 p-5 rounded-xl" style={{ background: "rgba(248,246,241,0.75)", backdropFilter: "blur(24px)" }}>
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="min-w-0 mr-2">
-                          <h3 className="text-lg font-bold font-headline text-aura-on-surface truncate">{p.display_name}</h3>
-                          <p className="text-[10px] font-bold text-aura-primary uppercase tracking-widest mt-0.5">
-                            {p.video_count} videos
-                          </p>
-                        </div>
-                        <span className={`flex-shrink-0 px-2 py-1 rounded text-[10px] font-bold ${
-                          isActive
-                            ? "bg-aura-tertiary-container text-aura-on-tertiary-container"
-                            : "bg-aura-surface-container-high text-aura-on-surface-variant"
-                        }`}>
-                          {isActive ? "ĐANG HOẠT ĐỘNG" : "BẢN NHÁP"}
-                        </span>
-                      </div>
-
-                      <div className="flex gap-4 mb-4 text-xs text-aura-on-surface-variant">
-                        <span className="flex items-center gap-1">
-                          <span className="text-base">👥</span>
-                          {isActive ? `${p.video_count * 12}k` : "--"}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <span className="text-base">♥</span>
-                          {isActive ? "4.2%" : "--"}
-                        </span>
-                      </div>
-
-                      {telegramBotUrl ? (
-                        <a
-                          href={telegramBotUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="w-full py-2 bg-aura-surface-container text-aura-on-surface font-bold rounded-full text-sm hover:bg-aura-primary hover:text-white transition-colors flex items-center justify-center gap-2"
-                        >
-                          <span className="text-base">💬</span>
-                          {isActive ? "Mở Bot hội thoại" : "Tiếp tục thiết lập"}
-                        </a>
-                      ) : (
-                        <button
-                          type="button"
-                          className="w-full py-2 bg-aura-surface-container text-aura-on-surface font-bold rounded-full text-sm hover:bg-aura-primary hover:text-white transition-colors"
-                        >
-                          {isActive ? "Xem chi tiết" : "Tiếp tục thiết lập"}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Add new card */}
-              <div className="group relative overflow-hidden rounded-2xl border-2 border-dashed border-aura-outline-variant/40 flex flex-col items-center justify-center p-12 text-center hover:border-aura-primary/50 transition-colors cursor-pointer min-h-[400px]">
-                <div className="w-16 h-16 rounded-full bg-aura-surface-container-high flex items-center justify-center mb-4 group-hover:bg-aura-primary-container/50 transition-colors">
-                  <span className="text-3xl text-aura-primary">+</span>
-                </div>
-                <h3 className="text-lg font-bold text-aura-on-surface mb-2">Tạo Nhân Vật Mới</h3>
-                <p className="text-sm text-aura-on-surface-variant mb-6">
-                  Ra mắt một AI cá tính hoàn toàn mới để mở rộng phạm vi tiếp cận.
-                </p>
-                {telegramBotUrl ? (
-                  <a
-                    href={telegramBotUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-6 py-2 bg-aura-surface-container-high text-aura-on-surface font-bold rounded-full text-sm hover:bg-aura-primary hover:text-white transition-all"
-                  >
-                    Bắt đầu tạo
-                  </a>
-                ) : (
-                  <button
-                    type="button"
-                    className="px-6 py-2 bg-aura-surface-container-high text-aura-on-surface font-bold rounded-full text-sm hover:bg-aura-primary hover:text-white transition-all"
-                  >
-                    Bắt đầu tạo
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Management section */}
-            <section className="bg-aura-surface-container-low rounded-2xl p-8">
-              <div className="flex items-center justify-between mb-8">
-                <h2 className="text-2xl font-bold text-aura-on-surface font-headline">Cài đặt Vận hành Chung</h2>
-                <button type="button" className="text-aura-primary font-bold text-sm hover:underline underline-offset-4">Quản lý tất cả</button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {([
-                  {
-                    Icon: Zap,
-                    iconColor: "text-aura-primary",
-                    iconBg: "bg-aura-primary/10",
-                    title: "Tự động hóa nội dung",
-                    desc: "Lên lịch đăng bài tự động cho tất cả các persona đang hoạt động.",
-                    badge: null,
-                    toggle: true,
-                  },
-                  {
-                    Icon: Database,
-                    iconColor: "text-aura-secondary",
-                    iconBg: "bg-aura-secondary/10",
-                    title: "Đa ngôn ngữ",
-                    desc: "Tự động dịch thuật để tiếp cận khán giả quốc tế.",
-                    badge: { text: "12 Ngôn ngữ đã kích hoạt", color: "text-aura-primary" },
-                    toggle: false,
-                  },
-                  {
-                    Icon: CheckCircle,
-                    iconColor: "text-aura-tertiary",
-                    iconBg: "bg-aura-tertiary/10",
-                    title: "Bộ lọc an toàn",
-                    desc: "Giám sát phản hồi AI nghiêm ngặt để bảo vệ thương hiệu.",
-                    badge: { text: "Cấp độ Doanh nghiệp", color: "text-aura-tertiary" },
-                    toggle: false,
-                  },
-                ] as const).map(item => (
-                  <div key={item.title} className="bg-white p-6 rounded-xl shadow-aura-sm">
-                    <div className={`w-10 h-10 ${item.iconBg} rounded-xl flex items-center justify-center mb-4`}>
-                      <item.Icon className={`w-5 h-5 ${item.iconColor} stroke-[1.5]`} />
-                    </div>
-                    <h4 className="font-bold text-aura-on-surface mb-1 text-sm">{item.title}</h4>
-                    <p className="text-xs text-aura-on-surface-variant">{item.desc}</p>
-                    {item.toggle && (
-                      <div className="mt-4 flex items-center gap-2">
-                        <div className="w-8 h-4 bg-aura-primary rounded-full relative">
-                          <div className="w-3 h-3 bg-white rounded-full absolute right-0.5 top-0.5" />
-                        </div>
-                        <span className="text-[10px] font-bold text-aura-on-surface-variant uppercase">BẬT</span>
-                      </div>
-                    )}
-                    {item.badge && (
-                      <p className={`mt-4 text-xs font-bold ${item.badge.color}`}>{item.badge.text}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
-
-          </div>
+          <PersonasTab personas={personas} telegramBotUrl={telegramBotUrl || undefined} />
         )}
 
         {activeTab === "memory" && (
@@ -2304,113 +1786,12 @@ export default function CustomerDashboard() {
         )}
 
         {activeTab === "live_feed" && (
-          <div className="grid gap-4 md:gap-6 lg:grid-cols-2">
-            <Panel variant="elevated">
-              <PanelHeader 
-                title="Activity Feed" subtitle="Recent customer-facing events and workflow changes."/>
-              <ActivityFeed
-                items={activityItems}
-                emptyMessage="Activity will appear here once workflows, approvals, or content updates arrive."
-              />
-            </Panel>
-
-            <Panel variant="elevated">
-              <PanelHeader 
-                title="Workflow Monitor" subtitle="Current workflow queue and publishing output."/>
-              <div className="space-y-4">
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-aura-on-surface-variant">
-                    Runtime Workflows
-                  </p>
-                  {systemWorkflows.length === 0 && (
-                    <p className="text-sm text-aura-on-surface-variant">No active workflow telemetry right now.</p>
-                  )}
-                  {systemWorkflows.map((workflow) => (
-                    <div
-                      key={workflow.id}
-                      className="rounded-[16px] border border-aura-outline-variant/30 bg-aura-surface-container-low p-4"
-                    >
-                      <div className="flex items-center justify-between gap-4">
-                        <div>
-                          <p className="font-medium text-aura-on-surface">{workflow.name}</p>
-                          <p className="text-xs uppercase tracking-widest text-aura-on-surface-variant">
-                            {workflow.id}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${
-                            workflow.status === 'running' ? 'bg-aura-tertiary' :
-                            workflow.status === 'completed' ? 'bg-aura-primary' : 'bg-aura-error'
-                          }`} />
-                          <span className="text-xs text-aura-on-surface-variant capitalize">{workflow.status}</span>
-                        </div>
-                      </div>
-                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-aura-surface-container-highest">
-                        <div
-                          className="h-full rounded-full bg-aura-tertiary shadow-aura-sm"
-                          style={{ width: `${Math.max(0, Math.min(workflow.progress, 100))}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-aura-on-surface-variant">
-                    Recent Output
-                  </p>
-                  {(systemSummary?.recent_videos || []).map((video) => (
-                    <div
-                      key={video.asset_id}
-                      className="flex items-center justify-between gap-4 rounded-[16px] border border-aura-outline-variant/30 bg-aura-surface-container-high p-4"
-                    >
-                      <div>
-                        <p className="font-medium text-aura-on-surface">{video.title || "Generated video"}</p>
-                        <p className="text-xs uppercase tracking-widest text-aura-on-surface-variant">
-                          {video.persona_id || "unassigned persona"}
-                        </p>
-                      </div>
-                      {video.access_url ? (
-                        <a
-                          href={video.access_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs font-semibold uppercase tracking-widest text-sky-300"
-                        >
-                          Open
-                        </a>
-                      ) : (
-                        <span className="text-xs text-zinc-400">Unavailable</span>
-                      )}
-                    </div>
-                  ))}
-                  {content.slice(0, 5).map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center justify-between gap-4 rounded-[16px] border border-aura-outline-variant/30 bg-aura-surface-container-high p-4"
-                    >
-                      <div>
-                        <p className="font-medium text-aura-on-surface">{item.title}</p>
-                        <p className="text-xs uppercase tracking-widest text-aura-on-surface-variant">
-                          {(item.platform || []).join(", ")}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${
-                          item.status === 'published' ? 'bg-aura-tertiary' :
-                          item.status === 'scheduled' ? 'bg-aura-secondary' : 'bg-aura-outline'
-                        }`} />
-                        <span className="text-xs text-aura-on-surface-variant capitalize">{item.status}</span>
-                      </div>
-                    </div>
-                  ))}
-                  {content.length === 0 && (
-                    <p className="text-sm text-aura-on-surface-variant">No recent output yet.</p>
-                  )}
-                </div>
-              </div>
-            </Panel>
-          </div>
+          <LiveFeedTab
+            activityItems={activityItems}
+            systemWorkflows={systemWorkflows}
+            content={content}
+            personas={personas}
+          />
         )}
           </div>
 
@@ -2481,26 +1862,27 @@ function StatCard({
   );
 } */
 
-function ActivityFeed({
+function ActivitySnapshot({
   items,
-  emptyMessage = "No activity yet.",
+  emptyMessage,
 }: {
   items: ActivityItem[];
   emptyMessage?: string;
 }) {
   if (items.length === 0) {
-    return <div className="py-8 text-center"><p className="text-sm text-aura-on-surface-variant">{emptyMessage}</p></div>;
+    return <p className="text-sm text-aura-on-surface-variant font-body">{emptyMessage}</p>;
   }
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-4 font-body">
       {items.map((item) => {
-        const variant = item.tone === "success" 
-          ? "success" as const
-          : item.tone === "warning" 
-            ? "warning" as const
-            : "info" as const;
-        
+        const variant =
+          item.tone === "success"
+            ? ("success" as const)
+            : item.tone === "warning"
+            ? ("warning" as const)
+            : ("info" as const);
+
         return (
           <div key={item.id} className="py-3 first:pt-0 last:pb-0">
             <TimelineItem
@@ -2545,35 +1927,7 @@ function Field({
   );
 }
 
-function StatusBadge({ label }: { label: string }) {
-  const normalizedLabel = label.toLowerCase().replaceAll("_", " ");
-  
-  // Determine badge style based on status
-  const isSuccess = ["connected", "online", "completed", "approved", "published", "linked"].some(
-    keyword => normalizedLabel.includes(keyword)
-  );
-  const isWarning = ["pending", "waiting", "scheduled"].some(
-    keyword => normalizedLabel.includes(keyword)
-  );
-  const isError = ["error", "failed", "rejected", "disconnected"].some(
-    keyword => normalizedLabel.includes(keyword)
-  );
-  
-  let badgeClasses = "bg-aura-surface-container-highest text-aura-on-surface-variant border-aura-outline-variant/30";
-  if (isSuccess) {
-    badgeClasses = "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/20";
-  } else if (isWarning) {
-    badgeClasses = "bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-500/15 dark:text-amber-400 dark:border-amber-500/20";
-  } else if (isError) {
-    badgeClasses = "bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-500/15 dark:text-rose-400 dark:border-rose-500/20";
-  }
-  
-  return (
-    <span className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-widest ${badgeClasses}`}>
-      {label.replaceAll("_", " ")}
-    </span>
-  );
-}
+
 
 function splitCsv(value: string): string[] {
   return value

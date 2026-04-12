@@ -55,44 +55,44 @@ export function OpsTab({
   handleDisconnectChatgptOAuth,
 }: OpsTabProps) {
   return (
-    <div className="flex flex-col lg:flex-row gap-8 h-[calc(100vh-180px)] animate-fade-in noise-texture">
+    <div className="flex flex-col lg:flex-row gap-8 h-[calc(100vh-180px)] animate-fade-in">
       <div className="flex-1 flex flex-col gap-6 min-w-0">
-        <Panel className="flex-1 flex flex-col overflow-hidden apple-glass p-0 border-white/5">
+        <Panel className="flex-1 flex flex-col overflow-hidden p-0 border border-black/5 bg-white shadow-brand-sm">
           <PanelHeader
-            title="AI Orchestrator"
+            title="AI Assistant"
             subtitle={
               selectedThreadId
-                ? `AI assistant supporting campaign • ${
+                ? `Supporting campaign • ${
                     threads.find((t) => t.id === selectedThreadId)?.title || "Thread"
                   }`
-                : "Start planning your marketing campaign"
+                : "Start planning your next campaign"
             }
             actions={
               <div className="flex items-center gap-2">
                 <span
                   className={`flex h-2 w-2 rounded-full ${
-                    aiBackbone?.effective_status.ready ? "bg-emerald-500 animate-pulse" : "bg-aura-outline"
+                    aiBackbone?.effective_status.ready ? "bg-emerald-500 animate-pulse" : "bg-brand-outline"
                   } shadow-sm`}
                 />
-                <span className="text-[10px] font-bold text-aura-on-surface-variant uppercase tracking-wider">
+                <span className="text-[10px] font-bold text-brand-on-surface-variant uppercase tracking-wider">
                   {aiBackbone?.effective_status.ready ? "Connected" : "Disconnected"}
                 </span>
               </div>
             }
-            className="px-6 py-5 border-b border-white/5 bg-transparent"
+            className="px-8 py-6 border-b border-black/5 bg-white"
           />
 
           {/* Messages area */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide bg-transparent">
+          <div className="flex-1 overflow-y-auto p-8 space-y-8 scrollbar-hide bg-white">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center space-y-4 max-w-sm mx-auto">
-                <div className="w-16 h-16 rounded-3xl bg-aura-primary-container/20 flex items-center justify-center border border-aura-primary/10">
-                  <Sparkles className="w-8 h-8 text-aura-primary opacity-40" />
+                <div className="w-16 h-16 rounded-2xl bg-brand-primary/10 flex items-center justify-center border border-brand-primary/20">
+                  <Sparkles className="w-8 h-8 text-brand-primary opacity-60" />
                 </div>
                 <div>
-                  <h4 className="text-aura-on-surface font-bold">Let&apos;s start the conversation</h4>
-                  <p className="text-xs text-aura-on-surface-variant mt-1 leading-relaxed">
-                    You can ask about campaign planning, audience analysis, or video script creation.
+                  <h4 className="text-brand-on-surface font-bold">Let&apos;s start the conversation</h4>
+                  <p className="text-xs text-brand-on-surface-variant mt-1 leading-relaxed">
+                    You can ask about campaign planning, audience analysis, or content strategy.
                   </p>
                 </div>
               </div>
@@ -111,12 +111,12 @@ export function OpsTab({
           </div>
 
           {/* Composer */}
-          <div className="p-6 bg-white/[0.02] backdrop-blur-3xl border-t border-white/5">
+          <div className="p-8 bg-white/50 border-t border-black/5">
             {!aiBackbone?.effective_status.ready && (
-              <div className="mb-4 p-3 bg-amber-50 rounded-2xl border border-amber-100 flex items-center gap-3 text-amber-800">
+              <div className="mb-4 p-3.5 bg-rose-50 rounded-2xl border border-rose-200 flex items-center gap-3 text-rose-700 shadow-sm animate-pulse-slow">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                <p className="text-[10px] font-medium">
-                  You need to configure AI Backbone (GPT OAuth or API Key) before using the assistant.
+                <p className="text-[10px] font-bold tracking-tight">
+                  Configure AI Backbone (GPT OAuth or API Key) to use the assistant.
                 </p>
               </div>
             )}
@@ -130,14 +130,14 @@ export function OpsTab({
                     : "Connect AI to get started..."
                 }
                 disabled={busyKey === "assistant" || !aiBackbone?.effective_status.ready}
-                className="w-full rounded-2xl bg-white/[0.03] border border-white/10 px-6 py-5 pr-14 text-sm focus:outline-none focus:ring-1 focus:ring-white/20 transition-all text-white font-body placeholder:text-white/20"
+                className="w-full rounded-2xl bg-white border border-brand-outline/20 px-6 py-4 pr-14 text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/20 transition-all text-brand-on-surface font-body placeholder:text-brand-on-surface-variant/50"
               />
               <button
                 type="submit"
                 disabled={
                   busyKey === "assistant" || !composer.trim() || !aiBackbone?.effective_status.ready
                 }
-                className="absolute right-2 top-2 h-10 w-10 flex items-center justify-center rounded-xl bg-aura-primary text-white shadow-lg shadow-aura-primary/20 hover:bg-aura-primary/90 disabled:bg-aura-outline disabled:shadow-none transition-all transition-transform active:scale-95"
+                className="absolute right-2 top-2 h-10 w-10 flex items-center justify-center rounded-lg bg-brand-primary text-white shadow-md shadow-brand-primary/20 hover:bg-brand-primary/90 disabled:bg-brand-outline disabled:shadow-none transition-all active:scale-95"
               >
                 <Send className="w-4 h-4" />
               </button>
@@ -147,22 +147,22 @@ export function OpsTab({
 
         {/* Artifacts area */}
         {artifacts.length > 0 && (
-          <div className="h-44 bg-aura-surface-container-low/40 rounded-[32px] border border-aura-outline/10 p-4 overflow-x-auto flex gap-4 scrollbar-hide">
+          <div className="h-44 bg-white rounded-[40px] border border-black/5 p-6 overflow-x-auto flex gap-4 scrollbar-hide shadow-brand-sm">
             {artifacts.map((art) => (
               <div
                 key={art.id}
-                className="min-w-[240px] apple-glass rounded-2xl p-4 flex flex-col justify-between border-white/5 hover:border-white/20 transition-colors cursor-pointer group"
+                className="min-w-[240px] rounded-2xl p-4 flex flex-col justify-between border border-black/5 bg-white hover:shadow-brand-sm transition-all cursor-pointer group"
               >
                 <div>
                   <div className="flex items-center gap-2 mb-2">
-                    <Terminal className="w-3 h-3 text-aura-primary" />
-                    <span className="text-[10px] uppercase font-body font-bold text-aura-on-surface-variant tracking-wider">
+                    <Terminal className="w-3 h-3 text-brand-primary" />
+                    <span className="text-[10px] uppercase font-body font-bold text-brand-on-surface-variant tracking-wider">
                       {art.type}
                     </span>
                   </div>
-                  <h5 className="text-xs font-bold text-aura-on-surface line-clamp-1">{art.title}</h5>
+                  <h5 className="text-xs font-bold text-brand-on-surface line-clamp-1">{art.title}</h5>
                 </div>
-                <button className="text-[10px] font-bold text-aura-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                <button className="text-[10px] font-bold text-brand-primary opacity-0 group-hover:opacity-100 transition-opacity">
                   Explore details →
                 </button>
               </div>
@@ -172,28 +172,28 @@ export function OpsTab({
       </div>
 
       <div className="w-full lg:w-80 flex flex-col gap-8 flex-shrink-0">
-        <Panel className="flex-1 flex flex-col p-0 overflow-hidden apple-glass border-white/5">
+        <Panel className="flex-1 flex flex-col p-0 overflow-hidden border border-black/5 bg-white shadow-brand-sm">
           <PanelHeader
             title="History"
-            subtitle="Completed reasoning threads"
+            subtitle="Completed threads"
             actions={
               <button
                 onClick={handleCreateThread}
                 disabled={busyKey === "thread"}
-                className="flex items-center gap-2 rounded-xl bg-aura-tertiary-container/50 px-3 py-1.5 text-[10px] font-bold text-aura-tertiary hover:bg-aura-tertiary-container transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 rounded-lg bg-brand-primary/10 px-3 py-1.5 text-[10px] font-bold text-brand-primary hover:bg-brand-primary/20 transition-colors disabled:opacity-50"
               >
                 <Plus className="w-3 h-3" />
                 NEW
               </button>
             }
-            className="px-6 py-4 border-b border-aura-outline/5"
+            className="px-8 py-6 border-b border-black/5 bg-white"
           />
 
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2 scrollbar-hide">
             {threads.length === 0 ? (
               <div className="py-12 text-center">
-                <Clock className="w-8 h-8 text-aura-outline mx-auto mb-2 opacity-20" />
-                <p className="text-[10px] text-aura-on-surface-variant font-medium">No history yet</p>
+                <Clock className="w-8 h-8 text-brand-outline mx-auto mb-2 opacity-20" />
+                <p className="text-[10px] text-brand-on-surface-variant font-medium">No history yet</p>
               </div>
             ) : (
               threads.map((thread) => (
@@ -210,15 +210,15 @@ export function OpsTab({
           </div>
         </Panel>
 
-        {/* AI Engine Settings Quick Access */}
-        <section className="apple-glass rounded-[32px] p-8 border-white/5">
-          <h4 className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-white/30 mb-8">
+        {/* AI Configuration */}
+        <section className="bg-white rounded-[40px] p-8 border border-black/5 shadow-brand-sm">
+          <h4 className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-brand-on-surface-variant mb-8">
             <Settings2 className="w-3 h-3" />
-            AI Configuration
+            Configuration
           </h4>
 
           <form onSubmit={handleAiBackboneSave} className="space-y-6">
-            <FieldSet title="Engine Model" description="Choosing the neural path for creation" className="bg-transparent border-none p-0">
+            <FieldSet title="Engine Model" description="Choose your AI backbone" className="bg-transparent border-none p-0">
               <SelectField
                 value={aiBackboneForm.accessMode}
                 onChange={(val) => setAiBackboneForm((c: any) => ({ ...c, accessMode: val }))}
@@ -255,14 +255,14 @@ export function OpsTab({
               <div className="space-y-4 pt-2">
                 {aiBackbone?.chatgpt_oauth.linked ? (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between p-3 rounded-2xl bg-white border border-aura-outline/10 shadow-sm">
+                    <div className="flex items-center justify-between p-4 rounded-2xl bg-emerald-50 border border-emerald-200">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
                           <Sparkles className="w-4 h-4" />
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-xs font-bold text-aura-on-surface">GPT linked</span>
-                          <span className="text-[10px] text-aura-on-surface-variant truncate max-w-[120px]">
+                          <span className="text-xs font-bold text-emerald-900">GPT linked</span>
+                          <span className="text-[10px] text-emerald-700 truncate max-w-[120px]">
                             {aiBackboneForm.chatgptDisplayName}
                           </span>
                         </div>
@@ -271,15 +271,15 @@ export function OpsTab({
                         type="button"
                         onClick={handleDisconnectChatgptOAuth}
                         disabled={busyKey === "chatgpt-disconnect"}
-                        className="text-[10px] font-bold text-aura-error hover:underline transition-all"
+                        className="text-[10px] font-bold text-rose-600 hover:text-rose-700 transition-colors"
                       >
-                        Cancel
+                        Remove
                       </button>
                     </div>
-                    <div className="flex items-center gap-2 px-2 text-aura-on-surface-variant">
+                    <div className="flex items-center gap-2 px-2 text-brand-on-surface-variant">
                       <Info className="w-3 h-3" />
                       <span className="text-[10px]">
-                        Session expires in: <span className="font-bold text-aura-on-surface">Valid</span>
+                        Session status: <span className="font-bold text-emerald-600">Active</span>
                       </span>
                     </div>
                   </div>
@@ -291,13 +291,13 @@ export function OpsTab({
                       onChange={(val) =>
                         setAiBackboneForm((c: any) => ({ ...c, chatgptDisplayName: val }))
                       }
-                      placeholder="My GPT Accountant"
+                      placeholder="My GPT Account"
                     />
                     <button
                       type="button"
                       onClick={(e) => handleLinkChatgptOAuth(e)}
                       disabled={busyKey === "chatgpt-link"}
-                      className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-black text-white text-xs font-bold shadow-lg shadow-black/10 hover:bg-zinc-800 transition-all active:scale-[0.98] disabled:opacity-50"
+                      className="btn-primary btn-wide flex items-center justify-center gap-2"
                     >
                       <Key className="w-4 h-4" />
                       Connect GPT Plus / Pro
@@ -310,9 +310,9 @@ export function OpsTab({
             <button
               type="submit"
               disabled={busyKey === "ai-backbone"}
-              className="w-full py-3 rounded-2xl bg-aura-surface-container-high border border-aura-outline/20 text-aura-on-surface text-xs font-bold hover:bg-aura-surface-container-highest transition-all shadow-sm flex items-center justify-center gap-2"
+              className="btn-primary btn-wide btn-sm flex items-center gap-2 disabled:opacity-45"
             >
-              {busyKey === "ai-backbone" ? "Saving..." : "Save Engine Settings"}
+              {busyKey === "ai-backbone" ? "Saving..." : "Save Configuration"}
             </button>
           </form>
         </section>

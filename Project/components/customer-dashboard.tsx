@@ -19,6 +19,7 @@ import {
   Brain,
   Link2,
   RefreshCw,
+  AlertCircle,
   type LucideIcon,
 } from "lucide-react";
 import { SocialIcon } from "@/components/ui/SocialIcon";
@@ -296,7 +297,7 @@ export default function CustomerDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isAuthenticated, initialized, isLoading, logout, initialize } = useCustomerAuthStore();
-// // Replace the destructuring with mock values:
+  // // Replace the destructuring with mock values:
   // const { user, isAuthenticated, initialized, isLoading, logout } = {
   //   user: { name: "Preview User", email: "preview@example.com" },
   //   isAuthenticated: true,
@@ -304,7 +305,7 @@ export default function CustomerDashboard() {
   //   isLoading: false,
   //   logout: () => console.log("Logout clicked"),
   // };
-  
+
   const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [systemSummary, setSystemSummary] = useState<SystemSummaryData | null>(null);
@@ -389,7 +390,7 @@ export default function CustomerDashboard() {
         console.warn("[Dashboard] System data fetch failed (Network error).");
         return;
       }
-      
+
       const msg = error instanceof Error ? error.message : "";
       if (
         msg.includes("401") ||
@@ -404,21 +405,21 @@ export default function CustomerDashboard() {
     }
   }, [isAuthenticated, logout, router]);
 
-// const fetchSystemData = useCallback(async () => {
-//   setSystemSummary({
-//     services: [
-//       { name: "API Gateway", status: "online", latency: "24ms" },
-//       { name: "Worker Node", status: "online", latency: "115ms" }
-//     ],
-//     quota: [
-//       { name: "GPT-4o Tokens", used: 45000, total: 100000, unit: "tokens" },
-//       { name: "Image Gen", used: 12, total: 50, unit: "images" }
-//     ]
-//   });
-//   setSystemWorkflows([
-//     { id: "wf-123", name: "Content Generation", status: "running", progress: 65 }
-//   ]);
-// }, []);
+  // const fetchSystemData = useCallback(async () => {
+  //   setSystemSummary({
+  //     services: [
+  //       { name: "API Gateway", status: "online", latency: "24ms" },
+  //       { name: "Worker Node", status: "online", latency: "115ms" }
+  //     ],
+  //     quota: [
+  //       { name: "GPT-4o Tokens", used: 45000, total: 100000, unit: "tokens" },
+  //       { name: "Image Gen", used: 12, total: 50, unit: "images" }
+  //     ]
+  //   });
+  //   setSystemWorkflows([
+  //     { id: "wf-123", name: "Content Generation", status: "running", progress: 65 }
+  //   ]);
+  // }, []);
 
   useEffect(() => {
     void fetchSystemData();
@@ -440,10 +441,10 @@ export default function CustomerDashboard() {
 
   useEffect(() => {
     if (!initialized && !isLoading) {
-       // Only start initialize if we aren't already loading
-       void initialize();
+      // Only start initialize if we aren't already loading
+      void initialize();
     } else if (!initialized) {
-       void initialize();
+      void initialize();
     }
   }, [initialized, initialize]);
 
@@ -561,13 +562,13 @@ export default function CustomerDashboard() {
       setCampaigns(campaignList?.campaigns || []);
       setApprovals(approvalList?.approvals || []);
       setContent(contentList?.items || []);
-      
+
       // Robust handling for persona list (handles both raw array and object with personas key)
       const personasData = (personasList as any)?.personas || (Array.isArray(personasList) ? personasList : []);
       setPersonas(personasData);
-      
+
       setTelegramLink(telegramLinkResponse || null);
-      
+
       const settings = aiBackboneResponse?.settings || {
         access_mode: "workspace_default",
         customer_api: { api_url: "", has_api_key: false },
@@ -599,35 +600,35 @@ export default function CustomerDashboard() {
     }
   }
 
-// async function loadWorkspace() {
-//   setPageError(null);
-  
-//   // Set dummy brand data
-//   setBrandForm({
-//     product_name: "Acme AI",
-//     website_url: "https://acme.ai",
-//     audience: "Tech Enthusiasts",
-//     offer_summary: "AI-driven marketing automation",
-//     tone_voice: "Professional & Witty",
-//     timezone: "UTC+7",
-//     campaign_goals: ["Brand Awareness"],
-//     asset_urls: [],
-//     telegram_contact: "@acme_bot",
-//   });
+  // async function loadWorkspace() {
+  //   setPageError(null);
 
-//   // Set dummy social accounts
-//   setAccounts([
-//     { id: "1", platform: "linkedin", account_handle: "@acme", display_name: "Acme Corp", connection_status: "connected" },
-//     { id: "2", platform: "twitter", account_handle: "@acme_ai", display_name: "Acme AI", connection_status: "connected" }
-//   ]);
+  //   // Set dummy brand data
+  //   setBrandForm({
+  //     product_name: "Acme AI",
+  //     website_url: "https://acme.ai",
+  //     audience: "Tech Enthusiasts",
+  //     offer_summary: "AI-driven marketing automation",
+  //     tone_voice: "Professional & Witty",
+  //     timezone: "UTC+7",
+  //     campaign_goals: ["Brand Awareness"],
+  //     asset_urls: [],
+  //     telegram_contact: "@acme_bot",
+  //   });
 
-//   // Set dummy campaigns
-//   setCampaigns([
-//     { id: "c1", name: "Spring Launch", description: "New AI features", target_platforms: ["linkedin"], status: "running", approval_status: "approved", active_workflow_id: "w1" }
-//   ]);
+  //   // Set dummy social accounts
+  //   setAccounts([
+  //     { id: "1", platform: "linkedin", account_handle: "@acme", display_name: "Acme Corp", connection_status: "connected" },
+  //     { id: "2", platform: "twitter", account_handle: "@acme_ai", display_name: "Acme AI", connection_status: "connected" }
+  //   ]);
 
-//   // Add more setters as needed for personas, threads, etc.
-// }
+  //   // Set dummy campaigns
+  //   setCampaigns([
+  //     { id: "c1", name: "Spring Launch", description: "New AI features", target_platforms: ["linkedin"], status: "running", approval_status: "approved", active_workflow_id: "w1" }
+  //   ]);
+
+  //   // Add more setters as needed for personas, threads, etc.
+  // }
 
   async function loadThread(threadId: string) {
     try {
@@ -963,7 +964,7 @@ export default function CustomerDashboard() {
           userName={undefined}
           userEmail={undefined}
           telegramBotUrl={null}
-          onLogout={() => {}}
+          onLogout={() => { }}
           isSigningOut={false}
         />
         <div className="flex pt-16">
@@ -972,7 +973,7 @@ export default function CustomerDashboard() {
             activeTab={activeTab}
             onTabChange={setActiveTab}
           />
-          <main className="flex-1 min-w-0 px-6 md:px-10 py-8">
+          <main className="flex-1 min-w-0 px-4 sm:px-6 md:px-10 py-6 md:py-8">
             <div className="mx-auto max-w-7xl h-[60vh] flex flex-col items-center justify-center space-y-4">
               <div className="animate-spin h-10 w-10 border-2 border-aura-primary border-t-transparent rounded-full" />
               <p className="text-sm text-aura-outline font-body">Loading workspace…</p>
@@ -1009,906 +1010,855 @@ export default function CustomerDashboard() {
           onMobileClose={() => setIsMobileMenuOpen(false)}
         />
 
-        <main className="flex-1 min-w-0 px-6 md:px-10 py-8">
-          <div className="mx-auto max-w-7xl space-y-6">
+        <main className="flex-1 min-w-0 px-4 sm:px-6 md:px-10 py-6 md:py-8">
+          <div className="mx-auto max-w-7xl space-y-4 md:space-y-6">
 
 
-        {/* Success banner */}
-        {banner && (
-          <div className="flex items-center justify-between rounded-2xl border border-aura-tertiary/20 bg-aura-tertiary-container/30 px-5 py-3 text-sm text-aura-tertiary font-medium">
-            <span>✓ {banner}</span>
-            <button onClick={() => setBanner(null)} className="ml-4 text-aura-tertiary/60 hover:text-aura-tertiary transition-colors">✕</button>
-          </div>
-        )}
-
-        {/* Error banner */}
-        {pageError && (
-          <div className="flex items-center justify-between rounded-2xl border border-aura-error/20 bg-aura-error-container/20 px-5 py-3 text-sm text-aura-error font-medium">
-            <span>{pageError}</span>
-            <button onClick={() => setPageError(null)} className="ml-4 text-aura-error/60 hover:text-aura-error transition-colors">
-              <X className="w-4 h-4 stroke-[1.75]" />
-            </button>
-          </div>
-        )}
-
-        {/* ─── Quota Warning Banner ─── */}
-        {activeTab === "overview" && quotaWarnings.length > 0 && !quotaBannerDismissed && (
-          <div className="flex items-start justify-between gap-4 rounded-2xl border border-aura-error/20 bg-aura-error-container/15 px-5 py-4">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-4 h-4 text-aura-error flex-shrink-0 mt-0.5 stroke-[1.75]" />
-              <div>
-                <p className="text-sm font-semibold text-aura-error">Quota threshold warning for today</p>
-                <p className="mt-0.5 text-xs text-aura-on-surface-variant">
-                  {quotaWarnings.map((q) => {
-                    const pct = Math.round((q.used / q.total) * 100);
-                    return `${q.name} (${pct}%)`;
-                  }).join(" · ")}
-                </p>
+            {/* Success banner */}
+            {banner && (
+              <div className="flex items-center justify-between rounded-2xl border border-aura-tertiary/20 bg-aura-tertiary-container/30 px-5 py-3 text-sm text-aura-tertiary font-medium">
+                <span>✓ {banner}</span>
+                <button onClick={() => setBanner(null)} className="ml-4 text-aura-tertiary/60 hover:text-aura-tertiary transition-colors">✕</button>
               </div>
-            </div>
-            <button
-              onClick={() => setQuotaBannerDismissed(true)}
-              className="flex-shrink-0 text-aura-error/60 hover:text-aura-error transition-colors"
-            >
-              <X className="w-4 h-4 stroke-[1.75]" />
-            </button>
-          </div>
-        )}
+            )}
 
-        {activeTab === "overview" && (
-          <OverviewTab
-            campaigns={campaigns}
-            approvals={approvals}
-            content={content}
-            personas={personas}
-            systemSummary={systemSummary}
-            onTabChange={setActiveTab}
-            activityItems={activityItems}
-            quotaWarnings={quotaWarnings}
-          />
-        )}
-
-        {activeTab === "ops" && (
-          <div className="space-y-10 animate-fade-in">
-
-            {/* ── Hero / Quick Stats Bento ── */}
-            <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              {/* Hero card */}
-              <div className="md:col-span-2 bg-white p-8 rounded-2xl flex flex-col justify-between border-l-4 border-aura-primary shadow-aura-sm min-h-[220px]">
-                <div>
-                  <h2 className="text-3xl font-headline font-bold mb-2 text-aura-on-surface">AI Operations</h2>
-                  <p className="text-aura-on-surface-variant font-body max-w-xs text-sm leading-relaxed">
-                    Integrated view of your AI Influencer ecosystem — campaigns, backbone, and real-time quota.
-                  </p>
+            {/* Error banner */}
+            {pageError && (
+              <div className="flex items-center justify-between rounded-2xl border border-error bg-error/10 px-5 py-4 text-sm text-error font-semibold shadow-sm animate-pulse-slow">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                  <span>{pageError}</span>
                 </div>
-                <div className="flex items-center gap-3 mt-6">
-                  <button
-                    type="button"
-                    onClick={() => void handleCreateThread()}
-                    disabled={busyKey === "thread"}
-                    className="bg-aura-primary hover:bg-aura-primary/90 text-white px-6 py-2.5 rounded-full font-body font-semibold text-sm transition-all active:scale-95 disabled:opacity-50 shadow-aura-sm"
-                  >
-                    + New Thread
-                  </button>
-                </div>
+                <button onClick={() => setPageError(null)} className="ml-4 text-error/60 hover:text-error transition-colors">
+                  <X className="w-4 h-4 stroke-[2]" />
+                </button>
               </div>
+            )}
 
-               {/* Quick stat cards */}
-               <div className="md:col-span-2 grid grid-cols-2 gap-4">
-                 {[
-                   { 
-                     label: "Active Campaigns", 
-                     value: campaigns.filter(c => c.status === "active").length, 
-                     target: 5,
-                     delta: 2,
-                     trend: "up",
-                     border: "border-aura-primary",
-                     emptyState: "Create your first campaign"
-                   },
-                   { 
-                     label: "Pending Approvals", 
-                     value: approvals.length, 
-                     target: 0,
-                     delta: 0,
-                     trend: "neutral",
-                     border: "border-aura-secondary",
-                     emptyState: "All caught up!"
-                   },
-                   { 
-                     label: "Published Content", 
-                     value: content.filter(c => c.status === "published").length, 
-                     target: 10,
-                     delta: 3,
-                     trend: "up",
-                     border: "border-aura-tertiary",
-                     emptyState: "Publish your first piece"
-                   },
-                   { 
-                     label: "AI Personas", 
-                     value: personas?.length ?? 0, 
-                     target: 3,
-                     delta: 0,
-                     trend: "neutral",
-                     border: "border-aura-outline",
-                     emptyState: "Set up your first persona"
-                   },
-                 ].map(stat => (
-                   <div key={stat.label} className={`bg-white p-6 rounded-xl shadow-aura-sm border-l-4 ${stat.border} flex min-h-[160px] flex-col justify-between`}>
-                     <div>
-                       <div className="flex items-center justify-between mb-1">
-                         <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-aura-outline">{stat.label}</p>
-                         {stat.value > 0 && stat.delta > 0 && (
-                           <span className="text-[9px] font-bold text-aura-tertiary flex items-center gap-0.5">
-                             ↑ {stat.delta}
-                           </span>
-                         )}
-                       </div>
-                       <p className="text-[10px] text-aura-on-surface-variant font-medium">
-                         {stat.value === 0 ? stat.emptyState : `Target: ${stat.target}`}
-                       </p>
-                     </div>
-                     <div>
-                       {stat.value === 0 ? (
-                         <p className="text-3xl font-headline font-black text-aura-on-surface/40">—</p>
-                       ) : (
-                         <div className="flex items-end justify-between">
-                           <p className="text-4xl font-headline font-black tracking-tight text-aura-on-surface">{stat.value}</p>
-                           <span className="text-[10px] text-aura-on-surface-variant font-medium">/{stat.target}</span>
-                         </div>
-                       )}
-                     </div>
-                   </div>
-                 ))}
-               </div>
-            </section>
-
-             {/* ── Technical Integration Row ── */}
-             <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-              {/* System Health */}
-              <div className="lg:col-span-5 bg-white p-7 rounded-2xl space-y-5 border border-aura-outline/10 shadow-aura-sm">
-                <div className="flex items-center justify-between">
+            {/* ─── Quota Warning Banner ─── */}
+            {activeTab === "overview" && quotaWarnings.length > 0 && !quotaBannerDismissed && (
+              <div className="flex items-start justify-between gap-4 rounded-2xl border border-error bg-error/10 px-5 py-4 shadow-sm animate-pulse-slow">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-error flex-shrink-0 mt-0.5 stroke-[2]" />
                   <div>
-                    <h3 className="text-xl font-headline font-black text-aura-on-surface leading-tight">System Health</h3>
-                    <p className="text-[10px] text-aura-on-surface-variant mt-1.5 font-medium">All services operational</p>
-                  </div>
-                  <span className="flex h-3 w-3 rounded-full bg-aura-tertiary animate-pulse shadow-lg shadow-aura-tertiary/30" />
-                </div>
-                <div className="space-y-2">
-                  {(systemSummary?.services || []).length === 0 ? (
-                    [
-                      { name: "Temporal Cluster", Icon: Radio, desc: "Workflow orchestration" },
-                      { name: "OpenClaw AI", Icon: Cpu, desc: "Language model provider" },
-                      { name: "Postiz Publisher", Icon: Bot, desc: "Content distribution" },
-                      { name: "GrowChief Growth", Icon: Zap, desc: "Analytics engine" },
-                    ].map(s => (
-                      <div key={s.name} className="flex items-center justify-between p-3.5 bg-aura-surface-container-low rounded-2xl group hover:bg-aura-surface-container-highest transition-colors cursor-default">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-8 h-8 rounded-lg bg-aura-primary/10 flex items-center justify-center flex-shrink-0">
-                            <s.Icon className="w-4 h-4 text-aura-primary stroke-[1.5]" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-aura-on-surface">{s.name}</p>
-                            <p className="text-[9px] text-aura-on-surface-variant">{s.desc}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                          <span className="w-2 h-2 rounded-full bg-aura-tertiary animate-pulse" />
-                          <span className="text-[9px] font-bold uppercase text-aura-tertiary whitespace-nowrap">online</span>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    (systemSummary?.services || []).map(service => (
-                      <div key={service.name} className="flex items-center justify-between p-3.5 bg-aura-surface-container-low rounded-2xl group hover:bg-aura-surface-container-highest transition-colors">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                            service.status === "online" ? "bg-aura-tertiary" :
-                            service.status === "warning" ? "bg-aura-secondary animate-pulse" : "bg-aura-error animate-pulse"
-                          }`} />
-                          <span className="text-sm font-semibold text-aura-on-surface truncate">{service.name}</span>
-                        </div>
-                        <div className="text-right flex-shrink-0 ml-2">
-                          <span className={`text-[9px] font-bold uppercase ${
-                            service.status === "online" ? "text-aura-tertiary" :
-                            service.status === "warning" ? "text-aura-secondary" : "text-aura-error"
-                          }`}>{service.status}</span>
-                          <span className="block text-[9px] text-aura-on-surface-variant">{service.latency}</span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* AI Backbone */}
-              <div className="lg:col-span-4 bg-white p-7 rounded-2xl flex flex-col justify-between border border-aura-outline/10 shadow-aura-sm">
-                <div className="space-y-5">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-aura-primary/10 rounded-lg flex items-center justify-center">
-                      <Cpu className="w-5 h-5 text-aura-primary stroke-[1.5]" />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-headline font-black text-aura-on-surface leading-tight">AI Backbone</h3>
-                      <p className="text-[10px] text-aura-on-surface-variant mt-1 font-medium">Language model configuration</p>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="p-4 bg-aura-surface-container-low rounded-2xl">
-                      <p className="text-[10px] text-aura-on-surface-variant mb-1.5 font-body uppercase tracking-wider font-semibold">Access Mode</p>
-                      <p className="text-sm font-bold text-aura-on-surface capitalize">
-                        {aiBackbone?.access_mode.replace(/_/g, " ") || "Loading…"}
-                      </p>
-                    </div>
-                    {aiBackbone?.workspace_default.api_url ? (
-                      <div className="p-4 bg-aura-surface-container-low rounded-2xl overflow-hidden">
-                        <p className="text-[10px] text-aura-on-surface-variant mb-1.5 font-body uppercase tracking-wider font-semibold">Workspace Endpoint</p>
-                        <code className="text-xs font-mono text-aura-primary truncate block break-all">
-                          {aiBackbone.workspace_default.api_url}
-                        </code>
-                      </div>
-                    ) : (
-                      <div className="p-4 bg-aura-error/5 rounded-2xl border border-aura-error/20 flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-[10px] text-aura-on-surface-variant mb-1.5 font-body uppercase tracking-wider font-semibold">Workspace Endpoint</p>
-                          <p className="text-sm font-semibold text-aura-error">Not configured</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab("memory")}
-                          className="text-[9px] font-bold px-3 py-1.5 bg-aura-error text-white rounded-lg hover:bg-aura-error/90 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap"
-                        >
-                          Configure
-                        </button>
-                      </div>
-                    )}
-                    <div className="p-4 bg-aura-surface-container-low rounded-2xl">
-                      <p className="text-[10px] text-aura-on-surface-variant mb-1.5 font-body uppercase tracking-wider font-semibold">Status</p>
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${aiBackbone?.effective_status.ready ? "bg-aura-tertiary animate-pulse" : "bg-aura-secondary animate-pulse"}`} />
-                        <p className="text-[11px] leading-5 text-aura-on-surface font-semibold">
-                          {aiBackbone?.effective_status.message || "Initializing…"}
-                        </p>
-                      </div>
-                    </div>
+                    <p className="text-sm font-bold text-error">Quota threshold warning for today</p>
+                    <p className="mt-1 text-xs text-error/80 font-medium leading-relaxed">
+                      {quotaWarnings.map((q) => {
+                        const pct = Math.round((q.used / q.total) * 100);
+                        return `${q.name} (${pct}%)`;
+                      }).join(" · ")}
+                    </p>
                   </div>
                 </div>
                 <button
-                  type="button"
-                  onClick={() => setActiveTab("memory")}
-                  className="mt-6 w-full py-3 bg-aura-primary text-white rounded-xl text-sm font-body font-semibold hover:bg-aura-primary/90 transition-all active:scale-95"
+                  onClick={() => setQuotaBannerDismissed(true)}
+                  className="flex-shrink-0 text-error/60 hover:text-error transition-colors pt-1"
                 >
-                  Full Configuration
+                  <X className="w-4 h-4 stroke-[2]" />
                 </button>
               </div>
+            )}
 
-              {/* Quota Snapshot */}
-              <div className="lg:col-span-3 bg-white p-7 rounded-2xl space-y-5 border border-aura-outline/10 shadow-aura-sm">
-                <div>
-                  <h3 className="text-xl font-headline font-black text-aura-on-surface leading-tight">Quota Snapshot</h3>
-                  <p className="text-[10px] text-aura-on-surface-variant mt-1.5 font-medium">Real-time usage metrics</p>
-                </div>
-                <div className="space-y-4">
-                  {(systemSummary?.quota || []).length === 0 ? (
-                    [
-                      { name: "OpenAI", color: "bg-aura-primary", desc: "gpt-4-turbo" },
-                      { name: "Anthropic", color: "bg-aura-secondary", desc: "Claude API" },
-                      { name: "Google TTS", color: "bg-aura-tertiary", desc: "Text-to-speech" },
-                      { name: "fal.ai", color: "bg-aura-error", desc: "Image generation" },
-                      { name: "HeyGen", color: "bg-aura-primary-container", desc: "Video synthesis" },
-                    ].map(q => (
-                      <div key={q.name} className="space-y-2">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <p className="text-sm font-semibold text-aura-on-surface">{q.name}</p>
-                            <p className="text-[9px] text-aura-on-surface-variant">{q.desc}</p>
-                          </div>
-                          <span className="text-xs text-aura-on-surface-variant font-medium">—</span>
-                        </div>
-                        <div className="h-2.5 w-full bg-aura-surface-container rounded-full overflow-hidden shadow-sm">
-                          <div className={`h-full ${q.color} animate-pulse`} style={{ width: "20%" }} />
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    (systemSummary?.quota || []).map(q => {
-                      const pct = q.total > 0 ? Math.min((q.used / q.total) * 100, 100) : 0;
-                      const isHigh = pct >= 80;
-                      const isCritical = pct >= 95;
-                      const barColor = isCritical ? "bg-aura-error" : isHigh ? "bg-aura-secondary" : "bg-aura-tertiary";
+            {activeTab === "overview" && (
+              <OverviewTab
+                campaigns={campaigns}
+                approvals={approvals}
+                content={content}
+                personas={personas}
+                systemSummary={systemSummary}
+                onTabChange={setActiveTab}
+                activityItems={activityItems}
+                quotaWarnings={quotaWarnings}
+              />
+            )}
+
+            {activeTab === "ops" && (
+              <div className="space-y-10 animate-fade-in">
+
+                {/* ── Hero / Quick Stats Bento ── */}
+                <section className="grid grid-cols-1 md:grid-cols-4 gap-4 md:gap-6">
+                  {/* Hero card */}
+                  <div className="md:col-span-2 bg-gradient-to-br from-white to-stone-50/50 p-6 md:p-8 rounded-[32px] md:rounded-[40px] flex flex-col justify-between border border-black/5 shadow-brand-sm min-h-[220px]">
+                    <div>
+                      <h2 className="text-2xl md:text-3xl font-semibold mb-2 text-brand-on-surface">AI Operations</h2>
+                      <p className="text-brand-on-surface-variant max-w-xs text-sm leading-relaxed">
+                        Integrated view of your AI Influencer ecosystem — campaigns, backbone, and real-time quota.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 mt-6">
+                      <button
+                        type="button"
+                        onClick={() => void handleCreateThread()}
+                        disabled={busyKey === "thread"}
+                        className="btn-primary"
+                      >
+                        + New Thread
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Quick stat cards */}
+                  <div className="md:col-span-2 grid grid-cols-2 gap-4">
+                    {[
+                      {
+                        label: "Active Campaigns",
+                        value: campaigns.filter(c => c.status === "active").length,
+                        target: 5,
+                        delta: 2,
+                        trend: "up",
+                        emptyState: "Create your first campaign"
+                      },
+                      {
+                        label: "Pending Approvals",
+                        value: approvals.length,
+                        target: 0,
+                        delta: 0,
+                        trend: "neutral",
+                        emptyState: "All caught up!"
+                      },
+                      {
+                        label: "Published Content",
+                        value: content.filter(c => c.status === "published").length,
+                        target: 10,
+                        delta: 3,
+                        trend: "up",
+                        emptyState: "Publish your first piece"
+                      },
+                      {
+                        label: "AI-Influencers",
+                        value: personas?.length ?? 0,
+                        target: 3,
+                        delta: 0,
+                        trend: "neutral",
+                        emptyState: "Set up your first influencer"
+                      },
+                    ].map((stat, idx) => {
+                      const bgColors = [
+                        'bg-white', // Active Campaigns - neutral
+                        'bg-amber-50', // Pending Approvals - warm accent
+                        'bg-emerald-50', // Published Content - success
+                        'bg-blue-50', // AI Personas - info
+                      ];
                       return (
-                        <div key={q.name} className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm font-semibold text-aura-on-surface flex items-center gap-2">
-                              {q.name}
-                              {isHigh && (
-                                <span className={`text-[8px] px-2 py-1 rounded-full font-bold tracking-wide ${
-                                  isCritical ? "bg-aura-error/20 text-aura-error" : "bg-aura-secondary/20 text-aura-secondary"
-                                }`}>
-                                  {isCritical ? "🚨 CRITICAL" : "⚠️ HIGH"}
+                        <div key={stat.label} className={`${bgColors[idx]} p-5 md:p-6 rounded-2xl border border-black/5 shadow-brand-sm flex min-h-[140px] md:min-h-[160px] flex-col justify-between hover:shadow-brand-md transition-shadow`}>
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="text-[9px] font-semibold uppercase tracking-wider text-brand-on-surface-variant truncate mr-1">{stat.label}</p>
+                              {stat.value > 0 && stat.delta > 0 && (
+                                <span className="text-[9px] font-bold text-emerald-600 flex items-center gap-0.5">
+                                  ↑ {stat.delta}
                                 </span>
                               )}
-                            </span>
-                            <span className={`text-sm font-bold ${isCritical ? "text-aura-error" : isHigh ? "text-aura-secondary" : "text-aura-on-surface-variant"}`}>
-                              {Math.round(pct)}%
-                            </span>
-                          </div>
-                          <div className="h-2.5 w-full bg-aura-surface-container rounded-full overflow-hidden shadow-sm border border-aura-outline/5">
-                            <div className={`h-full ${barColor} transition-all duration-700 rounded-full shadow-md`} style={{ width: `${pct}%` }} />
-                          </div>
-                          <div className="text-[9px] text-aura-on-surface-variant flex justify-between">
-                            <span>{q.used.toLocaleString()} used</span>
-                            <span>{q.total.toLocaleString()} {q.unit}</span>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            </section>
-
-            {/* ── Persona Showcase + Action ── */}
-            <section className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
-              {/* Persona visual */}
-              <div className="md:col-span-7 bg-white p-1 rounded-2xl shadow-aura overflow-hidden relative group">
-                <div className="aspect-[16/9] w-full relative overflow-hidden rounded-xl bg-aura-surface-container-high flex items-end">
-                  {personas.length > 0 && personas[0].avatar_image_url ? (
-                    <img
-                      src={personas[0].avatar_image_url}
-                      alt={personas[0].display_name}
-                      className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                    />
-                  ) : (
-                    <div className="absolute inset-0 bg-gradient-to-br from-aura-primary/20 to-aura-primary-container/30 flex items-center justify-center">
-                      <div className="text-6xl font-headline font-extrabold text-aura-primary/20">
-                        {personas[0]?.display_name?.charAt(0) || "A"}
-                      </div>
-                    </div>
-                  )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex items-end p-8">
-                    <div className="backdrop-blur-sm bg-white/10 p-5 rounded-xl border border-white/20">
-                      <h4 className="text-white text-xl font-bold font-headline mb-1">
-                        {personas[0]?.display_name || "Persona Alpha: Genesis"}
-                      </h4>
-                      <p className="text-white/80 text-sm font-body">
-                        {personas[0]?.status === "active" ? "Active · Ready for deployment." : "Configure your first persona to get started."}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action panel */}
-              <div className="md:col-span-5 space-y-6">
-                <h3 className="text-3xl font-headline font-extrabold text-aura-on-surface leading-tight">
-                  Craft Your Next Digital Influence.
-                </h3>
-                <p className="text-aura-on-surface-variant font-body text-base leading-relaxed">
-                  Every great persona starts with a spark. Our AI backbone provides the infrastructure; you provide the soul. Monitor health, manage quotas, and watch your influence grow.
-                </p>
-
-                {/* Pending approvals inline */}
-                {approvals.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-bold text-aura-on-surface-variant uppercase tracking-widest">Pending Approvals</p>
-                    {approvals.slice(0, 3).map(a => (
-                      <div key={a.id} className="p-3 bg-aura-secondary-container/30 border border-aura-secondary/20 rounded-xl flex items-center justify-between">
-                        <span className="text-sm font-medium text-aura-on-surface truncate mr-2">{a.name}</span>
-                        <div className="flex gap-2 flex-shrink-0">
-                          <button
-                            onClick={() => handleApprove(a.id, true)}
-                            disabled={busyKey === `approve-${a.id}`}
-                            className="text-[10px] px-3 py-1.5 bg-aura-tertiary text-white rounded-full font-bold hover:opacity-90 active:scale-95 disabled:opacity-50"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => handleApprove(a.id, false)}
-                            disabled={busyKey === `approve-${a.id}`}
-                            className="text-[10px] px-3 py-1.5 bg-aura-error/20 text-aura-error rounded-full font-bold hover:bg-aura-error/30 active:scale-95 disabled:opacity-50"
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex gap-4">
-                  <button
-                    type="button"
-                    onClick={() => void handleCreateThread()}
-                    disabled={busyKey === "thread"}
-                    className="bg-aura-primary text-aura-on-primary px-7 py-3.5 rounded-full font-body font-bold shadow-aura-md hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
-                  >
-                    Launch Studio
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("live_feed")}
-                    className="bg-aura-secondary-container text-aura-on-secondary-container px-7 py-3.5 rounded-full font-body font-bold hover:scale-105 active:scale-95 transition-all"
-                  >
-                    View Logs
-                  </button>
-                </div>
-              </div>
-            </section>
-
-             {/* ── Campaign Control + Output Stream ── */}
-             <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-               <div className="bg-white rounded-2xl p-8 shadow-aura">
-                 <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Campaign Control</h3>
-                 <div className="space-y-3">
-                  {campaigns.map(c => (
-                    <div key={c.id} className="p-4 bg-aura-surface-container-low border border-aura-outline-variant/20 rounded-xl flex items-center justify-between">
-                      <div className="min-w-0 mr-3">
-                        <h4 className="font-semibold text-aura-on-surface text-sm truncate">{c.name}</h4>
-                        <p className="text-[10px] text-aura-on-surface-variant mt-0.5 uppercase tracking-wider">{c.status} · {c.approval_status}</p>
-                      </div>
-                      <button
-                        onClick={() => handleLaunch(c.id)}
-                        disabled={c.approval_status !== "approved" || busyKey === `launch-${c.id}`}
-                        className="flex-shrink-0 text-[10px] px-4 py-2 bg-aura-tertiary text-white rounded-full font-bold hover:opacity-90 active:scale-95 disabled:opacity-40 transition-all"
-                      >
-                        {busyKey === `launch-${c.id}` ? "…" : "Launch"}
-                      </button>
-                    </div>
-                  ))}
-                  {campaigns.length === 0 && (
-                    <p className="text-sm text-aura-outline italic text-center py-4">Queue clear.</p>
-                  )}
-                </div>
-              </div>
-
-               <div className="bg-white rounded-2xl p-8 shadow-aura">
-                 <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Output Stream</h3>
-                 <div className="space-y-2">
-                  {content.slice(0, 6).map(item => (
-                    <div key={item.id} className="p-3 bg-aura-surface-container-low border border-aura-outline-variant/15 rounded-xl flex justify-between items-center">
-                      <span className="text-sm text-aura-on-surface truncate mr-2">{item.title}</span>
-                      <span className={`flex-shrink-0 text-[10px] px-2.5 py-1 rounded-full font-bold ${
-                        item.status === "published"
-                          ? "bg-aura-tertiary-container/50 text-aura-tertiary"
-                          : item.status === "scheduled"
-                          ? "bg-aura-secondary-container/50 text-aura-secondary"
-                          : "bg-aura-surface-container text-aura-on-surface-variant"
-                      }`}>
-                        {item.status}
-                      </span>
-                    </div>
-                  ))}
-                  {content.length === 0 && (
-                    <p className="text-sm text-aura-outline italic text-center py-4">No content yet.</p>
-                  )}
-                </div>
-              </div>
-            </section>
-
-          </div>
-        )}
-
-        {isVideoContextModalOpen && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-8"
-            onMouseDown={(event) => {
-              if (event.target === event.currentTarget) {
-                setIsVideoContextModalOpen(false);
-              }
-            }}
-          >
-            <div
-              className="w-full max-w-3xl rounded-2xl border border-white/[0.08] bg-zinc-950/95 p-6 shadow-2xl shadow-black/40 backdrop-blur-xl"
-              onMouseDown={(event) => event.stopPropagation()}
-            >
-              <div className="flex items-start justify-between gap-4 pb-4 border-b border-white/[0.08]">
-                <div>
-                  <h2 className="text-xl font-semibold text-white">Video Creation Context</h2>
-                  <p className="text-sm text-zinc-400 mt-1">Fill in the AI video brief and save it for later generation.</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsVideoContextModalOpen(false)}
-                  className="rounded-full border border-white/[0.08] bg-white/5 px-3 py-2 text-sm text-white transition-all duration-200 hover:bg-white/10"
-                >
-                  Close
-                </button>
-              </div>
-              <div className="max-h-[calc(100vh-10rem)] overflow-y-auto overflow-x-visible pr-2 pt-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-                <form className="space-y-4" onSubmit={(event) => {
-                  handleVideoContextSave(event);
-                  setIsVideoContextModalOpen(false);
-                }}>
-                  <FormField
-                    label="Video Title"
-                    value={videoContextDraft.title}
-                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, title: (event.target as HTMLInputElement).value }))}
-                    placeholder="Short, descriptive title"
-                  />
-                  <TextAreaField
-                    label="Video Description"
-                    value={videoContextDraft.description}
-                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, description: (event.target as HTMLTextAreaElement).value }))}
-                    placeholder="What should this video communicate?"
-                    minHeight="100px"
-                  />
-                  <TextAreaField
-                    label="Target Audience"
-                    value={videoContextDraft.targetAudience}
-                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, targetAudience: (event.target as HTMLTextAreaElement).value }))}
-                    placeholder="Who is this for?"
-                    minHeight="80px"
-                  />
-                  <FormField
-                    label="Call To Action"
-                    value={videoContextDraft.callToAction}
-                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, callToAction: (event.target as HTMLInputElement).value }))}
-                    placeholder="What should viewers do next?"
-                  />
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <SelectField
-                      label="Duration"
-                      value={videoContextDraft.duration}
-                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, duration: (event.target as HTMLSelectElement).value }))}
-                      options={VIDEO_DURATION_OPTIONS.map((option) => ({
-                        value: option.value,
-                        label: option.label,
-                      }))}
-                    />
-                    <SelectField
-                      label="Video Style"
-                      value={videoContextDraft.style}
-                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, style: (event.target as HTMLSelectElement).value }))}
-                      options={VIDEO_STYLE_OPTIONS.map((option) => ({
-                        value: option.value,
-                        label: option.label,
-                      }))}
-                    />
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <SelectField
-                      label="Tone"
-                      value={videoContextDraft.tone}
-                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, tone: (event.target as HTMLSelectElement).value }))}
-                      options={VIDEO_TONE_OPTIONS.map((option) => ({
-                        value: option.value,
-                        label: option.label,
-                      }))}
-                    />
-                    <FormField
-                      label="Persona"
-                      value={videoContextDraft.personaId}
-                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, personaId: (event.target as HTMLInputElement).value }))}
-                      placeholder="Choose or type persona ID"
-                    />
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <SelectField
-                      label="Target Platforms"
-                      value={videoContextDraft.platforms}
-                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, platforms: (event.target as HTMLSelectElement).value }))}
-                      options={VIDEO_PLATFORM_OPTIONS.map((option) => ({
-                        value: option.value,
-                        label: option.label,
-                      }))}
-                    />
-                    <FormField
-                      label="Language"
-                      value={videoContextDraft.language}
-                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, language: (event.target as HTMLInputElement).value }))}
-                      placeholder="Language for narration/captions"
-                    />
-                  </div>
-                  <TextAreaField
-                    label="Key Messages"
-                    value={videoContextDraft.keyMessages}
-                    onChange={(event) => setVideoContextDraft((current) => ({ ...current, keyMessages: (event.target as HTMLTextAreaElement).value }))}
-                    placeholder="List the most important messages or bullet points."
-                    minHeight="80px"
-                  />
-                  <div className="flex items-center gap-3">
-                    <input
-                      id="video-subtitles"
-                      type="checkbox"
-                      checked={videoContextDraft.subtitles}
-                      onChange={(event) => setVideoContextDraft((current) => ({ ...current, subtitles: event.target.checked }))}
-                      className="h-4 w-4 rounded border-white/10 bg-white/5 text-blue-500 focus:ring-blue-500"
-                    />
-                    <label htmlFor="video-subtitles" className="text-sm text-zinc-400">
-                      Generate subtitles automatically
-                    </label>
-                  </div>
-                  <button type="submit" className="w-full bg-blue-500 text-white font-semibold py-2.5 rounded-lg shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98]">
-                    Save Video Context
-                  </button>
-                </form>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "skills" && (
-          <PersonasTab personas={personas} telegramBotUrl={telegramBotUrl || undefined} />
-        )}
-
-        {activeTab === "memory" && (
-          <div className="space-y-10 animate-fade-in">
-
-            {/* Page header */}
-            <header>
-              <h1 className="text-4xl font-extrabold text-aura-on-surface font-headline tracking-tight mb-2">Project &amp; Memory</h1>
-              <p className="text-aura-on-surface-variant max-w-2xl text-sm font-body">
-                Define the core identity of your digital brand. These settings shape how AI learns, remembers, and communicates across every channel.
-              </p>
-            </header>
-
-            {/* Bento grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-
-              {/* ── Left: Brand Context (8 col) ── */}
-              <section className="lg:col-span-8 space-y-8">
-
-                {/* Brand Context card */}
-                <div className="bg-white rounded-2xl p-8 shadow-aura">
-                  <div className="flex items-center gap-3 mb-8">
-                    <div className="w-12 h-12 rounded-2xl bg-aura-primary/10 flex items-center justify-center">
-                      <BookOpen className="w-5 h-5 text-aura-primary stroke-[1.5]" />
-                    </div>
-                    <h3 className="text-xl font-bold text-aura-on-surface font-headline">Brand Context</h3>
-                  </div>
-
-                  <form className="space-y-6" onSubmit={handleBrandSave}>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-2">
-                        <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Brand Name</label>
-                        <input
-                          type="text"
-                          value={brandForm.product_name || ""}
-                          onChange={e => setBrandForm(c => ({ ...c, product_name: e.target.value }))}
-                          placeholder="Enter brand name..."
-                          className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all outline-none"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Target Audience</label>
-                        <input
-                          type="text"
-                          value={brandForm.audience || ""}
-                          onChange={e => setBrandForm(c => ({ ...c, audience: e.target.value }))}
-                          placeholder="Describe your target audience..."
-                          className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all outline-none"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Value Summary</label>
-                      <textarea
-                        value={brandForm.offer_summary || ""}
-                        onChange={e => setBrandForm(c => ({ ...c, offer_summary: e.target.value }))}
-                        placeholder="Summarize your product or service..."
-                        rows={4}
-                        className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all resize-none outline-none"
-                      />
-                    </div>
-
-                    <div className="flex justify-end">
-                      <button
-                        type="submit"
-                        disabled={busyKey === "brand-save"}
-                        className="px-10 py-3.5 bg-aura-primary text-aura-on-primary font-bold rounded-full hover:opacity-90 transition-all shadow-aura-md active:scale-95 disabled:opacity-50"
-                      >
-                        {busyKey === "brand-save" ? "Saving..." : "Save Context"}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-
-                {/* Intelligence Mode + System Bridge */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-
-                  {/* Intelligence Mode */}
-                  <div className="bg-white rounded-2xl p-8 shadow-aura flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center gap-3 mb-6">
-                        <div className="w-10 h-10 rounded-xl bg-aura-tertiary/10 flex items-center justify-center">
-                          <Brain className="w-5 h-5 text-aura-tertiary stroke-[1.5]" />
-                        </div>
-                        <h3 className="font-bold text-aura-on-surface font-headline">Intelligence Mode</h3>
-                      </div>
-                      <p className="text-sm text-aura-on-surface-variant mb-6 leading-relaxed font-body">
-                        Define how AI accesses and uses stored memory in conversations.
-                      </p>
-                    </div>
-                    <div className="flex flex-col gap-3">
-                      <div className="flex items-center justify-between w-full p-5 bg-aura-surface-container-lowest rounded-2xl border-2 border-aura-primary shadow-aura-sm">
-                        <span className="font-bold text-aura-on-surface text-sm">
-                          {aiBackbone?.access_mode.replace(/_/g, " ") || "Platform Managed"}
-                        </span>
-                        <Check className="w-4 h-4 text-aura-tertiary stroke-[2.5]" />
-                      </div>
-                      <div className="flex items-center justify-between w-full p-5 bg-aura-surface-container-low rounded-2xl border-2 border-transparent">
-                        <span className="text-sm font-medium text-aura-on-surface-variant/80">
-                          {aiBackbone?.effective_status.message || "Initializing…"}
-                        </span>
-                        <span className={`w-2 h-2 rounded-full ${aiBackbone?.effective_status.ready ? "bg-aura-tertiary" : "bg-aura-secondary animate-pulse"}`} />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* System Bridge — Telegram */}
-                  <div className="bg-white rounded-2xl p-8 shadow-aura flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center gap-3 mb-6">
-                        <div className="w-10 h-10 rounded-xl bg-aura-secondary/10 flex items-center justify-center">
-                          <Link2 className="w-5 h-5 text-aura-secondary stroke-[1.5]" />
-                        </div>
-                        <h3 className="font-bold text-aura-on-surface font-headline">System Bridge</h3>
-                      </div>
-                      <p className="text-sm text-aura-on-surface-variant mb-6 leading-relaxed font-body">
-                        Enable direct control and monitoring through secure messaging protocols.
-                      </p>
-                    </div>
-
-                    {telegramLink?.linked ? (
-                      <div className="p-5 bg-aura-surface-container rounded-2xl flex items-center gap-4">
-                        <div className="w-10 h-10 bg-aura-surface-container rounded-full flex items-center justify-center flex-shrink-0 shadow-aura-sm">
-                          <SocialIcon platform="telegram" size={20} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-aura-on-surface">@{telegramLink.link?.telegram_username || "Linked Account"}</p>
-                          <p className="text-[10px] text-aura-on-surface-variant">ID: {telegramLink.link?.chat_id}</p>
-                          <p className="text-[10px] text-aura-tertiary font-bold uppercase tracking-wide mt-0.5">Connected</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleStartTelegramLink}
-                          className="text-aura-on-surface-variant hover:text-aura-primary transition-colors"
-                          aria-label="Re-link Telegram"
-                        ><RefreshCw className="w-4 h-4 stroke-[1.75]" /></button>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                         <button
-                           type="button"
-                           onClick={handleStartTelegramLink}
-                           disabled={busyKey === "telegram-link"}
-                           className="w-full py-3 bg-white text-aura-on-surface border border-aura-outline/20 font-bold rounded-full hover:bg-aura-surface-container-low active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-aura-sm"
-                         >
-                           {busyKey !== "telegram-link" && <SocialIcon platform="telegram" size={18} />}
-                           {busyKey === "telegram-link" ? "Generating link..." : "Connect Telegram"}
-                         </button>
-                        {linkToken && telegramVerificationUrl && (
-                          <div className="p-4 bg-aura-secondary-container/30 border border-aura-secondary/20 rounded-xl text-center">
-                            <p className="text-xs text-aura-secondary mb-3 font-medium">
-                              {isPollingTelegramLink ? "Waiting for Telegram confirmation..." : "Link is ready. Confirm on Telegram."}
-                            </p>
-                            <a
-                              href={telegramVerificationUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-block px-6 py-2 bg-aura-secondary text-aura-on-secondary rounded-full font-bold text-xs hover:opacity-90 active:scale-95 transition-all"
-                            >
-                              Confirm Now
-                            </a>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              {/* ── Right: Social Grid + Persona visual (4 col) ── */}
-              <aside className="lg:col-span-4 space-y-8">
-
-                {/* Social Grid */}
-                <div className="bg-aura-surface-container-high rounded-2xl p-8">
-                  <h3 className="text-lg font-bold font-headline text-aura-on-surface mb-2">Social Network</h3>
-                  <p className="text-xs text-aura-on-surface-variant mb-8 font-body">
-                    Enable or disable automatic posting targets for the memory-optimized content cycle.
-                  </p>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    {SUPPORTED_PLATFORMS.map(p => {
-                      const acc = accounts.find(a => a.platform === p);
-                      return (
-                        <div
-                          key={p}
-                          className="bg-white/60 backdrop-blur p-4 rounded-3xl flex flex-col items-center justify-center gap-3 hover:bg-white cursor-pointer group shadow-aura-sm transition-all"
-                        >
-                          <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center group-hover:scale-110 group-hover:shadow-aura-md transition-all border border-aura-outline/5">
-                            <SocialIcon platform={p} size={24} />
-                          </div>
-                          <span className="text-xs font-bold text-aura-on-surface capitalize">{p}</span>
-                          {acc ? (
-                            <div className="w-10 h-5 bg-aura-primary rounded-full relative">
-                              <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full" />
                             </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleConnect(p)}
-                              className="w-10 h-5 bg-aura-surface-container-high rounded-full relative hover:bg-aura-primary/30 transition-colors"
-                            >
-                              <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full" />
-                            </button>
-                          )}
+                            <p className="text-[10px] text-brand-on-surface-variant font-medium">
+                              {stat.value === 0 ? stat.emptyState : `Target: ${stat.target}`}
+                            </p>
+                          </div>
+                          <div>
+                            {stat.value === 0 ? (
+                              <p className="text-3xl font-semibold text-brand-on-surface/30">—</p>
+                            ) : (
+                              <div className="flex items-end justify-between">
+                                <p className="text-4xl font-semibold tracking-tight text-brand-on-surface">{stat.value}</p>
+                                <span className="text-[10px] text-brand-on-surface-variant font-medium">/{stat.target}</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
                   </div>
 
-                   {/* Memory capacity bar */}
-                   <div className="mt-8 pt-8 border-t border-aura-outline-variant/20">
-                     <div className="flex items-end justify-between mb-3">
-                       <span className="text-[10px] font-semibold uppercase tracking-widest text-aura-on-surface-variant">Memory Capacity</span>
-                       <span className="text-5xl font-black text-aura-primary leading-none">84%</span>
-                     </div>
-                    <div className="w-full bg-aura-surface-container-lowest h-2 rounded-full overflow-hidden">
-                      <div className="bg-gradient-to-r from-aura-primary to-aura-primary-container h-full w-[84%] rounded-full shadow-aura-sm" />
+                  {/* AI Backbone */}
+                  <div className="lg:col-span-4 bg-white p-5 md:p-7 rounded-2xl flex flex-col justify-between border border-aura-outline/10 shadow-aura-sm">
+                    <div className="space-y-5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-aura-primary/10 rounded-lg flex items-center justify-center">
+                          <Cpu className="w-5 h-5 text-aura-primary stroke-[1.5]" />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-headline font-black text-aura-on-surface leading-tight">AI Backbone</h3>
+                          <p className="text-[10px] text-aura-on-surface-variant mt-1 font-medium">Language model configuration</p>
+                        </div>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="p-4 bg-aura-surface-container-low rounded-2xl">
+                          <p className="text-[10px] text-aura-on-surface-variant mb-1.5 font-body uppercase tracking-wider font-semibold">Access Mode</p>
+                          <p className="text-sm font-bold text-aura-on-surface capitalize">
+                            {aiBackbone?.access_mode.replace(/_/g, " ") || "Loading…"}
+                          </p>
+                        </div>
+                        {aiBackbone?.workspace_default.api_url ? (
+                          <div className="p-4 bg-aura-surface-container-low rounded-2xl overflow-hidden">
+                            <p className="text-[10px] text-aura-on-surface-variant mb-1.5 font-body uppercase tracking-wider font-semibold">Workspace Endpoint</p>
+                            <code className="text-xs font-mono text-aura-primary truncate block break-all">
+                              {aiBackbone.workspace_default.api_url}
+                            </code>
+                          </div>
+                        ) : (
+                          <div className="p-4 bg-aura-error/5 rounded-2xl border border-aura-error/20 flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[10px] text-aura-on-surface-variant mb-1.5 font-body uppercase tracking-wider font-semibold">Workspace Endpoint</p>
+                              <p className="text-sm font-semibold text-aura-error">Not configured</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setActiveTab("memory")}
+                              className="text-[10px] min-h-[44px] font-bold px-4 py-2 bg-aura-error text-white rounded-lg hover:bg-aura-error/90 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap cursor-pointer"
+                            >
+                              Configure
+                            </button>
+                          </div>
+                        )}
+                        <div className="p-4 bg-aura-surface-container-low rounded-2xl">
+                          <p className="text-[10px] text-aura-on-surface-variant mb-1.5 font-body uppercase tracking-wider font-semibold">Status</p>
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${aiBackbone?.effective_status.ready ? "bg-aura-tertiary animate-pulse" : "bg-aura-secondary animate-pulse"}`} />
+                            <p className="text-[11px] leading-5 text-aura-on-surface font-semibold">
+                              {aiBackbone?.effective_status.message || "Initializing…"}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-[10px] text-aura-on-surface-variant mt-4 leading-relaxed italic font-body">
-                      Higher retention lets AI recall nuanced brand preferences from past interactions more accurately.
-                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("memory")}
+                      className="mt-6 w-full py-3 min-h-[44px] bg-aura-primary text-white rounded-xl text-sm font-body font-semibold hover:bg-aura-primary/90 transition-all active:scale-95 cursor-pointer"
+                    >
+                      Full Configuration
+                    </button>
                   </div>
-                </div>
 
-                {/* Persona visual card */}
-                {personas.length > 0 && (
-                  <div className="relative group cursor-pointer">
-                    <div className="aspect-[4/5] rounded-2xl overflow-hidden shadow-aura-md transition-transform group-hover:scale-[1.02] duration-300 bg-aura-surface-container-high">
-                      {personas[0]?.avatar_image_url ? (
+                  {/* Quota Snapshot */}
+                  <div className="lg:col-span-3 bg-white p-5 md:p-7 rounded-2xl space-y-5 border border-aura-outline/10 shadow-aura-sm">
+                    <div>
+                      <h3 className="text-xl font-headline font-black text-aura-on-surface leading-tight">Quota Snapshot</h3>
+                      <p className="text-[10px] text-aura-on-surface-variant mt-1.5 font-medium">Real-time usage metrics</p>
+                    </div>
+                    <div className="space-y-4">
+                      {(systemSummary?.quota || []).length === 0 ? (
+                        [
+                          { name: "OpenAI", color: "bg-aura-primary", desc: "gpt-4-turbo" },
+                          { name: "Anthropic", color: "bg-aura-secondary", desc: "Claude API" },
+                          { name: "Google TTS", color: "bg-aura-tertiary", desc: "Text-to-speech" },
+                          { name: "fal.ai", color: "bg-aura-error", desc: "Image generation" },
+                          { name: "HeyGen", color: "bg-aura-primary-container", desc: "Video synthesis" },
+                        ].map(q => (
+                          <div key={q.name} className="space-y-2">
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <p className="text-sm font-semibold text-aura-on-surface">{q.name}</p>
+                                <p className="text-[9px] text-aura-on-surface-variant">{q.desc}</p>
+                              </div>
+                              <span className="text-xs text-aura-on-surface-variant font-medium">—</span>
+                            </div>
+                            <div className="h-2.5 w-full bg-aura-surface-container rounded-full overflow-hidden shadow-sm">
+                              <div className={`h-full ${q.color} animate-pulse`} style={{ width: "20%" }} />
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        (systemSummary?.quota || []).map(q => {
+                          const pct = q.total > 0 ? Math.min((q.used / q.total) * 100, 100) : 0;
+                          const isHigh = pct >= 80;
+                          const isCritical = pct >= 95;
+                          const barColor = isCritical ? "bg-aura-error" : isHigh ? "bg-aura-secondary" : "bg-aura-tertiary";
+                          return (
+                            <div key={q.name} className="space-y-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm font-semibold text-aura-on-surface flex items-center gap-2">
+                                  {q.name}
+                                  {isHigh && (
+                                    <span className={`text-[8px] px-2 py-1 rounded-full font-bold tracking-wide ${isCritical ? "bg-aura-error/20 text-aura-error" : "bg-aura-secondary/20 text-aura-secondary"
+                                      }`}>
+                                      {isCritical ? "🚨 CRITICAL" : "⚠️ HIGH"}
+                                    </span>
+                                  )}
+                                </span>
+                                <span className={`text-sm font-bold ${isCritical ? "text-aura-error" : isHigh ? "text-aura-secondary" : "text-aura-on-surface-variant"}`}>
+                                  {Math.round(pct)}%
+                                </span>
+                              </div>
+                              <div className="h-2.5 w-full bg-aura-surface-container rounded-full overflow-hidden shadow-sm border border-aura-outline/5">
+                                <div className={`h-full ${barColor} transition-all duration-700 rounded-full shadow-md`} style={{ width: `${pct}%` }} />
+                              </div>
+                              <div className="text-[9px] text-aura-on-surface-variant flex justify-between">
+                                <span>{q.used.toLocaleString()} used</span>
+                                <span>{q.total.toLocaleString()} {q.unit}</span>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </section>
+
+                {/* ── Persona Showcase + Action ── */}
+                <section className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
+                  {/* Persona visual */}
+                  <div className="md:col-span-7 bg-white p-1 rounded-2xl shadow-aura overflow-hidden relative group">
+                    <div className="aspect-[16/9] w-full relative overflow-hidden rounded-xl bg-aura-surface-container-high flex items-end">
+                      {personas.length > 0 && personas[0].avatar_image_url ? (
                         <img
                           src={personas[0].avatar_image_url}
                           alt={personas[0].display_name}
-                          className="w-full h-full object-cover"
+                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                         />
                       ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-aura-primary/20 to-aura-primary-container/30 flex items-center justify-center">
-                          <span className="text-8xl font-extrabold text-aura-primary/20 font-headline">
+                        <div className="absolute inset-0 bg-gradient-to-br from-aura-primary/20 to-aura-primary-container/30 flex items-center justify-center">
+                          <div className="text-6xl font-headline font-extrabold text-aura-primary/20">
                             {personas[0]?.display_name?.charAt(0) || "A"}
-                          </span>
+                          </div>
                         </div>
                       )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                      <div className="absolute bottom-0 left-0 right-0 p-6" style={{ backdropFilter: "blur(12px)", background: "rgba(255,255,255,0.08)", borderTop: "1px solid rgba(255,255,255,0.15)" }}>
-                        <h4 className="text-white font-bold text-xl font-headline">{personas[0]?.display_name}</h4>
-                        <p className="text-white/70 text-xs font-body mt-0.5">Active Persona</p>
-                        <div className="mt-4 flex items-center gap-2">
-                          <span className="w-2 h-2 bg-aura-tertiary rounded-full animate-pulse" />
-                          <span className="text-[10px] text-white/90 font-body font-medium uppercase tracking-widest">
-                            {personas[0]?.status === "active" ? "Optimized & Synced" : "Awaiting Activation"}
-                          </span>
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex items-end p-8">
+                        <div className="backdrop-blur-sm bg-white/10 p-5 rounded-xl border border-white/20">
+                          <h4 className="text-white text-xl font-bold font-headline mb-1">
+                            {personas[0]?.display_name || "Persona Alpha: Genesis"}
+                          </h4>
+                          <p className="text-white/80 text-sm font-body">
+                            {personas[0]?.status === "active" ? "Active · Ready for deployment." : "Configure your first persona to get started."}
+                          </p>
                         </div>
                       </div>
                     </div>
                   </div>
-                )}
 
-              </aside>
-            </div>
+                  {/* Action panel */}
+                  <div className="md:col-span-5 space-y-6">
+                    <h3 className="text-2xl md:text-3xl font-headline font-extrabold text-aura-on-surface leading-tight">
+                      Craft Your Next Digital Influence.
+                    </h3>
+                    <p className="text-aura-on-surface-variant font-body text-base leading-relaxed">
+                      Every great persona starts with a spark. Our AI backbone provides the infrastructure; you provide the soul. Monitor health, manage quotas, and watch your influence grow.
+                    </p>
 
-          </div>
-        )}
+                    {/* Pending approvals inline */}
+                    {approvals.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-bold text-aura-on-surface-variant uppercase tracking-widest">Pending Approvals</p>
+                        {approvals.slice(0, 3).map(a => (
+                          <div key={a.id} className="p-3 bg-aura-secondary-container/30 border border-aura-secondary/20 rounded-xl flex items-center justify-between">
+                            <span className="text-sm font-medium text-aura-on-surface truncate mr-2">{a.name}</span>
+                            <div className="flex gap-2 flex-shrink-0">
+                              <button
+                                onClick={() => handleApprove(a.id, true)}
+                                disabled={busyKey === `approve-${a.id}`}
+                                className="text-[10px] min-h-[44px] min-w-[44px] px-4 py-2 bg-aura-tertiary text-white rounded-full font-bold hover:opacity-90 active:scale-95 disabled:opacity-50 cursor-pointer flex items-center justify-center flex-shrink-0"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleApprove(a.id, false)}
+                                disabled={busyKey === `approve-${a.id}`}
+                                className="text-[10px] min-h-[44px] min-w-[44px] px-4 py-2 bg-aura-error/20 text-aura-error rounded-full font-bold hover:bg-aura-error/30 active:scale-95 disabled:opacity-50 cursor-pointer flex items-center justify-center flex-shrink-0"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
-        {activeTab === "live_feed" && (
-          <LiveFeedTab
-            activityItems={activityItems}
-            systemWorkflows={systemWorkflows}
-            content={content}
-            personas={personas}
-          />
-        )}
+                    <div className="flex flex-wrap gap-4">
+                      <button
+                        type="button"
+                        onClick={() => void handleCreateThread()}
+                        disabled={busyKey === "thread"}
+                        className="bg-aura-primary text-aura-on-primary min-h-[44px] px-6 md:px-7 py-3 md:py-3.5 rounded-full font-body font-bold shadow-aura-md hover:scale-105 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+                      >
+                        Launch Studio
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("live_feed")}
+                        className="bg-aura-secondary-container text-aura-on-secondary-container min-h-[44px] px-6 md:px-7 py-3 md:py-3.5 rounded-full font-body font-bold hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                      >
+                        View Logs
+                      </button>
+                    </div>
+                  </div>
+                </section>
+
+                {/* ── Campaign Control + Output Stream ── */}
+                <section className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-8">
+                  <div className="bg-white rounded-2xl p-5 md:p-8 shadow-aura">
+                    <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Campaign Control</h3>
+                    <div className="space-y-3">
+                      {campaigns.map(c => (
+                        <div key={c.id} className="p-4 bg-aura-surface-container-low border border-aura-outline-variant/20 rounded-xl flex items-center justify-between">
+                          <div className="min-w-0 mr-3">
+                            <h4 className="font-semibold text-aura-on-surface text-sm truncate">{c.name}</h4>
+                            <p className="text-[10px] text-aura-on-surface-variant mt-0.5 uppercase tracking-wider">{c.status} · {c.approval_status}</p>
+                          </div>
+                          <button
+                            onClick={() => handleLaunch(c.id)}
+                            disabled={c.approval_status !== "approved" || busyKey === `launch-${c.id}`}
+                            className="flex-shrink-0 text-[10px] min-h-[44px] min-w-[44px] px-5 py-2 bg-aura-tertiary text-white rounded-full font-bold hover:opacity-90 active:scale-95 disabled:opacity-40 transition-all cursor-pointer flex items-center justify-center"
+                          >
+                            {busyKey === `launch-${c.id}` ? "…" : "Launch"}
+                          </button>
+                        </div>
+                      ))}
+                      {campaigns.length === 0 && (
+                        <p className="text-sm text-aura-outline italic text-center py-4">Queue clear.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-2xl p-5 md:p-8 shadow-aura">
+                    <h3 className="text-base font-headline font-bold text-aura-on-surface mb-5">Output Stream</h3>
+                    <div className="space-y-2">
+                      {content.slice(0, 6).map(item => (
+                        <div key={item.id} className="p-3 bg-aura-surface-container-low border border-aura-outline-variant/15 rounded-xl flex justify-between items-center">
+                          <span className="text-sm text-aura-on-surface truncate mr-2">{item.title}</span>
+                          <span className={`flex-shrink-0 text-[10px] px-2.5 py-1 rounded-full font-bold ${item.status === "published"
+                              ? "bg-aura-tertiary-container/50 text-aura-tertiary"
+                              : item.status === "scheduled"
+                                ? "bg-aura-secondary-container/50 text-aura-secondary"
+                                : "bg-aura-surface-container text-aura-on-surface-variant"
+                            }`}>
+                            {item.status}
+                          </span>
+                        </div>
+                      ))}
+                      {content.length === 0 && (
+                        <p className="text-sm text-aura-outline italic text-center py-4">No content yet.</p>
+                      )}
+                    </div>
+                  </div>
+                </section>
+
+              </div>
+            )}
+
+            {isVideoContextModalOpen && (
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-8"
+                onMouseDown={(event) => {
+                  if (event.target === event.currentTarget) {
+                    setIsVideoContextModalOpen(false);
+                  }
+                }}
+              >
+                <div
+                  className="w-full max-w-3xl rounded-2xl border border-white/[0.08] bg-zinc-950/95 p-6 shadow-2xl shadow-black/40 backdrop-blur-xl"
+                  onMouseDown={(event) => event.stopPropagation()}
+                >
+                  <div className="flex items-start justify-between gap-4 pb-4 border-b border-white/[0.08]">
+                    <div>
+                      <h2 className="text-xl font-semibold text-white">Video Creation Context</h2>
+                      <p className="text-sm text-zinc-400 mt-1">Fill in the AI video brief and save it for later generation.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsVideoContextModalOpen(false)}
+                      className="rounded-full border border-white/[0.08] bg-white/5 px-3 py-2 text-sm text-white transition-all duration-200 hover:bg-white/10"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <div className="max-h-[calc(100vh-10rem)] overflow-y-auto overflow-x-visible pr-2 pt-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                    <form className="space-y-4" onSubmit={(event) => {
+                      handleVideoContextSave(event);
+                      setIsVideoContextModalOpen(false);
+                    }}>
+                      <FormField
+                        label="Video Title"
+                        value={videoContextDraft.title}
+                        onChange={(event) => setVideoContextDraft((current) => ({ ...current, title: (event.target as HTMLInputElement).value }))}
+                        placeholder="Short, descriptive title"
+                      />
+                      <TextAreaField
+                        label="Video Description"
+                        value={videoContextDraft.description}
+                        onChange={(event) => setVideoContextDraft((current) => ({ ...current, description: (event.target as HTMLTextAreaElement).value }))}
+                        placeholder="What should this video communicate?"
+                        minHeight="100px"
+                      />
+                      <TextAreaField
+                        label="Target Audience"
+                        value={videoContextDraft.targetAudience}
+                        onChange={(event) => setVideoContextDraft((current) => ({ ...current, targetAudience: (event.target as HTMLTextAreaElement).value }))}
+                        placeholder="Who is this for?"
+                        minHeight="80px"
+                      />
+                      <FormField
+                        label="Call To Action"
+                        value={videoContextDraft.callToAction}
+                        onChange={(event) => setVideoContextDraft((current) => ({ ...current, callToAction: (event.target as HTMLInputElement).value }))}
+                        placeholder="What should viewers do next?"
+                      />
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <SelectField
+                          label="Duration"
+                          value={videoContextDraft.duration}
+                          onChange={(event) => setVideoContextDraft((current) => ({ ...current, duration: (event.target as HTMLSelectElement).value }))}
+                          options={VIDEO_DURATION_OPTIONS.map((option) => ({
+                            value: option.value,
+                            label: option.label,
+                          }))}
+                        />
+                        <SelectField
+                          label="Video Style"
+                          value={videoContextDraft.style}
+                          onChange={(event) => setVideoContextDraft((current) => ({ ...current, style: (event.target as HTMLSelectElement).value }))}
+                          options={VIDEO_STYLE_OPTIONS.map((option) => ({
+                            value: option.value,
+                            label: option.label,
+                          }))}
+                        />
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <SelectField
+                          label="Tone"
+                          value={videoContextDraft.tone}
+                          onChange={(event) => setVideoContextDraft((current) => ({ ...current, tone: (event.target as HTMLSelectElement).value }))}
+                          options={VIDEO_TONE_OPTIONS.map((option) => ({
+                            value: option.value,
+                            label: option.label,
+                          }))}
+                        />
+                        <FormField
+                          label="Persona"
+                          value={videoContextDraft.personaId}
+                          onChange={(event) => setVideoContextDraft((current) => ({ ...current, personaId: (event.target as HTMLInputElement).value }))}
+                          placeholder="Choose or type persona ID"
+                        />
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <SelectField
+                          label="Target Platforms"
+                          value={videoContextDraft.platforms}
+                          onChange={(event) => setVideoContextDraft((current) => ({ ...current, platforms: (event.target as HTMLSelectElement).value }))}
+                          options={VIDEO_PLATFORM_OPTIONS.map((option) => ({
+                            value: option.value,
+                            label: option.label,
+                          }))}
+                        />
+                        <FormField
+                          label="Language"
+                          value={videoContextDraft.language}
+                          onChange={(event) => setVideoContextDraft((current) => ({ ...current, language: (event.target as HTMLInputElement).value }))}
+                          placeholder="Language for narration/captions"
+                        />
+                      </div>
+                      <TextAreaField
+                        label="Key Messages"
+                        value={videoContextDraft.keyMessages}
+                        onChange={(event) => setVideoContextDraft((current) => ({ ...current, keyMessages: (event.target as HTMLTextAreaElement).value }))}
+                        placeholder="List the most important messages or bullet points."
+                        minHeight="80px"
+                      />
+                      <div className="flex items-center gap-3">
+                        <input
+                          id="video-subtitles"
+                          type="checkbox"
+                          checked={videoContextDraft.subtitles}
+                          onChange={(event) => setVideoContextDraft((current) => ({ ...current, subtitles: event.target.checked }))}
+                          className="h-4 w-4 rounded border-white/10 bg-white/5 text-blue-500 focus:ring-blue-500"
+                        />
+                        <label htmlFor="video-subtitles" className="text-sm text-zinc-400">
+                          Generate subtitles automatically
+                        </label>
+                      </div>
+                      <button type="submit" className="w-full bg-blue-500 text-white font-semibold py-2.5 rounded-lg shadow-lg shadow-blue-500/20 transition-all duration-200 ease-out hover:bg-blue-400 hover:shadow-blue-500/30 active:scale-[0.98]">
+                        Save Video Context
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "skills" && (
+              <PersonasTab personas={personas} telegramBotUrl={telegramBotUrl || undefined} />
+            )}
+
+            {activeTab === "memory" && (
+              <div className="space-y-10 animate-fade-in">
+
+                {/* Page header */}
+                <header>
+                  <h1 className="text-4xl font-extrabold text-aura-on-surface font-headline tracking-tight mb-2">Project &amp; Memory</h1>
+                  <p className="text-aura-on-surface-variant max-w-2xl text-sm font-body">
+                    Define the core identity of your digital brand. These settings shape how AI learns, remembers, and communicates across every channel.
+                  </p>
+                </header>
+
+                {/* Bento grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+
+                  {/* ── Left: Brand Context (8 col) ── */}
+                  <section className="lg:col-span-8 space-y-8">
+
+                    {/* Brand Context card */}
+                    <div className="bg-white rounded-2xl p-5 md:p-8 shadow-aura">
+                      <div className="flex items-center gap-3 mb-8">
+                        <div className="w-12 h-12 rounded-2xl bg-aura-primary/10 flex items-center justify-center shrink-0">
+                          <BookOpen className="w-5 h-5 text-aura-primary stroke-[1.5]" />
+                        </div>
+                        <h3 className="text-xl font-bold text-aura-on-surface font-headline">Brand Context</h3>
+                      </div>
+
+                      <form className="space-y-6" onSubmit={handleBrandSave}>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="space-y-2">
+                            <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Brand Name</label>
+                            <input
+                              type="text"
+                              value={brandForm.product_name || ""}
+                              onChange={e => setBrandForm(c => ({ ...c, product_name: e.target.value }))}
+                              placeholder="Enter brand name..."
+                              className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all outline-none"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Target Audience</label>
+                            <input
+                              type="text"
+                              value={brandForm.audience || ""}
+                              onChange={e => setBrandForm(c => ({ ...c, audience: e.target.value }))}
+                              placeholder="Describe your target audience..."
+                              className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Value Summary</label>
+                          <textarea
+                            value={brandForm.offer_summary || ""}
+                            onChange={e => setBrandForm(c => ({ ...c, offer_summary: e.target.value }))}
+                            placeholder="Summarize your product or service..."
+                            rows={4}
+                            className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all resize-none outline-none"
+                          />
+                        </div>
+
+                        <div className="flex justify-end">
+                          <button
+                            type="submit"
+                            disabled={busyKey === "brand-save"}
+                            className="w-full md:w-auto min-h-[44px] px-10 py-3.5 bg-aura-primary text-aura-on-primary font-bold rounded-full hover:opacity-90 transition-all shadow-aura-md active:scale-95 disabled:opacity-50 cursor-pointer"
+                          >
+                            {busyKey === "brand-save" ? "Saving..." : "Save Context"}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+
+                    {/* Intelligence Mode + System Bridge */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+                      {/* Intelligence Mode */}
+                      <div className="bg-white rounded-2xl p-5 md:p-8 shadow-aura flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center gap-3 mb-6">
+                            <div className="w-10 h-10 rounded-xl bg-aura-tertiary/10 flex items-center justify-center shrink-0">
+                              <Brain className="w-5 h-5 text-aura-tertiary stroke-[1.5]" />
+                            </div>
+                            <h3 className="font-bold text-aura-on-surface font-headline">Intelligence Mode</h3>
+                          </div>
+                          <p className="text-sm text-aura-on-surface-variant mb-6 leading-relaxed font-body">
+                            Define how AI accesses and uses stored memory in conversations.
+                          </p>
+                        </div>
+                        <div className="flex flex-col gap-3">
+                          <div className="flex items-center justify-between w-full p-5 bg-aura-surface-container-lowest rounded-2xl border-2 border-aura-primary shadow-aura-sm">
+                            <span className="font-bold text-aura-on-surface text-sm">
+                              {aiBackbone?.access_mode.replace(/_/g, " ") || "Platform Managed"}
+                            </span>
+                            <Check className="w-4 h-4 text-aura-tertiary stroke-[2.5]" />
+                          </div>
+                          <div className="flex items-center justify-between w-full p-5 bg-aura-surface-container-low rounded-2xl border-2 border-transparent">
+                            <span className="text-sm font-medium text-aura-on-surface-variant/80">
+                              {aiBackbone?.effective_status.message || "Initializing…"}
+                            </span>
+                            <span className={`w-2 h-2 rounded-full ${aiBackbone?.effective_status.ready ? "bg-aura-tertiary" : "bg-aura-secondary animate-pulse"}`} />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* System Bridge — Telegram */}
+                      <div className="bg-white rounded-2xl p-5 md:p-8 shadow-aura flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center gap-3 mb-6">
+                            <div className="w-10 h-10 rounded-xl bg-aura-secondary/10 flex items-center justify-center shrink-0">
+                              <Link2 className="w-5 h-5 text-aura-secondary stroke-[1.5]" />
+                            </div>
+                            <h3 className="font-bold text-aura-on-surface font-headline">System Bridge</h3>
+                          </div>
+                          <p className="text-sm text-aura-on-surface-variant mb-6 leading-relaxed font-body">
+                            Enable direct control and monitoring through secure messaging protocols.
+                          </p>
+                        </div>
+
+                        {telegramLink?.linked ? (
+                          <div className="p-5 bg-aura-surface-container rounded-2xl flex items-center gap-4">
+                            <div className="w-10 h-10 bg-aura-surface-container rounded-full flex items-center justify-center flex-shrink-0 shadow-aura-sm">
+                              <SocialIcon platform="telegram" size={20} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold text-aura-on-surface">@{telegramLink.link?.telegram_username || "Linked Account"}</p>
+                              <p className="text-[10px] text-aura-on-surface-variant">ID: {telegramLink.link?.chat_id}</p>
+                              <p className="text-[10px] text-aura-tertiary font-bold uppercase tracking-wide mt-0.5">Connected</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleStartTelegramLink}
+                              className="text-aura-on-surface-variant hover:text-aura-primary transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer shrink-0"
+                              aria-label="Re-link Telegram"
+                            ><RefreshCw className="w-4 h-4 stroke-[1.75]" /></button>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            <button
+                              type="button"
+                              onClick={handleStartTelegramLink}
+                              disabled={busyKey === "telegram-link"}
+                              className="w-full min-h-[44px] py-3 bg-white text-aura-on-surface border border-aura-outline/20 font-bold rounded-full hover:bg-aura-surface-container-low active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-aura-sm cursor-pointer"
+                            >
+                              {busyKey !== "telegram-link" && <SocialIcon platform="telegram" size={18} />}
+                              {busyKey === "telegram-link" ? "Generating link..." : "Connect Telegram"}
+                            </button>
+                            {linkToken && telegramVerificationUrl && (
+                              <div className="p-4 bg-aura-secondary-container/30 border border-aura-secondary/20 rounded-xl text-center">
+                                <p className="text-xs text-aura-secondary mb-3 font-medium">
+                                  {isPollingTelegramLink ? "Waiting for Telegram confirmation..." : "Link is ready. Confirm on Telegram."}
+                                </p>
+                                <a
+                                  href={telegramVerificationUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center justify-center min-h-[44px] px-6 py-2 bg-aura-secondary text-aura-on-secondary rounded-full font-bold text-xs hover:opacity-90 active:scale-95 transition-all cursor-pointer"
+                                >
+                                  Confirm Now
+                                </a>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* ── Right: Social Grid + Persona visual (4 col) ── */}
+                  <aside className="lg:col-span-4 space-y-8">
+
+                    {/* Social Grid */}
+                    <div className="bg-aura-surface-container-high rounded-2xl p-5 md:p-8">
+                      <h3 className="text-lg font-bold font-headline text-aura-on-surface mb-2">Social Network</h3>
+                      <p className="text-xs text-aura-on-surface-variant mb-8 font-body">
+                        Enable or disable automatic posting targets for the memory-optimized content cycle.
+                      </p>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        {SUPPORTED_PLATFORMS.map(p => {
+                          const acc = accounts.find(a => a.platform === p);
+                          return (
+                            <div
+                              key={p}
+                              className="bg-white/60 backdrop-blur p-4 rounded-3xl flex flex-col items-center justify-center gap-3 shadow-aura-sm transition-all"
+                            >
+                              <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center border border-aura-outline/5">
+                                <SocialIcon platform={p} size={24} />
+                              </div>
+                              <span className="text-xs font-bold text-aura-on-surface capitalize">{p}</span>
+                              {acc ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleConnect(p)} // Typically opens disconnect modal or something, matching toggle pattern
+                                  className="w-12 h-6 bg-aura-primary rounded-full relative cursor-pointer hover:bg-aura-primary/90 transition-colors flex items-center justify-end px-1"
+                                >
+                                  <div className="w-4 h-4 bg-white rounded-full" />
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleConnect(p)}
+                                  className="w-12 h-6 bg-aura-surface-container-high border border-aura-outline/20 rounded-full relative cursor-pointer hover:bg-aura-outline/20 transition-colors flex items-center justify-start px-1"
+                                >
+                                  <div className="w-4 h-4 bg-white rounded-full shadow-sm" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Memory capacity bar */}
+                      <div className="mt-8 pt-8 border-t border-aura-outline-variant/20">
+                        <div className="flex items-end justify-between mb-3">
+                          <span className="text-[10px] font-semibold uppercase tracking-widest text-aura-on-surface-variant">Memory Capacity</span>
+                          <span className="text-5xl font-black text-aura-primary leading-none">84%</span>
+                        </div>
+                        <div className="w-full bg-aura-surface-container-lowest h-2 rounded-full overflow-hidden">
+                          <div className="bg-gradient-to-r from-aura-primary to-aura-primary-container h-full w-[84%] rounded-full shadow-aura-sm" />
+                        </div>
+                        <p className="text-[10px] text-aura-on-surface-variant mt-4 leading-relaxed italic font-body">
+                          Higher retention lets AI recall nuanced brand preferences from past interactions more accurately.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Persona visual card */}
+                    {personas.length > 0 && (
+                      <div className="relative group cursor-pointer">
+                        <div className="aspect-[4/5] rounded-2xl overflow-hidden shadow-aura-md transition-transform group-hover:scale-[1.02] duration-300 bg-aura-surface-container-high">
+                          {personas[0]?.avatar_image_url ? (
+                            <img
+                              src={personas[0].avatar_image_url}
+                              alt={personas[0].display_name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-aura-primary/20 to-aura-primary-container/30 flex items-center justify-center">
+                              <span className="text-8xl font-extrabold text-aura-primary/20 font-headline">
+                                {personas[0]?.display_name?.charAt(0) || "A"}
+                              </span>
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                          <div className="absolute bottom-0 left-0 right-0 p-6" style={{ backdropFilter: "blur(12px)", background: "rgba(255,255,255,0.08)", borderTop: "1px solid rgba(255,255,255,0.15)" }}>
+                            <h4 className="text-white font-bold text-xl font-headline">{personas[0]?.display_name}</h4>
+                            <p className="text-white/70 text-xs font-body mt-0.5">Active Persona</p>
+                            <div className="mt-4 flex items-center gap-2">
+                              <span className="w-2 h-2 bg-aura-tertiary rounded-full animate-pulse" />
+                              <span className="text-[10px] text-white/90 font-body font-medium uppercase tracking-widest">
+                                {personas[0]?.status === "active" ? "Optimized & Synced" : "Awaiting Activation"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                  </aside>
+                </div>
+
+              </div>
+            )}
+
+            {activeTab === "live_feed" && (
+              <LiveFeedTab
+                activityItems={activityItems}
+                systemWorkflows={systemWorkflows}
+                content={content}
+                personas={personas}
+              />
+            )}
           </div>
 
           {/* Page Footer branding */}
           <footer className="mt-12 py-10 border-t border-aura-outline-variant/10 flex justify-center">
             <div className="flex items-center gap-2">
-              <img 
-                src={openClawLogo.src} 
-                alt="OpenClaw" 
+              <img
+                src={openClawLogo.src}
+                alt="OpenClaw"
                 className="h-4 w-auto opacity-75"
               />
               <span className="text-xs text-aura-on-surface-variant font-body">
@@ -1988,8 +1938,8 @@ function ActivitySnapshot({
           item.tone === "success"
             ? ("success" as const)
             : item.tone === "warning"
-            ? ("warning" as const)
-            : ("info" as const);
+              ? ("warning" as const)
+              : ("info" as const);
 
         return (
           <div key={item.id} className="py-3 first:pt-0 last:pb-0">

@@ -225,7 +225,7 @@ export default function DashboardPage() {
   );
 
   return (
-    <div className="min-h-screen bg-[#f8f7f0] font-[Lexend] text-[#2e2f2c] selection:bg-[#a03929]/10 selection:text-[#a03929] selection:bg-brand-primary/20 selection:text-brand-primary">
+    <div className="min-h-screen bg-[#f8f7f0] font-[Lexend] text-[#2e2f2c] selection:bg-brand-primary/10 selection:text-brand-primary">
       <div className="mx-auto max-w-7xl px-6 py-8">
         <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-brand-on-surface mb-8">
           Dashboard
@@ -248,14 +248,14 @@ export default function DashboardPage() {
             icon={<BarChart3 className="h-5 w-5 text-emerald-400" strokeWidth={2} />} 
           />
           <StatCard 
-            title="AI Personas" 
+            title="AI-Influencers" 
             value="0" 
             icon={<Users className="h-5 w-5 text-emerald-400" strokeWidth={2} />} 
           />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="rounded-xl border border-black/5 bg-white/[0.03] backdrop-blur-xl p-6 shadow-brand-sm">
+          <div className="rounded-[40px] border border-black/5 bg-white/80 backdrop-blur-sm p-6 shadow-brand-sm">
             <h2 className="text-xl font-semibold tracking-tight mb-4 text-brand-on-surface">
               Recent Content
             </h2>
@@ -301,7 +301,7 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={item.id}
-                      className="border border-black/5 bg-brand-primary/[0.04] backdrop-blur-xl rounded-xl p-3"
+                      className="border border-black/5 bg-white rounded-2xl p-4 hover:shadow-brand-sm transition-all"
                     >
                       <p className="text-sm font-medium text-brand-on-surface break-all">
                         {item.title}
@@ -349,14 +349,14 @@ export default function DashboardPage() {
                           <button
                             type="button"
                             onClick={() => handleApproval(approvalWorkflowId, true)}
-                            className="px-4 py-2 text-xs font-semibold bg-emerald-500 text-brand-on-surface rounded-xl shadow-lg shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98]"
+                            className="px-4 py-2 text-xs font-semibold bg-emerald-500 text-white rounded-lg shadow-md shadow-emerald-500/20 transition-all duration-200 ease-out hover:bg-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98]"
                           >
                             Approve
                           </button>
                           <button
                             type="button"
                             onClick={() => handleApproval(approvalWorkflowId, false)}
-                            className="px-4 py-2 text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-[14px] transition-all duration-200 ease-out hover:bg-rose-500/20 active:scale-[0.98]"
+                            className="px-4 py-2 text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-lg transition-all duration-200 ease-out hover:bg-rose-500/20 active:scale-[0.98]"
                           >
                             Reject
                           </button>
@@ -368,7 +368,7 @@ export default function DashboardPage() {
                             type="button"
                             onClick={() => handleRetryPublish(item.id)}
                             disabled={isRetrying}
-                            className="px-4 py-2 text-xs font-semibold bg-amber-500 text-zinc-950 rounded-[14px] shadow-lg shadow-amber-500/20 transition-all duration-200 ease-out hover:bg-amber-400 hover:shadow-amber-500/30 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-4 py-2 text-xs font-semibold bg-amber-500 text-zinc-950 rounded-lg shadow-md shadow-amber-500/20 transition-all duration-200 ease-out hover:bg-amber-400 hover:shadow-amber-500/30 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {isRetrying ? "Retrying..." : "Retry Publish"}
                           </button>
@@ -381,7 +381,7 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="rounded-xl border border-black/5 bg-white/[0.03] backdrop-blur-xl p-6 shadow-brand-sm">
+          <div className="rounded-[40px] border border-black/5 bg-white/80 backdrop-blur-sm p-6 shadow-brand-sm">
             <h2 className="text-xl font-semibold tracking-tight mb-4 text-brand-on-surface">
               Upcoming Posts
             </h2>
@@ -390,7 +390,7 @@ export default function DashboardPage() {
                 {upcomingPosts.map((item) => (
                   <div
                     key={item.id}
-                    className="border border-black/5 bg-brand-primary/[0.04] backdrop-blur-xl rounded-xl p-3"
+                    className="border border-black/5 bg-white rounded-2xl p-4 hover:shadow-brand-sm transition-all"
                   >
                     <p className="text-sm font-medium text-brand-on-surface break-all">
                       {item.title}
@@ -418,14 +418,14 @@ export default function DashboardPage() {
             )}
 
             {waitingApproval.length > 0 && (
-              <p className="text-sm text-amber-400 mt-3">
+              <p className="text-sm text-amber-600 mt-3">
                 {waitingApproval.length} workflow(s) waiting for approval.
               </p>
             )}
           </div>
         </div>
 
-        <div className="rounded-xl border border-black/5 bg-white/[0.03] backdrop-blur-xl p-6 mt-6 shadow-brand-sm">
+        <div className="rounded-[40px] border border-black/5 bg-white/80 backdrop-blur-sm p-6 mt-6 shadow-brand-sm">
           <div className="flex items-center justify-between gap-4 mb-4">
             <h2 className="text-xl font-semibold tracking-tight text-brand-on-surface">
               API Usage
@@ -439,7 +439,7 @@ export default function DashboardPage() {
               {quotaProviders.map((provider) => (
                 <div
                   key={provider.provider}
-                  className="border border-black/5 bg-brand-primary/[0.04] backdrop-blur-xl rounded-xl p-3"
+                  className="border border-black/5 bg-white rounded-2xl p-4 hover:shadow-brand-sm transition-all"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -454,32 +454,32 @@ export default function DashboardPage() {
                            <p className="text-[11px] font-medium text-brand-secondary/70">
                             {provider.billing_type === "pay_as_you_go" ? (
                               provider.spend_limit_usd ? (
-                                <span className="text-emerald-400/90 font-semibold">
+                                <span className="text-emerald-600 font-semibold">
                                   {formatCurrency(provider.remaining_usd ?? 0)} left
                                 </span>
                               ) : (
                                 "Pay-as-you-go"
                               )
                             ) : (
-                              <span className="text-emerald-400/90 font-semibold">
+                              <span className="text-emerald-600 font-semibold">
                                 {provider.remaining_value !== null && provider.remaining_value !== undefined
                                   ? `${formatQuotaNumber(provider.remaining_value)} ${provider.remaining_unit || provider.usage_unit} left`
                                   : "Subscription"}
                               </span>
                             )}
-                          </p>
-                          <span className="text-[9px] text-zinc-600 uppercase tracking-widest font-bold">
-                            {provider.billing_type === "pay_as_you_go" ? "Credits" : "Plan"}
-                          </span>
+                           </p>
+                           <span className="text-[9px] text-zinc-600 uppercase tracking-widest font-bold">
+                             {provider.billing_type === "pay_as_you_go" ? "Credits" : "Plan"}
+                           </span>
                         </div>
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-2">
                        <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${quotaStatusClasses(provider.status)}`}
-                      >
-                        {humanizeValue(provider.status)}
-                      </span>
+                         className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${quotaStatusClasses(provider.status)}`}
+                       >
+                         {humanizeValue(provider.status)}
+                       </span>
                     </div>
                   </div>
 
@@ -511,36 +511,36 @@ export default function DashboardPage() {
                               />
                             </div>
                           ) : (
-                             <div className="h-1 w-full rounded-full bg-white/[0.03]" />
+                             <div className="h-1 w-full rounded-full bg-brand-surface-container-low" />
                           )}
                         </div>
                       );
                     })()}
 
                   {provider.last_error && (
-                    <div className="mt-3 p-3 rounded-[12px] bg-rose-500/10 border border-rose-500/20">
-                      <div className="text-xs font-semibold text-rose-400 mb-1 flex items-center gap-1.5">
+                    <div className="mt-3 p-3 rounded-xl bg-rose-50 border border-rose-200">
+                      <div className="text-xs font-semibold text-rose-700 mb-1 flex items-center gap-1.5">
                         <span className="w-1 h-1 rounded-full bg-rose-500" />
                         Last Error: {provider.last_error_type}
                       </div>
-                      <p className="text-[11px] text-rose-300/70 leading-relaxed line-clamp-2 italic">
+                      <p className="text-[11px] text-rose-600 leading-relaxed line-clamp-2 italic">
                         "{provider.last_error}"
                       </p>
                     </div>
                   )}
 
-                  <div className="flex flex-wrap gap-x-3 gap-y-1 mt-4 pt-3 border-t border-white/[0.04]">
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 mt-4 pt-3 border-t border-black/5">
                     <span className="flex items-center gap-1.5">
-                      <div className="w-1 h-1 rounded-full bg-zinc-700" />
+                      <div className="w-1 h-1 rounded-full bg-zinc-300" />
                       Snapshots: <span className="text-brand-secondary/70">{provider.snapshot_count}</span>
                     </span>
                     <span className="flex items-center gap-1.5">
-                      <div className="w-1 h-1 rounded-full bg-zinc-700" />
+                      <div className="w-1 h-1 rounded-full bg-zinc-300" />
                       Used: <span className="text-brand-on-surface font-semibold">{formatQuotaNumber(provider.usage_value || 0)}</span> <span className="text-brand-secondary/70">{provider.usage_unit.replace(/_/g, " ")}</span>
                     </span>
                     {formatRequestRemaining(provider) && (
                       <span className="flex items-center gap-1.5">
-                        <div className="w-1 h-1 rounded-full bg-zinc-700" />
+                        <div className="w-1 h-1 rounded-full bg-zinc-300" />
                         {formatRequestRemaining(provider)}
                       </span>
                     )}
@@ -799,13 +799,13 @@ function StatCard({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="rounded-[16px] border border-aura-outline/[0.1] bg-white/[0.03] backdrop-blur-xl p-6">
+    <div className="rounded-[40px] border border-black/5 bg-white shadow-brand-sm p-6">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs font-normal tracking-normal text-aura-secondary/70 mb-1">
+          <p className="text-xs font-normal tracking-normal text-brand-secondary/70 mb-1">
             {title}
           </p>
-          <p className="text-3xl font-semibold text-aura-on-surface">
+          <p className="text-3xl font-semibold text-brand-on-surface">
             {value}
           </p>
         </div>

@@ -83,14 +83,14 @@ export function MemoryTab({
                   <FormField
                     value={brandForm.product_name || ""}
                     onChange={(val) => setBrandForm((c: any) => ({ ...c, product_name: val }))}
-                    placeholder="e.g. Aura Influencer Factory"
+                    placeholder="e.g. AI-Influencer Factory"
                   />
                 </FieldSet>
                 <FieldSet title="Website URL" description="Official website URL" className="bg-transparent border-none p-0">
                   <FormField
                     value={brandForm.website_url || ""}
                     onChange={(val) => setBrandForm((c: any) => ({ ...c, website_url: val }))}
-                    placeholder="https://aura.ai"
+                    placeholder="https://ai-influencer.com"
                   />
                 </FieldSet>
               </div>
@@ -143,7 +143,7 @@ export function MemoryTab({
                 <button
                   type="submit"
                   disabled={busyKey === "brand"}
-                  className="bg-aura-primary text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-aura-primary/90 transition-all shadow-lg shadow-aura-primary/20 disabled:opacity-50 active:scale-95"
+                  className="btn-primary flex items-center gap-2 disabled:opacity-45"
                 >
                   {busyKey === "brand" ? "Saving..." : (
                     <>
@@ -279,28 +279,28 @@ export function MemoryTab({
                              value={aiBackboneForm.chatgptDisplayName}
                              onChange={(val) => setAiBackboneForm((c: any) => ({ ...c, chatgptDisplayName: val }))}
                           />
-                          <button
-                            type="button"
-                            onClick={(e: any) => handleLinkChatgptOAuth(e)}
-                            disabled={busyKey === "chatgpt-link"}
-                            className="w-full py-4 rounded-2xl bg-black text-white text-xs font-bold shadow-xl shadow-black/10 flex items-center justify-center gap-3 hover:bg-zinc-800 transition-all"
-                          >
-                             <Key className="w-4 h-4" />
-                              Connect ChatGPT Plus / Pro
-                          </button>
+                           <button
+                             type="button"
+                             onClick={(e: any) => handleLinkChatgptOAuth(e)}
+                             disabled={busyKey === "chatgpt-link"}
+                             className="btn-primary btn-wide flex items-center gap-3 disabled:opacity-45"
+                           >
+                              <Key className="w-4 h-4" />
+                               Connect ChatGPT Plus / Pro
+                           </button>
                        </div>
                      )}
                    </div>
                  )}
 
-                 <button
-                   type="submit"
-                   disabled={busyKey === "ai-backbone"}
-                   className="w-full py-3 rounded-2xl bg-aura-surface-container-high border border-aura-outline/10 text-aura-on-surface text-xs font-bold hover:bg-aura-surface-container-highest transition-all flex items-center justify-center gap-2"
-                 >
-                   <Save className="w-3 h-3" />
-                    {busyKey === "ai-backbone" ? "Saving settings..." : "Update Engine"}
-                 </button>
+                  <button
+                    type="submit"
+                    disabled={busyKey === "ai-backbone"}
+                    className="btn-primary btn-wide btn-sm flex items-center gap-2 disabled:opacity-45"
+                  >
+                    <Save className="w-3 h-3" />
+                     {busyKey === "ai-backbone" ? "Saving settings..." : "Update Engine"}
+                  </button>
                </form>
              </div>
 

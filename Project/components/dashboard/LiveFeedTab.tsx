@@ -39,7 +39,7 @@ interface LiveFeedTabProps {
 export function LiveFeedTab({ activityItems, systemWorkflows, content, personas }: LiveFeedTabProps) {
   const [activeStep, setActiveStep] = useState<1 | 2 | 3>(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [sourceUrl, setSourceUrl] = useState("https://apps.apple.com/us/app/aura-lifestyle-tracker/id12345678");
+  const [sourceUrl, setSourceUrl] = useState("https://apps.apple.com/us/app/ai-influencer-tracker/id12345678");
 
   // Step 1: Multi-Country Review Engine
   const renderStep1 = () => (
@@ -54,12 +54,10 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
         </div>
         <button 
           onClick={() => setActiveStep(2)}
-          className="group relative px-9 py-4 bg-aura-on-surface text-aura-surface font-headline font-bold rounded-full overflow-hidden flex items-center gap-3 transition-all hover:bg-black hover:shadow-aura-lg hover:scale-[1.02] active:scale-95 shadow-aura-md"
+          className="btn-primary btn-lg group relative overflow-hidden"
         >
-          {/* Subtle shine effect on hover */}
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-[150%] skew-x-[-15deg] group-hover:animate-shine"></div>
-          
-          <Zap className="w-5 h-5 text-aura-primary relative z-10 fill-current" />
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-[150%] skew-x-[-15deg] group-hover:animate-shine" />
+          <Zap className="w-5 h-5 fill-current relative z-10" />
           <span className="relative z-10 uppercase tracking-widest text-[13px]">Batch Generate All</span>
         </button>
       </div>
@@ -82,7 +80,7 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
           <div>
             <button 
               onClick={() => setActiveStep(2)}
-              className="w-full py-5 bg-aura-on-surface text-aura-surface font-bold rounded-full hover:bg-black transition-colors shadow-aura-md"
+              className="btn-primary btn-wide"
             >
               Validate App URL
             </button>
@@ -161,7 +159,7 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
               <div className="w-28 h-2 bg-emerald-500 rounded-full"></div>
             </div>
             <div className="col-span-2 text-right">
-              <button className="px-8 py-2.5 bg-aura-primary text-aura-on-primary text-xs font-bold rounded-full hover:shadow-aura-lg transition-all transform group-hover:scale-105 active:scale-95">Publish</button>
+              <button className="btn-primary btn-sm">Publish</button>
             </div>
           </div>
 
@@ -372,7 +370,7 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
                 >Cancel</button>
                 <button 
                   onClick={() => { setActiveStep(3); setIsModalOpen(false); }}
-                  className="px-10 py-3.5 rounded-full bg-gradient-to-r from-aura-primary to-aura-primary-container text-white font-extrabold text-sm shadow-aura-lg flex items-center gap-3 hover:scale-[1.02] active:scale-95 transition-all"
+                  className="btn-primary flex items-center gap-3"
                 >
                   Initiate Production
                   <Zap className="w-5 h-5 fill-current" />
@@ -400,7 +398,7 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
                 </div>
                 <div className="absolute bottom-10 left-8 right-8 p-6 bg-white/10 backdrop-blur-2xl rounded-2xl border border-white/20 shadow-2xl">
                   <p className="text-[10px] font-extrabold text-aura-primary uppercase tracking-widest font-label mb-2">Region: UK (London)</p>
-                  <p className="text-lg font-bold text-white truncate font-headline">@Aura_London_Style</p>
+                  <p className="text-lg font-bold text-white truncate font-headline">@AIInfluencer_London</p>
                 </div>
               </div>
               <div className="flex-1 p-10 bg-white flex flex-col gap-10">
@@ -473,8 +471,8 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
                   </div>
                 </div>
                 <div className="flex justify-end gap-5 mt-auto border-t border-aura-outline-variant/10 pt-10">
-                  <button className="px-10 py-4 rounded-full text-aura-on-surface-variant text-[11px] font-extrabold uppercase tracking-widest hover:bg-aura-surface-container transition-all">Cancel Batch</button>
-                  <button className="px-12 py-4 bg-aura-on-surface text-aura-surface rounded-full text-[11px] font-extrabold uppercase tracking-widest shadow-aura-md hover:bg-black active:scale-95 transition-all">Save All Changes</button>
+                  <button className="btn-secondary btn-sm">Cancel Batch</button>
+                  <button className="btn-primary">Save All Changes</button>
                 </div>
               </div>
             </div>
@@ -492,7 +490,7 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
               </div>
               <div className="flex items-center justify-between px-3 pb-2">
                 <div>
-                  <p className="text-sm font-bold text-aura-on-surface font-headline uppercase tracking-tight">@Aura_Neon_Jp</p>
+                  <p className="text-sm font-bold text-aura-on-surface font-headline uppercase tracking-tight">@AIInfluencer_Tokyo</p>
                   <div className="flex items-center gap-2 mt-1.5">
                     <span className="w-2 h-2 bg-aura-tertiary rounded-full shadow-[0_0_8px_rgba(var(--aura-tertiary-rgb),0.6)]"></span>
                     <p className="text-[10px] text-aura-tertiary font-extrabold uppercase tracking-widest">Rendering Complete</p>
@@ -518,8 +516,8 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
                 <h4 className="text-2xl font-extrabold font-headline text-aura-on-surface tracking-tight">Bulk Sync Actions</h4>
                 <p className="text-base text-aura-on-surface-variant max-w-lg font-body leading-relaxed opacity-80 italic">Apply script tone changes or environment lighting across all remaining <span className="text-aura-primary font-bold">6 regional accounts</span> simultaneously with AI precision.</p>
                 <div className="flex flex-wrap gap-4 pt-2 justify-center md:justify-start">
-                  <button className="px-8 py-3.5 bg-aura-on-surface text-aura-surface text-[11px] font-extrabold rounded-full uppercase tracking-widest shadow-aura-md hover:bg-black transition-all">Style All Regions</button>
-                  <button className="px-8 py-3.5 bg-aura-secondary-container text-aura-on-secondary-container text-[11px] font-extrabold rounded-full uppercase tracking-widest shadow-aura-sm hover:scale-[1.02] transition-all">Optimize for Algo</button>
+                  <button className="btn-primary">Style All Regions</button>
+                  <button className="btn-secondary">Optimize for Algo</button>
                 </div>
               </div>
             </div>
@@ -543,9 +541,9 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
           <div className="flex gap-5 shrink-0">
             <button 
               onClick={() => setActiveStep(2)}
-              className="px-8 py-4 rounded-full font-extrabold text-aura-on-surface-variant text-[11px] hover:bg-aura-surface-container transition-all uppercase tracking-widest"
+              className="btn-secondary btn-sm"
             >Back to Studio</button>
-            <button className="px-12 py-4 bg-gradient-to-r from-aura-primary to-aura-primary-container text-white rounded-full font-black text-[11px] shadow-aura-lg active:scale-95 transition-all flex items-center gap-4 uppercase tracking-[0.1em]">
+            <button className="btn-primary btn-lg flex items-center gap-4">
               Deploy All <RocketLaunch className="w-5 h-5 fill-current" />
             </button>
           </div>

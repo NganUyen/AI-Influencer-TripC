@@ -29,7 +29,7 @@ export function DashboardSidebar({
   onTabChange,
   telegramBotUrl,
   isMobileOpen = false,
-  onMobileClose = () => {},
+  onMobileClose = () => { },
 }: DashboardSidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -62,11 +62,10 @@ export function DashboardSidebar({
           {/* Desktop expand/collapse toggle */}
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className={`hidden md:flex w-7 h-7 rounded-full bg-white/95 border border-brand-outline-variant/40 items-center justify-center text-brand-on-surface-variant hover:text-brand-primary hover:bg-white shadow-brand-md transition-all duration-300 ease-in-out z-[70] backdrop-blur-sm flex-shrink-0 ${
-              isCollapsed 
-                ? "absolute top-6 left-1/2 -translate-x-1/2 p-1" 
+            className={`hidden md:flex w-7 h-7 rounded-full bg-white/95 border border-brand-outline-variant/40 items-center justify-center text-brand-on-surface-variant hover:text-brand-primary hover:bg-white shadow-brand-md transition-all duration-300 ease-in-out z-[70] backdrop-blur-sm flex-shrink-0 ${isCollapsed
+                ? "absolute top-6 left-1/2 -translate-x-1/2 p-1"
                 : ""
-            }`}
+              }`}
             aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             {isCollapsed
@@ -76,7 +75,7 @@ export function DashboardSidebar({
 
           <button
             onClick={onMobileClose}
-            className="md:hidden p-1.5 -mr-2 rounded-lg hover:bg-brand-surface-container text-brand-outline-variant"
+            className="md:hidden w-11 h-11 -mr-2 flex items-center justify-center rounded-lg hover:bg-brand-surface-container text-brand-outline-variant"
             aria-label="Close menu"
           >
             <X className="w-5 h-5 stroke-[1.75]" />
@@ -96,22 +95,19 @@ export function DashboardSidebar({
                   onTabChange(tab.id);
                   onMobileClose();
                 }}
-                className={`group relative w-full flex items-center rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200 ease-out ${
-                  isCollapsed ? "md:justify-center" : "gap-3"
-                } ${
-                  isActive
-                    ? "bg-white text-brand-primary shadow-brand-sm"
-                    : "text-brand-on-surface-variant hover:text-brand-primary hover:bg-white/50"
-                }`}
+                className={`group relative w-full flex items-center min-h-[44px] rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200 ease-out cursor-pointer ${isCollapsed ? "md:justify-center" : "gap-3"
+                  } ${isActive
+                    ? "bg-white text-brand-primary shadow-brand-sm border-l-4 border-brand-primary pl-2"
+                    : "text-brand-on-surface-variant hover:text-brand-primary hover:bg-white/50 border-l-4 border-transparent"
+                  }`}
               >
                 <Icon
-                  className={`h-[18px] w-[18px] shrink-0 stroke-[1.75] transition-colors ${
-                    isActive ? "text-brand-primary" : "text-brand-outline"
-                  }`}
+                  className={`h-[18px] w-[18px] shrink-0 stroke-[1.75] transition-colors ${isActive ? "text-brand-primary" : "text-brand-outline group-hover:text-brand-primary"
+                    }`}
                 />
-                <span className={`truncate ${isCollapsed ? "md:hidden" : ""}`}>{tab.label}</span>
+                <span className={`truncate font-semibold ${isCollapsed ? "md:hidden" : ""}`}>{tab.label}</span>
                 {isActive && !isCollapsed && (
-                  <span className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-primary" />
+                  <span className="ml-auto w-2 h-2 rounded-full bg-brand-primary" />
                 )}
 
                 {/* Tooltip for collapsed state */}
@@ -134,17 +130,16 @@ export function DashboardSidebar({
               target="_blank"
               rel="noreferrer"
               title="Telegram Bot"
-              className={`group relative flex items-center rounded-xl text-sm font-semibold text-brand-on-surface-variant hover:text-brand-primary hover:bg-white/50 transition-all ${
-                isCollapsed ? "md:justify-center md:px-0 py-3" : "px-4 py-3 gap-3"
-              } mb-1`}
+              className={`group relative flex items-center min-h-[44px] rounded-xl text-sm font-semibold text-brand-on-surface-variant hover:text-brand-primary hover:bg-white/50 transition-all cursor-pointer ${isCollapsed ? "md:justify-center md:px-0 py-3" : "px-4 py-3 gap-3"
+                } mb-1`}
             >
               <SocialIcon platform="telegram" size={18} className="shrink-0" />
-              <span className={`${isCollapsed ? "md:hidden" : ""}`}>Mở Telegram Bot</span>
+              <span className={`${isCollapsed ? "md:hidden" : ""}`}>Open Telegram Bot</span>
               <ExternalLink className={`w-3.5 h-3.5 ml-auto opacity-40 stroke-[1.75] ${isCollapsed ? "md:hidden" : ""}`} />
 
               {isCollapsed && (
                 <div className="absolute left-full ml-4 px-2 py-1 bg-brand-surface-container-high text-brand-on-surface text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 hidden md:block shadow-brand-sm border border-brand-outline-variant/20">
-                  Mở Telegram Bot
+                  Open Telegram Bot
                 </div>
               )}
             </a>
@@ -153,17 +148,16 @@ export function DashboardSidebar({
           {/* Help link */}
           <a
             href="#"
-            title="Trợ giúp & Docs"
-            className={`group relative flex items-center rounded-xl text-sm text-brand-on-surface-variant hover:text-brand-primary hover:bg-white/50 transition-all ${
-              isCollapsed ? "md:justify-center md:px-0 py-2.5" : "px-4 py-2.5 gap-3"
-            }`}
+            title="Help & Docs"
+            className={`group relative flex items-center min-h-[44px] rounded-xl text-sm text-brand-on-surface-variant hover:text-brand-primary hover:bg-white/50 transition-all cursor-pointer ${isCollapsed ? "md:justify-center md:px-0 py-2.5" : "px-4 py-2.5 gap-3"
+              }`}
           >
             <HelpCircle className="w-[18px] h-[18px] shrink-0 stroke-[1.75] text-brand-outline group-hover:text-brand-primary transition-colors" />
-            <span className={`${isCollapsed ? "md:hidden" : ""}`}>Trợ giúp &amp; Docs</span>
+            <span className={`${isCollapsed ? "md:hidden" : ""}`}>Help &amp; Docs</span>
 
             {isCollapsed && (
               <div className="absolute left-full ml-4 px-2 py-1 bg-brand-surface-container-high text-brand-on-surface text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 hidden md:block shadow-brand-sm border border-brand-outline-variant/20">
-                Trợ giúp & Docs
+                Help & Docs
               </div>
             )}
           </a>
@@ -171,17 +165,16 @@ export function DashboardSidebar({
           {/* Logout link */}
           <a
             href="/auth"
-            title="Đăng xuất"
-            className={`group relative flex items-center rounded-xl text-sm text-brand-on-surface-variant hover:text-brand-error hover:bg-brand-error/5 transition-all ${
-              isCollapsed ? "md:justify-center md:px-0 py-2.5" : "px-4 py-2.5 gap-3"
-            }`}
+            title="Sign out"
+            className={`group relative flex items-center min-h-[44px] rounded-xl text-sm text-brand-on-surface-variant hover:text-brand-error hover:bg-brand-error/5 transition-all cursor-pointer ${isCollapsed ? "md:justify-center md:px-0 py-2.5" : "px-4 py-2.5 gap-3"
+              }`}
           >
             <LogOut className="w-[18px] h-[18px] shrink-0 stroke-[1.75] text-brand-outline group-hover:text-brand-error transition-colors" />
-            <span className={`${isCollapsed ? "md:hidden" : ""}`}>Đăng xuất</span>
+            <span className={`${isCollapsed ? "md:hidden" : ""}`}>Sign out</span>
 
             {isCollapsed && (
               <div className="absolute left-full ml-4 px-2 py-1 bg-brand-surface-container-high text-brand-on-surface text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 hidden md:block shadow-brand-sm border border-brand-outline-variant/20">
-                Đăng xuất
+                Sign out
               </div>
             )}
           </a>

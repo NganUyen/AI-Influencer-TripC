@@ -62,7 +62,7 @@ function AuthPageFallback() {
     <div className="bg-background text-on-surface min-h-screen flex flex-col items-center selection:bg-primary-container/20">
       <main className="flex-1 w-full max-w-5xl mx-auto pt-32 pb-20 px-6">
         <div className="mx-auto max-w-xl rounded-3xl border border-outline-variant/10 bg-surface/70 p-10 text-center shadow-sm backdrop-blur-xl">
-          <p className="text-[10px] font-black uppercase tracking-widest text-primary">Aura Influencer</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-primary">AI-Influencer Factory</p>
           <h1 className="mt-4 text-3xl font-headline font-bold tracking-tight text-on-surface">
             Preparing authentication
           </h1>
@@ -260,7 +260,7 @@ function AuthPageContent() {
         <nav className="fixed top-0 left-0 right-0 z-50 bg-surface/70 backdrop-blur-2xl shadow-sm border-b border-outline-variant/10">
           <div className="flex justify-between items-center w-full px-8 py-4 max-w-7xl mx-auto">
             <div className="text-2xl font-bold bg-gradient-to-r from-primary to-primary-container bg-clip-text text-transparent font-headline tracking-tighter">
-              Aura Influencer
+              AI-Influencer Factory
             </div>
             <div className="hidden md:flex items-center gap-8">
               <Link href="/" className="text-on-surface/60 font-headline font-semibold tracking-tight hover:text-primary transition-all px-3 py-1 rounded-full">Trang chủ</Link>
@@ -315,7 +315,7 @@ function AuthPageContent() {
                 <div className="relative z-10">
                   <header className="mb-10">
                     <h1 className="text-4xl lg:text-5xl font-extrabold text-on-surface font-headline mb-4 tracking-tight leading-tight">TikTok Authentication</h1>
-                    <p className="text-lg text-on-surface-variant max-w-md">Connect your professional TikTok account to authorize direct publishing from the Aura Influencer dashboard.</p>
+                    <p className="text-lg text-on-surface-variant max-w-md">Connect your professional TikTok account to authorize direct publishing from the AI-Influencer Factory dashboard.</p>
                   </header>
 
                   <div className="space-y-6">
@@ -330,7 +330,7 @@ function AuthPageContent() {
                     </button>
                     <div className="flex items-center gap-3 p-4 bg-surface-container rounded-lg border border-outline-variant/10">
                       <span className="material-symbols-outlined text-tertiary">verified_user</span>
-                      <span className="text-sm text-on-surface-variant font-medium">Encrypted Oauth2 connection. Aura never sees your password.</span>
+                      <span className="text-sm text-on-surface-variant font-medium">Encrypted Oauth2 connection. AI-Influencer Factory never sees your password.</span>
                     </div>
                   </div>
 
@@ -403,7 +403,7 @@ function AuthPageContent() {
                   />
                 </div>
                 <div>
-                  <p className="text-on-surface font-headline font-bold text-lg leading-tight">Aura AI</p>
+                  <p className="text-on-surface font-headline font-bold text-lg leading-tight">AI-Influencer Assistant</p>
                   <p className="text-on-surface-variant text-xs font-label">Assistant Mode Active</p>
                 </div>
               </div>
@@ -536,7 +536,7 @@ function AuthPageContent() {
 
       <footer className="w-full max-w-7xl mx-auto px-8 py-8 flex flex-col md:flex-row justify-between items-center opacity-60 border-t border-outline-variant/10">
         <div className="text-xs font-label text-on-surface-variant mb-4 md:mb-0">
-          © 2026 Aura Influencer Factory. All rights reserved.
+          © 2026 AI-Influencer Factory. All rights reserved.
         </div>
         <div className="flex gap-6">
           <a className="text-xs font-label text-on-surface-variant hover:text-primary underline" href="#">Privacy Protocol</a>

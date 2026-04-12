@@ -271,10 +271,10 @@ const VIDEO_PLATFORM_OPTIONS = [
 ] as const;
 
 const DASHBOARD_TABS: DashboardTab[] = [
-  { id: "overview", label: "Tổng quan", icon: LayoutDashboard },
-  { id: "ops", label: "AI vận hành", icon: Bot },
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "ops", label: "AI Operations", icon: Bot },
   { id: "skills", label: "Personas", icon: Users },
-  { id: "memory", label: "Dự án & Memory", icon: Database },
+  { id: "memory", label: "Project & Memory", icon: Database },
   { id: "live_feed", label: "Activity Feed", icon: Radio },
 ];
 
@@ -1037,7 +1037,7 @@ export default function CustomerDashboard() {
             <div className="flex items-start gap-3">
               <AlertTriangle className="w-4 h-4 text-aura-error flex-shrink-0 mt-0.5 stroke-[1.75]" />
               <div>
-                <p className="text-sm font-semibold text-aura-error">Quota cảnh báo vượt ngưỡng hôm nay</p>
+                <p className="text-sm font-semibold text-aura-error">Quota threshold warning for today</p>
                 <p className="mt-0.5 text-xs text-aura-on-surface-variant">
                   {quotaWarnings.map((q) => {
                     const pct = Math.round((q.used / q.total) * 100);
@@ -1074,10 +1074,10 @@ export default function CustomerDashboard() {
             {/* ── Hero / Quick Stats Bento ── */}
             <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
               {/* Hero card */}
-              <div className="md:col-span-2 bg-gradient-to-br from-aura-primary to-aura-primary-container p-8 rounded-2xl flex flex-col justify-between text-aura-on-primary shadow-aura-md min-h-[220px]">
+              <div className="md:col-span-2 bg-white p-8 rounded-2xl flex flex-col justify-between border-l-4 border-aura-primary shadow-aura-sm min-h-[220px]">
                 <div>
-                  <h2 className="text-3xl font-headline font-bold mb-2">AI vận hành</h2>
-                  <p className="text-aura-on-primary/80 font-body max-w-xs text-sm">
+                  <h2 className="text-3xl font-headline font-bold mb-2 text-aura-on-surface">AI Operations</h2>
+                  <p className="text-aura-on-surface-variant font-body max-w-xs text-sm leading-relaxed">
                     Integrated view of your AI Influencer ecosystem — campaigns, backbone, and real-time quota.
                   </p>
                 </div>
@@ -1086,70 +1086,134 @@ export default function CustomerDashboard() {
                     type="button"
                     onClick={() => void handleCreateThread()}
                     disabled={busyKey === "thread"}
-                    className="bg-white/20 hover:bg-white/30 backdrop-blur-md px-6 py-2.5 rounded-full font-body text-sm transition-all active:scale-95 disabled:opacity-50"
+                    className="bg-aura-primary hover:bg-aura-primary/90 text-white px-6 py-2.5 rounded-full font-body font-semibold text-sm transition-all active:scale-95 disabled:opacity-50 shadow-aura-sm"
                   >
                     + New Thread
                   </button>
                 </div>
               </div>
 
-              {/* Quick stat cards */}
-              <div className="md:col-span-2 grid grid-cols-2 gap-4">
-                {[
-                  { label: "Active Campaigns", value: campaigns.filter(c => c.status === "active").length, border: "border-aura-primary" },
-                  { label: "Pending Approvals", value: approvals.length, border: "border-aura-secondary" },
-                  { label: "Published Content", value: content.filter(c => c.status === "published").length, border: "border-aura-tertiary" },
-                  { label: "AI Personas", value: personas?.length ?? 0, border: "border-aura-outline" },
-                ].map(stat => (
-                  <div key={stat.label} className={`bg-white p-6 rounded-xl shadow-aura-sm border-l-4 ${stat.border} flex min-h-[132px] flex-col justify-between`}>
-                    <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-aura-outline">{stat.label}</p>
-                    <p className="pt-4 text-5xl font-headline font-black tracking-tight text-aura-on-surface">{stat.value}</p>
-                  </div>
-                ))}
-              </div>
+               {/* Quick stat cards */}
+               <div className="md:col-span-2 grid grid-cols-2 gap-4">
+                 {[
+                   { 
+                     label: "Active Campaigns", 
+                     value: campaigns.filter(c => c.status === "active").length, 
+                     target: 5,
+                     delta: 2,
+                     trend: "up",
+                     border: "border-aura-primary",
+                     emptyState: "Create your first campaign"
+                   },
+                   { 
+                     label: "Pending Approvals", 
+                     value: approvals.length, 
+                     target: 0,
+                     delta: 0,
+                     trend: "neutral",
+                     border: "border-aura-secondary",
+                     emptyState: "All caught up!"
+                   },
+                   { 
+                     label: "Published Content", 
+                     value: content.filter(c => c.status === "published").length, 
+                     target: 10,
+                     delta: 3,
+                     trend: "up",
+                     border: "border-aura-tertiary",
+                     emptyState: "Publish your first piece"
+                   },
+                   { 
+                     label: "AI Personas", 
+                     value: personas?.length ?? 0, 
+                     target: 3,
+                     delta: 0,
+                     trend: "neutral",
+                     border: "border-aura-outline",
+                     emptyState: "Set up your first persona"
+                   },
+                 ].map(stat => (
+                   <div key={stat.label} className={`bg-white p-6 rounded-xl shadow-aura-sm border-l-4 ${stat.border} flex min-h-[160px] flex-col justify-between`}>
+                     <div>
+                       <div className="flex items-center justify-between mb-1">
+                         <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-aura-outline">{stat.label}</p>
+                         {stat.value > 0 && stat.delta > 0 && (
+                           <span className="text-[9px] font-bold text-aura-tertiary flex items-center gap-0.5">
+                             ↑ {stat.delta}
+                           </span>
+                         )}
+                       </div>
+                       <p className="text-[10px] text-aura-on-surface-variant font-medium">
+                         {stat.value === 0 ? stat.emptyState : `Target: ${stat.target}`}
+                       </p>
+                     </div>
+                     <div>
+                       {stat.value === 0 ? (
+                         <p className="text-3xl font-headline font-black text-aura-on-surface/40">—</p>
+                       ) : (
+                         <div className="flex items-end justify-between">
+                           <p className="text-4xl font-headline font-black tracking-tight text-aura-on-surface">{stat.value}</p>
+                           <span className="text-[10px] text-aura-on-surface-variant font-medium">/{stat.target}</span>
+                         </div>
+                       )}
+                     </div>
+                   </div>
+                 ))}
+               </div>
             </section>
 
-            {/* ── Technical Integration Row ── */}
-            <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+             {/* ── Technical Integration Row ── */}
+             <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
               {/* System Health */}
-              <div className="bg-aura-surface-container-low p-7 rounded-2xl space-y-5">
+              <div className="lg:col-span-5 bg-white p-7 rounded-2xl space-y-5 border border-aura-outline/10 shadow-aura-sm">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-base font-headline font-bold text-aura-on-surface">System Health</h3>
-                  <span className="flex h-2 w-2 rounded-full bg-aura-tertiary animate-pulse" />
+                  <div>
+                    <h3 className="text-xl font-headline font-black text-aura-on-surface leading-tight">System Health</h3>
+                    <p className="text-[10px] text-aura-on-surface-variant mt-1.5 font-medium">All services operational</p>
+                  </div>
+                  <span className="flex h-3 w-3 rounded-full bg-aura-tertiary animate-pulse shadow-lg shadow-aura-tertiary/30" />
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {(systemSummary?.services || []).length === 0 ? (
                     [
-                      { name: "Temporal Cluster", Icon: Radio },
-                      { name: "OpenClaw AI", Icon: Cpu },
-                      { name: "Postiz Publisher", Icon: Bot },
-                      { name: "GrowChief Growth", Icon: Zap },
+                      { name: "Temporal Cluster", Icon: Radio, desc: "Workflow orchestration" },
+                      { name: "OpenClaw AI", Icon: Cpu, desc: "Language model provider" },
+                      { name: "Postiz Publisher", Icon: Bot, desc: "Content distribution" },
+                      { name: "GrowChief Growth", Icon: Zap, desc: "Analytics engine" },
                     ].map(s => (
-                      <div key={s.name} className="flex items-center justify-between p-3 bg-white rounded-xl">
-                        <div className="flex items-center gap-2">
-                          <s.Icon className="w-4 h-4 text-aura-outline stroke-[1.75]" />
-                          <span className="text-sm font-body text-aura-on-surface-variant">{s.name}</span>
+                      <div key={s.name} className="flex items-center justify-between p-3.5 bg-aura-surface-container-low rounded-2xl group hover:bg-aura-surface-container-highest transition-colors cursor-default">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-8 h-8 rounded-lg bg-aura-primary/10 flex items-center justify-center flex-shrink-0">
+                            <s.Icon className="w-4 h-4 text-aura-primary stroke-[1.5]" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-aura-on-surface">{s.name}</p>
+                            <p className="text-[9px] text-aura-on-surface-variant">{s.desc}</p>
+                          </div>
                         </div>
-                        <div className="h-3 w-16 bg-aura-surface-container rounded animate-pulse" />
+                        <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                          <span className="w-2 h-2 rounded-full bg-aura-tertiary animate-pulse" />
+                          <span className="text-[9px] font-bold uppercase text-aura-tertiary whitespace-nowrap">online</span>
+                        </div>
                       </div>
                     ))
                   ) : (
                     (systemSummary?.services || []).map(service => (
-                      <div key={service.name} className="flex items-center justify-between p-3 bg-white rounded-xl">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                      <div key={service.name} className="flex items-center justify-between p-3.5 bg-aura-surface-container-low rounded-2xl group hover:bg-aura-surface-container-highest transition-colors">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
                             service.status === "online" ? "bg-aura-tertiary" :
-                            service.status === "warning" ? "bg-aura-secondary" : "bg-aura-secondary"
+                            service.status === "warning" ? "bg-aura-secondary animate-pulse" : "bg-aura-error animate-pulse"
                           }`} />
-                          <span className="text-sm font-body text-aura-on-surface">{service.name}</span>
+                          <span className="text-sm font-semibold text-aura-on-surface truncate">{service.name}</span>
                         </div>
-                        <div className="text-right">
-                          <span className={`block text-[10px] font-bold uppercase ${
+                        <div className="text-right flex-shrink-0 ml-2">
+                          <span className={`text-[9px] font-bold uppercase ${
                             service.status === "online" ? "text-aura-tertiary" :
-                            service.status === "warning" ? "text-aura-secondary" : "text-aura-secondary"
+                            service.status === "warning" ? "text-aura-secondary" : "text-aura-error"
                           }`}>{service.status}</span>
-                          <span className="block text-[10px] text-aura-on-surface-variant">{service.latency}</span>
+                          <span className="block text-[9px] text-aura-on-surface-variant">{service.latency}</span>
                         </div>
                       </div>
                     ))
@@ -1158,32 +1222,51 @@ export default function CustomerDashboard() {
               </div>
 
               {/* AI Backbone */}
-              <div className="bg-aura-surface-container-highest p-7 rounded-2xl flex flex-col justify-between">
+              <div className="lg:col-span-4 bg-white p-7 rounded-2xl flex flex-col justify-between border border-aura-outline/10 shadow-aura-sm">
                 <div className="space-y-5">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-aura-primary/10 rounded-full flex items-center justify-center">
+                    <div className="w-10 h-10 bg-aura-primary/10 rounded-lg flex items-center justify-center">
                       <Cpu className="w-5 h-5 text-aura-primary stroke-[1.5]" />
                     </div>
-                    <h3 className="text-base font-headline font-bold text-aura-on-surface">AI Backbone</h3>
+                    <div>
+                      <h3 className="text-xl font-headline font-black text-aura-on-surface leading-tight">AI Backbone</h3>
+                      <p className="text-[10px] text-aura-on-surface-variant mt-1 font-medium">Language model configuration</p>
+                    </div>
                   </div>
                   <div className="space-y-3">
-                    <div className="p-4 bg-white/50 rounded-xl">
-                      <p className="text-[10px] text-aura-on-surface-variant mb-1 font-body uppercase tracking-wider">Access Mode</p>
+                    <div className="p-4 bg-aura-surface-container-low rounded-2xl">
+                      <p className="text-[10px] text-aura-on-surface-variant mb-1.5 font-body uppercase tracking-wider font-semibold">Access Mode</p>
                       <p className="text-sm font-bold text-aura-on-surface capitalize">
                         {aiBackbone?.access_mode.replace(/_/g, " ") || "Loading…"}
                       </p>
                     </div>
-                    <div className="p-4 bg-white/50 rounded-xl overflow-hidden">
-                      <p className="text-[10px] text-aura-on-surface-variant mb-1 font-body uppercase tracking-wider">Workspace Endpoint</p>
-                      <code className="text-xs font-mono text-aura-primary truncate block">
-                        {aiBackbone?.workspace_default.api_url || "Not configured"}
-                      </code>
-                    </div>
-                    <div className="p-4 bg-white/50 rounded-xl">
-                      <p className="text-[10px] text-aura-on-surface-variant mb-1 font-body uppercase tracking-wider">Status</p>
+                    {aiBackbone?.workspace_default.api_url ? (
+                      <div className="p-4 bg-aura-surface-container-low rounded-2xl overflow-hidden">
+                        <p className="text-[10px] text-aura-on-surface-variant mb-1.5 font-body uppercase tracking-wider font-semibold">Workspace Endpoint</p>
+                        <code className="text-xs font-mono text-aura-primary truncate block break-all">
+                          {aiBackbone.workspace_default.api_url}
+                        </code>
+                      </div>
+                    ) : (
+                      <div className="p-4 bg-aura-error/5 rounded-2xl border border-aura-error/20 flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] text-aura-on-surface-variant mb-1.5 font-body uppercase tracking-wider font-semibold">Workspace Endpoint</p>
+                          <p className="text-sm font-semibold text-aura-error">Not configured</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("memory")}
+                          className="text-[9px] font-bold px-3 py-1.5 bg-aura-error text-white rounded-lg hover:bg-aura-error/90 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap"
+                        >
+                          Configure
+                        </button>
+                      </div>
+                    )}
+                    <div className="p-4 bg-aura-surface-container-low rounded-2xl">
+                      <p className="text-[10px] text-aura-on-surface-variant mb-1.5 font-body uppercase tracking-wider font-semibold">Status</p>
                       <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${aiBackbone?.effective_status.ready ? "bg-aura-tertiary" : "bg-aura-secondary animate-pulse"}`} />
-                        <p className="text-[11px] leading-5 text-aura-on-surface/80">
+                        <span className={`w-2 h-2 rounded-full ${aiBackbone?.effective_status.ready ? "bg-aura-tertiary animate-pulse" : "bg-aura-secondary animate-pulse"}`} />
+                        <p className="text-[11px] leading-5 text-aura-on-surface font-semibold">
                           {aiBackbone?.effective_status.message || "Initializing…"}
                         </p>
                       </div>
@@ -1193,30 +1276,36 @@ export default function CustomerDashboard() {
                 <button
                   type="button"
                   onClick={() => setActiveTab("memory")}
-                  className="mt-6 w-full py-3 bg-aura-on-surface text-aura-surface rounded-full text-sm font-body hover:opacity-90 transition-all active:scale-95"
+                  className="mt-6 w-full py-3 bg-aura-primary text-white rounded-xl text-sm font-body font-semibold hover:bg-aura-primary/90 transition-all active:scale-95"
                 >
-                  Configure Backend
+                  Full Configuration
                 </button>
               </div>
 
               {/* Quota Snapshot */}
-              <div className="bg-aura-surface-container-low p-7 rounded-2xl space-y-5">
-                <h3 className="text-base font-headline font-bold text-aura-on-surface">Quota Snapshot</h3>
+              <div className="lg:col-span-3 bg-white p-7 rounded-2xl space-y-5 border border-aura-outline/10 shadow-aura-sm">
+                <div>
+                  <h3 className="text-xl font-headline font-black text-aura-on-surface leading-tight">Quota Snapshot</h3>
+                  <p className="text-[10px] text-aura-on-surface-variant mt-1.5 font-medium">Real-time usage metrics</p>
+                </div>
                 <div className="space-y-4">
                   {(systemSummary?.quota || []).length === 0 ? (
                     [
-                      { name: "OpenAI", color: "bg-aura-primary", pct: 0 },
-                      { name: "Anthropic", color: "bg-aura-secondary", pct: 0 },
-                      { name: "Google TTS", color: "bg-aura-tertiary", pct: 0 },
-                      { name: "fal.ai", color: "bg-aura-error", pct: 0 },
-                      { name: "HeyGen", color: "bg-aura-primary-container", pct: 0 },
+                      { name: "OpenAI", color: "bg-aura-primary", desc: "gpt-4-turbo" },
+                      { name: "Anthropic", color: "bg-aura-secondary", desc: "Claude API" },
+                      { name: "Google TTS", color: "bg-aura-tertiary", desc: "Text-to-speech" },
+                      { name: "fal.ai", color: "bg-aura-error", desc: "Image generation" },
+                      { name: "HeyGen", color: "bg-aura-primary-container", desc: "Video synthesis" },
                     ].map(q => (
-                      <div key={q.name} className="space-y-1">
-                        <div className="flex justify-between text-xs font-body">
-                          <span className="text-aura-on-surface">{q.name}</span>
-                          <span className="text-aura-on-surface-variant">—</span>
+                      <div key={q.name} className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <p className="text-sm font-semibold text-aura-on-surface">{q.name}</p>
+                            <p className="text-[9px] text-aura-on-surface-variant">{q.desc}</p>
+                          </div>
+                          <span className="text-xs text-aura-on-surface-variant font-medium">—</span>
                         </div>
-                        <div className="h-1.5 w-full bg-aura-surface-container rounded-full overflow-hidden">
+                        <div className="h-2.5 w-full bg-aura-surface-container rounded-full overflow-hidden shadow-sm">
                           <div className={`h-full ${q.color} animate-pulse`} style={{ width: "20%" }} />
                         </div>
                       </div>
@@ -1226,26 +1315,30 @@ export default function CustomerDashboard() {
                       const pct = q.total > 0 ? Math.min((q.used / q.total) * 100, 100) : 0;
                       const isHigh = pct >= 80;
                       const isCritical = pct >= 95;
-                      const barColor = isCritical ? "bg-aura-secondary" : isHigh ? "bg-aura-secondary" : "bg-aura-tertiary";
+                      const barColor = isCritical ? "bg-aura-error" : isHigh ? "bg-aura-secondary" : "bg-aura-tertiary";
                       return (
-                        <div key={q.name} className="space-y-1">
-                          <div className="flex justify-between text-xs font-body">
-                            <span className="text-aura-on-surface flex items-center gap-1.5">
+                        <div key={q.name} className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm font-semibold text-aura-on-surface flex items-center gap-2">
                               {q.name}
                               {isHigh && (
-                                <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${
-                                  isCritical ? "bg-aura-secondary/20 text-aura-secondary" : "bg-aura-secondary/20 text-aura-secondary"
+                                <span className={`text-[8px] px-2 py-1 rounded-full font-bold tracking-wide ${
+                                  isCritical ? "bg-aura-error/20 text-aura-error" : "bg-aura-secondary/20 text-aura-secondary"
                                 }`}>
-                                  {isCritical ? "⚠ Critical" : "⚠ High"}
+                                  {isCritical ? "🚨 CRITICAL" : "⚠️ HIGH"}
                                 </span>
                               )}
                             </span>
-                            <span className={`font-bold ${isCritical ? "text-aura-secondary" : isHigh ? "text-aura-secondary" : "text-aura-on-surface-variant"}`}>
+                            <span className={`text-sm font-bold ${isCritical ? "text-aura-error" : isHigh ? "text-aura-secondary" : "text-aura-on-surface-variant"}`}>
                               {Math.round(pct)}%
                             </span>
                           </div>
-                          <div className="h-1.5 w-full bg-aura-surface-container rounded-full overflow-hidden">
-                            <div className={`h-full ${barColor} transition-all duration-700 rounded-full`} style={{ width: `${pct}%` }} />
+                          <div className="h-2.5 w-full bg-aura-surface-container rounded-full overflow-hidden shadow-sm border border-aura-outline/5">
+                            <div className={`h-full ${barColor} transition-all duration-700 rounded-full shadow-md`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <div className="text-[9px] text-aura-on-surface-variant flex justify-between">
+                            <span>{q.used.toLocaleString()} used</span>
+                            <span>{q.total.toLocaleString()} {q.unit}</span>
                           </div>
                         </div>
                       );
@@ -1544,9 +1637,9 @@ export default function CustomerDashboard() {
 
             {/* Page header */}
             <header>
-              <h1 className="text-4xl font-extrabold text-aura-on-surface font-headline tracking-tight mb-2">Dự án &amp; Memory</h1>
+              <h1 className="text-4xl font-extrabold text-aura-on-surface font-headline tracking-tight mb-2">Project &amp; Memory</h1>
               <p className="text-aura-on-surface-variant max-w-2xl text-sm font-body">
-                Xác định bản sắc cốt lõi của thương hiệu kỹ thuật số. Các thông số này định hình cách AI học hỏi, ghi nhớ và giao tiếp trên mọi kênh.
+                Define the core identity of your digital brand. These settings shape how AI learns, remembers, and communicates across every channel.
               </p>
             </header>
 
@@ -1562,39 +1655,39 @@ export default function CustomerDashboard() {
                     <div className="w-12 h-12 rounded-2xl bg-aura-primary/10 flex items-center justify-center">
                       <BookOpen className="w-5 h-5 text-aura-primary stroke-[1.5]" />
                     </div>
-                    <h3 className="text-xl font-bold text-aura-on-surface font-headline">Bối cảnh Thương hiệu</h3>
+                    <h3 className="text-xl font-bold text-aura-on-surface font-headline">Brand Context</h3>
                   </div>
 
                   <form className="space-y-6" onSubmit={handleBrandSave}>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="space-y-2">
-                        <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Tên Thương hiệu</label>
+                        <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Brand Name</label>
                         <input
                           type="text"
                           value={brandForm.product_name || ""}
                           onChange={e => setBrandForm(c => ({ ...c, product_name: e.target.value }))}
-                          placeholder="Nhập tên thương hiệu..."
+                          placeholder="Enter brand name..."
                           className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all outline-none"
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Đối tượng Mục tiêu</label>
+                        <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Target Audience</label>
                         <input
                           type="text"
                           value={brandForm.audience || ""}
                           onChange={e => setBrandForm(c => ({ ...c, audience: e.target.value }))}
-                          placeholder="Mô tả đối tượng mục tiêu..."
+                          placeholder="Describe your target audience..."
                           className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all outline-none"
                         />
                       </div>
                     </div>
 
                     <div className="space-y-2">
-                      <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Tóm tắt Giá trị</label>
+                      <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Value Summary</label>
                       <textarea
                         value={brandForm.offer_summary || ""}
                         onChange={e => setBrandForm(c => ({ ...c, offer_summary: e.target.value }))}
-                        placeholder="Tóm tắt về sản phẩm hoặc dịch vụ của bạn..."
+                        placeholder="Summarize your product or service..."
                         rows={4}
                         className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all resize-none outline-none"
                       />
@@ -1606,7 +1699,7 @@ export default function CustomerDashboard() {
                         disabled={busyKey === "brand-save"}
                         className="px-10 py-3.5 bg-aura-primary text-aura-on-primary font-bold rounded-full hover:opacity-90 transition-all shadow-aura-md active:scale-95 disabled:opacity-50"
                       >
-                        {busyKey === "brand-save" ? "Đang lưu…" : "Lưu Bối cảnh"}
+                        {busyKey === "brand-save" ? "Saving..." : "Save Context"}
                       </button>
                     </div>
                   </form>
@@ -1622,10 +1715,10 @@ export default function CustomerDashboard() {
                         <div className="w-10 h-10 rounded-xl bg-aura-tertiary/10 flex items-center justify-center">
                           <Brain className="w-5 h-5 text-aura-tertiary stroke-[1.5]" />
                         </div>
-                        <h3 className="font-bold text-aura-on-surface font-headline">Chế độ Trí tuệ</h3>
+                        <h3 className="font-bold text-aura-on-surface font-headline">Intelligence Mode</h3>
                       </div>
                       <p className="text-sm text-aura-on-surface-variant mb-6 leading-relaxed font-body">
-                        Xác định cách AI truy cập và sử dụng kho lưu trữ bộ nhớ trong các cuộc hội thoại.
+                        Define how AI accesses and uses stored memory in conversations.
                       </p>
                     </div>
                     <div className="flex flex-col gap-3">
@@ -1651,10 +1744,10 @@ export default function CustomerDashboard() {
                         <div className="w-10 h-10 rounded-xl bg-aura-secondary/10 flex items-center justify-center">
                           <Link2 className="w-5 h-5 text-aura-secondary stroke-[1.5]" />
                         </div>
-                        <h3 className="font-bold text-aura-on-surface font-headline">Cầu nối Hệ thống</h3>
+                        <h3 className="font-bold text-aura-on-surface font-headline">System Bridge</h3>
                       </div>
                       <p className="text-sm text-aura-on-surface-variant mb-6 leading-relaxed font-body">
-                        Cho phép điều khiển và giám sát trực tiếp thông qua các giao thức tin nhắn bảo mật.
+                        Enable direct control and monitoring through secure messaging protocols.
                       </p>
                     </div>
 
@@ -1666,7 +1759,7 @@ export default function CustomerDashboard() {
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-bold text-aura-on-surface">@{telegramLink.link?.telegram_username || "Linked Account"}</p>
                           <p className="text-[10px] text-aura-on-surface-variant">ID: {telegramLink.link?.chat_id}</p>
-                          <p className="text-[10px] text-aura-tertiary font-bold uppercase tracking-wide mt-0.5">Đã kết nối</p>
+                          <p className="text-[10px] text-aura-tertiary font-bold uppercase tracking-wide mt-0.5">Connected</p>
                         </div>
                         <button
                           type="button"
@@ -1684,12 +1777,12 @@ export default function CustomerDashboard() {
                            className="w-full py-3 bg-white text-aura-on-surface border border-aura-outline/20 font-bold rounded-full hover:bg-aura-surface-container-low active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-aura-sm"
                          >
                            {busyKey !== "telegram-link" && <SocialIcon platform="telegram" size={18} />}
-                           {busyKey === "telegram-link" ? "Đang tạo liên kết…" : "Kết nối Telegram"}
+                           {busyKey === "telegram-link" ? "Generating link..." : "Connect Telegram"}
                          </button>
                         {linkToken && telegramVerificationUrl && (
                           <div className="p-4 bg-aura-secondary-container/30 border border-aura-secondary/20 rounded-xl text-center">
                             <p className="text-xs text-aura-secondary mb-3 font-medium">
-                              {isPollingTelegramLink ? "Chờ xác nhận Telegram…" : "Liên kết sẵn sàng. Xác nhận trên Telegram."}
+                              {isPollingTelegramLink ? "Waiting for Telegram confirmation..." : "Link is ready. Confirm on Telegram."}
                             </p>
                             <a
                               href={telegramVerificationUrl}
@@ -1697,7 +1790,7 @@ export default function CustomerDashboard() {
                               rel="noreferrer"
                               className="inline-block px-6 py-2 bg-aura-secondary text-aura-on-secondary rounded-full font-bold text-xs hover:opacity-90 active:scale-95 transition-all"
                             >
-                              Xác nhận ngay
+                              Confirm Now
                             </a>
                           </div>
                         )}
@@ -1712,9 +1805,9 @@ export default function CustomerDashboard() {
 
                 {/* Social Grid */}
                 <div className="bg-aura-surface-container-high rounded-2xl p-8">
-                  <h3 className="text-lg font-bold font-headline text-aura-on-surface mb-2">Mạng lưới Xã hội</h3>
+                  <h3 className="text-lg font-bold font-headline text-aura-on-surface mb-2">Social Network</h3>
                   <p className="text-xs text-aura-on-surface-variant mb-8 font-body">
-                    Bật/tắt các mục tiêu đăng bài tự động cho chu kỳ nội dung được tối ưu bởi bộ nhớ.
+                    Enable or disable automatic posting targets for the memory-optimized content cycle.
                   </p>
 
                   <div className="grid grid-cols-2 gap-4">
@@ -1750,14 +1843,14 @@ export default function CustomerDashboard() {
                    {/* Memory capacity bar */}
                    <div className="mt-8 pt-8 border-t border-aura-outline-variant/20">
                      <div className="flex items-end justify-between mb-3">
-                       <span className="text-[10px] font-semibold uppercase tracking-widest text-aura-on-surface-variant">Khả năng Ghi nhớ</span>
+                       <span className="text-[10px] font-semibold uppercase tracking-widest text-aura-on-surface-variant">Memory Capacity</span>
                        <span className="text-5xl font-black text-aura-primary leading-none">84%</span>
                      </div>
                     <div className="w-full bg-aura-surface-container-lowest h-2 rounded-full overflow-hidden">
                       <div className="bg-gradient-to-r from-aura-primary to-aura-primary-container h-full w-[84%] rounded-full shadow-aura-sm" />
                     </div>
                     <p className="text-[10px] text-aura-on-surface-variant mt-4 leading-relaxed italic font-body">
-                      Tỷ lệ lưu giữ cao hơn cho phép AI nhớ lại các sở thích thương hiệu sắc thái từ các tương tác trước đó chính xác hơn.
+                      Higher retention lets AI recall nuanced brand preferences from past interactions more accurately.
                     </p>
                   </div>
                 </div>
@@ -1782,11 +1875,11 @@ export default function CustomerDashboard() {
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                       <div className="absolute bottom-0 left-0 right-0 p-6" style={{ backdropFilter: "blur(12px)", background: "rgba(255,255,255,0.08)", borderTop: "1px solid rgba(255,255,255,0.15)" }}>
                         <h4 className="text-white font-bold text-xl font-headline">{personas[0]?.display_name}</h4>
-                        <p className="text-white/70 text-xs font-body mt-0.5">Persona đang hoạt động</p>
+                        <p className="text-white/70 text-xs font-body mt-0.5">Active Persona</p>
                         <div className="mt-4 flex items-center gap-2">
                           <span className="w-2 h-2 bg-aura-tertiary rounded-full animate-pulse" />
                           <span className="text-[10px] text-white/90 font-body font-medium uppercase tracking-widest">
-                            {personas[0]?.status === "active" ? "Đã tối ưu & Đồng bộ" : "Chờ kích hoạt"}
+                            {personas[0]?.status === "active" ? "Optimized & Synced" : "Awaiting Activation"}
                           </span>
                         </div>
                       </div>

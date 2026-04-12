@@ -100,18 +100,18 @@ export function DashboardSidebar({
                   isCollapsed ? "md:justify-center" : "gap-3"
                 } ${
                   isActive
-                    ? "bg-white text-brand-primary shadow-brand-sm"
-                    : "text-brand-on-surface-variant hover:text-brand-primary hover:bg-white/50"
+                    ? "bg-white text-brand-primary shadow-brand-sm border-l-4 border-brand-primary pl-2"
+                    : "text-brand-on-surface-variant hover:text-brand-primary hover:bg-white/50 border-l-4 border-transparent"
                 }`}
               >
                 <Icon
                   className={`h-[18px] w-[18px] shrink-0 stroke-[1.75] transition-colors ${
-                    isActive ? "text-brand-primary" : "text-brand-outline"
+                    isActive ? "text-brand-primary" : "text-brand-outline group-hover:text-brand-primary"
                   }`}
                 />
-                <span className={`truncate ${isCollapsed ? "md:hidden" : ""}`}>{tab.label}</span>
+                <span className={`truncate font-semibold ${isCollapsed ? "md:hidden" : ""}`}>{tab.label}</span>
                 {isActive && !isCollapsed && (
-                  <span className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-primary" />
+                  <span className="ml-auto w-2 h-2 rounded-full bg-brand-primary" />
                 )}
 
                 {/* Tooltip for collapsed state */}
@@ -139,12 +139,12 @@ export function DashboardSidebar({
               } mb-1`}
             >
               <SocialIcon platform="telegram" size={18} className="shrink-0" />
-              <span className={`${isCollapsed ? "md:hidden" : ""}`}>Mở Telegram Bot</span>
+              <span className={`${isCollapsed ? "md:hidden" : ""}`}>Open Telegram Bot</span>
               <ExternalLink className={`w-3.5 h-3.5 ml-auto opacity-40 stroke-[1.75] ${isCollapsed ? "md:hidden" : ""}`} />
 
               {isCollapsed && (
                 <div className="absolute left-full ml-4 px-2 py-1 bg-brand-surface-container-high text-brand-on-surface text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 hidden md:block shadow-brand-sm border border-brand-outline-variant/20">
-                  Mở Telegram Bot
+                  Open Telegram Bot
                 </div>
               )}
             </a>
@@ -153,17 +153,17 @@ export function DashboardSidebar({
           {/* Help link */}
           <a
             href="#"
-            title="Trợ giúp & Docs"
+            title="Help & Docs"
             className={`group relative flex items-center rounded-xl text-sm text-brand-on-surface-variant hover:text-brand-primary hover:bg-white/50 transition-all ${
               isCollapsed ? "md:justify-center md:px-0 py-2.5" : "px-4 py-2.5 gap-3"
             }`}
           >
             <HelpCircle className="w-[18px] h-[18px] shrink-0 stroke-[1.75] text-brand-outline group-hover:text-brand-primary transition-colors" />
-            <span className={`${isCollapsed ? "md:hidden" : ""}`}>Trợ giúp &amp; Docs</span>
+            <span className={`${isCollapsed ? "md:hidden" : ""}`}>Help &amp; Docs</span>
 
             {isCollapsed && (
               <div className="absolute left-full ml-4 px-2 py-1 bg-brand-surface-container-high text-brand-on-surface text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 hidden md:block shadow-brand-sm border border-brand-outline-variant/20">
-                Trợ giúp & Docs
+                Help & Docs
               </div>
             )}
           </a>
@@ -171,17 +171,17 @@ export function DashboardSidebar({
           {/* Logout link */}
           <a
             href="/auth"
-            title="Đăng xuất"
+            title="Sign out"
             className={`group relative flex items-center rounded-xl text-sm text-brand-on-surface-variant hover:text-brand-error hover:bg-brand-error/5 transition-all ${
               isCollapsed ? "md:justify-center md:px-0 py-2.5" : "px-4 py-2.5 gap-3"
             }`}
           >
             <LogOut className="w-[18px] h-[18px] shrink-0 stroke-[1.75] text-brand-outline group-hover:text-brand-error transition-colors" />
-            <span className={`${isCollapsed ? "md:hidden" : ""}`}>Đăng xuất</span>
+            <span className={`${isCollapsed ? "md:hidden" : ""}`}>Sign out</span>
 
             {isCollapsed && (
               <div className="absolute left-full ml-4 px-2 py-1 bg-brand-surface-container-high text-brand-on-surface text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 hidden md:block shadow-brand-sm border border-brand-outline-variant/20">
-                Đăng xuất
+                Sign out
               </div>
             )}
           </a>

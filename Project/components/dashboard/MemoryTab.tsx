@@ -60,9 +60,9 @@ export function MemoryTab({
     <div className="space-y-10 animate-fade-in pb-20">
       {/* Page header */}
       <header>
-        <h1 className="text-4xl font-extrabold text-aura-on-surface font-headline tracking-tight mb-2">Dự án &amp; Memory</h1>
+        <h1 className="text-4xl font-extrabold text-aura-on-surface font-headline tracking-tight mb-2">Project &amp; Memory</h1>
         <p className="text-aura-on-surface-variant max-w-2xl text-sm font-body">
-          Xác định bản sắc cốt lõi của thương hiệu kỹ thuật số. Các thông số này định hình cách AI học hỏi, ghi nhớ và giao tiếp trên mọi kênh.
+          Define the core identity of your digital brand. These settings shape how AI learns, remembers, and communicates across every channel.
         </p>
       </header>
 
@@ -72,21 +72,21 @@ export function MemoryTab({
           {/* Brand Identity Panel */}
           <div className="bg-white rounded-[40px] shadow-aura-lg border-aura-outline/10 overflow-hidden">
             <PanelHeader
-              title="Brand Identity / Ký ức lõi"
-              subtitle="Thông tin cốt lõi về sản phẩm và phong cách thương hiệu"
+              title="Brand Identity / Core Memory"
+              subtitle="Core details about your product and brand voice"
               className="px-8 py-6 border-b border-aura-outline/5 bg-aura-surface-container-low/30"
             />
             
             <form onSubmit={handleBrandSave} className="p-8 space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <FieldSet title="Product Name" description="Tên thương hiệu hoặc sản phẩm" className="bg-transparent border-none p-0">
+                <FieldSet title="Product Name" description="Brand or product name" className="bg-transparent border-none p-0">
                   <FormField
                     value={brandForm.product_name || ""}
                     onChange={(val) => setBrandForm((c: any) => ({ ...c, product_name: val }))}
                     placeholder="e.g. Aura Influencer Factory"
                   />
                 </FieldSet>
-                <FieldSet title="Website URL" description="Địa chỉ web chính thức" className="bg-transparent border-none p-0">
+                <FieldSet title="Website URL" description="Official website URL" className="bg-transparent border-none p-0">
                   <FormField
                     value={brandForm.website_url || ""}
                     onChange={(val) => setBrandForm((c: any) => ({ ...c, website_url: val }))}
@@ -95,26 +95,26 @@ export function MemoryTab({
                 </FieldSet>
               </div>
 
-              <FieldSet title="Target Audience" description="Mô tả khách hàng mục tiêu của bạn" className="bg-transparent border-none p-0">
+              <FieldSet title="Target Audience" description="Describe your target customers" className="bg-transparent border-none p-0">
                 <TextAreaField
                   value={brandForm.audience || ""}
                   onChange={(val) => setBrandForm((c: any) => ({ ...c, audience: val }))}
-                  placeholder="e.g. Những người làm sáng tạo nội dung muốn tự động hoá kênh của mình."
+                  placeholder="e.g. Content creators who want to automate their channels."
                   rows={3}
                 />
               </FieldSet>
 
-              <FieldSet title="Offer Summary" description="Sản phẩm của bạn giải quyết vấn đề gì?" className="bg-transparent border-none p-0">
+              <FieldSet title="Offer Summary" description="What problem does your product solve?" className="bg-transparent border-none p-0">
                 <TextAreaField
                   value={brandForm.offer_summary || ""}
                   onChange={(val) => setBrandForm((c: any) => ({ ...c, offer_summary: val }))}
-                  placeholder="e.g. Cung cấp quy trình AI hóa việc sáng tạo và vận hành KOL ảo."
+                  placeholder="e.g. Provide an AI-powered workflow for creating and operating virtual influencers."
                   rows={3}
                 />
               </FieldSet>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <FieldSet title="Tone of Voice" description="Phong cách giao tiếp của AI" className="bg-transparent border-none p-0">
+                <FieldSet title="Tone of Voice" description="How the AI should communicate" className="bg-transparent border-none p-0">
                   <SelectField
                     value={brandForm.tone_voice || "professional"}
                     onChange={(val) => setBrandForm((c: any) => ({ ...c, tone_voice: val }))}
@@ -126,7 +126,7 @@ export function MemoryTab({
                     ]}
                   />
                 </FieldSet>
-                <FieldSet title="Timezone" description="Múi giờ hoạt động chính" className="bg-transparent border-none p-0">
+                <FieldSet title="Timezone" description="Primary operating timezone" className="bg-transparent border-none p-0">
                   <SelectField
                     value={brandForm.timezone || "UTC"}
                     onChange={(val) => setBrandForm((c: any) => ({ ...c, timezone: val }))}
@@ -145,10 +145,10 @@ export function MemoryTab({
                   disabled={busyKey === "brand"}
                   className="bg-aura-primary text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-aura-primary/90 transition-all shadow-lg shadow-aura-primary/20 disabled:opacity-50 active:scale-95"
                 >
-                  {busyKey === "brand" ? "Đang lưu..." : (
+                  {busyKey === "brand" ? "Saving..." : (
                     <>
                       <Save className="w-4 h-4" />
-                      Lưu bản sắc Thương hiệu
+                      Save Brand Identity
                     </>
                   )}
                 </button>
@@ -159,8 +159,8 @@ export function MemoryTab({
           {/* Connect Accounts Card */}
           <div className="bg-white rounded-[40px] shadow-aura border-aura-outline/10 overflow-hidden">
             <PanelHeader 
-              title="Mạng lưới kết nối" 
-              subtitle="Tài khoản mạng xã hội AI sẽ trực tiếp vận hành"
+              title="Connected Accounts" 
+              subtitle="Social accounts the AI will operate directly"
               className="px-8 py-6 border-b border-aura-outline/5"
             />
             <div className="p-8">
@@ -187,7 +187,7 @@ export function MemoryTab({
                           <div>
                               <p className="text-xs font-bold capitalize text-aura-on-surface">{platform}</p>
                               <p className="text-[10px] text-aura-on-surface-variant">
-                                {isConnected ? (account.account_handle || account.display_name || "Connected") : "Chưa kết nối"}
+                                {isConnected ? (account.account_handle || account.display_name || "Connected") : "Not connected"}
                               </p>
                           </div>
                         </div>
@@ -220,12 +220,12 @@ export function MemoryTab({
                  </div>
                  <div>
                     <h3 className="text-lg font-bold text-aura-on-surface">AI Backbone</h3>
-                    <p className="text-xs text-aura-on-surface-variant">Hệ điều hành trí tuệ</p>
+                    <p className="text-xs text-aura-on-surface-variant">Intelligence operating layer</p>
                  </div>
                </div>
 
                <form onSubmit={handleAiBackboneSave} className="space-y-6">
-                 <FieldSet title="Engine Source" description="Nguồn tài nguyên xử lý ngôn ngữ" className="bg-transparent border-none p-0">
+                  <FieldSet title="Engine Source" description="Source of language processing resources" className="bg-transparent border-none p-0">
                    <SelectField
                      value={aiBackboneForm.accessMode}
                      onChange={(val) => setAiBackboneForm((c: any) => ({ ...c, accessMode: val }))}
@@ -269,13 +269,13 @@ export function MemoryTab({
                              disabled={busyKey === "chatgpt-disconnect"}
                              className="w-full py-2 text-[10px] font-bold text-rose-600 bg-white rounded-xl border border-rose-100 hover:bg-rose-50 transition-all"
                            >
-                             Ngắt kết nối ChatGPT
+                              Disconnect ChatGPT
                            </button>
                         </div>
                      ) : (
                        <div className="space-y-4">
                           <FormField
-                             label="Tên hiển thị (Tùy chọn)"
+                              label="Display Name (Optional)"
                              value={aiBackboneForm.chatgptDisplayName}
                              onChange={(val) => setAiBackboneForm((c: any) => ({ ...c, chatgptDisplayName: val }))}
                           />
@@ -286,7 +286,7 @@ export function MemoryTab({
                             className="w-full py-4 rounded-2xl bg-black text-white text-xs font-bold shadow-xl shadow-black/10 flex items-center justify-center gap-3 hover:bg-zinc-800 transition-all"
                           >
                              <Key className="w-4 h-4" />
-                             Kết nối ChatGPT Plus / Pro
+                              Connect ChatGPT Plus / Pro
                           </button>
                        </div>
                      )}
@@ -299,7 +299,7 @@ export function MemoryTab({
                    className="w-full py-3 rounded-2xl bg-aura-surface-container-high border border-aura-outline/10 text-aura-on-surface text-xs font-bold hover:bg-aura-surface-container-highest transition-all flex items-center justify-center gap-2"
                  >
                    <Save className="w-3 h-3" />
-                   {busyKey === "ai-backbone" ? "Lưu cài đặt..." : "Cập nhật Engine"}
+                    {busyKey === "ai-backbone" ? "Saving settings..." : "Update Engine"}
                  </button>
                </form>
              </div>
@@ -312,10 +312,10 @@ export function MemoryTab({
           <div className="bg-aura-tertiary-container/20 rounded-[40px] p-8 border border-white/40 border-aura-tertiary/10">
              <div className="flex items-center gap-2 mb-4">
                 <AlertCircle className="w-4 h-4 text-aura-tertiary" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-aura-tertiary">Hoàn thiện hồ sơ</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-aura-tertiary">Complete Your Profile</span>
              </div>
              <p className="text-xs text-aura-on-surface leading-loose">
-               Hồ sơ thương hiệu càng chi tiết, AI càng hiểu rõ sản phẩm của bạn. Hãy cập nhật đầy đủ thông tin để tăng 40% độ chính xác trong kịch bản.
+                The more detailed your brand profile is, the better AI understands your product. Fill in the full information to improve script accuracy by up to 40%.
              </p>
           </div>
         </div>

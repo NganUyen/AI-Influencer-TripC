@@ -20,42 +20,41 @@ export function MessageBubble({
     <div
       key={id}
       className={cn(
-        "flex gap-3 animate-fadeIn",
-        isAssistant ? "justify-start" : "justify-end"
+        "flex gap-4 animate-fadeIn",
+        isAssistant ? "justify-start" : "justify-end flex-row-reverse"
       )}
     >
-      {isAssistant && (
-        <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
-          <Bot className="w-4 h-4 text-emerald-300" />
-        </div>
-      )}
+      <div className={cn(
+        "w-9 h-9 rounded-2xl flex items-center justify-center flex-shrink-0 border border-white/5",
+        isAssistant ? "bg-white/[0.03]" : "bg-white text-black"
+      )}>
+        {isAssistant ? (
+          <Bot className="w-5 h-5 text-white/40" />
+        ) : (
+          <User className="w-5 h-5" />
+        )}
+      </div>
 
       <div
         className={cn(
-          "max-w-xs lg:max-w-md px-4 py-3 rounded-xl border transition-all duration-200",
+          "max-w-sm lg:max-w-xl px-6 py-4 rounded-[24px] transition-all duration-300",
           isAssistant
-            ? "border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 text-stone-100"
-            : "border-sky-500/20 bg-gradient-to-br from-sky-500/10 to-sky-600/5 text-stone-100 ml-auto"
+            ? "apple-glass text-white/90"
+            : "bg-white/[0.05] border border-white/10 text-white ml-auto"
         )}
       >
-        <p className="text-xs font-medium uppercase tracking-widest text-zinc-500 mb-1">
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/30 mb-2">
           {role}
         </p>
-        <p className="text-sm whitespace-pre-wrap leading-relaxed break-words">
+        <p className="text-[15px] whitespace-pre-wrap leading-relaxed break-words font-body">
           {content}
         </p>
         {timestamp && (
-          <p className="text-xs text-zinc-600 mt-2">
+          <p className="text-[10px] text-white/20 mt-3 font-medium uppercase tracking-wider">
             {timestamp}
           </p>
         )}
       </div>
-
-      {!isAssistant && (
-        <div className="w-8 h-8 rounded-lg bg-sky-500/20 flex items-center justify-center flex-shrink-0">
-          <User className="w-4 h-4 text-sky-300" />
-        </div>
-      )}
     </div>
   );
 }

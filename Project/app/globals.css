@@ -22,6 +22,11 @@
   --brand-on-surface: #2e2f2c;
   --brand-outline: #777773;
   --brand-error: #b41340;
+
+  /* Apple Design Tokens */
+  --apple-black: #050505;
+  --apple-silver: #f5f5f7;
+  --apple-border: rgba(255, 255, 255, 0.1);
 }
 
 body {
@@ -81,6 +86,26 @@ h1, h2, h3, h4 {
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
   }
+
+  .apple-glass {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .noise-texture {
+    position: relative;
+  }
+  .noise-texture::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: 0.03;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    z-index: 10;
+  }
 }
 
 /* Custom scrollbar — warm stone tones */
@@ -97,4 +122,13 @@ h1, h2, h3, h4 {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #777773;
+}
+
+@keyframes shine {
+  0% { transform: translateX(-150%) skewX(-15deg); }
+  100% { transform: translateX(150%) skewX(-15deg); }
+}
+
+.animate-shine {
+  animation: shine 1s ease-in-out;
 }

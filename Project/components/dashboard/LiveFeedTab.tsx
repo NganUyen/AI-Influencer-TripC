@@ -54,10 +54,13 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
         </div>
         <button 
           onClick={() => setActiveStep(2)}
-          className="px-8 py-4 bg-gradient-to-r from-aura-primary to-aura-primary-container text-aura-on-primary font-bold rounded-full shadow-aura-md flex items-center gap-2 transition-all hover:translate-y-[-2px] hover:shadow-aura-lg"
+          className="group relative px-9 py-4 bg-aura-on-surface text-aura-surface font-headline font-bold rounded-full overflow-hidden flex items-center gap-3 transition-all hover:bg-black hover:shadow-aura-lg hover:scale-[1.02] active:scale-95 shadow-aura-md"
         >
-          <Zap className="w-5 h-5 fill-current" />
-          Batch Generate All
+          {/* Subtle shine effect on hover */}
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-[150%] skew-x-[-15deg] group-hover:animate-shine"></div>
+          
+          <Zap className="w-5 h-5 text-aura-primary relative z-10 fill-current" />
+          <span className="relative z-10 uppercase tracking-widest text-[13px]">Batch Generate All</span>
         </button>
       </div>
 

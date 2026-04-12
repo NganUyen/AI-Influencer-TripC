@@ -107,6 +107,25 @@ export function OpsTab({
               ))
             )}
             {busyKey === "assistant" && (
+              <div className="flex gap-4 animate-fade-in">
+                <div className="w-9 h-9 rounded-2xl flex items-center justify-center flex-shrink-0 border border-brand-outline/10 bg-brand-primary/10 text-brand-primary">
+                  <Bot className="w-5 h-5" />
+                </div>
+
+                <div className="max-w-sm rounded-[24px] border border-brand-outline/10 bg-brand-primary/[0.03] px-5 py-4 shadow-sm">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-on-surface-variant/70 mb-2">
+                    assistant
+                  </p>
+                  <div className="flex items-center gap-2 text-sm text-brand-on-surface">
+                    <span className="flex gap-1">
+                      <span className="h-2 w-2 rounded-full bg-brand-primary/50 animate-pulse" />
+                      <span className="h-2 w-2 rounded-full bg-brand-primary/50 animate-pulse [animation-delay:150ms]" />
+                      <span className="h-2 w-2 rounded-full bg-brand-primary/50 animate-pulse [animation-delay:300ms]" />
+                    </span>
+                    <span className="font-body">Thinking...</span>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
 

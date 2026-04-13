@@ -8,7 +8,6 @@ import {
   Twitter, Facebook, Linkedin, 
   Instagram, Circle, AlertCircle
 } from "lucide-react";
-import { Panel } from "@/components/ui/Panel";
 import { PanelHeader } from "@/components/ui/PanelHeader";
 import { FieldSet } from "@/components/ui/FieldSet";
 import { FormField } from "@/components/ui/FormField";
@@ -70,11 +69,11 @@ export function MemoryTab({
         {/* Main Content Area (Left/Wide) */}
         <div className="lg:col-span-8 space-y-10">
           {/* Brand Identity Panel */}
-          <div className="bg-white rounded-[40px] shadow-aura-lg border-aura-outline/10 overflow-hidden">
+          <div className="dashboard-panel overflow-hidden">
             <PanelHeader
               title="Brand Identity / Core Memory"
               subtitle="Core details about your product and brand voice"
-              className="px-8 py-6 border-b border-aura-outline/5 bg-aura-surface-container-low/30"
+              className="border-b border-aura-outline/5 bg-aura-surface-container-low/30 px-8 py-6"
             />
             
             <form onSubmit={handleBrandSave} className="p-8 space-y-8">
@@ -157,11 +156,11 @@ export function MemoryTab({
           </div>
 
           {/* Connect Accounts Card */}
-          <div className="bg-white rounded-[40px] shadow-aura border-aura-outline/10 overflow-hidden">
+          <div className="dashboard-panel overflow-hidden">
             <PanelHeader 
               title="Connected Accounts" 
               subtitle="Social accounts the AI will operate directly"
-              className="px-8 py-6 border-b border-aura-outline/5"
+              className="border-b border-aura-outline/5 px-8 py-6"
             />
             <div className="p-8">
               <DataCard tone="neutral" className="border-none p-0 bg-transparent cursor-default">
@@ -174,7 +173,7 @@ export function MemoryTab({
                     return (
                       <div 
                         key={platform} 
-                        className={`p-4 rounded-3xl border ${isConnected ? 'border-aura-primary/20 bg-aura-primary-container/10' : 'border-aura-outline/10 bg-white'} transition-all flex items-center justify-between group`}
+                        className={`dashboard-card flex items-center justify-between p-4 transition-all group ${isConnected ? 'border-aura-primary/20 bg-aura-primary-container/10' : 'bg-white'}`}
                       >
                         <div className="flex items-center gap-4">
                           <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isConnected ? 'bg-aura-primary text-white shadow-lg shadow-aura-primary/20' : 'bg-aura-surface-container text-aura-on-surface-variant'}`}>
@@ -196,7 +195,7 @@ export function MemoryTab({
                           type="button"
                           onClick={() => isConnected ? handleDisconnect(account.id) : handleConnect(platform)}
                           disabled={isBusy}
-                          className={`text-[10px] font-bold px-4 py-2 rounded-xl border transition-all ${isConnected ? 'bg-white border-aura-error/20 text-aura-error hover:bg-aura-error hover:text-white' : 'bg-aura-surface-container-high border-aura-outline/10 text-aura-on-surface hover:border-aura-primary hover:text-aura-primary'} disabled:opacity-50`}
+                           className={`rounded-card border px-4 py-2 text-[10px] font-bold transition-all ${isConnected ? 'bg-white border-aura-error/20 text-aura-error hover:bg-aura-error hover:text-white' : 'bg-aura-surface-container-high border-aura-outline/10 text-aura-on-surface hover:border-aura-primary hover:text-aura-primary'} disabled:opacity-50`}
                         >
                           {isBusy ? "..." : (isConnected ? "Disconnect" : "Connect")}
                         </button>
@@ -212,7 +211,7 @@ export function MemoryTab({
         {/* Sidebar Info (Right/Narrow) */}
         <div className="lg:col-span-4 space-y-10">
           {/* AI Backbone Settings */}
-          <section className="bg-white rounded-[40px] p-8 shadow-aura-lg border border-aura-outline/5 relative overflow-hidden">
+          <section className="dashboard-panel relative overflow-hidden p-8">
              <div className="relative z-10 space-y-8">
                <div className="flex items-center gap-4">
                  <div className="w-12 h-12 rounded-2xl bg-aura-on-surface flex items-center justify-center text-white shadow-xl">
@@ -254,7 +253,7 @@ export function MemoryTab({
                  {aiBackboneForm.accessMode === "chatgpt_oauth" && (
                    <div className="space-y-4 pt-2 border-t border-aura-outline/5">
                      {aiBackbone?.chatgpt_oauth.linked ? (
-                        <div className="p-4 rounded-3xl bg-emerald-50 border border-emerald-100 space-y-4">
+                         <div className="dashboard-card space-y-4 border-emerald-100 bg-emerald-50 p-4">
                            <div className="flex items-center justify-between">
                               <span className="text-[10px] uppercase font-bold text-emerald-600 tracking-widest">Linked Account</span>
                               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -267,7 +266,7 @@ export function MemoryTab({
                              type="button"
                              onClick={handleDisconnectChatgptOAuth}
                              disabled={busyKey === "chatgpt-disconnect"}
-                             className="w-full py-2 text-[10px] font-bold text-rose-600 bg-white rounded-xl border border-rose-100 hover:bg-rose-50 transition-all"
+                              className="rounded-card w-full border border-rose-100 bg-white py-2 text-[10px] font-bold text-rose-600 transition-all hover:bg-rose-50"
                            >
                               Disconnect ChatGPT
                            </button>
@@ -309,7 +308,7 @@ export function MemoryTab({
           </section>
 
           {/* Quick Info Card */}
-          <div className="bg-aura-tertiary-container/20 rounded-[40px] p-8 border border-white/40 border-aura-tertiary/10">
+           <div className="dashboard-panel-soft border border-aura-tertiary/10 bg-aura-tertiary-container/20 p-8">
              <div className="flex items-center gap-2 mb-4">
                 <AlertCircle className="w-4 h-4 text-aura-tertiary" />
                 <span className="text-[10px] font-bold uppercase tracking-widest text-aura-tertiary">Complete Your Profile</span>

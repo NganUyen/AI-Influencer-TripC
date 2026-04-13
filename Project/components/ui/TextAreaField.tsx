@@ -1,4 +1,4 @@
-import { TextareaHTMLAttributes, forwardRef } from "react";
+import { TextareaHTMLAttributes, forwardRef, useId } from "react";
 import { cn } from "@/lib/utils";
 
 interface TextAreaFieldProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
@@ -22,14 +22,15 @@ export const TextAreaField = forwardRef<HTMLTextAreaElement, TextAreaFieldProps>
     id,
     ...props
   }, ref) => {
-    const fieldId = id || `textarea-${Math.random().toString(36).substr(2, 9)}`;
+    const generatedId = useId();
+    const fieldId = id || generatedId;
 
     return (
       <div className={cn("w-full", containerClassName)}>
         {label && (
           <label
             htmlFor={fieldId}
-            className="block text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-2"
+            className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-aura-on-surface-variant"
           >
             {label}
             {required && <span className="text-rose-400 ml-1">*</span>}
@@ -41,8 +42,7 @@ export const TextAreaField = forwardRef<HTMLTextAreaElement, TextAreaFieldProps>
           id={fieldId}
           style={{ minHeight }}
           className={cn(
-            "w-full rounded-xl border bg-white/[0.03] backdrop-blur-xl px-4 py-3 text-sm text-white placeholder:text-zinc-500 outline-none transition-all duration-200 resize-y",
-            "border-white/[0.08] hover:border-white/[0.12] focus:border-emerald-500/60 focus:ring-2 focus:ring-emerald-500/20",
+            "dashboard-field resize-y px-4 py-3 text-sm font-medium",
             error && "border-rose-500/60 focus:border-rose-500/60 focus:ring-rose-500/20",
             className
           )}
@@ -56,7 +56,7 @@ export const TextAreaField = forwardRef<HTMLTextAreaElement, TextAreaFieldProps>
         )}
 
         {helperText && !error && (
-          <p className="mt-2 text-xs text-zinc-500">
+          <p className="mt-2 text-xs text-aura-on-surface-variant">
             {helperText}
           </p>
         )}

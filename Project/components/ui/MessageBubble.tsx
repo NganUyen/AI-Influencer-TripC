@@ -25,32 +25,38 @@ export function MessageBubble({
       )}
     >
       <div className={cn(
-        "w-9 h-9 rounded-2xl flex items-center justify-center flex-shrink-0 border border-white/5",
-        isAssistant ? "bg-white/[0.03]" : "bg-white text-black"
+        "dashboard-icon-tile h-10 w-10 flex-shrink-0",
+        isAssistant ? "bg-brand-primary/10 text-brand-primary" : "bg-brand-primary text-brand-on-primary"
       )}>
         {isAssistant ? (
-          <Bot className="w-5 h-5 text-white/40" />
+          <Bot className="h-5 w-5" />
         ) : (
-          <User className="w-5 h-5" />
+          <User className="h-5 w-5" />
         )}
       </div>
 
       <div
         className={cn(
-          "max-w-sm lg:max-w-xl px-6 py-4 rounded-[24px] transition-all duration-300",
+          "max-w-sm rounded-card border px-5 py-4 transition-all duration-300 lg:max-w-xl",
           isAssistant
-            ? "apple-glass text-white/90"
-            : "bg-white/[0.05] border border-white/10 text-white ml-auto"
+            ? "bg-brand-surface-container-low text-brand-on-surface border-brand-outline-variant/20"
+            : "ml-auto bg-brand-primary text-brand-on-primary border-brand-primary/10"
         )}
       >
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/30 mb-2">
+        <p className={cn(
+          "mb-2 text-[10px] font-bold uppercase tracking-[0.2em]",
+          isAssistant ? "text-brand-on-surface-variant/60" : "text-brand-on-primary/70",
+        )}>
           {role}
         </p>
-        <p className="text-[15px] whitespace-pre-wrap leading-relaxed break-words font-body">
+        <p className="font-body text-[15px] leading-relaxed whitespace-pre-wrap break-words">
           {content}
         </p>
         {timestamp && (
-          <p className="text-[10px] text-white/20 mt-3 font-medium uppercase tracking-wider">
+          <p className={cn(
+            "mt-3 text-[10px] font-medium uppercase tracking-wider",
+            isAssistant ? "text-brand-on-surface-variant/70" : "text-brand-on-primary/70",
+          )}>
             {timestamp}
           </p>
         )}

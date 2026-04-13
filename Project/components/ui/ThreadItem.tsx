@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { Check, MessageSquare } from "lucide-react";
+import { MessageSquare } from "lucide-react";
 
 interface ThreadItemProps {
   id: string;
@@ -23,21 +23,20 @@ export function ThreadItem({
     <button
       onClick={onClick}
       className={cn(
-        "w-full text-left rounded-xl border p-4 transition-all duration-200",
-        "hover:border-emerald-500/50 group",
+        "dashboard-card dashboard-card-interactive w-full p-4 text-left group",
         isActive
-          ? "border-emerald-500/40 bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 shadow-lg shadow-emerald-500/10"
-          : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]"
+          ? "border-brand-primary/20 bg-brand-primary/5 shadow-brand-sm"
+          : "hover:bg-brand-surface-container-lowest"
       )}
     >
       <div className="flex items-start gap-3">
         <div className={cn(
           "mt-0.5 rounded-full p-2 transition-colors",
-          isActive ? "bg-emerald-500/20" : "bg-white/[0.05] group-hover:bg-emerald-500/10"
+          isActive ? "bg-brand-primary/10" : "bg-brand-surface-container group-hover:bg-brand-primary/10"
         )}>
           <MessageSquare className={cn(
             "w-4 h-4",
-            isActive ? "text-emerald-300" : "text-zinc-500 group-hover:text-emerald-400"
+            isActive ? "text-brand-primary" : "text-brand-outline group-hover:text-brand-primary"
           )} />
         </div>
 
@@ -45,7 +44,7 @@ export function ThreadItem({
           <div className="flex items-center gap-2">
             <h4 className={cn(
               "font-semibold truncate transition-colors",
-              isActive ? "text-emerald-200" : "text-white group-hover:text-emerald-300"
+              isActive ? "text-brand-on-surface" : "text-brand-on-surface group-hover:text-brand-primary"
             )}>
               {title}
             </h4>
@@ -55,7 +54,7 @@ export function ThreadItem({
           </div>
           
           {preview && (
-            <p className="text-xs text-zinc-500 truncate mt-1 group-hover:text-zinc-400">
+            <p className="mt-1 truncate text-xs text-brand-on-surface-variant group-hover:text-brand-on-surface">
               {preview}
             </p>
           )}

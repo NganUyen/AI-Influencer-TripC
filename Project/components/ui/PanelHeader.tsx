@@ -10,19 +10,19 @@ interface PanelHeaderProps {
 
 export function PanelHeader({ title, subtitle, actions, className }: PanelHeaderProps) {
   return (
-    <div className={cn("flex items-center justify-between p-6 pb-5", className)}>
+    <div className={cn("flex items-start justify-between gap-4 p-6 pb-5", className)}>
       <div className="flex-1">
-        <h3 className="text-lg font-extrabold text-aura-on-surface font-headline">
+        <h3 className="font-headline text-lg font-extrabold text-aura-on-surface">
           {title}
         </h3>
         {subtitle && (
-          <p className="mt-1.5 max-w-2xl text-xs text-aura-on-surface-variant/80 leading-relaxed">
+          <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-aura-on-surface-variant/80">
             {subtitle}
           </p>
         )}
       </div>
       {actions && (
-        <div className="flex items-center space-x-2 ml-4">
+        <div className="ml-4 flex items-center gap-2">
           {actions}
         </div>
       )}

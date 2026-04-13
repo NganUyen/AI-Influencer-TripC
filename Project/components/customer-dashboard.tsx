@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
@@ -8,17 +8,13 @@ import {
   LayoutDashboard,
   Radio,
   Users,
-  Zap,
-  Clock,
-  CheckCircle,
-  AlertTriangle,
-  X,
   Check,
   Cpu,
   BookOpen,
   Brain,
   Link2,
   RefreshCw,
+  X,
   AlertCircle,
   type LucideIcon,
 } from "lucide-react";
@@ -29,26 +25,13 @@ import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
-import { Footer } from "@/components/layout/Footer";
 import openClawLogo from "@/app/dashboard/openclaw-logo.svg";
-import { Panel } from "@/components/ui/Panel";
-import { PanelHeader } from "@/components/ui/PanelHeader";
-import { StatCard } from "@/components/ui/StatCard";
-import { DataCard } from "@/components/ui/DataCard";
 import { FormField } from "@/components/ui/FormField";
 import { SelectField } from "@/components/ui/SelectField";
 import { TextAreaField } from "@/components/ui/TextAreaField";
-import { ButtonGroup } from "@/components/ui/ButtonGroup";
-import { PersonaCard } from "@/components/ui/PersonaCard";
-import { ThreadItem } from "@/components/ui/ThreadItem";
-import { MessageBubble } from "@/components/ui/MessageBubble";
-import { TimelineItem } from "@/components/ui/TimelineItem";
-import { FieldSet } from "@/components/ui/FieldSet";
 
 import { OverviewTab } from "./dashboard/OverviewTab";
-import { OpsTab } from "./dashboard/OpsTab";
 import { PersonasTab } from "./dashboard/PersonasTab";
-import { MemoryTab } from "./dashboard/MemoryTab";
 import { LiveFeedTab } from "./dashboard/LiveFeedTab";
 
 
@@ -297,14 +280,6 @@ export default function CustomerDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isAuthenticated, initialized, isLoading, logout, initialize } = useCustomerAuthStore();
-  // // Replace the destructuring with mock values:
-  // const { user, isAuthenticated, initialized, isLoading, logout } = {
-  //   user: { name: "Preview User", email: "preview@example.com" },
-  //   isAuthenticated: true,
-  //   initialized: true,
-  //   isLoading: false,
-  //   logout: () => console.log("Logout clicked"),
-  // };
 
   const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -404,22 +379,6 @@ export default function CustomerDashboard() {
       }
     }
   }, [isAuthenticated, logout, router]);
-
-  // const fetchSystemData = useCallback(async () => {
-  //   setSystemSummary({
-  //     services: [
-  //       { name: "API Gateway", status: "online", latency: "24ms" },
-  //       { name: "Worker Node", status: "online", latency: "115ms" }
-  //     ],
-  //     quota: [
-  //       { name: "GPT-4o Tokens", used: 45000, total: 100000, unit: "tokens" },
-  //       { name: "Image Gen", used: 12, total: 50, unit: "images" }
-  //     ]
-  //   });
-  //   setSystemWorkflows([
-  //     { id: "wf-123", name: "Content Generation", status: "running", progress: 65 }
-  //   ]);
-  // }, []);
 
   useEffect(() => {
     void fetchSystemData();
@@ -599,36 +558,6 @@ export default function CustomerDashboard() {
       setPageError(msg);
     }
   }
-
-  // async function loadWorkspace() {
-  //   setPageError(null);
-
-  //   // Set dummy brand data
-  //   setBrandForm({
-  //     product_name: "Acme AI",
-  //     website_url: "https://acme.ai",
-  //     audience: "Tech Enthusiasts",
-  //     offer_summary: "AI-driven marketing automation",
-  //     tone_voice: "Professional & Witty",
-  //     timezone: "UTC+7",
-  //     campaign_goals: ["Brand Awareness"],
-  //     asset_urls: [],
-  //     telegram_contact: "@acme_bot",
-  //   });
-
-  //   // Set dummy social accounts
-  //   setAccounts([
-  //     { id: "1", platform: "linkedin", account_handle: "@acme", display_name: "Acme Corp", connection_status: "connected" },
-  //     { id: "2", platform: "twitter", account_handle: "@acme_ai", display_name: "Acme AI", connection_status: "connected" }
-  //   ]);
-
-  //   // Set dummy campaigns
-  //   setCampaigns([
-  //     { id: "c1", name: "Spring Launch", description: "New AI features", target_platforms: ["linkedin"], status: "running", approval_status: "approved", active_workflow_id: "w1" }
-  //   ]);
-
-  //   // Add more setters as needed for personas, threads, etc.
-  // }
 
   async function loadThread(threadId: string) {
     try {
@@ -948,18 +877,36 @@ export default function CustomerDashboard() {
     }
   }
 
-  const activityItems = buildActivityItems({
-    campaigns,
-    approvals,
-    content,
-    systemWorkflows,
-  });
+  const activityItems = useMemo(
+    () =>
+      buildActivityItems({
+        campaigns,
+        approvals,
+        content,
+        systemWorkflows,
+      }),
+    [campaigns, approvals, content, systemWorkflows],
+  );
+
+  const quotaWarnings = useMemo(
+    () =>
+      (systemSummary?.quota || []).filter(
+        (q) => q.total > 0 && q.used / q.total >= 0.8,
+      ),
+    [systemSummary?.quota],
+  );
 
   const [quotaBannerDismissed, setQuotaBannerDismissed] = useState(false);
 
   if (isLoading || !initialized) {
     return (
-      <div className="min-h-screen bg-aura-surface">
+      <div className="dashboard-shell min-h-screen bg-aura-surface">
+        <a
+          href="#dashboard-main"
+          className="sr-only fixed left-4 top-4 z-[70] rounded-full bg-white px-4 py-2 text-sm font-semibold text-aura-on-surface shadow-brand-md focus:not-sr-only"
+        >
+          Skip to main content
+        </a>
         <DashboardHeader
           userName={undefined}
           userEmail={undefined}
@@ -973,7 +920,7 @@ export default function CustomerDashboard() {
             activeTab={activeTab}
             onTabChange={setActiveTab}
           />
-          <main className="flex-1 min-w-0 px-4 sm:px-6 md:px-10 py-6 md:py-8">
+          <main id="dashboard-main" className="flex-1 min-w-0 px-4 py-6 sm:px-6 md:px-10 md:py-8">
             <div className="mx-auto max-w-7xl h-[60vh] flex flex-col items-center justify-center space-y-4">
               <div className="animate-spin h-10 w-10 border-2 border-aura-primary border-t-transparent rounded-full" />
               <p className="text-sm text-aura-outline font-body">Loading workspace…</p>
@@ -984,13 +931,14 @@ export default function CustomerDashboard() {
     );
   }
 
-  // Quota warnings — providers at ≥80% usage
-  const quotaWarnings = (systemSummary?.quota || []).filter(
-    (q) => q.total > 0 && q.used / q.total >= 0.8,
-  );
-
   return (
-    <div className="min-h-screen bg-aura-surface text-aura-on-surface">
+    <div className="dashboard-shell min-h-screen bg-aura-surface text-aura-on-surface">
+      <a
+        href="#dashboard-main"
+        className="sr-only fixed left-4 top-4 z-[70] rounded-full bg-white px-4 py-2 text-sm font-semibold text-aura-on-surface shadow-brand-md focus:not-sr-only"
+      >
+        Skip to main content
+      </a>
       <DashboardHeader
         userName={user?.name}
         userEmail={user?.email}
@@ -1010,13 +958,13 @@ export default function CustomerDashboard() {
           onMobileClose={() => setIsMobileMenuOpen(false)}
         />
 
-        <main className="flex-1 min-w-0 px-4 sm:px-6 md:px-10 py-6 md:py-8">
+        <main id="dashboard-main" className="flex-1 min-w-0 px-4 py-6 sm:px-6 md:px-10 md:py-8">
           <div className="mx-auto max-w-7xl space-y-4 md:space-y-6">
 
 
             {/* Success banner */}
             {banner && (
-              <div className="flex items-center justify-between rounded-2xl border border-aura-tertiary/20 bg-aura-tertiary-container/30 px-5 py-3 text-sm text-aura-tertiary font-medium">
+              <div className="dashboard-banner dashboard-banner-success text-sm font-medium" role="status" aria-live="polite">
                 <span>✓ {banner}</span>
                 <button onClick={() => setBanner(null)} className="ml-4 text-aura-tertiary/60 hover:text-aura-tertiary transition-colors">✕</button>
               </div>
@@ -1024,12 +972,12 @@ export default function CustomerDashboard() {
 
             {/* Error banner */}
             {pageError && (
-              <div className="flex items-center justify-between rounded-2xl border border-error bg-error/10 px-5 py-4 text-sm text-error font-semibold shadow-sm animate-pulse-slow">
+              <div className="dashboard-banner dashboard-banner-error animate-pulse-slow text-sm font-semibold" role="alert" aria-live="polite">
                 <div className="flex items-center gap-3">
                   <AlertCircle className="w-5 h-5 flex-shrink-0" />
                   <span>{pageError}</span>
                 </div>
-                <button onClick={() => setPageError(null)} className="ml-4 text-error/60 hover:text-error transition-colors">
+                <button type="button" onClick={() => setPageError(null)} className="ml-4 text-error/60 hover:text-error transition-colors" aria-label="Dismiss error message">
                   <X className="w-4 h-4 stroke-[2]" />
                 </button>
               </div>
@@ -1037,7 +985,7 @@ export default function CustomerDashboard() {
 
             {/* ─── Quota Warning Banner ─── */}
             {activeTab === "overview" && quotaWarnings.length > 0 && !quotaBannerDismissed && (
-              <div className="flex items-start justify-between gap-4 rounded-2xl border border-error bg-error/10 px-5 py-4 shadow-sm animate-pulse-slow">
+              <div className="dashboard-banner dashboard-banner-error animate-pulse-slow" role="status" aria-live="polite">
                 <div className="flex items-start gap-3">
                   <AlertCircle className="w-5 h-5 text-error flex-shrink-0 mt-0.5 stroke-[2]" />
                   <div>
@@ -1051,8 +999,10 @@ export default function CustomerDashboard() {
                   </div>
                 </div>
                 <button
+                  type="button"
                   onClick={() => setQuotaBannerDismissed(true)}
                   className="flex-shrink-0 text-error/60 hover:text-error transition-colors pt-1"
+                  aria-label="Dismiss quota warning"
                 >
                   <X className="w-4 h-4 stroke-[2]" />
                 </button>
@@ -1304,6 +1254,8 @@ export default function CustomerDashboard() {
                         <img
                           src={personas[0].avatar_image_url}
                           alt={personas[0].display_name}
+                          width={1280}
+                          height={720}
                           className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                         />
                       ) : (
@@ -1607,34 +1559,43 @@ export default function CustomerDashboard() {
                       <form className="space-y-6" onSubmit={handleBrandSave}>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div className="space-y-2">
-                            <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Brand Name</label>
+                            <label htmlFor="brand-name" className="block text-sm font-semibold text-aura-on-surface-variant px-1">Brand Name</label>
                             <input
+                              id="brand-name"
+                              name="brandName"
                               type="text"
                               value={brandForm.product_name || ""}
                               onChange={e => setBrandForm(c => ({ ...c, product_name: e.target.value }))}
-                              placeholder="Enter brand name..."
+                              placeholder="Enter brand name…"
+                              autoComplete="organization"
                               className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all outline-none"
                             />
                           </div>
                           <div className="space-y-2">
-                            <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Target Audience</label>
+                            <label htmlFor="brand-audience" className="block text-sm font-semibold text-aura-on-surface-variant px-1">Target Audience</label>
                             <input
+                              id="brand-audience"
+                              name="targetAudience"
                               type="text"
                               value={brandForm.audience || ""}
                               onChange={e => setBrandForm(c => ({ ...c, audience: e.target.value }))}
-                              placeholder="Describe your target audience..."
+                              placeholder="Describe your target audience…"
+                              autoComplete="off"
                               className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all outline-none"
                             />
                           </div>
                         </div>
 
                         <div className="space-y-2">
-                          <label className="block text-sm font-semibold text-aura-on-surface-variant px-1">Value Summary</label>
+                          <label htmlFor="brand-summary" className="block text-sm font-semibold text-aura-on-surface-variant px-1">Value Summary</label>
                           <textarea
+                            id="brand-summary"
+                            name="valueSummary"
                             value={brandForm.offer_summary || ""}
                             onChange={e => setBrandForm(c => ({ ...c, offer_summary: e.target.value }))}
-                            placeholder="Summarize your product or service..."
+                            placeholder="Summarize your product or service…"
                             rows={4}
+                            autoComplete="off"
                             className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all resize-none outline-none"
                           />
                         </div>
@@ -1642,10 +1603,10 @@ export default function CustomerDashboard() {
                         <div className="flex justify-end">
                           <button
                             type="submit"
-                            disabled={busyKey === "brand-save"}
+                            disabled={busyKey === "brand"}
                             className="w-full md:w-auto min-h-[44px] px-10 py-3.5 bg-aura-primary text-aura-on-primary font-bold rounded-full hover:opacity-90 transition-all shadow-aura-md active:scale-95 disabled:opacity-50 cursor-pointer"
                           >
-                            {busyKey === "brand-save" ? "Saving..." : "Save Context"}
+                            {busyKey === "brand" ? "Saving..." : "Save Context"}
                           </button>
                         </div>
                       </form>
@@ -1772,6 +1733,8 @@ export default function CustomerDashboard() {
                                 <button
                                   type="button"
                                   onClick={() => handleConnect(p)} // Typically opens disconnect modal or something, matching toggle pattern
+                                  aria-label={`Manage ${p} connection`}
+                                  aria-pressed={true}
                                   className="w-12 h-6 bg-aura-primary rounded-full relative cursor-pointer hover:bg-aura-primary/90 transition-colors flex items-center justify-end px-1"
                                 >
                                   <div className="w-4 h-4 bg-white rounded-full" />
@@ -1780,6 +1743,8 @@ export default function CustomerDashboard() {
                                 <button
                                   type="button"
                                   onClick={() => handleConnect(p)}
+                                  aria-label={`Manage ${p} connection`}
+                                  aria-pressed={false}
                                   className="w-12 h-6 bg-aura-surface-container-high border border-aura-outline/20 rounded-full relative cursor-pointer hover:bg-aura-outline/20 transition-colors flex items-center justify-start px-1"
                                 >
                                   <div className="w-4 h-4 bg-white rounded-full shadow-sm" />
@@ -1807,12 +1772,18 @@ export default function CustomerDashboard() {
 
                     {/* Persona visual card */}
                     {personas.length > 0 && (
-                      <div className="relative group cursor-pointer">
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("skills")}
+                        className="relative block w-full text-left group"
+                      >
                         <div className="aspect-[4/5] rounded-2xl overflow-hidden shadow-aura-md transition-transform group-hover:scale-[1.02] duration-300 bg-aura-surface-container-high">
                           {personas[0]?.avatar_image_url ? (
                             <img
                               src={personas[0].avatar_image_url}
                               alt={personas[0].display_name}
+                              width={800}
+                              height={1000}
                               className="w-full h-full object-cover"
                             />
                           ) : (
@@ -1834,7 +1805,7 @@ export default function CustomerDashboard() {
                             </div>
                           </div>
                         </div>
-                      </div>
+                      </button>
                     )}
 
                   </aside>
@@ -1859,6 +1830,8 @@ export default function CustomerDashboard() {
               <img
                 src={openClawLogo.src}
                 alt="OpenClaw"
+                width={96}
+                height={16}
                 className="h-4 w-auto opacity-75"
               />
               <span className="text-xs text-aura-on-surface-variant font-body">
@@ -1871,121 +1844,6 @@ export default function CustomerDashboard() {
     </div>
   );
 }
-
-/* function Panel({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-[32px] border border-white/[0.08] bg-white/[0.03] p-6 backdrop-blur-xl">
-      <div className="mb-5">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-emerald-300">
-          {title}
-        </p>
-        <p className="mt-2 max-w-2xl text-sm text-zinc-400 leading-relaxed">{subtitle}</p>
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: "emerald" | "amber" | "sky" | "stone";
-}) {
-  const toneClasses = {
-    emerald: "text-emerald-400",
-    amber: "text-amber-400",
-    sky: "text-sky-400",
-    stone: "text-stone-300",
-  }[tone];
-
-  return (
-    <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl p-4">
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
-        {label}
-      </p>
-      <p className={`mt-3 text-3xl font-semibold ${toneClasses}`}>{value}</p>
-    </div>
-  );
-} */
-
-function ActivitySnapshot({
-  items,
-  emptyMessage,
-}: {
-  items: ActivityItem[];
-  emptyMessage?: string;
-}) {
-  if (items.length === 0) {
-    return <p className="text-sm text-aura-on-surface-variant font-body">{emptyMessage}</p>;
-  }
-
-  return (
-    <div className="space-y-4 font-body">
-      {items.map((item) => {
-        const variant =
-          item.tone === "success"
-            ? ("success" as const)
-            : item.tone === "warning"
-              ? ("warning" as const)
-              : ("info" as const);
-
-        return (
-          <div key={item.id} className="py-3 first:pt-0 last:pb-0">
-            <TimelineItem
-              id={item.id}
-              title={item.title}
-              description={item.detail}
-              variant={variant}
-            />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  type = "text",
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-  placeholder?: string;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-xs font-semibold uppercase tracking-widest text-zinc-500">
-        {label}
-      </span>
-      <input
-        type={type}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        className="w-full rounded-[14px] border border-aura-outline-variant bg-aura-surface-container-high px-4 py-3 text-sm text-aura-on-surface placeholder:text-aura-outline transition-colors focus:border-aura-primary focus:ring-1 focus:ring-aura-primary"
-      />
-    </label>
-  );
-}
-
-
 
 function splitCsv(value: string): string[] {
   return value
@@ -2067,10 +1925,4 @@ function formatDateLabel(value: string): string {
     return value;
   }
   return new Date(parsed).toLocaleString();
-}
-
-function auraActivityDotClass(tone: ActivityItemTone = "default"): string {
-  if (tone === "success") return "bg-aura-tertiary";
-  if (tone === "warning") return "bg-aura-secondary";
-  return "bg-aura-on-surface-variant";
 }

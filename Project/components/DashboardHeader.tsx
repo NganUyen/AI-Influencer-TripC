@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Settings, Search, Menu } from "lucide-react";
+import { Bell, Search, Menu } from "lucide-react";
 import { SocialIcon } from "@/components/ui/SocialIcon";
 import tripCLogo from "@/app/dashboard/tripc-logo.png";
 
@@ -30,81 +30,96 @@ export function DashboardHeader({
     .slice(0, 2);
 
   return (
-    <header className="fixed top-0 w-full z-50 border-b border-brand-outline-variant/20 brand-glass shadow-brand-sm">
-      <div className="flex justify-between items-center px-6 md:px-8 py-3 w-full max-w-[1600px] mx-auto">
-        {/* Brand + Search */}
+    <header className="fixed top-0 z-50 w-full border-b border-brand-outline-variant/20 brand-glass shadow-brand-sm">
+      <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-3 sm:px-6 md:px-8">
         <div className="flex items-center gap-6">
-          {/* Logo */}
           <div className="flex items-center gap-2.5 select-none">
             {onMobileMenuToggle && (
-              <button 
+              <button
                 onClick={onMobileMenuToggle}
-                className="md:hidden p-1.5 -ml-2 rounded-lg hover:bg-brand-surface-container active:scale-95 transition-all text-brand-on-surface-variant mr-1"
+                className="mr-1 -ml-2 rounded-card p-2 text-brand-on-surface-variant transition-all hover:bg-brand-surface-container active:scale-95 md:hidden"
                 aria-label="Open menu"
               >
                 <Menu className="w-5 h-5 stroke-[1.75]" />
               </button>
             )}
-            {/* Icon mark */}
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 shadow-brand-sm overflow-hidden">
-              <img 
-                src={tripCLogo.src} 
-                alt="TripC" 
-                className="w-full h-full object-cover"
+            <div className="dashboard-card flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden p-0 shadow-brand-sm">
+              <img
+                src={tripCLogo.src}
+                alt="TripC"
+                width={36}
+                height={36}
+                className="h-full w-full object-cover"
               />
             </div>
-            {/* Brand text */}
             <div className="leading-none">
-              <span className="text-base font-extrabold tracking-tight text-brand-primary font-headline block">
+              <span className="block font-headline text-base font-extrabold tracking-tight text-brand-primary">
                 AI-Influencer
               </span>
-              <span className="text-[10px] font-semibold tracking-widest text-brand-outline uppercase block mt-0.5">
+              <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-widest text-brand-outline">
                 Factory
               </span>
             </div>
           </div>
-          <div className="hidden md:flex items-center bg-brand-surface-container-low rounded-full px-4 py-2 gap-2.5 border border-brand-outline-variant/30 transition-all focus-within:border-brand-primary/30 focus-within:shadow-brand-sm">
+          <div className="hidden items-center gap-2.5 rounded-full border border-brand-outline-variant/20 bg-brand-surface-container-low px-4 py-2 transition-all focus-within:border-brand-primary/30 focus-within:shadow-brand-sm md:flex">
             <Search className="h-[14px] w-[14px] text-brand-outline stroke-[1.75]" />
+            <label className="sr-only" htmlFor="dashboard-workplace-search">
+              Search workplace
+            </label>
             <input
-              className="bg-transparent border-none focus:ring-0 text-sm font-body text-brand-on-surface-variant placeholder:text-brand-outline w-52 outline-none"
-              placeholder="Search workplace..."
-              type="text"
+              id="dashboard-workplace-search"
+              name="workplaceSearch"
+              className="w-52 border-none bg-transparent text-sm font-body text-brand-on-surface-variant placeholder:text-brand-outline outline-none focus:ring-0"
+              placeholder="Search workplace…"
+              type="search"
+              autoComplete="off"
             />
           </div>
         </div>
 
-        {/* Actions */}
         <div className="flex items-center gap-3">
           {telegramBotUrl && (
             <a
-              href={telegramBotUrl as string}
+              href={telegramBotUrl}
               target="_blank"
               rel="noreferrer"
-              className="hidden sm:inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-brand-surface-container text-brand-on-surface-variant text-sm font-semibold transition-all hover:bg-brand-surface-container-high hover:text-brand-on-surface active:scale-95 border border-brand-outline-variant/20"
+              className="hidden items-center gap-2 rounded-full border border-brand-outline-variant/20 bg-brand-surface-container px-3.5 py-2 text-sm font-semibold text-brand-on-surface-variant transition-all hover:bg-brand-surface-container-high hover:text-brand-on-surface active:scale-95 sm:inline-flex"
             >
               <SocialIcon platform="telegram" size={15} />
               Telegram
             </a>
           )}
 
-          <button className="p-2 rounded-full hover:bg-brand-surface-container transition-colors duration-200 active:scale-95" aria-label="Notifications">
+          <button
+            type="button"
+            className="dashboard-card flex h-10 w-10 items-center justify-center rounded-full p-0 transition-colors duration-200 hover:bg-brand-surface-container active:scale-95"
+            aria-label="Notifications"
+          >
             <Bell className="h-[18px] w-[18px] text-brand-on-surface-variant stroke-[1.75]" />
           </button>
 
-          {/* Avatar */}
-          <div className="relative group">
-            <div className="w-9 h-9 rounded-full bg-brand-primary flex items-center justify-center text-sm font-bold text-brand-on-primary cursor-pointer select-none shadow-brand-sm">
+          <div className="group relative">
+            <button
+              type="button"
+              className="flex h-9 w-9 select-none items-center justify-center rounded-full bg-brand-primary text-sm font-bold text-brand-on-primary shadow-brand-sm transition-transform hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/30"
+              aria-haspopup="menu"
+              aria-label={`${displayName} profile menu`}
+            >
               {initials}
-            </div>
-            {/* Dropdown on hover */}
-            <div className="absolute right-0 top-full mt-2 w-44 bg-white rounded-2xl shadow-brand-md border border-brand-outline-variant/20 py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
-              <div className="px-4 py-2 border-b border-brand-surface-container-high">
-                <p className="text-xs font-semibold text-brand-on-surface truncate">{displayName}</p>
+            </button>
+            <div
+              role="menu"
+              className="dashboard-card pointer-events-none invisible absolute right-0 top-full mt-2 w-44 py-1 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:visible group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:visible group-focus-within:opacity-100"
+            >
+              <div className="border-b border-brand-surface-container-high px-4 py-2">
+                <p className="truncate text-xs font-semibold text-brand-on-surface">{displayName}</p>
               </div>
               <button
+                type="button"
                 onClick={onLogout}
                 disabled={isSigningOut}
-                className="w-full text-left px-4 py-2 text-sm text-brand-on-surface-variant hover:text-brand-primary hover:bg-brand-surface-container-low transition-colors disabled:opacity-50"
+                role="menuitem"
+                className="w-full px-4 py-2 text-left text-sm text-brand-on-surface-variant transition-colors hover:bg-brand-surface-container-low hover:text-brand-primary disabled:opacity-50"
               >
                 {isSigningOut ? "Signing out…" : "Sign out"}
               </button>

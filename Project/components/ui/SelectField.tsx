@@ -1,4 +1,4 @@
-import { SelectHTMLAttributes, forwardRef, ReactNode } from "react";
+import { SelectHTMLAttributes, forwardRef, useId } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -31,14 +31,15 @@ export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(
     id,
     ...props
   }, ref) => {
-    const fieldId = id || `select-${Math.random().toString(36).substr(2, 9)}`;
+    const generatedId = useId();
+    const fieldId = id || generatedId;
 
     return (
       <div className={cn("w-full", containerClassName)}>
         {label && (
           <label
             htmlFor={fieldId}
-            className="block text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-2"
+            className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-aura-on-surface-variant"
           >
             {label}
             {required && <span className="text-rose-400 ml-1">*</span>}
@@ -50,8 +51,7 @@ export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(
             ref={ref}
             id={fieldId}
             className={cn(
-              "w-full rounded-xl border bg-white/[0.03] backdrop-blur-xl px-4 py-3 pr-10 text-sm text-white placeholder:text-zinc-500 outline-none transition-all duration-200 appearance-none",
-              "border-white/[0.08] hover:border-white/[0.12] focus:border-emerald-500/60 focus:ring-2 focus:ring-emerald-500/20",
+              "dashboard-field appearance-none px-4 py-3 pr-10 text-sm font-medium",
               error && "border-rose-500/60 focus:border-rose-500/60 focus:ring-rose-500/20",
               className
             )}
@@ -67,14 +67,14 @@ export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(
                 key={option.value}
                 value={option.value}
                 disabled={option.disabled}
-                className="bg-gray-800 text-white"
+                className="bg-white text-aura-on-surface"
               >
                 {option.label}
               </option>
             ))}
           </select>
 
-          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500 pointer-events-none" />
+          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-aura-on-surface-variant/60" />
         </div>
 
         {error && (
@@ -84,7 +84,7 @@ export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(
         )}
 
         {helperText && !error && (
-          <p className="mt-2 text-xs text-zinc-500">
+          <p className="mt-2 text-xs text-aura-on-surface-variant">
             {helperText}
           </p>
         )}

@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Edit2, Download, Send, CheckCircle2, RotateCcw } from "lucide-react";
+import { Edit2, Download, Send, RotateCcw } from "lucide-react";
 
 interface OverviewTabProps {
   campaigns: any[];
@@ -31,7 +31,7 @@ export function OverviewTab({
         <div className="xl:col-span-4 flex flex-col gap-6">
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-bold tracking-tight text-on-surface font-headline">Production Queue</h2>
-            <span className="px-3 py-1 bg-surface-container-high rounded-full text-xs font-bold uppercase tracking-wider text-on-surface-variant">
+            <span className="dashboard-pill dashboard-pill-muted text-[11px] uppercase tracking-wider">
               Active ({activityItems.length || 0})
             </span>
           </div>
@@ -39,21 +39,25 @@ export function OverviewTab({
           <div className="space-y-4">
             {activityItems.length > 0 ? (
               activityItems.slice(0, 5).map((item, index) => (
-                <div 
+                <article
                   key={item.id || index}
-                  className="p-5 bg-surface-container-lowest rounded-xl shadow-sm border border-transparent hover:border-primary-fixed/20 transition-all flex items-center gap-4 group cursor-pointer"
+                  className="dashboard-card flex items-center gap-4 p-5"
                 >
                   <div className="relative">
-                    <img 
-                      alt="Persona" 
-                      className="w-12 h-12 rounded-full object-cover ring-2 ring-background shadow-md" 
-                      src={item.personaImage || "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=128&h=128&auto=format&fit=crop"} 
+                    <img
+                      alt="Persona"
+                      className="w-12 h-12 rounded-full object-cover ring-2 ring-background shadow-md"
+                      src={item.personaImage || "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=128&h=128&auto=format&fit=crop"}
+                      width={48}
+                      height={48}
                     />
                     <div className="absolute -bottom-1 -right-1 bg-surface-container-lowest p-1 rounded-full shadow-sm">
-                      <img 
-                        alt="App" 
-                        className="w-4 h-4 rounded-sm" 
-                        src={item.appIcon || "https://cdn-icons-png.flaticon.com/512/124/124010.png"} 
+                      <img
+                        alt="App"
+                        className="w-4 h-4 rounded-sm"
+                        src={item.appIcon || "https://cdn-icons-png.flaticon.com/512/124/124010.png"}
+                        width={16}
+                        height={16}
                       />
                     </div>
                   </div>
@@ -74,23 +78,25 @@ export function OverviewTab({
                   <div className="text-xs font-semibold text-on-surface-variant w-12 text-right">
                     {item.timeLabel || "08:42"}
                   </div>
-                </div>
+                </article>
               ))
             ) : (
-              <div className="py-12 flex flex-col items-center justify-center text-on-surface-variant/40 border-2 border-dashed border-surface-container rounded-3xl">
-                <span className="material-symbols-outlined text-4xl mb-2">movie_filter</span>
-                <p className="text-sm font-medium text-center">No active production tasks</p>
-              </div>
+               <div className="dashboard-panel-soft flex flex-col items-center justify-center border-2 border-dashed border-surface-container py-12 text-on-surface-variant/40">
+                 <span className="material-symbols-outlined text-4xl mb-2">movie_filter</span>
+                 <p className="text-sm font-medium text-center">No active production tasks</p>
+               </div>
             )}
 
             {/* Mock Completion item if there are no items or just to show the style */}
-            <div className="p-5 bg-surface-container-low rounded-xl flex items-center gap-4 opacity-70 border border-transparent">
+            <div className="dashboard-card-muted flex items-center gap-4 border-transparent p-5 opacity-70">
               <div className="relative">
                 <div className="w-12 h-12 rounded-full bg-surface-container flex items-center justify-center ring-2 ring-background shadow-md overflow-hidden">
-                  <img 
-                    alt="Persona" 
-                    className="w-full h-full object-cover" 
-                    src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=128&h=128&auto=format&fit=crop" 
+                  <img
+                    alt="Persona"
+                    className="w-full h-full object-cover"
+                    src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=128&h=128&auto=format&fit=crop"
+                    width={48}
+                    height={48}
                   />
                 </div>
                 <div className="absolute -bottom-1 -right-1 bg-surface-container-lowest p-1 rounded-full shadow-sm text-tertiary">
@@ -114,8 +120,8 @@ export function OverviewTab({
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-bold tracking-tight text-on-surface font-headline">Live Result Feed</h2>
             <div className="flex gap-2">
-              <button className="px-4 py-2 bg-surface-container-high rounded-full text-xs font-bold text-on-surface hover:bg-surface-container-highest transition-colors">All Regions</button>
-              <button className="px-4 py-2 text-xs font-bold text-on-surface-variant hover:bg-surface-container-low rounded-full transition-colors">US Only</button>
+              <button className="dashboard-pill dashboard-pill-muted text-[11px] text-on-surface hover:bg-surface-container-highest">All Regions</button>
+              <button className="dashboard-pill text-[11px] font-bold text-on-surface-variant hover:bg-surface-container-low">US Only</button>
             </div>
           </div>
 
@@ -124,13 +130,15 @@ export function OverviewTab({
               content.map((video, index) => (
                 <div 
                   key={video.id || index}
-                  className="break-inside-avoid bg-surface-container-lowest rounded-xl overflow-hidden shadow-lg shadow-on-surface/5 group relative"
+                  className="dashboard-panel break-inside-avoid group relative overflow-hidden p-0 shadow-lg shadow-on-surface/5"
                 >
                   <div className={`relative ${index % 3 === 0 ? 'aspect-[9/16]' : 'aspect-[4/5]'} overflow-hidden`}>
                     <img 
-                      alt="Result" 
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" 
+                      alt="Result"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                       src={video.thumbnail || `https://images.unsplash.com/photo-1621609764095-b32bbe35cf3a?q=80&w=800&auto=format&fit=crop`}
+                      width={800}
+                      height={index % 3 === 0 ? 1422 : 1000}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 group-hover:opacity-80 transition-opacity"></div>
                     
@@ -159,7 +167,7 @@ export function OverviewTab({
                 </div>
               ))
             ) : (
-               <div className="col-span-full py-24 flex flex-col items-center justify-center text-on-surface-variant/40 bg-surface-container-low rounded-[32px] border-2 border-dashed border-surface-container">
+               <div className="dashboard-panel-soft col-span-full flex flex-col items-center justify-center border-2 border-dashed border-surface-container bg-surface-container-low py-24 text-on-surface-variant/40">
                 <span className="material-symbols-outlined text-6xl mb-4">video_library</span>
                 <p className="text-lg font-bold">No published content yet</p>
                 <p className="text-sm">Start your first production in the Video Engine</p>
@@ -176,7 +184,7 @@ export function OverviewTab({
       </section>
 
       {/* 3. Floating System Health Panel */}
-      <div className="fixed bottom-8 right-8 w-80 bg-surface-container-lowest/90 backdrop-blur-2xl rounded-xl shadow-[0_20px_60px_rgba(46,47,44,0.15)] overflow-hidden z-[60] border border-surface-container animate-slide-up group">
+      <div className="dashboard-panel-soft relative mt-8 w-full overflow-hidden border border-surface-container animate-slide-up group xl:fixed xl:bottom-8 xl:right-8 xl:mt-0 xl:w-80">
         <div className="p-5 border-b border-surface-container flex items-center justify-between bg-surface-container-low/50">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 bg-tertiary rounded-full animate-pulse"></span>
@@ -187,20 +195,20 @@ export function OverviewTab({
           </span>
         </div>
         
-        <div className="p-4 space-y-3 max-h-64 overflow-y-auto scrollbar-hide">
+        <ul className="p-4 space-y-3 max-h-64 overflow-y-auto scrollbar-hide">
           {(systemSummary?.services || [
             { name: "@techreview_us", status: "online", image: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=128&h=128&auto=format&fit=crop" },
             { name: "@londondiaries_uk", status: "online", image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=128&h=128&auto=format&fit=crop" },
             { name: "@vietnam_daily", status: "online", image: "https://images.unsplash.com/photo-1607746882042-944635dfe10e?q=80&w=128&h=128&auto=format&fit=crop" },
             { name: "@paris_vibes", status: "warning", image: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?q=80&w=128&h=128&auto=format&fit=crop" }
           ]).map((service: any, idx: number) => (
-            <div 
+            <li
               key={service.name || idx} 
-              className={`flex items-center justify-between p-2 ${service.status === 'warning' ? 'bg-secondary-container/10' : 'hover:bg-surface-container'} rounded-lg transition-colors cursor-pointer`}
+              className={`flex items-center justify-between rounded-lg p-2 ${service.status === 'warning' ? 'bg-secondary-container/10' : 'bg-transparent'}`}
             >
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center overflow-hidden border border-surface-container">
-                  <img alt="acct" className="w-full h-full object-cover" src={service.image} />
+                  <img alt="acct" className="w-full h-full object-cover" src={service.image} width={32} height={32} />
                 </div>
                 <span className={`text-xs font-bold ${service.status === 'warning' ? 'text-secondary-dim' : 'text-on-surface'}`}>
                   {service.name}
@@ -211,9 +219,9 @@ export function OverviewTab({
               ) : (
                 <span className="material-symbols-outlined text-tertiary text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
               )}
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
         
         <div className="p-3 bg-surface-container text-center">
           <button className="text-[10px] font-black text-on-surface-variant hover:text-primary transition-all tracking-wider uppercase">

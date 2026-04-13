@@ -1,4 +1,4 @@
-import { HTMLAttributes, ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 interface PanelProps extends HTMLAttributes<HTMLDivElement> {
@@ -15,9 +15,9 @@ export function Panel({
   ...props
 }: PanelProps) {
   const variants = {
-    default: "bg-white border border-aura-outline-variant/10 shadow-aura",
-    elevated: "bg-white border border-aura-outline-variant/10 shadow-aura hover:shadow-aura-md transition-shadow duration-200",
-    outlined: "bg-white border border-aura-outline-variant/20 shadow-none",
+    default: "dashboard-panel",
+    elevated: "dashboard-panel dashboard-card-interactive",
+    outlined: "dashboard-panel border-aura-outline-variant/22 shadow-none",
   };
 
   const paddings = {
@@ -30,7 +30,6 @@ export function Panel({
   return (
     <div
       className={cn(
-        "rounded-2xl",
         variants[variant],
         paddings[padding],
         className,

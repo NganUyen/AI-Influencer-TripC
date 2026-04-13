@@ -8,6 +8,9 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      screens: {
+        xs: "375px",
+      },
       colors: {
         background: "#f8f6f1",
         foreground: "#2e2f2c",
@@ -83,6 +86,8 @@ const config: Config = {
         DEFAULT: "1rem",
         lg: "2rem",
         xl: "3rem",
+        card: "var(--radius-card)",
+        panel: "var(--radius-panel)",
         full: "9999px"
       },
       animation: {
@@ -107,6 +112,8 @@ const config: Config = {
         xs: "2px",
       },
       boxShadow: {
+        card: "var(--shadow-card)",
+        "card-hover": "var(--shadow-card-hover)",
         brand: "0 20px 40px rgba(0,0,0,0.1)",
         "brand-md": "0 8px 24px rgba(0,0,0,0.12)",
         "brand-sm": "0 2px 8px rgba(0,0,0,0.08)",

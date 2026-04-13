@@ -3,10 +3,13 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import aiAvatarImage from "../dashboard/ai-avatar.webp";
 
 import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
-import { Footer } from "@/components/layout/Footer";
+import { LandingHeader } from "@/components/layout/LandingHeader";
+import { BaseButton } from "@/components/landing/BaseButton";
+import { Footer } from "@/components/landing/Footer";
 
 interface TelegramLinkToken {
   start_token: string;
@@ -71,7 +74,7 @@ function AuthPageFallback() {
           </p>
         </div>
       </main>
-      <Footer variant="page" />
+      <Footer />
     </div>
   );
 }
@@ -256,253 +259,254 @@ function AuthPageContent() {
 
   if (currentStep === "tiktok") {
     return (
-      <div className="bg-background text-on-surface min-h-screen flex flex-col items-center selection:bg-primary-container/20">
-        <nav className="fixed top-0 left-0 right-0 z-50 bg-surface/70 backdrop-blur-2xl shadow-sm border-b border-outline-variant/10">
-          <div className="flex justify-between items-center w-full px-8 py-4 max-w-7xl mx-auto">
-            <div className="text-2xl font-bold bg-gradient-to-r from-primary to-primary-container bg-clip-text text-transparent font-headline tracking-tighter">
-              AI-Influencer Factory
-            </div>
-            <div className="hidden md:flex items-center gap-8">
-              <Link href="/" className="text-on-surface/60 font-headline font-semibold tracking-tight hover:text-primary transition-all px-3 py-1 rounded-full">Trang chủ</Link>
-              <a className="text-on-surface/60 font-headline font-semibold tracking-tight hover:text-primary transition-all px-3 py-1 rounded-full" href="#">Creators</a>
-              <a className="text-on-surface/60 font-headline font-semibold tracking-tight hover:text-primary transition-all px-3 py-1 rounded-full" href="#">Community</a>
-            </div>
-            <div className="w-10 h-10 rounded-full border-2 border-primary-fixed overflow-hidden bg-surface-container">
-               <span className="material-symbols-outlined text-on-surface-variant flex items-center justify-center h-full">person</span>
-            </div>
-          </div>
-        </nav>
+      <div className="bg-background text-on-surface min-h-screen flex flex-col selection:bg-primary-container/20">
+        <LandingHeader showCTA={false} />
 
-        <main className="flex-1 w-full max-w-5xl mx-auto pt-32 pb-20 px-6">
-          <div className="flex flex-col lg:flex-row gap-12 items-center lg:items-stretch">
-            {/* Persona Preview Section */}
-            <div className="w-full lg:w-5/12 flex flex-col">
-              <div className="relative w-full aspect-[4/5] rounded-xl overflow-hidden shadow-2xl group border border-outline-variant/5">
-                <img 
-                  alt="Persona imagery" 
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" 
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuDoI-4UWj9wonx_1HEZUxb4h_H2LFWZZGaBSJ-VztevBW1-h_EiqPO1OCTc-A3SiCk6M6qp1ZZLwYGoqaviKBPSY8Hl1OqFV9Mb4TPz0SaFom5jyM8VJMDezGDdXv6VA_NmiVT7pJB7ptr-KVsgJ2Cw55jBI1en9CZgqZ9MJhIEidxJKoWXhNEHhNqQzCfkLB8c4348KsdbauqHYkbFclQooGnfow39ceBNm5UuzppDWrNJYU_Gmdf2o0_ft8uRYl3SiU8QHMDD3Zw" 
-                />
-                <div className="absolute bottom-0 left-0 right-0 p-8 m-4 rounded-lg bg-surface/70 backdrop-blur-2xl border border-white/20">
-                  <div className="flex justify-between items-end">
-                    <div>
-                      <span className="text-xs font-bold text-primary uppercase tracking-widest font-headline">Ready to Publish</span>
-                      <h3 className="text-2xl font-extrabold text-on-surface font-headline mt-1">Elena V.</h3>
-                      <p className="text-sm text-on-surface-variant">Lifestyle & Minimalist Aesthetics</p>
-                    </div>
-                    <div className="flex flex-col items-end">
-                      <span className="text-xs text-on-surface-variant font-medium">Platform Reach</span>
-                      <span className="text-lg font-bold text-on-surface">124k Est.</span>
-                    </div>
-                  </div>
-                </div>
+        <main className="flex-1 w-full flex items-center justify-center px-4 sm:px-6 py-12">
+          {/* Card Container - Premium Minimal */}
+          <div className="w-full max-w-md rounded-3xl border border-outline-variant/20 bg-surface shadow-sm overflow-hidden">
+            {/* Header with Back Button */}
+            <div className="px-8 pt-6 pb-4 border-b border-outline-variant/10 flex items-center justify-between">
+              <button
+                onClick={() => router.push("/")}
+                className="flex items-center justify-center w-10 h-10 rounded-lg hover:bg-surface-container transition-colors text-on-surface-variant hover:text-on-surface"
+                aria-label="Return home"
+              >
+                <span className="material-symbols-outlined" style={{fontSize: '24px'}}>arrow_back</span>
+              </button>
+              <div className="text-center flex-1">
+                <p className="text-xs font-semibold text-primary uppercase tracking-wide">Step 1 / 2</p>
               </div>
-              <div className="mt-8 p-6 bg-surface-container-low rounded-lg border border-outline-variant/5">
-                <div className="flex items-start gap-4">
-                  <span className="material-symbols-outlined text-primary-fixed mt-1 fill-1">auto_awesome</span>
+              <div className="w-10"></div>
+            </div>
+
+            {/* Image Section - Natural 4:3 Ratio */}
+            <div style={{ aspectRatio: '4/3' }} className="relative w-full bg-surface-container overflow-hidden">
+              <img
+                alt="AI-Influencer Avatar"
+                className="w-full h-full object-cover"
+                src={aiAvatarImage.src}
+                width={aiAvatarImage.width}
+                height={aiAvatarImage.height}
+              />
+            </div>
+
+            {/* Content Section - Centered Stack */}
+            <div className="p-8 space-y-6">
+              {/* Heading Stack */}
+              <div className="space-y-3">
+                <h1 className="text-3xl sm:text-4xl font-bold font-headline text-on-surface tracking-tight">
+                  Connect your TikTok
+                </h1>
+                <p className="text-sm text-on-surface-variant leading-relaxed">
+                  Authorize publishing access to streamline content distribution from your dashboard.
+                </p>
+              </div>
+
+              {/* Primary CTA - Emphasized */}
+              <div className="pt-2">
+                <BaseButton
+                  variant="primary"
+                  size="lg"
+                  fullWidth
+                  onClick={() => setCurrentStep("telegram")}
+                  className="flex items-center justify-center gap-2 h-14"
+                >
+                  <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.06-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.03 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.9-.32-1.9-.36-2.81-.12-1.09.28-2.06 1.01-2.61 1.98-.44.75-.58 1.63-.51 2.49.07.9.46 1.76 1.1 2.39.69.72 1.67 1.16 2.67 1.2 1.05.07 2.15-.22 2.97-.89.89-.71 1.34-1.84 1.3-2.97.03-4.32.01-8.64.02-12.96z"></path>
+                  </svg>
+                  Sign in with TikTok
+                </BaseButton>
+              </div>
+
+              {/* Trust Indicators - Compact */}
+              <div className="space-y-2 pt-2">
+                <div className="flex gap-2">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-primary" style={{fontSize: '18px'}}>verified</span>
+                  </div>
                   <div>
-                    <h4 className="font-bold text-on-surface font-headline">AI Generation Ready</h4>
-                    <p className="text-sm text-on-surface-variant mt-1 leading-relaxed">The "Publish" action will automatically format and upload Elena's latest content sequence to your linked TikTok profile.</p>
+                    <p className="text-xs font-semibold text-on-surface">Official OAuth2</p>
+                    <p className="text-[11px] text-on-surface-variant">Password never shared</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-primary" style={{fontSize: '18px'}}>lock</span>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-on-surface">Enterprise Security</p>
+                    <p className="text-[11px] text-on-surface-variant">End-to-end encrypted</p>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* Authentication Action Card */}
-            <div className="w-full lg:w-7/12 flex flex-col justify-center animate-fade-in">
-              <div className="bg-surface-container-lowest p-10 lg:p-14 rounded-xl shadow-2xl relative overflow-hidden border border-outline-variant/10">
-                <div className="absolute -top-24 -right-24 w-64 h-64 bg-primary-container/10 rounded-full blur-3xl"></div>
-                <div className="relative z-10">
-                  <header className="mb-10">
-                    <h1 className="text-4xl lg:text-5xl font-extrabold text-on-surface font-headline mb-4 tracking-tight leading-tight">TikTok Authentication</h1>
-                    <p className="text-lg text-on-surface-variant max-w-md">Connect your professional TikTok account to authorize direct publishing from the AI-Influencer Factory dashboard.</p>
-                  </header>
-
-                  <div className="space-y-6">
-                    <button 
-                      onClick={() => setCurrentStep("telegram")}
-                      className="w-full py-5 px-8 rounded-full bg-gradient-to-r from-primary to-primary-container text-on-primary flex items-center justify-center gap-4 transition-all scale-100 hover:scale-[0.98] active:scale-[0.95] shadow-lg group"
-                    >
-                      <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.06-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.03 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.9-.32-1.9-.36-2.81-.12-1.09.28-2.06 1.01-2.61 1.98-.44.75-.58 1.63-.51 2.49.07.9.46 1.76 1.1 2.39.69.72 1.67 1.16 2.67 1.2 1.05.07 2.15-.22 2.97-.89.89-.71 1.34-1.84 1.3-2.97.03-4.32.01-8.64.02-12.96z"></path>
-                      </svg>
-                      <span className="font-bold text-lg font-headline">Sign in with TikTok</span>
-                    </button>
-                    <div className="flex items-center gap-3 p-4 bg-surface-container rounded-lg border border-outline-variant/10">
-                      <span className="material-symbols-outlined text-tertiary">verified_user</span>
-                      <span className="text-sm text-on-surface-variant font-medium">Encrypted Oauth2 connection. AI-Influencer Factory never sees your password.</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-12 flex items-center justify-between">
-                    <Link href="/" className="text-on-surface-variant hover:text-primary transition-colors text-sm font-semibold flex items-center gap-2">
-                      <span className="material-symbols-outlined text-lg">arrow_back</span>
-                      Return to Designer
-                    </Link>
-                    <div className="flex gap-4">
-                      <a className="text-xs text-on-surface-variant underline hover:text-on-surface transition-all" href="#">Privacy</a>
-                      <a className="text-xs text-on-surface-variant underline hover:text-on-surface transition-all" href="#">Terms</a>
-                    </div>
-                  </div>
-                </div>
+              {/* Footer Links */}
+              <div className="flex items-center justify-center gap-4 pt-4 border-t border-outline-variant/10 text-center">
+                <Link href="/" className="text-xs font-medium text-on-surface-variant hover:text-on-surface transition-colors">
+                  Return home
+                </Link>
+                <span className="text-outline-variant/30">•</span>
+                <a href="#" className="text-xs font-medium text-on-surface-variant hover:text-on-surface transition-colors">
+                  Privacy
+                </a>
               </div>
             </div>
           </div>
         </main>
+
+        <Footer />
       </div>
     );
   }
 
   // Telegram Authentication Step (Step 2)
   return (
-    <div className="bg-background text-on-surface min-h-screen flex flex-col selection:bg-primary-container/20 overflow-x-hidden">
-      <main className="flex-grow flex flex-col items-center justify-center px-6 py-12 relative overflow-hidden">
-        {/* Organic Background Elements */}
-        <div className="absolute top-[-10%] right-[-10%] w-[40rem] h-[40rem] rounded-full bg-primary-container/10 blur-[100px] pointer-events-none"></div>
-        <div className="absolute bottom-[-5%] left-[-5%] w-[30rem] h-[30rem] rounded-full bg-secondary-container/10 blur-[80px] pointer-events-none"></div>
+    <div className="bg-background text-on-surface min-h-screen flex flex-col selection:bg-primary-container/20">
+      <LandingHeader showCTA={false} />
 
-        {/* Progress Indicator */}
-        <div className="w-full max-w-md mb-12 flex items-center justify-center gap-4 z-10">
-          <div className="flex items-center gap-2">
-            <div className="w-10 h-10 rounded-full bg-tertiary text-on-tertiary flex items-center justify-center shadow-lg">
-              <span className="material-symbols-outlined fill-1">check</span>
+      <main className="flex-1 w-full flex items-center justify-center px-4 sm:px-6 py-12">
+        {/* Card Container - Consistent with TikTok */}
+        <div className="w-full max-w-md rounded-3xl border border-outline-variant/20 bg-surface shadow-sm overflow-hidden">
+          {/* Header with Back Button */}
+          <div className="px-8 pt-6 pb-4 border-b border-outline-variant/10 flex items-center justify-between">
+            <button
+              onClick={() => setCurrentStep("tiktok")}
+              className="flex items-center justify-center w-10 h-10 rounded-lg hover:bg-surface-container transition-colors text-on-surface-variant hover:text-on-surface"
+              aria-label="Back to TikTok"
+            >
+              <span className="material-symbols-outlined" style={{fontSize: '24px'}}>arrow_back</span>
+            </button>
+            <div className="text-center flex-1">
+              <p className="text-xs font-semibold text-primary uppercase tracking-wide">Step 2 / 2</p>
             </div>
-            <span className="text-sm font-label text-on-surface-variant">TikTok</span>
-          </div>
-          <div className="h-[2px] w-12 bg-surface-container-highest"></div>
-          <div className="flex items-center gap-2">
-            <div className="w-10 h-10 rounded-full bg-primary text-on-primary flex items-center justify-center shadow-lg ring-4 ring-primary-container/20">
-              <span className="text-sm font-bold">2</span>
-            </div>
-            <span className="text-sm font-label text-on-surface font-bold">Telegram</span>
-          </div>
-          <div className="h-[2px] w-12 bg-surface-container-highest"></div>
-          <div className="flex items-center gap-2 opacity-40">
-            <div className="w-10 h-10 rounded-full bg-surface-container-high text-on-surface-variant flex items-center justify-center">
-              <span className="text-sm font-bold">3</span>
-            </div>
-            <span className="text-sm font-label text-on-surface-variant">Done</span>
-          </div>
-        </div>
-
-        {/* Authentication Card */}
-        <div className="w-full max-w-2xl bg-surface-container-lowest rounded-xl shadow-2xl overflow-hidden flex flex-col md:flex-row relative z-10 border border-outline-variant/10">
-          {/* Visual Side */}
-          <div className="w-full md:w-5/12 relative h-64 md:h-auto min-h-[300px]">
-            <div 
-              className="absolute inset-0 bg-cover bg-center" 
-              style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuBSU8ftoyiZGJD3H_GkLrTdl-W-Ig4pHyCN7LHttEGPbQvntO07CiLVSvpn-fwr1dS8fl4mTzc6aqbhaCFdhDgE9q5LLKPRHS5TMOPVyHl4AnDlDsRFUTzJJeX-yRq-DKKUrRiFKfRvfGJjmssJtmutw_DbIvLyVN2ExUsYaF4meKTQbPOINuOLk1u3PAhKEeF11IQKBcnol4XHDh2ckQSwFUAjOSJAj0r9JwjAB1TukqWdeQY8-MXkpFaTbWJ2HtO1x0OvxDXNXl0')" }}
-            ></div>
-            <div className="absolute inset-0 bg-gradient-to-t from-primary/60 to-transparent"></div>
-            <div className="absolute bottom-8 left-8 right-8 backdrop-blur-xl bg-surface/70 p-6 rounded-lg border border-white/20">
-              <div className="flex items-center gap-4 mb-3">
-                <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-primary-container">
-                  <img 
-                    alt="Persona" 
-                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuAgEZ7IBStwuciRq0xKBirYD89vzAGZZIjr6rjAp94yXGwUW3w20LQjAdXcnLLkDafouNsFOXMIyDTGoVtoCQEiO7jmDON9S1nIYA_oHzVDe3JHG6advnRI1YV3diOAw2hV5ogFVzsLopC9-6ZKNzi_uC5CQ3HQ1VR3zJIVSMnCRMBz1S91hk1wvxeuCPB8s69PwOhVLWUPQXR-YSGu5Yyj9kHF80HQLfUiC97EDs-P_qjofJ4_gWksa9Thu-rlCMp2d21yXIA8eQI" 
-                  />
-                </div>
-                <div>
-                  <p className="text-on-surface font-headline font-bold text-lg leading-tight">AI-Influencer Assistant</p>
-                  <p className="text-on-surface-variant text-xs font-label">Assistant Mode Active</p>
-                </div>
-              </div>
-              <p className="text-sm text-on-surface-variant leading-relaxed">"I'll be your direct line for performance alerts and automated fleet commands."</p>
-            </div>
+            <div className="w-10"></div>
           </div>
 
-          {/* Content Side */}
-          <div className="w-full md:w-7/12 p-10 flex flex-col justify-center animate-fade-in">
-            <h1 className="text-3xl md:text-4xl font-headline font-extrabold text-on-surface tracking-tight mb-4">Telegram Authentication</h1>
-            <p className="text-on-surface-variant mb-8 leading-relaxed">Enable automated posting and notifications to keep your creator factory running 24/7.</p>
+          {/* Content Section - Stacked */}
+          <div className="p-8 space-y-5">
+            {/* Heading Stack */}
+            <div className="space-y-3">
+              <h1 className="text-3xl sm:text-4xl font-bold font-headline text-on-surface tracking-tight">
+                Connect Telegram
+              </h1>
+              <p className="text-sm text-on-surface-variant leading-relaxed">
+                Receive real-time notifications and manage your creator fleet directly from Telegram.
+              </p>
+            </div>
 
-            {showQR && telegramSignInUrl ? (
-              <div className="space-y-6">
-                <div className="flex flex-col items-center gap-5 p-6 bg-surface-container rounded-xl border border-outline-variant/10 w-full">
-                  <div className="bg-white p-4 rounded-xl shadow-xl shadow-primary/5 border border-outline-variant/10 transition-transform hover:scale-[1.02]">
-                    <img 
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(telegramSignInUrl)}`} 
-                      alt="Telegram Login QR"
-                      className="w-40 h-40"
-                    />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-xs text-on-surface font-black uppercase tracking-widest editorial-headline">Quét mã QR</p>
-                    <p className="text-[10px] text-on-surface-variant font-medium mt-1">Mở Telegram và quét để đăng nhập</p>
-                  </div>
-                  <button onClick={() => setShowQR(false)} className="text-primary text-xs font-bold uppercase tracking-widest hover:underline px-4 py-2">Quay lại</button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {/* Why Section */}
-                <div className="space-y-6 mb-10">
-                  <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 shrink-0 rounded-lg bg-surface-container flex items-center justify-center text-primary border border-outline-variant/5">
-                      <span className="material-symbols-outlined fill-1">bolt</span>
+            {/* Benefits Grid */}
+            {!showQR && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Benefit 1 */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                      <span className="material-symbols-outlined fill-1 text-primary" style={{ fontSize: '18px' }}>bolt</span>
                     </div>
-                    <div>
-                      <h3 className="font-headline font-bold text-on-surface">Live Production Updates</h3>
-                      <p className="text-sm text-on-surface-variant">Get instant pings when your personas go viral or need manual approval.</p>
-                    </div>
+                    <h3 className="text-xs font-semibold text-on-surface">Live Updates</h3>
                   </div>
-                  <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 shrink-0 rounded-lg bg-surface-container flex items-center justify-center text-primary border border-outline-variant/5">
-                      <span className="material-symbols-outlined fill-1">group_work</span>
-                    </div>
-                    <div>
-                      <h3 className="font-headline font-bold text-on-surface">Manage Your Fleet</h3>
-                      <p className="text-sm text-on-surface-variant">Issue commands to multiple AI agents directly through your secure chat.</p>
-                    </div>
-                  </div>
+                  <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                    Instant alerts when content goes viral.
+                  </p>
                 </div>
 
-                {/* Login Button */}
-                <div className="space-y-4">
-                  <button 
-                    disabled={isGeneratingToken || isAwaitingTelegram}
-                    onClick={handleActionClick}
-                    className="w-full py-4 px-8 bg-gradient-to-r from-primary to-primary-container text-on-primary font-headline font-bold rounded-full flex items-center justify-center gap-3 shadow-lg hover:scale-[0.98] transition-all active:scale-95 group disabled:opacity-50"
-                  >
-                    <span className="material-symbols-outlined fill-1" style={{ fontSize: '20px' }}>send</span>
-                    {isGeneratingToken ? "Đang xử lý..." : "Continue with Telegram"}
-                    <span className="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>
-                  </button>
-                  <button onClick={handleQRClick} className="w-full text-center text-xs text-on-surface-variant hover:text-primary transition-colors font-bold uppercase tracking-widest">
-                    Hoặc dùng mã QR
-                  </button>
-                  <p className="text-center text-[10px] text-on-surface-variant opacity-60 px-4">
-                    By connecting, you agree to receive automated messages. You can mute or disconnect at any time in settings.
+                {/* Benefit 2 */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                      <span className="material-symbols-outlined fill-1 text-primary" style={{ fontSize: '18px' }}>smart_toy</span>
+                    </div>
+                    <h3 className="text-xs font-semibold text-on-surface">Fleet Control</h3>
+                  </div>
+                  <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                    Command AI agents via chat.
                   </p>
                 </div>
               </div>
             )}
 
-            {/* Status & Errors */}
-            {(isAwaitingTelegram || isCompletingSession) && (
-              <div className="mt-6 p-4 rounded-xl bg-primary/5 border border-primary/10 text-center animate-pulse-slow">
-                <div className="flex items-center justify-center gap-2 mb-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce"></div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-primary">
-                    {isCompletingSession ? "Đang xác thực..." : "Đang chờ Telegram"}
-                  </p>
+            {/* QR Code or Button Container */}
+            {showQR && telegramSignInUrl ? (
+              <div className="flex flex-col items-center gap-5 py-6">
+                <div className="bg-white p-4 rounded-2xl shadow-lg border border-outline-variant/10">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(telegramSignInUrl)}`}
+                    alt="Telegram Login QR"
+                    className="w-40 h-40"
+                  />
                 </div>
-                <p className="text-xs text-on-surface-variant">
-                  Bạn sẽ tự động chuyển hướng sau khi nhấn <b>Start</b> trong bot.
+                <div className="text-center">
+                  <p className="text-xs font-semibold text-on-surface mb-1">Scan with Telegram</p>
+                  <p className="text-[11px] text-on-surface-variant mb-4">Open Telegram to scan and sign in</p>
+                  <BaseButton
+                    variant="ghost"
+                    onClick={() => setShowQR(false)}
+                  >
+                    Back to button method
+                  </BaseButton>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <BaseButton
+                  variant="primary"
+                  size="lg"
+                  fullWidth
+                  disabled={isGeneratingToken || isAwaitingTelegram}
+                  onClick={handleActionClick}
+                  className="flex items-center justify-center gap-2 h-14"
+                >
+                  <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.14.14-.368.36-.753.36-.49 0-.403-.345-.568-.611l-1.265-4.386-3.12-.961c-.684-.213-.685-.684.15-.984l12.2-4.703c.576-.213 1.074.144.898.942z"/>
+                  </svg>
+                  {isGeneratingToken ? "Processing..." : "Continue with Telegram"}
+                </BaseButton>
+
+                <BaseButton
+                  variant="secondary"
+                  size="lg"
+                  fullWidth
+                  onClick={handleQRClick}
+                >
+                  Scan QR Code Instead
+                </BaseButton>
+
+                {/* Trust Footer */}
+                <p className="text-[11px] text-on-surface-variant text-center pt-2 px-2 leading-relaxed">
+                  By continuing, you agree to receive automated messages. Disable anytime in settings.
                 </p>
               </div>
             )}
 
-            {localError || error ? (
-              <div className="mt-4 p-4 rounded-lg bg-error-container/10 border border-error-container/20 text-center">
-                <p className="text-xs text-error font-bold">{localError || (error as string)}</p>
+            {/* Loading State */}
+            {(isAwaitingTelegram || isCompletingSession) && (
+              <div className="p-2 rounded-lg bg-primary/5 border border-primary/10 text-center">
+                <div className="flex items-center justify-center gap-2 mb-1">
+                  <div className="w-1 h-1 rounded-full bg-primary animate-pulse"></div>
+                  <p className="text-xs font-semibold text-primary">
+                    {isCompletingSession ? "Authenticating..." : "Waiting for Telegram"}
+                  </p>
+                </div>
+                <p className="text-[11px] text-on-surface-variant">
+                  Press <span className="font-semibold">Start</span> in the Telegram bot.
+                </p>
               </div>
-            ) : null}
+            )}
 
-            {/* Dev Mode Bypass */}
+            {/* Error State */}
+            {(localError || error) && (
+              <div className="p-2 rounded-lg bg-error/10 border border-error/20">
+                <p className="text-xs text-error font-semibold">{localError || (error as string)}</p>
+              </div>
+            )}
+
+            {/* Dev Mode */}
             {process.env.NODE_ENV === "development" && (
-              <div className="mt-8 pt-6 border-t border-outline-variant/10">
-                <button
+              <div className="pt-2 border-t border-outline-variant/10">
+                <BaseButton
+                  variant="surface"
+                  fullWidth
                   onClick={() => {
                     void loginWithTelegram({
                       id: 12345678,
@@ -513,38 +517,28 @@ function AuthPageContent() {
                       hash: "__MOCK_DEV_LOGIN__",
                     });
                   }}
-                  className="w-full rounded-full border border-primary/10 bg-primary/5 py-3 text-[10px] font-black uppercase tracking-widest text-primary transition-all hover:bg-primary/10"
                 >
-                  Skip for now (Dev Mode)
-                </button>
+                  Dev: Skip to Dashboard
+                </BaseButton>
               </div>
             )}
-          </div>
-        </div>
 
-        {/* Secondary Actions */}
-        <div className="mt-12 flex items-center gap-8 z-10">
-          <button 
-            onClick={() => setCurrentStep("tiktok")}
-            className="text-on-surface-variant hover:text-primary font-label text-sm transition-colors flex items-center gap-2 group"
-          >
-            <span className="material-symbols-outlined text-lg group-hover:-translate-x-1 transition-transform">arrow_back</span>
-            Back to TikTok Login
-          </button>
+            {/* Back Button */}
+            <div className="text-center pt-2">
+              <BaseButton
+                variant="ghost"
+                onClick={() => setCurrentStep("tiktok")}
+                className="flex items-center justify-center gap-1 mx-auto text-sm"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>arrow_back</span>
+                Back to TikTok
+              </BaseButton>
+            </div>
+          </div>
         </div>
       </main>
 
-      <footer className="w-full max-w-7xl mx-auto px-8 py-8 flex flex-col md:flex-row justify-between items-center opacity-60 border-t border-outline-variant/10">
-        <div className="text-xs font-label text-on-surface-variant mb-4 md:mb-0">
-          © 2026 AI-Influencer Factory. All rights reserved.
-        </div>
-        <div className="flex gap-6">
-          <a className="text-xs font-label text-on-surface-variant hover:text-primary underline" href="#">Privacy Protocol</a>
-          <a className="text-xs font-label text-on-surface-variant hover:text-primary underline" href="#">Terms of Production</a>
-        </div>
-      </footer>
-
-      <Footer variant="page" />
+      <Footer />
     </div>
   );
 }

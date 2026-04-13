@@ -57,7 +57,7 @@ export function OpsTab({
   return (
     <div className="flex flex-col lg:flex-row gap-8 h-[calc(100vh-180px)] animate-fade-in">
       <div className="flex-1 flex flex-col gap-6 min-w-0">
-        <Panel className="flex-1 flex flex-col overflow-hidden p-0 border border-black/5 bg-white shadow-brand-sm">
+        <Panel variant="elevated" className="flex-1 flex flex-col overflow-hidden p-0">
           <PanelHeader
             title="AI Assistant"
             subtitle={
@@ -79,14 +79,14 @@ export function OpsTab({
                 </span>
               </div>
             }
-            className="px-8 py-6 border-b border-black/5 bg-white"
+            className="border-b border-black/5 px-8 py-6"
           />
 
           {/* Messages area */}
-          <div className="flex-1 overflow-y-auto p-8 space-y-8 scrollbar-hide bg-white">
+          <div className="flex-1 overflow-y-auto bg-white p-8 space-y-8 scrollbar-hide">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center space-y-4 max-w-sm mx-auto">
-                <div className="w-16 h-16 rounded-2xl bg-brand-primary/10 flex items-center justify-center border border-brand-primary/20">
+                <div className="dashboard-icon-tile h-16 w-16 rounded-panel border border-brand-primary/20 bg-brand-primary/10 shadow-none">
                   <Sparkles className="w-8 h-8 text-brand-primary opacity-60" />
                 </div>
                 <div>
@@ -107,32 +107,18 @@ export function OpsTab({
               ))
             )}
             {busyKey === "assistant" && (
-              <div className="flex gap-4 animate-fade-in">
-                <div className="w-9 h-9 rounded-2xl flex items-center justify-center flex-shrink-0 border border-brand-outline/10 bg-brand-primary/10 text-brand-primary">
-                  <Bot className="w-5 h-5" />
-                </div>
-
-                <div className="max-w-sm rounded-[24px] border border-brand-outline/10 bg-brand-primary/[0.03] px-5 py-4 shadow-sm">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-on-surface-variant/70 mb-2">
-                    assistant
-                  </p>
-                  <div className="flex items-center gap-2 text-sm text-brand-on-surface">
-                    <span className="flex gap-1">
-                      <span className="h-2 w-2 rounded-full bg-brand-primary/50 animate-pulse" />
-                      <span className="h-2 w-2 rounded-full bg-brand-primary/50 animate-pulse [animation-delay:150ms]" />
-                      <span className="h-2 w-2 rounded-full bg-brand-primary/50 animate-pulse [animation-delay:300ms]" />
-                    </span>
-                    <span className="font-body">Thinking...</span>
-                  </div>
-                </div>
-              </div>
+              <MessageBubble
+                id="assistant-loading"
+                role="assistant"
+                content="OpenClaw is preparing your next response..."
+              />
             )}
           </div>
 
           {/* Composer */}
-          <div className="p-8 bg-white/50 border-t border-black/5">
+          <div className="border-t border-black/5 bg-white/50 p-8">
             {!aiBackbone?.effective_status.ready && (
-              <div className="mb-4 p-3.5 bg-rose-50 rounded-2xl border border-rose-200 flex items-center gap-3 text-rose-700 shadow-sm animate-pulse-slow">
+              <div className="dashboard-banner dashboard-banner-error mb-4 animate-pulse-slow p-3.5">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
                 <p className="text-[10px] font-bold tracking-tight">
                   Configure AI Backbone (GPT OAuth or API Key) to use the assistant.
@@ -149,14 +135,14 @@ export function OpsTab({
                     : "Connect AI to get started..."
                 }
                 disabled={busyKey === "assistant" || !aiBackbone?.effective_status.ready}
-                className="w-full rounded-2xl bg-white border border-brand-outline/20 px-6 py-4 pr-14 text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/20 transition-all text-brand-on-surface font-body placeholder:text-brand-on-surface-variant/50"
+                className="dashboard-field px-6 py-4 pr-14 text-sm font-medium"
               />
               <button
                 type="submit"
                 disabled={
                   busyKey === "assistant" || !composer.trim() || !aiBackbone?.effective_status.ready
                 }
-                className="absolute right-2 top-2 h-10 w-10 flex items-center justify-center rounded-lg bg-brand-primary text-white shadow-md shadow-brand-primary/20 hover:bg-brand-primary/90 disabled:bg-brand-outline disabled:shadow-none transition-all active:scale-95"
+                className="absolute right-2 top-2 flex h-10 w-10 items-center justify-center rounded-card bg-brand-primary text-white shadow-md shadow-brand-primary/20 transition-all hover:bg-brand-primary/90 active:scale-95 disabled:bg-brand-outline disabled:shadow-none"
               >
                 <Send className="w-4 h-4" />
               </button>
@@ -166,11 +152,11 @@ export function OpsTab({
 
         {/* Artifacts area */}
         {artifacts.length > 0 && (
-          <div className="h-44 bg-white rounded-[40px] border border-black/5 p-6 overflow-x-auto flex gap-4 scrollbar-hide shadow-brand-sm">
+          <div className="dashboard-panel flex h-44 gap-4 overflow-x-auto p-6 scrollbar-hide">
             {artifacts.map((art) => (
               <div
                 key={art.id}
-                className="min-w-[240px] rounded-2xl p-4 flex flex-col justify-between border border-black/5 bg-white hover:shadow-brand-sm transition-all cursor-pointer group"
+                className="dashboard-card dashboard-card-interactive group flex min-w-[240px] cursor-pointer flex-col justify-between p-4"
               >
                 <div>
                   <div className="flex items-center gap-2 mb-2">
@@ -191,7 +177,7 @@ export function OpsTab({
       </div>
 
       <div className="w-full lg:w-80 flex flex-col gap-8 flex-shrink-0">
-        <Panel className="flex-1 flex flex-col p-0 overflow-hidden border border-black/5 bg-white shadow-brand-sm">
+        <Panel variant="elevated" className="flex-1 flex flex-col overflow-hidden p-0">
           <PanelHeader
             title="History"
             subtitle="Completed threads"
@@ -199,16 +185,16 @@ export function OpsTab({
               <button
                 onClick={handleCreateThread}
                 disabled={busyKey === "thread"}
-                className="flex items-center gap-2 rounded-lg bg-brand-primary/10 px-3 py-1.5 text-[10px] font-bold text-brand-primary hover:bg-brand-primary/20 transition-colors disabled:opacity-50"
+                className="dashboard-pill dashboard-pill-muted text-[10px] text-brand-primary hover:bg-brand-primary/10 disabled:opacity-50"
               >
                 <Plus className="w-3 h-3" />
                 NEW
               </button>
             }
-            className="px-8 py-6 border-b border-black/5 bg-white"
+            className="border-b border-black/5 px-8 py-6"
           />
 
-          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2 scrollbar-hide">
+          <div className="flex-1 overflow-y-auto space-y-2 px-4 py-4 scrollbar-hide">
             {threads.length === 0 ? (
               <div className="py-12 text-center">
                 <Clock className="w-8 h-8 text-brand-outline mx-auto mb-2 opacity-20" />
@@ -230,7 +216,7 @@ export function OpsTab({
         </Panel>
 
         {/* AI Configuration */}
-        <section className="bg-white rounded-[40px] p-8 border border-black/5 shadow-brand-sm">
+        <section className="dashboard-panel p-8">
           <h4 className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-brand-on-surface-variant mb-8">
             <Settings2 className="w-3 h-3" />
             Configuration

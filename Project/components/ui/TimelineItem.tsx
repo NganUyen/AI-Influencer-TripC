@@ -80,7 +80,7 @@ export function TimelineItem({
 
       {/* Content card */}
       <div className={cn(
-        "flex-1 rounded-2xl border px-5 py-4 transition-all duration-300 shadow-sm hover:shadow-aura-sm relative overflow-hidden",
+        "dashboard-card dashboard-card-interactive relative flex-1 overflow-hidden px-5 py-4",
         style.cardBg,
         style.cardBorder
       )}>

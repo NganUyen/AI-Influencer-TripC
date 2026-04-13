@@ -17,20 +17,20 @@ export function FieldSet({
   className
 }: FieldSetProps) {
   return (
-    <fieldset
-      disabled={disabled}
-      className={cn(
-        "rounded-lg border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl p-6 transition-all duration-200",
-        disabled && "opacity-50 cursor-not-allowed",
-        className
-      )}
-    >
-      <legend className="px-3 font-semibold text-white text-base">
+      <fieldset
+        disabled={disabled}
+        className={cn(
+          "dashboard-card p-6 transition-all duration-200",
+          disabled && "opacity-50 cursor-not-allowed",
+          className
+        )}
+      >
+      <legend className="px-1 text-sm font-semibold text-aura-on-surface">
         {title}
       </legend>
 
       {description && (
-        <p className="px-3 mt-1 text-sm text-zinc-400">
+        <p className="mt-1 px-1 text-xs leading-relaxed text-aura-on-surface-variant">
           {description}
         </p>
       )}

@@ -83,6 +83,9 @@ async def send_telegram_approval_request(user_id: str, strategy: Dict[str, Any])
             {"text": "Approve", "callback_data": f"approve_{chat_id}"},
             {"text": "Reject", "callback_data": f"reject_{chat_id}"},
         ],
+        workflow_id=(strategy.get("brand_config") or {}).get("workflow_id"),
+        approver_id=user_id,
+        metadata={"approval_kind": "weekly_strategy"},
     )
 
 
@@ -123,6 +126,8 @@ async def generate_and_send_script_for_approval(
     persona = config.get("persona_config", {})
     chat_id = config["telegram_chat_id"]
     model = config.get("model", "claude-3-5-sonnet-20241022")
+    workflow_id = config.get("workflow_id")
+    approver_id = config.get("user_id")
 
     logger.info(
         "Generating script | topic=%s | persona=%s",
@@ -164,6 +169,13 @@ async def generate_and_send_script_for_approval(
             {"text": "Approve & Generate", "callback_data": f"approve_{chat_id}"},
             {"text": "Reject", "callback_data": f"reject_{chat_id}"},
         ],
+        workflow_id=workflow_id,
+        approver_id=approver_id,
+        metadata={
+            "approval_kind": "script_review",
+            "topic": topic,
+            "persona_id": persona.get("persona_id"),
+        },
     )
 
     logger.info("Script sent for approval: request_id=%s", request_id)
@@ -216,6 +228,8 @@ async def send_preview_to_telegram(config: Dict[str, Any]) -> Dict[str, Any]:
     persona_id = config.get("persona_id", "N/A")
     tone = config.get("tone", "N/A")
     platform = config.get("platform", "N/A")
+    workflow_id = config.get("workflow_id")
+    approver_id = config.get("user_id")
 
     tg = TelegramService()
     # Escape dynamic content to prevent Markdown parsing errors
@@ -236,6 +250,14 @@ async def send_preview_to_telegram(config: Dict[str, Any]) -> Dict[str, Any]:
             {"text": "Save", "callback_data": f"save_{chat_id}"},
             {"text": "Discard", "callback_data": f"discard_{chat_id}"},
         ],
+        workflow_id=workflow_id,
+        approver_id=approver_id,
+        metadata={
+            "approval_kind": "final_video_decision",
+            "topic": topic,
+            "persona_id": persona_id,
+            "platform": platform,
+        },
     )
 
     logger.info("Preview sent for decision: %s", request_id)
@@ -246,22 +268,8 @@ async def send_preview_to_telegram(config: Dict[str, Any]) -> Dict[str, Any]:
 async def wait_for_publish_decision(request_id: str, chat_id: str) -> Dict[str, Any]:
     """
     Poll for final save/discard choice.
-
-    [SAFETY-5] WARNING: This activity polls TelegramService for approval state.
-    If Redis is not configured and the webhook/worker run in different processes,
-    the callback will never reach this polling loop and the workflow will timeout.
-    Ensure REDIS_URL is set in production for distributed deployments.
     """
     tg = TelegramService()
-
-    # [SAFETY-5] Log warning if Redis is disabled
-    if not TelegramService._redis_enabled:
-        logger.warning(
-            "APPROVAL STATE WARNING: Redis disabled for request_id=%s. "
-            "If webhook and worker are separate processes, approval callbacks may not reach this activity. "
-            "Set REDIS_URL to enable distributed approval state.",
-            request_id,
-        )
 
     elapsed = 0
 

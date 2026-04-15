@@ -35,7 +35,7 @@ interface MemoryTabProps {
 const SUPPORTED_PLATFORMS = ["linkedin", "facebook", "twitter", "instagram", "tiktok"];
 
 const AI_BACKBONE_OPTIONS = [
-  { value: "workspace_default", title: "Shared Backbone" },
+  { value: "platform_managed", title: "Shared Backbone" },
   { value: "customer_api_key", title: "Customer API Key" },
   { value: "chatgpt_oauth", title: "GPT OAuth" },
 ];

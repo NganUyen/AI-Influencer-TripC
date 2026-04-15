@@ -16,6 +16,7 @@ from services.account_connection_service import AccountConnectionService
 from services.brand_profile_service import BrandProfileService
 from services.customer_auth_service import CustomerSession
 from services.database_service import DatabaseService
+from services.workflow_state_service import WorkflowStateService
 from workflows import WeeklyMarketingWorkflow
 
 
@@ -271,31 +272,22 @@ class CustomerCampaignService:
                     session.user_id,
                     workflow_id,
                 )
-                await conn.execute(
-                    """
-                    INSERT INTO public.workflows (
-                        workflow_id,
-                        user_id,
-                        type,
-                        status,
-                        current_step,
-                        progress,
-                        input_data
-                    )
-                    VALUES ($1, $2::uuid, 'weekly_marketing', 'running', 'launch_requested', 5, $3::jsonb)
-                    ON CONFLICT (workflow_id) DO NOTHING
-                    """,
-                    workflow_id,
-                    session.user_id,
-                    json.dumps(
-                        {
-                            "campaign_id": campaign_id,
-                            "brand_profile_id": brand["brand_profile_id"],
-                            "target_platforms": campaign["target_platforms"],
-                        },
-                        sort_keys=True,
-                    ),
-                )
+        await WorkflowStateService.record_started(
+            workflow_id=workflow_id,
+            user_id=session.user_id,
+            workflow_type="weekly_marketing",
+            status="running",
+            current_step="launch_requested",
+            progress=5,
+            channel="web_app",
+            input_data={
+                "campaign_id": campaign_id,
+                "brand_profile_id": brand["brand_profile_id"],
+                "campaign_name": campaign["name"],
+                "target_platforms": campaign["target_platforms"],
+                "connected_account_ids": campaign["connected_account_ids"],
+            },
+        )
 
         return {
             "campaign_id": campaign_id,

@@ -1,7 +1,30 @@
-from fastapi.testclient import TestClient
+import anyio
+import httpx
 
 from chatgpt_connector.app import create_app
 from chatgpt_connector.auth import ConnectorAuthService
+
+
+class _SyncASGIClient:
+    def __init__(self, app):
+        self.app = app
+
+    def request(self, method: str, path: str, **kwargs):
+        async def _run():
+            transport = httpx.ASGITransport(app=self.app)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as client:
+                return await client.request(method, path, **kwargs)
+
+        return anyio.run(_run)
+
+    def get(self, path: str, **kwargs):
+        return self.request("GET", path, **kwargs)
+
+    def post(self, path: str, **kwargs):
+        return self.request("POST", path, **kwargs)
 
 
 class FakeToolRunner:
@@ -16,11 +39,6 @@ class FakeToolRunner:
             {
                 "name": "openclaw_execute_task",
                 "description": "Run a safe OpenClaw task.",
-                "input_schema": {"type": "object"},
-            },
-            {
-                "name": "openclaw_get_task_status",
-                "description": "Fetch the status of an existing OpenClaw task.",
                 "input_schema": {"type": "object"},
             },
         ]
@@ -61,7 +79,7 @@ def test_connector_app_exposes_manifest_and_tool_surface():
     auth = ConnectorAuthService(public_url="http://localhost:8010", secret="unit-test-secret")
     tool_runner = FakeToolRunner()
     app = create_app(auth_service=auth, tool_runner=tool_runner)
-    client = TestClient(app)
+    client = _SyncASGIClient(app)
 
     manifest = client.get("/mcp")
     assert manifest.status_code == 200
@@ -74,7 +92,7 @@ def test_connector_app_oauth_and_tool_call_flow():
     auth = ConnectorAuthService(public_url="http://localhost:8010", secret="unit-test-secret")
     tool_runner = FakeToolRunner()
     app = create_app(auth_service=auth, tool_runner=tool_runner)
-    client = TestClient(app)
+    client = _SyncASGIClient(app)
 
     start = client.post(
         "/oauth/start",
@@ -130,7 +148,7 @@ def test_connector_task_registry_is_scoped_to_the_current_session():
     auth = ConnectorAuthService(public_url="http://localhost:8010", secret="unit-test-secret")
     tool_runner = FakeToolRunner()
     app = create_app(auth_service=auth, tool_runner=tool_runner)
-    client = TestClient(app)
+    client = _SyncASGIClient(app)
 
     first_start = client.post(
         "/oauth/start",
@@ -195,7 +213,7 @@ def test_connector_disables_self_issued_oauth_bootstrap_in_production(monkeypatc
     )
     tool_runner = FakeToolRunner()
     app = create_app(auth_service=auth, tool_runner=tool_runner)
-    client = TestClient(app)
+    client = _SyncASGIClient(app)
 
     response = client.post(
         "/oauth/start",

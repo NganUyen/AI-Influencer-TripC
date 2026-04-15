@@ -82,7 +82,7 @@ type AIBackboneAccessMode =
 
 type AIBackboneSettings = {
   access_mode: AIBackboneAccessMode;
-  workspace_default: {
+  platform_managed: {
     api_url: string;
     has_api_key: boolean;
   };
@@ -168,7 +168,7 @@ const EMPTY_BRAND: BrandProfile = {
 };
 const EMPTY_AI_BACKBONE: AIBackboneSettings = {
   access_mode: "platform_managed",
-  workspace_default: {
+  platform_managed: {
     api_url: "",
     has_api_key: false,
   },
@@ -201,7 +201,7 @@ function buildAiBackboneForm(
   return {
     accessMode: settings.access_mode,
     customerApiUrl:
-      settings.customer_api.api_url || settings.workspace_default.api_url || "",
+      settings.customer_api.api_url || settings.platform_managed.api_url || "",
     customerApiKey: "",
     chatgptSubject: settings.chatgpt_oauth.chatgpt_subject || "",
     chatgptDisplayName:
@@ -1196,7 +1196,7 @@ export default function CustomerDashboard() {
                           customerApiUrl: value,
                         }))
                       }
-                      placeholder={aiBackbone.workspace_default.api_url}
+                      placeholder={aiBackbone.platform_managed.api_url}
                     />
                     <Field
                       label="Customer OpenClaw API Key"

@@ -31,7 +31,7 @@ interface OpsTabProps {
 }
 
 const AI_BACKBONE_OPTIONS = [
-  { value: "workspace_default", title: "Shared Backbone" },
+  { value: "platform_managed", title: "Shared Backbone" },
   { value: "customer_api_key", title: "Customer API Key" },
   { value: "chatgpt_oauth", title: "GPT OAuth" },
 ];

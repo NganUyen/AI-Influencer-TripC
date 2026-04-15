@@ -15,9 +15,9 @@ from .models import ConnectorSessionView
 
 
 def _default_openclaw_service_factory():
-    from services.openclaw_service import OpenClawService
+    from services.openclaw_gateway import OpenClawGateway
 
-    return OpenClawService()
+    return OpenClawGateway()
 
 
 @dataclass
@@ -49,26 +49,6 @@ class OpenClawToolRunner:
                         "context": {"type": "object"},
                     },
                     "required": ["task_type", "prompt"],
-                    "additionalProperties": False,
-                },
-            },
-            {
-                "name": "openclaw_get_task_status",
-                "description": "Fetch the status of an existing OpenClaw task.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"task_id": {"type": "string"}},
-                    "required": ["task_id"],
-                    "additionalProperties": False,
-                },
-            },
-            {
-                "name": "openclaw_cancel_task",
-                "description": "Cancel an existing OpenClaw task.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"task_id": {"type": "string"}},
-                    "required": ["task_id"],
                     "additionalProperties": False,
                 },
             },

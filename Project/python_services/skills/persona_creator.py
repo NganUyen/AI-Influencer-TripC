@@ -11,7 +11,7 @@ import json
 import logging
 from config.settings import settings
 from services.google_tts_service import GoogleTTSService
-from services.openclaw_service import OpenClawService
+from services.openclaw_gateway import OpenClawGateway
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +204,7 @@ class PersonaCreatorSkill(BaseSkill):
         brief: str
     ) -> Dict[str, Any]:
         """AI-powered identity generation using OpenClaw."""
-        openclaw = OpenClawService()
+        openclaw = OpenClawGateway()
         
         prompt = f"""You are a master of global identities and cultural nuances.
 Suggest a realistic, culturally accurate persona identity.

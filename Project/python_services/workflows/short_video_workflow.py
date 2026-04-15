@@ -349,6 +349,8 @@ class ShortVideoWorkflow:
                                 "_openclaw_user_id": user_id,
                             },
                             "telegram_chat_id": telegram_chat_id,
+                            "workflow_id": workflow_id,
+                            "user_id": user_id,
                         }
                     ],
                     start_to_close_timeout=timedelta(minutes=5),
@@ -675,6 +677,7 @@ class ShortVideoWorkflow:
                         "telegram_chat_id": telegram_chat_id,
                         "video_url": final_video["video_url"],
                         "workflow_id": workflow_id,
+                        "user_id": user_id,
                         "topic": topic,
                         "persona_id": persona_id,
                         "tone": tone,

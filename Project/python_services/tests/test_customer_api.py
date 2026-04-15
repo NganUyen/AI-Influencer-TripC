@@ -1,15 +1,37 @@
+import anyio
+import httpx
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from types import SimpleNamespace
 
 from api import customer
 from services.customer_auth_service import CustomerSession
 
 
-def _build_client() -> TestClient:
+class _SyncASGIClient:
+    def __init__(self, app: FastAPI):
+        self.app = app
+
+    def request(self, method: str, path: str, **kwargs):
+        async def _run():
+            transport = httpx.ASGITransport(app=self.app)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as client:
+                return await client.request(method, path, **kwargs)
+
+        return anyio.run(_run)
+
+    def get(self, path: str, **kwargs):
+        return self.request("GET", path, **kwargs)
+
+    def post(self, path: str, **kwargs):
+        return self.request("POST", path, **kwargs)
+
+
+def _build_client() -> _SyncASGIClient:
     app = FastAPI()
     app.include_router(customer.router, prefix="/api/customer")
-    return TestClient(app)
+    return _SyncASGIClient(app)
 
 
 def _session() -> CustomerSession:
@@ -80,7 +102,7 @@ def test_get_ai_backbone_returns_settings_payload(monkeypatch):
     async def fake_get_for_user(_user_id):
         return {
             "access_mode": "platform_managed",
-            "workspace_default": {
+            "platform_managed": {
                 "api_url": "https://openclaw.example",
                 "has_api_key": True,
             },
@@ -122,7 +144,7 @@ def test_link_chatgpt_oauth_returns_updated_settings(monkeypatch):
     async def fake_link_chatgpt_oauth(_session, chatgpt_subject, display_name, subscription_tier):
         return {
             "access_mode": "chatgpt_oauth",
-            "workspace_default": {
+            "platform_managed": {
                 "api_url": "https://openclaw.example",
                 "has_api_key": True,
             },
@@ -217,6 +239,46 @@ def test_launch_campaign_returns_temporal_payload(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["workflow_id"] == "weekly-marketing-1"
+
+
+def test_get_customer_workspace_returns_aggregated_payload(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_get_workspace(*, user_id, customer, temporal_client=None):
+        assert user_id == _session().user_id
+        assert customer["email"] == "founder@example.com"
+        assert temporal_client is None
+        return {
+            "customer": customer,
+            "brand": {"product_name": "TripC"},
+            "social_accounts": [{"id": "account-1", "platform": "linkedin"}],
+            "assistant_threads": [{"id": "thread-1", "title": "Launch"}],
+            "campaigns": [{"id": "campaign-1", "name": "Q2 Launch"}],
+            "approvals": [{"id": "campaign-2", "name": "Needs review"}],
+            "approval_requests": [{"approval_id": "approval-1", "status": "pending"}],
+            "content": [{"id": "content-1", "title": "Teaser"}],
+            "ai_backbone": {"access_mode": "platform_managed"},
+            "personas": [{"persona_id": "persona-1", "display_name": "Linh"}],
+            "telegram_link": {"linked": True, "link": {"chat_id": "123"}},
+            "system_summary": {"services": [], "quota": []},
+            "workflow_summary": {"workflows": [], "status": "empty"},
+        }
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.WorkspaceService, "get_workspace", fake_get_workspace)
+
+    client = _build_client()
+    response = client.get(
+        "/api/customer/workspace",
+        headers={"Authorization": "Bearer customer-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["brand"]["product_name"] == "TripC"
+    assert payload["ai_backbone"]["access_mode"] == "platform_managed"
+    assert payload["customer"]["email"] == "founder@example.com"
 
 
 def test_inspect_video_capture_handoff_requires_matching_customer(monkeypatch):
@@ -326,25 +388,25 @@ def test_get_system_summary_includes_recent_videos(monkeypatch):
     async def fake_resolve_session(_authorization):
         return _session()
 
-    async def fake_get_summary(days=0, user_id=None):
-        return {"providers": []}
-
-    async def fake_list_recent_assets(*, user_id, asset_type=None, limit=5):
+    async def fake_get_system_summary(*, user_id, temporal_client=None):
         assert user_id == _session().user_id
-        assert asset_type == "video"
-        return [
-            {
-                "asset_id": "asset-1",
-                "persona_id": "persona-1",
-                "title": "Launch walkthrough",
-                "access_url": "https://cdn.example/video.mp4",
-                "created_at": "2026-04-09T12:00:00Z",
-            }
-        ]
+        return {
+            "services": [],
+            "quota": [],
+            "recent_videos": [
+                {
+                    "asset_id": "asset-1",
+                    "persona_id": "persona-1",
+                    "title": "Launch walkthrough",
+                    "access_url": "https://cdn.example/video.mp4",
+                    "created_at": "2026-04-09T12:00:00Z",
+                }
+            ],
+            "status": "healthy",
+        }
 
     monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
-    monkeypatch.setattr(customer.QuotaMonitorService, "get_summary", fake_get_summary)
-    monkeypatch.setattr(customer.CustomerMediaService, "list_recent_assets", fake_list_recent_assets)
+    monkeypatch.setattr(customer.WorkspaceService, "get_system_summary", fake_get_system_summary)
 
     client = _build_client()
     response = client.get(
@@ -398,52 +460,28 @@ def test_list_system_workflows_includes_persona_owned_video_workflows(monkeypatc
     async def fake_resolve_session(_authorization):
         return _session()
 
-    async def fake_list_personas(user_id=None, owner_key=None, status=None):
+    async def fake_get_workflow_summary(*, user_id, temporal_client=None, limit=20):
         assert user_id == _session().user_id
-        return [{"persona_id": "persona-1"}]
-
-    class _WorkflowList:
-        def __init__(self, items):
-            self._items = items
-
-        def __aiter__(self):
-            self._iter = iter(self._items)
-            return self
-
-        async def __anext__(self):
-            try:
-                return next(self._iter)
-            except StopIteration as exc:
-                raise StopAsyncIteration from exc
-
-    temporal_client = SimpleNamespace(
-        list_workflows=lambda query: _WorkflowList(
-            [
-                SimpleNamespace(
-                    id="video-persona-1-abcd1234",
-                    workflow_type="ShortVideoWorkflow",
-                    type="ShortVideoWorkflow",
-                    status=SimpleNamespace(name="COMPLETED"),
-                    start_time=None,
-                ),
-                SimpleNamespace(
-                    id="video-persona-2-ignored",
-                    workflow_type="ShortVideoWorkflow",
-                    type="ShortVideoWorkflow",
-                    status=SimpleNamespace(name="RUNNING"),
-                    start_time=None,
-                ),
-            ]
-        )
-    )
+        assert limit == 20
+        return {
+            "status": "ok",
+            "workflows": [
+                {
+                    "id": "video-persona-1-abcd1234",
+                    "workflow_id": "video-persona-1-abcd1234",
+                    "name": "short_video",
+                    "status": "completed",
+                    "progress": 100,
+                }
+            ],
+        }
 
     monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
-    monkeypatch.setattr(customer.PersonaRegistryService, "list_personas", fake_list_personas)
+    monkeypatch.setattr(customer.WorkspaceService, "get_workflow_summary", fake_get_workflow_summary)
 
     app = FastAPI()
-    app.state.temporal_client = temporal_client
     app.include_router(customer.router, prefix="/api/customer")
-    client = TestClient(app)
+    client = _SyncASGIClient(app)
     response = client.get(
         "/api/customer/system/workflows",
         headers={"Authorization": "Bearer customer-token"},
@@ -454,5 +492,5 @@ def test_list_system_workflows_includes_persona_owned_video_workflows(monkeypatc
     assert payload["status"] == "ok"
     assert len(payload["workflows"]) == 1
     assert payload["workflows"][0]["id"] == "video-persona-1-abcd1234"
-    assert payload["workflows"][0]["name"] == "ShortVideoWorkflow"
+    assert payload["workflows"][0]["name"] == "short_video"
     assert payload["workflows"][0]["progress"] == 100

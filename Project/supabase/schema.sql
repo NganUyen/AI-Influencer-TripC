@@ -19,8 +19,14 @@ CREATE TABLE public.approvals (
   content_id uuid,
   workflow_id text,
   approver_id uuid NOT NULL,
-  status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])),
+  channel text NOT NULL DEFAULT 'telegram'::text,
+  request_key text,
+  telegram_message_ref jsonb,
+  status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'save'::text, 'discard'::text])),
   feedback text,
+  decision_source text,
+  decision_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   approved_at timestamp with time zone,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
@@ -330,6 +336,25 @@ CREATE TABLE public.telegram_user_links (
 CREATE INDEX IF NOT EXISTS idx_telegram_subscribers_active_role
     ON public.telegram_subscribers(is_active, role, registered_at);
 
+CREATE TABLE public.telegram_events (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  telegram_update_id bigint NOT NULL UNIQUE,
+  chat_id bigint NOT NULL,
+  linked_user_id uuid,
+  route text NOT NULL DEFAULT 'received'::text,
+  approval_id uuid,
+  workflow_id text,
+  event_type text NOT NULL,
+  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  error_message text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT telegram_events_pkey PRIMARY KEY (id),
+  CONSTRAINT telegram_events_linked_user_id_fkey FOREIGN KEY (linked_user_id) REFERENCES public.users(id),
+  CONSTRAINT telegram_events_approval_id_fkey FOREIGN KEY (approval_id) REFERENCES public.approvals(id),
+  CONSTRAINT telegram_events_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES public.workflows(workflow_id)
+);
+
 -- Keep a stable system-owned user row for persona defaults and internal tooling.
 INSERT INTO public.users (id, email, name)
 VALUES (
@@ -455,8 +480,13 @@ CREATE TABLE public.workflows (
   user_id uuid NOT NULL,
   type text NOT NULL,
   status text NOT NULL DEFAULT 'running'::text CHECK (status = ANY (ARRAY['running'::text, 'waiting_approval'::text, 'completed'::text, 'failed'::text, 'canceled'::text, 'cancelled'::text])),
+  channel text,
   current_step text,
   progress integer DEFAULT 0,
+  request_key text,
+  telegram_message_ref jsonb,
+  decision_source text,
+  decision_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
   input_data jsonb,
   output_data jsonb,
   error_message text,

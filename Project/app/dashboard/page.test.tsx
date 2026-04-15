@@ -52,9 +52,14 @@ describe("Customer dashboard", () => {
       if (path === "/api/customer/system/workflows") {
         return Promise.resolve({ workflows: [] });
       }
-      if (path === "/api/customer/brand") {
+      if (path === "/api/customer/workspace") {
         return Promise.resolve({
-          brand_profile: {
+          customer: {
+            user_id: "user-1",
+            email: "founder@example.com",
+            display_name: "Founder",
+          },
+          brand: {
             product_name: "TripC",
             website_url: "https://tripc.ai",
             audience: "Travel operators",
@@ -65,11 +70,7 @@ describe("Customer dashboard", () => {
             timezone: "UTC",
             telegram_contact: "@tripc",
           },
-        });
-      }
-      if (path === "/api/customer/social-accounts") {
-        return Promise.resolve({
-          accounts: [
+          social_accounts: [
             {
               id: "account-1",
               platform: "linkedin",
@@ -78,30 +79,13 @@ describe("Customer dashboard", () => {
               connection_status: "connected",
             },
           ],
-        });
-      }
-      if (path === "/api/customer/assistant/threads") {
-        return Promise.resolve({
-          threads: [
+          assistant_threads: [
             {
               id: "thread-1",
               title: "Launch Plan",
               last_message_preview: "Plan the launch",
             },
           ],
-        });
-      }
-      if (path === "/api/customer/assistant/threads/thread-1/messages") {
-        return Promise.resolve({
-          messages: [
-            { id: "m1", role: "user", content: "Plan a launch week." },
-            { id: "m2", role: "assistant", content: "Use a review-first weekly plan." },
-          ],
-          artifacts: [],
-        });
-      }
-      if (path === "/api/customer/campaigns") {
-        return Promise.resolve({
           campaigns: [
             {
               id: "campaign-1",
@@ -112,10 +96,6 @@ describe("Customer dashboard", () => {
               active_workflow_id: "wf-1",
             },
           ],
-        });
-      }
-      if (path === "/api/customer/approvals") {
-        return Promise.resolve({
           approvals: [
             {
               id: "campaign-3",
@@ -125,11 +105,7 @@ describe("Customer dashboard", () => {
               target_platforms: ["twitter"],
             },
           ],
-        });
-      }
-      if (path === "/api/customer/content") {
-        return Promise.resolve({
-          items: [
+          content: [
             {
               id: "content-1",
               title: "Launch teaser",
@@ -138,13 +114,9 @@ describe("Customer dashboard", () => {
               scheduled_at: "2026-03-25T10:00:00Z",
             },
           ],
-        });
-      }
-      if (path === "/api/customer/ai-backbone") {
-        return Promise.resolve({
-          settings: {
-            access_mode: "workspace_default",
-            workspace_default: {
+          ai_backbone: {
+            access_mode: "platform_managed",
+            platform_managed: {
               api_url: "https://openclaw.example",
             },
             customer_api: {
@@ -162,10 +134,33 @@ describe("Customer dashboard", () => {
               message: "Using workspace-managed OpenClaw access.",
             },
           },
+          personas: [],
+          telegram_link: { linked: false },
+          system_summary: { services: [], quota: [] },
+          workflow_summary: { workflows: [] },
         });
       }
-      if (path === "/api/customer/personas") {
-        return Promise.resolve({ personas: [] });
+      if (path === "/api/customer/assistant/threads/thread-1/messages") {
+        return Promise.resolve({
+          messages: [
+            { id: "m1", role: "user", content: "Plan a launch week." },
+            { id: "m2", role: "assistant", content: "Use a review-first weekly plan." },
+          ],
+          artifacts: [],
+        });
+      }
+      if (path === "/api/customer/content") {
+        return Promise.resolve({
+          items: [
+            {
+              id: "content-1",
+              title: "Launch teaser",
+              status: "scheduled",
+              platform: ["linkedin"],
+              scheduled_at: "2026-03-25T10:00:00Z",
+            },
+          ],
+        });
       }
       if (path === "/api/customer/telegram/link") {
         telegramLinkStatusCalls += 1;
@@ -237,7 +232,7 @@ describe("Customer dashboard", () => {
 
     expect(
       (customerApiRequest as jest.Mock).mock.calls.filter(
-        ([path]) => path === "/api/customer/brand",
+        ([path]) => path === "/api/customer/workspace",
       ),
     ).toHaveLength(1);
   });

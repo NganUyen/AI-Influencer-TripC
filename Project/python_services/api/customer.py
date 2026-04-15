@@ -27,8 +27,8 @@ from services.customer_auth_service import (
     CustomerSession,
 )
 from services.customer_campaign_service import CustomerCampaignService
-from services.database_service import DatabaseService
 from services.customer_media_service import CustomerMediaService
+from services.workspace_service import WorkspaceService
 from services.telegram_link_service import TelegramLinkService
 from services.video_capture_handoff_service import (
     VideoCaptureHandoffError,
@@ -36,7 +36,6 @@ from services.video_capture_handoff_service import (
 )
 from services.video_planner_handoff_service import VideoPlannerHandoffService
 from services.persona_registry_service import PersonaRegistryService
-from services.quota_monitor_service import QuotaMonitorService
 from fastapi import Request
 
 router = APIRouter()
@@ -131,6 +130,29 @@ class RecentMediaAssetResponse(BaseModel):
     created_at: Optional[str] = None
 
 
+class PersonaStudioSessionRequest(BaseModel):
+    title: Optional[str] = None
+    prompt: Optional[str] = None
+
+
+class PersonaStudioMessageRequest(BaseModel):
+    content: str
+
+
+class PersonaStudioCommitRequest(BaseModel):
+    display_name: Optional[str] = None
+    notes: str = ""
+
+
+class ReviewEngineSourceValidateRequest(BaseModel):
+    source_url: str
+
+
+class ReviewEngineJobRequest(BaseModel):
+    source_url: str
+    markets: List[str] = []
+
+
 @router.get("/brand")
 async def get_brand_profile(
     session: CustomerSession = Depends(require_customer_session),
@@ -144,6 +166,23 @@ async def get_brand_profile(
             "display_name": session.display_name,
         },
     }
+
+
+@router.get("/workspace")
+async def get_customer_workspace(
+    request: Request,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    temporal_client = getattr(request.app.state, "temporal_client", None)
+    return await WorkspaceService.get_workspace(
+        user_id=session.user_id,
+        customer={
+            "user_id": session.user_id,
+            "email": session.email,
+            "display_name": session.display_name,
+        },
+        temporal_client=temporal_client,
+    )
 
 
 @router.put("/brand")
@@ -503,43 +542,7 @@ async def launch_campaign(
 async def list_customer_content(
     session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
-    pool = await DatabaseService.get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT id, title, content, status, platform, scheduled_at, published_at, metadata, created_at, updated_at
-            FROM public.content
-            WHERE user_id = $1::uuid
-            ORDER BY COALESCE(updated_at, created_at) DESC
-            LIMIT 100
-            """,
-            session.user_id,
-        )
-    items = []
-    for row in rows:
-        items.append(
-            {
-                "id": str(row["id"]),
-                "title": row["title"],
-                "content": row["content"],
-                "status": row["status"],
-                "platform": row["platform"] or [],
-                "scheduled_at": row["scheduled_at"].isoformat()
-                if row["scheduled_at"]
-                else None,
-                "published_at": row["published_at"].isoformat()
-                if row["published_at"]
-                else None,
-                "metadata": row["metadata"] or {},
-                "created_at": row["created_at"].isoformat()
-                if row["created_at"]
-                else None,
-                "updated_at": row["updated_at"].isoformat()
-                if row["updated_at"]
-                else None,
-            }
-        )
-    return {"items": items}
+    return {"items": await WorkspaceService.list_content(session.user_id)}
 
 
 @router.get("/approvals")
@@ -576,87 +579,26 @@ async def list_customer_personas(
     }
 
 
+@router.get("/personas/{persona_id}/readiness")
+async def get_customer_persona_readiness(
+    persona_id: str,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    return await PersonaRegistryService.get_readiness(
+        persona_id,
+        user_id=session.user_id,
+    )
+
+
 @router.get("/system/summary")
 async def get_system_summary(
     request: Request,
     session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
-    """Get real-time system health and quota summary for the dashboard."""
-    try:
-        # 1. Quota Summary (OpenAI, HeyGen, etc.)
-        # Default empty if monitor service fails
-        try:
-            summary_data = await QuotaMonitorService.get_summary(days=0, user_id=None)
-            raw_quota = summary_data.get("providers", [])
-        except Exception:
-            raw_quota = []
-
-        # Format quota for frontend
-        quota_list = []
-        for q in raw_quota:
-            quota_list.append(
-                {
-                    "name": str(q.get("label", q.get("name", "Unknown"))),
-                    "used": float(q.get("usage_value") or q.get("used") or 0),
-                    "total": float(
-                        q.get("remaining_limit")
-                        or q.get("monthly_limit")
-                        or q.get("total")
-                        or 100
-                    ),
-                    "unit": str(q.get("usage_unit") or q.get("unit") or "units"),
-                }
-            )
-
-        # 2. Service Health
-        temporal_client = getattr(request.app.state, "temporal_client", None)
-
-        services = [
-            {
-                "name": "Temporal Cluster",
-                "status": "online" if temporal_client else "error",
-                "latency": "12ms",
-            },
-            {
-                "name": "OpenClaw AI",
-                "status": "online" if settings.OPENCLAW_API_URL else "warning",
-                "latency": "450ms",
-            },
-            {
-                "name": "Postiz Publisher",
-                "status": "online" if settings.POSTIZ_API_URL else "warning",
-                "latency": "80ms",
-            },
-            {
-                "name": "GrowChief Growth",
-                "status": "online" if settings.GROWCHIEF_API_URL else "warning",
-                "latency": "120ms",
-            },
-        ]
-
-        recent_videos = await CustomerMediaService.list_recent_assets(
-            user_id=session.user_id,
-            asset_type="video",
-            limit=5,
-        )
-
-        return {
-            "quota": quota_list,
-            "services": services,
-            "recent_videos": recent_videos,
-            "status": "healthy" if temporal_client else "degraded",
-        }
-    except Exception as exc:
-        # Fallback to empty/healthy-ish structure to avoid dashboard crash
-        return {
-            "quota": [],
-            "services": [
-                {"name": "System Status", "status": "error", "latency": "0ms"}
-            ],
-            "recent_videos": [],
-            "status": "error",
-            "detail": str(exc),
-        }
+    return await WorkspaceService.get_system_summary(
+        user_id=session.user_id,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
+    )
 
 
 @router.get("/media/recent")
@@ -681,55 +623,76 @@ async def list_system_workflows(
     session: CustomerSession = Depends(require_customer_session),
     limit: int = 20,
 ) -> Dict[str, Any]:
-    """List recent workflows for the current customer."""
-    temporal_client = getattr(request.app.state, "temporal_client", None)
-    if not temporal_client:
-        return {"workflows": [], "status": "temporal_unavailable"}
+    return await WorkspaceService.get_workflow_summary(
+        user_id=session.user_id,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
+        limit=limit,
+    )
 
-    workflows = []
-    try:
-        personas = await PersonaRegistryService.list_personas(user_id=session.user_id)
-        video_prefixes = {
-            f"video-{str(item.get('persona_id') or '').strip()}-"
-            for item in personas
-            if str(item.get("persona_id") or "").strip()
-        }
-        query = (
-            "WorkflowType = 'WeeklyMarketingWorkflow' "
-            "OR WorkflowType = 'ShortVideoWorkflow'"
-        )
 
-        async for item in temporal_client.list_workflows(query):
-            workflow_id = str(getattr(item, "id", "") or "")
-            belongs_to_customer = workflow_id.startswith(
-                f"weekly-marketing-{session.user_id}"
-            ) or any(workflow_id.startswith(prefix) for prefix in video_prefixes)
-            if belongs_to_customer:
-                raw_status = getattr(item, "status", None)
-                status_name = getattr(raw_status, "name", raw_status)
-                normalized_status = str(status_name or "unknown").lower()
-                workflows.append(
-                    {
-                        "id": workflow_id,
-                        "name": getattr(item, "workflow_type", None)
-                        or getattr(item, "type", None)
-                        or workflow_id,
-                        "type": getattr(item, "workflow_type", None)
-                        or getattr(item, "type", None),
-                        "status": normalized_status,
-                        "progress": 100
-                        if normalized_status == "completed"
-                        else 0
-                        if normalized_status in {"failed", "error", "terminated"}
-                        else 50,
-                        "start_time": item.start_time.isoformat()
-                        if item.start_time
-                        else None,
-                    }
-                )
-            if len(workflows) >= limit:
-                break
+@router.post("/persona-studio/sessions")
+async def create_persona_studio_session(
+    _payload: PersonaStudioSessionRequest,
+    _session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    raise HTTPException(
+        status_code=501,
+        detail="Persona Studio write APIs are reserved for Phase 2.",
+    )
 
-        return {"workflows": workflows, "status": "ok"}
-    except Exception as exc:
-        return {"workflows": [], "status": "error", "detail": str(exc)}
+
+@router.post("/persona-studio/sessions/{session_id}/messages")
+async def append_persona_studio_message(
+    session_id: str,
+    _payload: PersonaStudioMessageRequest,
+    _session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    raise HTTPException(
+        status_code=501,
+        detail=f"Persona Studio session '{session_id}' is reserved for Phase 2.",
+    )
+
+
+@router.post("/persona-studio/sessions/{session_id}/commit")
+async def commit_persona_studio_session(
+    session_id: str,
+    _payload: PersonaStudioCommitRequest,
+    _session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    raise HTTPException(
+        status_code=501,
+        detail=f"Persona Studio session '{session_id}' commit is reserved for Phase 2.",
+    )
+
+
+@router.post("/review-engine/source/validate")
+async def validate_review_engine_source(
+    _payload: ReviewEngineSourceValidateRequest,
+    _session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    raise HTTPException(
+        status_code=501,
+        detail="Review Engine source validation is reserved for Phase 2.",
+    )
+
+
+@router.post("/review-engine/jobs")
+async def create_review_engine_job(
+    _payload: ReviewEngineJobRequest,
+    _session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    raise HTTPException(
+        status_code=501,
+        detail="Review Engine batch jobs are reserved for Phase 2.",
+    )
+
+
+@router.get("/review-engine/jobs/{job_id}")
+async def get_review_engine_job(
+    job_id: str,
+    _session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    raise HTTPException(
+        status_code=501,
+        detail=f"Review Engine job '{job_id}' is reserved for Phase 2.",
+    )

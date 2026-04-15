@@ -11,7 +11,7 @@ from services.brand_profile_service import BrandProfileService
 from services.customer_ai_backbone_service import CustomerAIBackboneService
 from services.customer_auth_service import CustomerSession
 from services.database_service import DatabaseService
-from services.openclaw_service import OpenClawService
+from services.openclaw_gateway import OpenClawGateway
 
 
 def _normalize_thread(row: Any) -> Dict[str, Any]:
@@ -127,7 +127,7 @@ class AssistantService:
                 json.dumps({"source": "web_app"}, sort_keys=True),
             )
 
-        service = OpenClawService(
+        service = OpenClawGateway(
             base_url=runtime_config.get("base_url"),
             api_key=runtime_config.get("api_key"),
             connector_session_token=runtime_config.get("connector_session_token"),

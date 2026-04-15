@@ -24,6 +24,7 @@ from services.contracts import (
     VideoWorkflowStartPayloadContract,
 )
 from services.persona_registry_service import PersonaRegistryService
+from services.workflow_state_service import WorkflowStateService
 
 try:
     from workflows.short_video_workflow import ShortVideoWorkflow
@@ -233,6 +234,16 @@ async def start_weekly_workflow(
         )
 
         logger.info(f"Started workflow: {workflow_id}")
+        await WorkflowStateService.record_started(
+            workflow_id=workflow_id,
+            user_id=user_id,
+            workflow_type="weekly_marketing",
+            status="running",
+            current_step="launch_requested",
+            progress=5,
+            channel="web_app",
+            input_data=brand_config,
+        )
 
         return {"workflow_id": workflow_id, "run_id": handle.id, "status": "started"}
     except TemporalUnavailableError as exc:
@@ -288,6 +299,7 @@ async def start_video_workflow(request: Request, payload: StartVideoRequest):
     try:
         client = await get_temporal_client(request)
         workflow_id = f"video-{payload.persona_id}-{uuid4().hex[:8]}"
+        resolved_user_id = str(payload.user_id or persona.get("user_id") or "").strip() or None
         start_payload = VideoWorkflowStartPayloadContract(
             persona_id=payload.persona_id,
             topic=payload.topic,
@@ -313,6 +325,24 @@ async def start_video_workflow(request: Request, payload: StartVideoRequest):
         )
 
         logger.info("Started short-video workflow: %s", workflow_id)
+        if resolved_user_id:
+            await WorkflowStateService.record_started(
+                workflow_id=workflow_id,
+                user_id=resolved_user_id,
+                workflow_type="short_video",
+                status="running",
+                current_step="start_requested",
+                progress=5,
+                channel="telegram" if telegram_chat_id else "web_app",
+                input_data={
+                    "persona_id": payload.persona_id,
+                    "topic": payload.topic,
+                    "tone": payload.tone,
+                    "platform": payload.platform,
+                    "execution_mode": payload.execution_mode,
+                    "owner_key": owner_key,
+                },
+            )
         return {"workflow_id": workflow_id, "run_id": handle.id, "status": "started"}
     except TemporalUnavailableError as exc:
         logger.error(

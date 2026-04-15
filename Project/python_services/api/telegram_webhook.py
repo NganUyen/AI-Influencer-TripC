@@ -13,12 +13,13 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 
 from config.settings import settings
+from services.openclaw_gateway import OpenClawGateway
 from services.skill_dispatcher import SkillDispatcher
 from services.skill_session_store import TelegramSkillSessionStore
+from services.telegram_audit_service import TelegramAuditService
 from services.telegram_renderer import TelegramRenderer
 from services.telegram_service import TelegramService
 from services.telegram_subscriber_service import TelegramSubscriberService
-from services.openclaw_service import OpenClawService
 from services.telegram_link_service import TelegramLinkError, TelegramLinkService
 from skills import SKILL_REGISTRY
 from skills.definitions import get_skill_definition
@@ -33,6 +34,7 @@ except ImportError:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+OpenClawService = OpenClawGateway
 
 TELEGRAM_API_BASE = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}"
 _TELEGRAM_HTTP_CLIENT: Optional[httpx.AsyncClient] = None
@@ -771,7 +773,7 @@ def _extract_agent_decision(result: Any) -> Optional[Dict[str, str]]:
 async def _handle_openclaw_message(chat_id: int, text: str, app: Any) -> None:
     service = None
     try:
-        service = await OpenClawService.create_for_owner(owner_key=f"telegram:{chat_id}")
+        service = await OpenClawGateway.create_for_owner(owner_key=f"telegram:{chat_id}")
         catalog_json = json.dumps(_skill_catalog_for_agent(), ensure_ascii=False)
         agent_prompt = (
             "You are the Telegram orchestrator for TripC. "
@@ -876,19 +878,44 @@ async def _handle_approval_callback(
     chat_id: int,
     message_id: int,
     data: str,
-) -> bool:
-    if not data.startswith(("approve_", "reject_", "edit_", "save_", "discard_")):
-        return False
+) -> Optional[Dict[str, Any]]:
+    if not data.startswith(
+        (
+            "approve_",
+            "approve:",
+            "reject_",
+            "reject:",
+            "edit_",
+            "edit:",
+            "save_",
+            "save:",
+            "discard_",
+            "discard:",
+        )
+    ):
+        return None
 
-    request_id = f"{chat_id}_{message_id}"
-    text = await TelegramService.apply_callback_payload(request_id, data)
+    request_id = data.split(":", 1)[1].strip() if ":" in data else f"{chat_id}_{message_id}"
+    result = await TelegramService.apply_callback_payload(
+        request_id,
+        data,
+        decision_payload={
+            "chat_id": str(chat_id),
+            "message_id": int(message_id),
+            "callback_data": data,
+        },
+    )
     await edit_message_text(
         chat_id,
         message_id,
-        text or "Approval request not found.",
+        (result or {}).get("text") or "Approval request not found.",
         parse_mode=None,
     )
-    return True
+    return result or {
+        "approval_id": request_id if ":" in data else None,
+        "workflow_id": None,
+        "status": "not_found",
+    }
 
 
 async def _handle_story_callback(
@@ -954,381 +981,464 @@ async def _handle_story_callback(
     return True
 
 
-async def _handle_callback_query(app: Any, callback_query: Dict[str, Any]) -> None:
+async def _handle_callback_query(
+    app: Any,
+    callback_query: Dict[str, Any],
+    update_id: Optional[int] = None,
+) -> None:
     callback_id = callback_query["id"]
     chat_id = callback_query["message"]["chat"]["id"]
     message_id = callback_query["message"]["message_id"]
     data = callback_query.get("data", "")
+    route = "callback_query"
+    linked_user_id: Optional[str] = None
+    approval_id: Optional[str] = None
+    workflow_id: Optional[str] = None
+    error_message: Optional[str] = None
 
-    await answer_callback(callback_id)
-    logger.info("callback_query: chat=%s data=%s", chat_id, data)
+    try:
+        await answer_callback(callback_id)
+        logger.info("callback_query: chat=%s data=%s", chat_id, data)
+        try:
+            linked_user_id = await TelegramLinkService.resolve_user_id_for_owner_key(
+                f"telegram:{chat_id}"
+            )
+        except Exception as exc:
+            logger.debug("Telegram owner resolution failed for callback chat_id=%s: %s", chat_id, exc)
+            linked_user_id = None
 
-    if await _handle_skill_callback(app, chat_id, message_id, data):
-        return
-    if await _handle_system_callback(chat_id, message_id, data):
-        return
-    if await _handle_approval_callback(chat_id, message_id, data):
-        return
-    if await _handle_story_callback(chat_id, message_id, data):
-        return
+        if await _handle_skill_callback(app, chat_id, message_id, data):
+            route = "skill_callback"
+            return
+        if await _handle_system_callback(chat_id, message_id, data):
+            route = "system_callback"
+            return
+        approval_result = await _handle_approval_callback(chat_id, message_id, data)
+        if approval_result:
+            route = "approval_callback"
+            approval_id = approval_result.get("approval_id")
+            workflow_id = approval_result.get("workflow_id")
+            return
+        if await _handle_story_callback(chat_id, message_id, data):
+            route = "story_callback"
+            return
 
-    logger.warning("Unknown callback action: %s", data)
-    await edit_message_text(
-        chat_id,
-        message_id,
-        f"Action received: `{_escape_md(data)}`",
-    )
+        route = "unknown_callback"
+        logger.warning("Unknown callback action: %s", data)
+        await edit_message_text(
+            chat_id,
+            message_id,
+            f"Action received: `{_escape_md(data)}`",
+        )
+    except Exception as exc:
+        error_message = str(exc)
+        raise
+    finally:
+        if update_id is not None:
+            await TelegramAuditService.complete_update(
+                update_id=update_id,
+                route=route,
+                linked_user_id=linked_user_id,
+                approval_id=approval_id,
+                workflow_id=workflow_id,
+                error_message=error_message,
+            )
 
 
-async def _handle_message(app: Any, message: Dict[str, Any]) -> None:
+async def _handle_message(
+    app: Any,
+    message: Dict[str, Any],
+    update_id: Optional[int] = None,
+) -> None:
     chat_id = message["chat"]["id"]
     chat_type = message["chat"].get("type", "private")
     text = message.get("text", "")
     sender = message.get("from", {})
     username: Optional[str] = sender.get("username")
     first_name: Optional[str] = sender.get("first_name") or message["chat"].get("title")
+    route = "message"
+    linked_user_id: Optional[str] = None
+    workflow_id: Optional[str] = None
+    error_message: Optional[str] = None
 
-    touch_results = await asyncio.gather(
-        TelegramSubscriberService.touch(chat_id),
-        TelegramLinkService.touch_link(
-            chat_id=chat_id,
-            telegram_username=username,
-        ),
-        return_exceptions=True,
-    )
-    for touch_result in touch_results:
-        if isinstance(touch_result, Exception):
-            logger.debug("Telegram touch failed: %s", touch_result)
-
-    has_file = any(key in message for key in ("document", "photo", "video", "audio"))
-    if has_file:
-        # Check if this is a video upload for video-ai skill
-        has_video = "video" in message or (
-            isinstance(message.get("document"), dict)
-            and str(message["document"].get("mime_type", "")).startswith("video/")
+    try:
+        touch_results = await asyncio.gather(
+            TelegramSubscriberService.touch(chat_id),
+            TelegramLinkService.touch_link(
+                chat_id=chat_id,
+                telegram_username=username,
+            ),
+            return_exceptions=True,
         )
+        for touch_result in touch_results:
+            if isinstance(touch_result, Exception):
+                logger.debug("Telegram touch failed: %s", touch_result)
 
-        if has_video:
+        try:
+            linked_user_id = await TelegramLinkService.resolve_user_id_for_owner_key(
+                f"telegram:{chat_id}"
+            )
+        except Exception as exc:
+            logger.debug("Telegram owner resolution failed for chat_id=%s: %s", chat_id, exc)
+            linked_user_id = None
+
+        has_file = any(key in message for key in ("document", "photo", "video", "audio"))
+        if has_file:
+        # Check if this is a video upload for video-ai skill
+            has_video = "video" in message or (
+                isinstance(message.get("document"), dict)
+                and str(message["document"].get("mime_type", "")).startswith("video/")
+            )
+
+            if has_video:
+                active_session = await TelegramSkillSessionStore.get_session(chat_id)
+                if (
+                    active_session is not None
+                    and SkillDispatcher._session_accepts_video_upload(active_session)
+                ):
+                    route = "video_upload"
+                    await send_chat_action(chat_id, action="upload_video")
+                    telegram_video = None
+                    upload_error_message = None
+
+                    try:
+                        telegram_video = await _download_telegram_video(message)
+                    except ValueError as exc:
+                        logger.info(
+                            "Video file size validation failed for chat_id=%s: %s",
+                            chat_id,
+                            exc,
+                        )
+                        upload_error_message = f"❌ {str(exc)}"
+                    except Exception as exc:
+                        logger.warning(
+                            "Telegram video download failed for chat_id=%s: %s",
+                            chat_id,
+                            exc,
+                        )
+                        import httpx
+
+                        if isinstance(exc, httpx.HTTPStatusError):
+                            if exc.response.status_code in (400, 413):
+                                upload_error_message = (
+                                    "❌ Video file is too large for Telegram's download API.\n\n"
+                                    "Please compress your video to under 20MB and try again."
+                                )
+                            else:
+                                upload_error_message = (
+                                    "❌ Failed to download video from Telegram.\n\n"
+                                    "Please try uploading again or send /cancel to restart."
+                                )
+                        else:
+                            upload_error_message = (
+                                "❌ Video download failed.\n\n"
+                                "Please try uploading again or send /cancel to restart."
+                            )
+
+                    if upload_error_message:
+                        route = "video_upload_error"
+                        await send_message(chat_id, upload_error_message, parse_mode=None)
+                        return
+
+                    if telegram_video is not None:
+                        video_bytes, content_type, filename = telegram_video
+
+                        video_obj = message.get("video")
+                        document_obj = message.get("document")
+                        file_id = None
+                        if video_obj:
+                            file_id = video_obj.get("file_id")
+                        elif document_obj:
+                            file_id = document_obj.get("file_id")
+
+                        if not file_id:
+                            route = "video_upload_missing_file_id"
+                            await send_message(
+                                chat_id,
+                                "Could not process video file. Please try uploading again.",
+                                parse_mode=None,
+                            )
+                            return
+
+                        skill_result = await SkillDispatcher.handle_video_upload(
+                            chat_id,
+                            file_id=file_id,
+                            data=video_bytes,
+                            content_type=content_type,
+                            filename=filename,
+                            app=app,
+                        )
+                        if skill_result is not None:
+                            route = "video_upload_skill"
+                            rendered = TelegramRenderer.render_skill_result(skill_result)
+                            await _send_rendered_message(chat_id, rendered)
+                            return
+
+                route = "video_upload_expired_session"
+                await send_message(
+                    chat_id,
+                    "⏱️ Your video generation session has expired.\n\n"
+                    "To start a new recorded demo video generation:\n"
+                    "• Send /start to access the main menu\n"
+                    "• Select 'Video AI' from the options\n"
+                    "• Choose 'Recorded Demo Video'\n"
+                    "• Then upload your video",
+                    parse_mode=None,
+                )
+                return
+
+            route = "image_upload"
+            await send_chat_action(chat_id, action="upload_photo")
+            try:
+                telegram_image = await _download_telegram_image(message)
+            except Exception as exc:
+                logger.warning(
+                    "Telegram image download failed for chat_id=%s: %s", chat_id, exc
+                )
+                telegram_image = None
+
+            if telegram_image is not None:
+                image_bytes, content_type, filename = telegram_image
+                skill_result = await SkillDispatcher.handle_image_upload(
+                    chat_id,
+                    data=image_bytes,
+                    content_type=content_type,
+                    filename=filename,
+                    app=app,
+                )
+                if skill_result is not None:
+                    route = "image_upload_skill"
+                    rendered = TelegramRenderer.render_skill_result(skill_result)
+                    await _send_rendered_message(chat_id, rendered)
+                    return
+
             active_session = await TelegramSkillSessionStore.get_session(chat_id)
             if (
                 active_session is not None
-                and SkillDispatcher._session_accepts_video_upload(active_session)
+                and active_session.skill_name == "persona-creator"
+                and active_session.step_key == "collect_appearance"
             ):
-                await send_chat_action(chat_id, action="upload_video")
-                telegram_video = None
-                error_message = None
+                route = "persona_collect_appearance"
+                await send_message(
+                    chat_id,
+                    "Please send a photo or image file for the persona appearance step, or type a description.",
+                    parse_mode=None,
+                )
+                return
 
+            route = "file_placeholder"
+            await send_message(
+                chat_id,
+                "File received. Content pipelines coming soon.",
+                parse_mode=None,
+            )
+            return
+
+        if text.startswith("/start"):
+            await TelegramSkillSessionStore.clear_session(chat_id)
+            start_parts = text.split(maxsplit=1)
+            start_token = start_parts[1].strip() if len(start_parts) > 1 else None
+            if start_token:
                 try:
-                    telegram_video = await _download_telegram_video(message)
-                except ValueError as exc:
-                    # File size validation error - provide specific feedback
-                    logger.info(
-                        "Video file size validation failed for chat_id=%s: %s",
-                        chat_id,
-                        exc,
+                    await TelegramSubscriberService.upsert(
+                        chat_id=chat_id,
+                        chat_type=chat_type,
+                        username=username,
+                        first_name=first_name,
                     )
-                    error_message = f"❌ {str(exc)}"
                 except Exception as exc:
                     logger.warning(
-                        "Telegram video download failed for chat_id=%s: %s",
+                        "Failed to upsert subscriber chat_id=%s during token start: %s",
                         chat_id,
                         exc,
                     )
-                    # Check if it's an HTTP error with specific status codes
-                    import httpx
-
-                    if isinstance(exc, httpx.HTTPStatusError):
-                        if exc.response.status_code in (400, 413):
-                            error_message = (
-                                "❌ Video file is too large for Telegram's download API.\n\n"
-                                "Please compress your video to under 20MB and try again."
-                            )
-                        else:
-                            error_message = (
-                                "❌ Failed to download video from Telegram.\n\n"
-                                "Please try uploading again or send /cancel to restart."
-                            )
-                    else:
-                        error_message = (
-                            "❌ Video download failed.\n\n"
-                            "Please try uploading again or send /cancel to restart."
-                        )
-
-                # Send error message if download failed
-                if error_message:
-                    await send_message(chat_id, error_message, parse_mode=None)
-                    return
-
-                if telegram_video is not None:
-                    video_bytes, content_type, filename = telegram_video
-
-                    # Extract file_id for storage
-                    video_obj = message.get("video")
-                    document_obj = message.get("document")
-                    file_id = None
-                    if video_obj:
-                        file_id = video_obj.get("file_id")
-                    elif document_obj:
-                        file_id = document_obj.get("file_id")
-
-                    if not file_id:
-                        await send_message(
-                            chat_id,
-                            "Could not process video file. Please try uploading again.",
-                            parse_mode=None,
-                        )
-                        return
-
-                    skill_result = await SkillDispatcher.handle_video_upload(
-                        chat_id,
-                        file_id=file_id,
-                        data=video_bytes,
-                        content_type=content_type,
-                        filename=filename,
-                        app=app,
+                try:
+                    link_result = await TelegramLinkService.consume_link_token(
+                        token=start_token,
+                        chat_id=chat_id,
+                        telegram_username=username,
                     )
-                    if skill_result is not None:
-                        rendered = TelegramRenderer.render_skill_result(skill_result)
-                        await _send_rendered_message(chat_id, rendered)
-                        return
+                    linked_user_id = link_result["user_id"]
+                    route = "telegram_link_start"
+                    await send_message(
+                        chat_id,
+                        (
+                            "Telegram is now linked to your customer workspace.\n\n"
+                            f"Linked user: {link_result['user_id']}\n"
+                            "You can return to the dashboard and continue persona setup."
+                        ),
+                        parse_mode=None,
+                        reply_markup=inline_keyboard(
+                            [("Open Studio", "menu_main"), ("Status", "status_check")],
+                        ),
+                    )
+                    return
+                except TelegramLinkError as exc:
+                    route = "telegram_link_failed"
+                    await send_message(
+                        chat_id,
+                        (
+                            f"Telegram link failed: {exc}\n\n"
+                            "Open the dashboard and generate a fresh link token."
+                        ),
+                        parse_mode=None,
+                        reply_markup=inline_keyboard(
+                            [("Open Studio", "menu_main"), ("Status", "status_check")],
+                        ),
+                    )
+                    return
+            route = "menu_start"
+            rendered = TelegramRenderer.render_menu("menu_main")
+            await _send_rendered_message(chat_id, rendered)
+            return
 
-            # Video detected but no active video-ai session - provide recovery hint
+        # ── Shortcut slash commands ───────────────────────────────────────────
+        # Canonical commands (exposed in Telegram Menu via setMyCommands):
+        #   /start, /media, /create_video, /create_image, /personas, /quota, /cancel
+        # Legacy aliases (parser-only, not in Telegram UI):
+        #   /create-video, /create-image, /create_persona, /create-persona,
+        #   /inspect_persona, /inspect-persona
+        _SHORTCUT_MENU_MAP = {
+            "/create_image": "menu_image",
+            "/create-image": "menu_image",
+        }
+        _SHORTCUT_SKILL_MAP = {
+            # Canonical video command - starts the planner directly (deterministic)
+            "/create_video": "video-ai",
+            # Legacy aliases for video
+            "/create-video": "video-ai",
+            # Canonical persona inspection command
+            "/personas": "persona-inspector",
+            # Legacy aliases for persona
+            "/create_persona": "persona-creator",
+            "/create-persona": "persona-creator",
+            "/inspect_persona": "persona-inspector",
+            "/inspect-persona": "persona-inspector",
+            # Quota inspector
+            "/quota": "quota-inspector",
+        }
+
+        # ── Plain text shortcuts (case-insensitive) ────────────────────────────
+        # These are deterministic triggers that bypass OpenClaw routing
+        _TEXT_SKILL_MAP = {
+            "create video": "video-ai",
+            "make video": "video-ai",
+            "video": "video-ai",
+            "create persona": "persona-creator",
+            "new persona": "persona-creator",
+            "inspect persona": "persona-inspector",
+            "check persona": "persona-inspector",
+            "quota": "quota-inspector",
+        }
+        _TEXT_MENU_MAP = {
+            "create image": "menu_image",
+            "make image": "menu_image",
+            "image": "menu_image",
+        }
+
+        text_cmd = text.strip().lower().split()[0] if text.strip() else ""
+        text_lower = text.strip().lower()
+
+        # Check plain text shortcuts - all deterministic, bypass OpenClaw
+        if text_lower in _TEXT_SKILL_MAP:
+            skill_name = _TEXT_SKILL_MAP[text_lower]
+            route = f"text_shortcut:{skill_name}"
+            await TelegramSkillSessionStore.clear_session(chat_id)
+            skill_result, pending_message_id = await _await_with_message_progress(
+                chat_id,
+                SkillDispatcher.start_skill(chat_id, skill_name, app),
+            )
+            if skill_result is None:
+                return
+            rendered = TelegramRenderer.render_skill_result(skill_result)
+            await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)
+            return
+
+        if text_lower in _TEXT_MENU_MAP:
+            route = f"text_menu:{_TEXT_MENU_MAP[text_lower]}"
+            await TelegramSkillSessionStore.clear_session(chat_id)
+            rendered = TelegramRenderer.render_menu(_TEXT_MENU_MAP[text_lower])
+            await _send_rendered_message(chat_id, rendered)
+            return
+
+        if text_cmd in _SHORTCUT_MENU_MAP:
+            route = f"slash_menu:{_SHORTCUT_MENU_MAP[text_cmd]}"
+            await TelegramSkillSessionStore.clear_session(chat_id)
+            rendered = TelegramRenderer.render_menu(_SHORTCUT_MENU_MAP[text_cmd])
+            await _send_rendered_message(chat_id, rendered)
+            return
+
+        if text_cmd in _SHORTCUT_SKILL_MAP:
+            skill_name = _SHORTCUT_SKILL_MAP[text_cmd]
+            route = f"slash_shortcut:{skill_name}"
+            await TelegramSkillSessionStore.clear_session(chat_id)
+            skill_result, pending_message_id = await _await_with_message_progress(
+                chat_id,
+                SkillDispatcher.start_skill(chat_id, skill_name, app),
+            )
+            if skill_result is None:
+                return
+            rendered = TelegramRenderer.render_skill_result(skill_result)
+            await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)
+            return
+
+        if text.startswith("/media"):
+            route = "slash_media"
+            await TelegramSkillSessionStore.clear_session(chat_id)
+            rendered = TelegramRenderer.render_menu("menu_main")
+            await _send_rendered_message(chat_id, rendered)
+            return
+
+        if text.startswith("/cancel"):
+            route = "slash_cancel"
+            await TelegramSkillSessionStore.clear_session(chat_id)
+            await send_message(
+                chat_id, "Cancelled the active skill session.", parse_mode=None
+            )
+            return
+
+        skill_result, pending_message_id = await _await_with_message_progress(
+            chat_id,
+            SkillDispatcher.handle_text(chat_id, text, app),
+        )
+        if skill_result is not None:
+            route = "skill_session_text"
+            rendered = TelegramRenderer.render_skill_result(skill_result)
+            await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)
+            return
+        if await TelegramSkillSessionStore.get_session(chat_id) is not None:
+            route = "skill_session_active"
+            return
+
+        if text.startswith("http"):
+            route = "url_placeholder"
             await send_message(
                 chat_id,
-                "⏱️ Your video generation session has expired.\n\n"
-                "To start a new recorded demo video generation:\n"
-                "• Send /start to access the main menu\n"
-                "• Select 'Video AI' from the options\n"
-                "• Choose 'Recorded Demo Video'\n"
-                "• Then upload your video",
+                f"URL received. URL pipelines coming soon.\n{text[:60]}",
                 parse_mode=None,
             )
             return
 
-        # Handle image uploads
-        await send_chat_action(chat_id, action="upload_photo")
-        try:
-            telegram_image = await _download_telegram_image(message)
-        except Exception as exc:
-            logger.warning(
-                "Telegram image download failed for chat_id=%s: %s", chat_id, exc
-            )
-            telegram_image = None
-
-        if telegram_image is not None:
-            image_bytes, content_type, filename = telegram_image
-            skill_result = await SkillDispatcher.handle_image_upload(
-                chat_id,
-                data=image_bytes,
-                content_type=content_type,
-                filename=filename,
-                app=app,
-            )
-            if skill_result is not None:
-                rendered = TelegramRenderer.render_skill_result(skill_result)
-                await _send_rendered_message(chat_id, rendered)
-                return
-
-        active_session = await TelegramSkillSessionStore.get_session(chat_id)
-        if (
-            active_session is not None
-            and active_session.skill_name == "persona-creator"
-            and active_session.step_key == "collect_appearance"
-        ):
-            await send_message(
-                chat_id,
-                "Please send a photo or image file for the persona appearance step, or type a description.",
-                parse_mode=None,
-            )
+        if text.strip():
+            route = "openclaw_router"
+            await send_chat_action(chat_id, action="typing")
+            await _handle_openclaw_message(chat_id, text.strip(), app)
             return
 
-        await send_message(
-            chat_id,
-            "File received. Content pipelines coming soon.",
-            parse_mode=None,
-        )
-        return
-
-    if text.startswith("/start"):
-        await TelegramSkillSessionStore.clear_session(chat_id)
-        start_parts = text.split(maxsplit=1)
-        start_token = start_parts[1].strip() if len(start_parts) > 1 else None
-        if start_token:
-            try:
-                await TelegramSubscriberService.upsert(
-                    chat_id=chat_id,
-                    chat_type=chat_type,
-                    username=username,
-                    first_name=first_name,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Failed to upsert subscriber chat_id=%s during token start: %s",
-                    chat_id,
-                    exc,
-                )
-            try:
-                link_result = await TelegramLinkService.consume_link_token(
-                    token=start_token,
-                    chat_id=chat_id,
-                    telegram_username=username,
-                )
-                await send_message(
-                    chat_id,
-                    (
-                        "Telegram is now linked to your customer workspace.\n\n"
-                        f"Linked user: {link_result['user_id']}\n"
-                        "You can return to the dashboard and continue persona setup."
-                    ),
-                    parse_mode=None,
-                    reply_markup=inline_keyboard(
-                        [("Open Studio", "menu_main"), ("Status", "status_check")],
-                    ),
-                )
-                return
-            except TelegramLinkError as exc:
-                await send_message(
-                    chat_id,
-                    (
-                        f"Telegram link failed: {exc}\n\n"
-                        "Open the dashboard and generate a fresh link token."
-                    ),
-                    parse_mode=None,
-                    reply_markup=inline_keyboard(
-                        [("Open Studio", "menu_main"), ("Status", "status_check")],
-                    ),
-                )
-                return
-        rendered = TelegramRenderer.render_menu("menu_main")
-        await _send_rendered_message(chat_id, rendered)
-        return
-
-    # ── Shortcut slash commands ───────────────────────────────────────────
-    # Canonical commands (exposed in Telegram Menu via setMyCommands):
-    #   /start, /media, /create_video, /create_image, /personas, /quota, /cancel
-    # Legacy aliases (parser-only, not in Telegram UI):
-    #   /create-video, /create-image, /create_persona, /create-persona,
-    #   /inspect_persona, /inspect-persona
-    _SHORTCUT_MENU_MAP = {
-        "/create_image": "menu_image",
-        "/create-image": "menu_image",
-    }
-    _SHORTCUT_SKILL_MAP = {
-        # Canonical video command - starts the planner directly (deterministic)
-        "/create_video": "video-ai",
-        # Legacy aliases for video
-        "/create-video": "video-ai",
-        # Canonical persona inspection command
-        "/personas": "persona-inspector",
-        # Legacy aliases for persona
-        "/create_persona": "persona-creator",
-        "/create-persona": "persona-creator",
-        "/inspect_persona": "persona-inspector",
-        "/inspect-persona": "persona-inspector",
-        # Quota inspector
-        "/quota": "quota-inspector",
-    }
-
-    # ── Plain text shortcuts (case-insensitive) ────────────────────────────
-    # These are deterministic triggers that bypass OpenClaw routing
-    _TEXT_SKILL_MAP = {
-        "create video": "video-ai",
-        "make video": "video-ai",
-        "video": "video-ai",
-        "create persona": "persona-creator",
-        "new persona": "persona-creator",
-        "inspect persona": "persona-inspector",
-        "check persona": "persona-inspector",
-        "quota": "quota-inspector",
-    }
-    _TEXT_MENU_MAP = {
-        "create image": "menu_image",
-        "make image": "menu_image",
-        "image": "menu_image",
-    }
-
-    text_cmd = text.strip().lower().split()[0] if text.strip() else ""
-    text_lower = text.strip().lower()
-
-    # Check plain text shortcuts - all deterministic, bypass OpenClaw
-    if text_lower in _TEXT_SKILL_MAP:
-        skill_name = _TEXT_SKILL_MAP[text_lower]
-        await TelegramSkillSessionStore.clear_session(chat_id)
-        skill_result, pending_message_id = await _await_with_message_progress(
-            chat_id,
-            SkillDispatcher.start_skill(chat_id, skill_name, app),
-        )
-        if skill_result is None:
-            return
-        rendered = TelegramRenderer.render_skill_result(skill_result)
-        await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)
-        return
-
-    if text_lower in _TEXT_MENU_MAP:
-        await TelegramSkillSessionStore.clear_session(chat_id)
-        rendered = TelegramRenderer.render_menu(_TEXT_MENU_MAP[text_lower])
-        await _send_rendered_message(chat_id, rendered)
-        return
-
-    if text_cmd in _SHORTCUT_MENU_MAP:
-        await TelegramSkillSessionStore.clear_session(chat_id)
-        rendered = TelegramRenderer.render_menu(_SHORTCUT_MENU_MAP[text_cmd])
-        await _send_rendered_message(chat_id, rendered)
-        return
-
-    # Slash command shortcuts - all deterministic, bypass OpenClaw
-    if text_cmd in _SHORTCUT_SKILL_MAP:
-        skill_name = _SHORTCUT_SKILL_MAP[text_cmd]
-        await TelegramSkillSessionStore.clear_session(chat_id)
-        skill_result, pending_message_id = await _await_with_message_progress(
-            chat_id,
-            SkillDispatcher.start_skill(chat_id, skill_name, app),
-        )
-        if skill_result is None:
-            return
-        rendered = TelegramRenderer.render_skill_result(skill_result)
-        await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)
-        return
-
-    if text.startswith("/media"):
-        await TelegramSkillSessionStore.clear_session(chat_id)
-        rendered = TelegramRenderer.render_menu("menu_main")
-        await _send_rendered_message(chat_id, rendered)
-        return
-
-    if text.startswith("/cancel"):
-        await TelegramSkillSessionStore.clear_session(chat_id)
-        await send_message(
-            chat_id, "Cancelled the active skill session.", parse_mode=None
-        )
-        return
-
-    skill_result, pending_message_id = await _await_with_message_progress(
-        chat_id,
-        SkillDispatcher.handle_text(chat_id, text, app),
-    )
-    if skill_result is not None:
-        rendered = TelegramRenderer.render_skill_result(skill_result)
-        await _send_rendered_message(chat_id, rendered, message_id=pending_message_id)
-        return
-    if await TelegramSkillSessionStore.get_session(chat_id) is not None:
-        # Error feedback was already sent; avoid routing this message to OpenClaw.
-        return
-
-    if text.startswith("http"):
-        await send_message(
-            chat_id,
-            f"URL received. URL pipelines coming soon.\n{text[:60]}",
-            parse_mode=None,
-        )
-        return
-
-    if text.strip():
-        await send_chat_action(chat_id, action="typing")
-        await _handle_openclaw_message(chat_id, text.strip(), app)
-        return
-
-    await send_message(chat_id, "Please send a text message.", parse_mode=None)
+        route = "empty_message"
+        await send_message(chat_id, "Please send a text message.", parse_mode=None)
+    except Exception as exc:
+        error_message = str(exc)
+        raise
+    finally:
+        if update_id is not None:
+            await TelegramAuditService.complete_update(
+                update_id=update_id,
+                route=route,
+                linked_user_id=linked_user_id,
+                workflow_id=workflow_id,
+                error_message=error_message,
+            )
 
 
 @router.post("/telegram")
@@ -1347,13 +1457,40 @@ async def receive_telegram_update(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
+    update_id_raw = payload.get("update_id")
+    update_id = int(update_id_raw) if isinstance(update_id_raw, int) else None
+    event_type = "unknown"
+    chat_id: Optional[int] = None
+
+    if "callback_query" in payload:
+        event_type = "callback_query"
+        chat_id = payload["callback_query"].get("message", {}).get("chat", {}).get("id")
+    elif "message" in payload:
+        event_type = "message"
+        chat_id = payload["message"].get("chat", {}).get("id")
+
+    if update_id is not None and chat_id is not None:
+        started = await TelegramAuditService.begin_update(
+            update_id=update_id,
+            chat_id=chat_id,
+            event_type=event_type,
+            payload=payload,
+        )
+        if not started:
+            return {"ok": True, "duplicate": True}
+
     if "callback_query" in payload:
         background_tasks.add_task(
-            _handle_callback_query, request.app, payload["callback_query"]
+            _handle_callback_query, request.app, payload["callback_query"], update_id
         )
     elif "message" in payload:
-        background_tasks.add_task(_handle_message, request.app, payload["message"])
+        background_tasks.add_task(_handle_message, request.app, payload["message"], update_id)
     else:
         logger.debug("Unhandled Telegram update type: %s", list(payload.keys()))
+        if update_id is not None:
+            await TelegramAuditService.complete_update(
+                update_id=update_id,
+                route="unhandled_update",
+            )
 
     return {"ok": True}

@@ -112,13 +112,14 @@ type VideoContextDraft = {
 };
 
 export type AIBackboneSettings = {
-  access_mode: "workspace_default" | "customer_api_key" | "chatgpt_oauth";
+  access_mode: "platform_managed" | "customer_api_key" | "chatgpt_oauth";
   customer_api: {
     api_url: string | null;
     has_api_key: boolean;
   };
-  workspace_default: {
+  platform_managed: {
     api_url: string;
+    has_api_key?: boolean;
   };
   chatgpt_oauth: {
     linked: boolean;
@@ -168,9 +169,37 @@ export type SystemSummaryData = {
 
 export type SystemWorkflowData = {
   id: string;
+  workflow_id?: string;
   name: string;
-  status: "idle" | "running" | "completed" | "error";
+  status: string;
   progress: number;
+  current_step?: string | null;
+  channel?: string | null;
+  approval_status?: string | null;
+  updated_at?: string | null;
+};
+
+type CustomerWorkspaceResponse = {
+  customer: {
+    user_id: string;
+    email: string;
+    display_name: string | null;
+  };
+  brand: BrandProfile | null;
+  social_accounts: SocialAccount[];
+  assistant_threads: AssistantThread[];
+  campaigns: Campaign[];
+  approvals: Campaign[];
+  approval_requests?: unknown[];
+  content: ContentItem[];
+  ai_backbone: AIBackboneSettings;
+  personas: Persona[];
+  telegram_link: TelegramLinkStatus | null;
+  system_summary: SystemSummaryData | null;
+  workflow_summary: {
+    workflows: SystemWorkflowData[];
+    status: string;
+  };
 };
 
 export type DashboardTabId = "overview" | "ops" | "skills" | "memory" | "live_feed";
@@ -206,7 +235,7 @@ const SUPPORTED_PLATFORMS = ["linkedin", "facebook", "twitter", "instagram", "ti
 
 const AI_BACKBONE_OPTIONS = [
   {
-    value: "workspace_default",
+    value: "platform_managed",
     title: "Shared Backbone",
     description: "Use the agency's provisioned AI infrastructure.",
   },
@@ -268,7 +297,8 @@ function buildAiBackboneForm(
 ) {
   return {
     accessMode: settings.access_mode,
-    customerApiUrl: settings.customer_api.api_url || "",
+    customerApiUrl:
+      settings.customer_api.api_url || settings.platform_managed.api_url || "",
     customerApiKey: "",
     chatgptSubject: settings.chatgpt_oauth.chatgpt_subject || "",
     chatgptDisplayName: defaultDisplayName,
@@ -300,9 +330,9 @@ export default function CustomerDashboard() {
   const [aiBackboneForm, setAiBackboneForm] = useState(() =>
     buildAiBackboneForm(
       {
-        access_mode: "workspace_default",
+        access_mode: "platform_managed",
         customer_api: { api_url: "", has_api_key: false },
-        workspace_default: { api_url: "" },
+        platform_managed: { api_url: "" },
         chatgpt_oauth: {
           linked: false,
           chatgpt_subject: null,
@@ -493,52 +523,32 @@ export default function CustomerDashboard() {
   async function loadWorkspace() {
     try {
       setPageError(null);
-      const [
-        brand,
-        social,
-        assistant,
-        campaignList,
-        approvalList,
-        contentList,
-        aiBackboneResponse,
-        personasList,
-        telegramLinkResponse,
-      ] = await Promise.all([
-        customerApiRequest<{ brand_profile: BrandProfile | null }>("/api/customer/brand"),
-        customerApiRequest<{ accounts: SocialAccount[] }>("/api/customer/social-accounts"),
-        customerApiRequest<{ threads: AssistantThread[] }>("/api/customer/assistant/threads"),
-        customerApiRequest<{ campaigns: Campaign[] }>("/api/customer/campaigns"),
-        customerApiRequest<{ approvals: Campaign[] }>("/api/customer/approvals"),
-        customerApiRequest<{ items: ContentItem[] }>("/api/customer/content"),
-        customerApiRequest<{ settings: AIBackboneSettings }>("/api/customer/ai-backbone"),
-        customerApiRequest<{ personas: Persona[] }>("/api/customer/personas"),
-        customerApiRequest<TelegramLinkStatus>("/api/customer/telegram/link"),
-      ]);
+      const workspace = await customerApiRequest<CustomerWorkspaceResponse>(
+        "/api/customer/workspace",
+      );
 
-      setBrandForm(brand?.brand_profile || EMPTY_BRAND);
-      setAccounts(social?.accounts || []);
-      setThreads(assistant?.threads || []);
-      setCampaigns(campaignList?.campaigns || []);
-      setApprovals(approvalList?.approvals || []);
-      setContent(contentList?.items || []);
+      setBrandForm(workspace?.brand || EMPTY_BRAND);
+      setAccounts(workspace?.social_accounts || []);
+      setThreads(workspace?.assistant_threads || []);
+      setCampaigns(workspace?.campaigns || []);
+      setApprovals(workspace?.approvals || []);
+      setContent(workspace?.content || []);
+      setPersonas(workspace?.personas || []);
+      setTelegramLink(workspace?.telegram_link || null);
+      setSystemSummary(workspace?.system_summary || null);
+      setSystemWorkflows(workspace?.workflow_summary?.workflows || []);
 
-      // Robust handling for persona list (handles both raw array and object with personas key)
-      const personasData = (personasList as any)?.personas || (Array.isArray(personasList) ? personasList : []);
-      setPersonas(personasData);
-
-      setTelegramLink(telegramLinkResponse || null);
-
-      const settings = aiBackboneResponse?.settings || {
-        access_mode: "workspace_default",
+      const settings = workspace?.ai_backbone || {
+        access_mode: "platform_managed",
         customer_api: { api_url: "", has_api_key: false },
-        workspace_default: { api_url: "" },
+        platform_managed: { api_url: "" },
         chatgpt_oauth: { linked: false, chatgpt_subject: null, session_ready: false, session_expires_at: null },
         effective_status: { ready: false, message: "Initializing..." },
       };
       setAiBackbone(settings);
       setAiBackboneForm(buildAiBackboneForm(settings, user?.name || user?.email || ""));
 
-      const nextThreadId = selectedThreadId || assistant?.threads?.[0]?.id || null;
+      const nextThreadId = selectedThreadId || workspace?.assistant_threads?.[0]?.id || null;
       setSelectedThreadId(nextThreadId);
       if (!nextThreadId) {
         setMessages([]);
@@ -1138,11 +1148,11 @@ export default function CustomerDashboard() {
                             {aiBackbone?.access_mode.replace(/_/g, " ") || "Loading…"}
                           </p>
                         </div>
-                        {aiBackbone?.workspace_default.api_url ? (
+                        {aiBackbone?.platform_managed.api_url ? (
                           <div className="p-4 bg-aura-surface-container-low rounded-2xl overflow-hidden">
                             <p className="text-[10px] text-aura-on-surface-variant mb-1.5 font-body uppercase tracking-wider font-semibold">Workspace Endpoint</p>
                             <code className="text-xs font-mono text-aura-primary truncate block break-all">
-                              {aiBackbone.workspace_default.api_url}
+                              {aiBackbone.platform_managed.api_url}
                             </code>
                           </div>
                         ) : (

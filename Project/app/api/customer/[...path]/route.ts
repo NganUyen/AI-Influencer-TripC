@@ -3,7 +3,29 @@ import { getBackendBaseUrl } from "@/app/api/_helpers/backend";
 
 // ─── Dev Mock Data ────────────────────────────────────────────────────────────
 const DEV_MOCK_DATA: Record<string, unknown> = {
-  "system/summary": {
+  workspace: {
+    customer: {
+      user_id: "11111111-1111-1111-1111-111111111111",
+      email: "founder@example.com",
+      display_name: "Founder",
+    },
+    brand: {
+      product_name: "My Brand",
+      website_url: "https://example.com",
+      audience: "Content creators",
+      offer_summary: "AI-powered content tools",
+      tone_voice: "clear",
+      campaign_goals: ["launch"],
+      asset_urls: [],
+      timezone: "UTC",
+      telegram_contact: "@tripc",
+    },
+    social_accounts: [],
+    assistant_threads: [],
+    campaigns: [],
+    approvals: [],
+    approval_requests: [],
+    content: [],
     personas: [
       {
         persona_id: "persona-001",
@@ -20,19 +42,44 @@ const DEV_MOCK_DATA: Record<string, unknown> = {
         avatar_image_url: null,
       },
     ],
-    campaigns: [],
-    social_accounts: [],
     telegram_link: { linked: false, link: null },
-    telegram_bot_url: "https://t.me/TripCInternBot",
     ai_backbone: {
       access_mode: "platform_managed",
-      effective_status: { ready: true, message: "AI active — Platform Managed" },
+      platform_managed: {
+        api_url: "https://openclaw.example",
+        has_api_key: true,
+      },
+      customer_api: {
+        api_url: "",
+        has_api_key: false,
+      },
+      chatgpt_oauth: {
+        linked: false,
+        session_ready: false,
+        chatgpt_subject: null,
+        session_expires_at: null,
+      },
+      effective_status: {
+        ready: true,
+        message: "AI active — Platform Managed",
+      },
     },
-    brand_context: {
-      product_name: "My Brand",
-      audience: "Content creators",
-      offer_summary: "AI-powered content tools",
+    system_summary: {
+      telegram_bot_url: "https://t.me/TripCInternBot",
+      quota: [
+        { name: "OpenAI gpt-4-turbo", used: 850000, total: 1000000, unit: "tokens" },
+      ],
+      services: [],
+      recent_videos: [],
+      status: "healthy",
     },
+    workflow_summary: {
+      workflows: [],
+      status: "empty",
+    },
+  },
+  "system/summary": {
+    telegram_bot_url: "https://t.me/TripCInternBot",
     quota: [
       { name: "OpenAI gpt-4-turbo", used: 850000, total: 1000000, unit: "tokens" },
       { name: "Anthropic claude-3-5", used: 125000, total: 500000, unit: "tokens" },
@@ -41,13 +88,14 @@ const DEV_MOCK_DATA: Record<string, unknown> = {
       { name: "Fal.ai Media Gen", used: 45, total: 200, unit: "req" },
       { name: "HeyGen Avatar Video", used: 28, total: 30, unit: "jobs" },
     ],
-    system_workflows: [],
-    activity: [],
+    services: [],
+    recent_videos: [],
+    status: "healthy",
   },
   "system/workflows": {
     workflows: [
-      { id: "wf-dev-1", name: "Content Generation", status: "running", progress: 65 },
-      { id: "wf-dev-2", name: "Audience Analysis", status: "completed", progress: 100 }
+      { id: "wf-dev-1", workflow_id: "wf-dev-1", name: "Content Generation", status: "running", progress: 65 },
+      { id: "wf-dev-2", workflow_id: "wf-dev-2", name: "Audience Analysis", status: "completed", progress: 100 }
     ]
   },
   "brand/context": {

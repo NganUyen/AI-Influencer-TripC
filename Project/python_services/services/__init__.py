@@ -3,6 +3,7 @@ Services Package
 """
 
 from .openclaw_service import OpenClawService
+from .openclaw_gateway import OpenClawGateway
 from .postiz_service import PostizService
 from .growchief_service import GrowChiefService
 from .fal_service import FalAIService
@@ -21,6 +22,9 @@ from .persona_registry_service import PersonaRegistryService
 from .creative_director_service import CreativeDirectorService
 from .customer_media_service import CustomerMediaService
 from .telegram_link_service import TelegramLinkService, TelegramLinkError
+from .workflow_state_service import WorkflowStateService
+from .approval_state_service import ApprovalStateService
+from .telegram_audit_service import TelegramAuditService
 
 try:
     from .browser_automation import BrowserAutomationService
@@ -39,6 +43,7 @@ except ModuleNotFoundError as exc:
 
 __all__ = [
     "OpenClawService",
+    "OpenClawGateway",
     "PostizService",
     "GrowChiefService",
     "FalAIService",
@@ -59,4 +64,7 @@ __all__ = [
     "CustomerMediaService",
     "TelegramLinkService",
     "TelegramLinkError",
+    "WorkflowStateService",
+    "ApprovalStateService",
+    "TelegramAuditService",
 ]

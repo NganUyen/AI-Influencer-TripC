@@ -431,8 +431,8 @@ async def test_typed_text_can_advance_inline_keyboard_step(tg_calls):
     session = SkillSession(
         skill_name="persona-creator",
         step_key="choose_language",
-        collected={"persona_id": "ronaldo-portugal"},
-        artifacts={},
+        collected={"persona_id": "ronaldo-portugal", "creation_mode": "manual"},
+        artifacts={"creation_mode": "manual"},
         control=SkillControl(status=SkillStatus.collecting),
     )
     await TelegramSkillSessionStore.set_session(123456789, session)
@@ -516,10 +516,10 @@ async def test_photo_message_routes_into_persona_creator_upload_flow(tg_calls):
         app=None,
     )
     methods = [call["method"] for call in tg_calls]
-    assert methods[:2] == ["sendPhoto", "sendMessage"]
-    assert tg_calls[0]["payload"]["photo"] == preview_url
-    assert "Persona Preview Ready" in tg_calls[1]["payload"]["text"]
-    assert "not production-ready until you save it" in tg_calls[1]["payload"]["text"]
+    assert methods[:3] == ["sendChatAction", "sendPhoto", "sendMessage"]
+    assert tg_calls[1]["payload"]["photo"] == preview_url
+    assert "Persona Preview Ready" in tg_calls[2]["payload"]["text"]
+    assert "not production-ready until you save it" in tg_calls[2]["payload"]["text"]
 
 
 @pytest.mark.asyncio
@@ -578,7 +578,9 @@ async def test_send_photo_falls_back_to_multipart_upload_when_url_send_fails():
     assert response["ok"] is True
     initial_send.assert_awaited_once()
     fake_http_client.get.assert_awaited_once_with(
-        "https://cdn.example/generated-image.png"
+        "https://cdn.example/generated-image.png",
+        timeout=20.0,
+        follow_redirects=True,
     )
     multipart_send.assert_awaited_once()
 
@@ -616,7 +618,8 @@ async def test_expired_option_callback_prompts_user_to_restart_flow(tg_calls):
 
     await _handle_callback_query(None, callback_query)
 
-    edit_call = next(call for call in tg_calls if call["method"] == "editMessageText")
+    assert any(call["method"] == "deleteMessage" for call in tg_calls)
+    edit_call = next(call for call in tg_calls if call["method"] == "sendMessage")
     assert (
         edit_call["payload"]["text"]
         == "Skill session expired. Use /media to start again."
@@ -655,22 +658,17 @@ async def test_option_callback_sends_photo_preview_and_keeps_controls(tg_calls):
         telegram_webhook.SkillDispatcher,
         "handle_option",
         AsyncMock(return_value=preview_result),
-    ):
-        await _handle_callback_query(None, callback_query)
+        ):
+            await _handle_callback_query(None, callback_query)
 
     methods = [call["method"] for call in tg_calls]
-    assert methods[:3] == ["answerCallbackQuery", "editMessageText", "sendPhoto"]
-    expected_text = (
-        "🎨 *Image Generated Successfully!*\n\n"
-        "• *Style*: clean\n"
-        "• *Scene*: N/A\n"
-        "• *Aspect Ratio*: 16:9\n"
-        "• *Prompt*: beer scene\n\n"
-        "Review the image below and choose an action."
-    )
-    assert tg_calls[1]["payload"]["text"] == expected_text
+    assert methods[:3] == [
+        "answerCallbackQuery",
+        "deleteMessage",
+        "sendPhoto",
+    ]
     assert (
-        tg_calls[1]["payload"]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
+        tg_calls[2]["payload"]["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
         == "action::use_images"
     )
     assert tg_calls[2]["payload"]["photo"] == preview_url

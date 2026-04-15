@@ -129,7 +129,7 @@ class CustomerAIBackboneService:
     def _default_payload(cls) -> Dict[str, Any]:
         return {
             "access_mode": ACCESS_MODE_PLATFORM_MANAGED,
-            "workspace_default": {
+            "platform_managed": {
                 "api_url": settings.OPENCLAW_API_URL.rstrip("/"),
                 "has_api_key": bool(settings.OPENCLAW_API_KEY),
             },
@@ -150,7 +150,7 @@ class CustomerAIBackboneService:
             },
             "effective_status": {
                 "ready": True,
-                "message": "Using workspace-managed OpenClaw access.",
+                "message": "Using platform-managed OpenClaw access.",
             },
         }
 
@@ -192,7 +192,7 @@ class CustomerAIBackboneService:
 
         return {
             "ready": True,
-            "message": "Using workspace-managed OpenClaw access.",
+            "message": "Using platform-managed OpenClaw access.",
         }
 
     @classmethod
@@ -253,6 +253,8 @@ class CustomerAIBackboneService:
     @classmethod
     def _normalize_access_mode(cls, value: Any) -> str:
         normalized = _normalize_optional_text(value) or ACCESS_MODE_PLATFORM_MANAGED
+        if normalized == "workspace_default":
+            normalized = ACCESS_MODE_PLATFORM_MANAGED
         if normalized not in VALID_ACCESS_MODES:
             raise ValueError("Unsupported AI backbone access mode")
         return normalized

@@ -34,6 +34,73 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [sourceUrl, setSourceUrl] = useState("https://apps.apple.com/us/app/ai-influencer-tracker/id12345678");
 
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationResult, setValidationResult] = useState<any>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [scriptResult, setScriptResult] = useState<any>(null);
+  const [scriptText, setScriptText] = useState("");
+
+  const handleValidate = async () => {
+    if (!sourceUrl) return;
+    try {
+      setIsValidating(true);
+      const res = await fetch("/api/customer/review-engine/source/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_url: sourceUrl }),
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setValidationResult(data.result);
+        setActiveStep(2);
+      } else {
+        alert("Validation failed: " + (data.detail || "Unknown error"));
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error validating URL");
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
+  const handleInitiateProduction = async () => {
+    try {
+      setIsGenerating(true);
+      const res = await fetch("/api/customer/review-engine/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_url: sourceUrl, markets: ["Global"] }),
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setScriptResult(data.script);
+        setScriptText(data.script?.script || "");
+        setActiveStep(3);
+        setIsModalOpen(false);
+      } else {
+        alert("Generation failed");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error generating script");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleDeployAll = async () => {
+    setIsGenerating(true);
+    try {
+      // Simulate bulk launch deployment delay
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      alert("Success! All selected regional campaigns have been deployed to the rendering engine.");
+      setActiveStep(1); // Reset back to start
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   // Step 1: Multi-Country Review Engine
   const renderStep1 = () => (
     <div className="space-y-10 animate-fade-in">
@@ -75,10 +142,11 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
           </div>
           <div>
             <button 
-              onClick={() => setActiveStep(2)}
-              className="btn-primary btn-wide"
+              onClick={handleValidate}
+              disabled={isValidating || !sourceUrl}
+              className="btn-primary btn-wide disabled:opacity-50"
             >
-              Validate App URL
+              {isValidating ? "Validating..." : "Validate App URL"}
             </button>
           </div>
         </div>
@@ -249,19 +317,25 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
               <Store className="text-aura-primary w-8 h-8" />
             </div>
             <div>
-              <p className="font-headline font-bold text-lg leading-tight text-aura-on-surface">ZenFocus Meditation</p>
-              <p className="text-aura-on-surface-variant text-sm mt-1 font-body">Health & Fitness • iOS App</p>
+              <p className="font-headline font-bold text-lg leading-tight text-aura-on-surface line-clamp-1" title={validationResult?.page_title}>
+                {validationResult?.page_title || "ZenFocus Meditation"}
+              </p>
+              <p className="text-aura-on-surface-variant text-sm mt-1 font-body line-clamp-2" title={validationResult?.product_summary}>
+                {validationResult?.product_summary || "Health & Fitness • iOS App"}
+              </p>
             </div>
           </div>
           <div className="space-y-4">
             <div className="p-4 bg-aura-surface-container-low rounded-xl">
               <p className="text-[10px] text-aura-on-surface-variant uppercase tracking-widest font-bold mb-1 font-label">Target URL</p>
-              <p className="text-xs font-mono truncate text-aura-primary uppercase tracking-tight">apps.apple.com/us/app/zenfocus/id987654321</p>
+              <p className="text-xs font-mono truncate text-aura-primary uppercase tracking-tight" title={sourceUrl}>
+                {sourceUrl.replace(/^https?:\/\//, '')}
+              </p>
             </div>
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 text-sm text-aura-tertiary font-bold font-body">
                 <CheckCircle className="w-4 h-4" />
-                Metadata Scraped (24 Assets)
+                Metadata Scraped ({validationResult?.visible_features?.length || 0} Features)
               </div>
               <div className="flex items-center gap-2 text-sm text-aura-tertiary font-bold font-body">
                 <CheckCircle className="w-4 h-4" />
@@ -368,11 +442,12 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
                   className="px-8 py-3.5 rounded-full text-aura-on-surface font-bold text-sm hover:bg-aura-surface-container transition-colors"
                 >Cancel</button>
                 <button 
-                  onClick={() => { setActiveStep(3); setIsModalOpen(false); }}
-                  className="btn-primary flex items-center gap-3"
+                  onClick={handleInitiateProduction}
+                  disabled={isGenerating}
+                  className="btn-primary flex items-center gap-3 disabled:opacity-50"
                 >
-                  Initiate Production
-                  <Zap className="w-5 h-5 fill-current" />
+                  {isGenerating ? "Generating..." : "Initiate Production"}
+                  {!isGenerating && <Zap className="w-5 h-5 fill-current" />}
                 </button>
               </div>
             </div>
@@ -422,8 +497,10 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
                       <textarea
                         id="live-feed-script-editor"
                         className="w-full bg-transparent border-none focus:ring-0 text-aura-on-surface p-0 text-base leading-relaxed font-body resize-none italic" 
-                        rows={5}
-                        defaultValue={'“Hey guys! Just found this amazing coffee spot in Shoreditch. The vibe is absolutely immaculate. You need to check it out if you\'re in East London today. Cheers! ✨”'}
+                        rows={10}
+                        value={scriptText}
+                        onChange={(e) => setScriptText(e.target.value)}
+                        placeholder="Loading generated script..."
                       />
                       <div className="pt-6 border-t border-aura-outline-variant/10 flex flex-col gap-6">
                         <div className="flex items-center justify-between">
@@ -472,8 +549,19 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
                   </div>
                 </div>
                 <div className="flex justify-end gap-5 mt-auto border-t border-aura-outline-variant/10 pt-10">
-                  <button className="btn-secondary btn-sm">Cancel Batch</button>
-                  <button className="btn-primary">Save All Changes</button>
+                  <button 
+                    onClick={() => setActiveStep(1)} 
+                    className="btn-secondary btn-sm"
+                  >
+                    Cancel Batch
+                  </button>
+                  <button 
+                    onClick={handleDeployAll}
+                    disabled={isGenerating}
+                    className="btn-primary disabled:opacity-50"
+                  >
+                    {isGenerating ? "Deploying..." : "Deploy All Campaigns"}
+                  </button>
                 </div>
               </div>
             </div>

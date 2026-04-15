@@ -150,7 +150,19 @@ class ReviewEngineSourceValidateRequest(BaseModel):
 
 class ReviewEngineJobRequest(BaseModel):
     source_url: str
-    markets: List[str] = []
+    objective: str
+    target_personas: List[str]
+
+
+class UpdatePersonaRequest(BaseModel):
+    display_name: Optional[str] = None
+    tts_voice: Optional[str] = None
+    appearance_prompt_or_photo: Optional[str] = None
+    language: Optional[str] = None
+
+
+class RebuildAvatarRequest(BaseModel):
+    appearance_prompt_or_photo: str
 
 
 @router.get("/brand")
@@ -569,6 +581,7 @@ async def list_customer_personas(
                 "display_name": item.get("display_name"),
                 "language": item.get("language"),
                 "tts_voice": item.get("tts_voice"),
+                "appearance_prompt_or_photo": item.get("appearance_prompt_or_photo"),
                 "avatar_image_url": item.get("avatar_image_url"),
                 "status": item.get("status"),
                 "video_count": int(item.get("video_count") or 0),
@@ -588,6 +601,88 @@ async def get_customer_persona_readiness(
         persona_id,
         user_id=session.user_id,
     )
+
+
+@router.patch("/personas/{persona_id}")
+async def update_customer_persona(
+    persona_id: str,
+    payload: UpdatePersonaRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    fields_to_update = {
+        k: v for k, v in payload.model_dump().items() if v is not None
+    }
+    if not fields_to_update:
+        return {"status": "no_changes"}
+
+    updated_persona = await PersonaRegistryService.update_persona(
+        persona_id,
+        fields_to_update,
+        user_id=session.user_id,
+    )
+    if not updated_persona:
+        raise HTTPException(status_code=404, detail="Persona not found or unauthorized")
+        
+    return {"persona": updated_persona}
+
+
+@router.post("/personas/{persona_id}/rebuild-avatar")
+async def rebuild_customer_persona_avatar(
+    persona_id: str,
+    payload: RebuildAvatarRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    from services.image_generation_service import ImageGenerationService
+    from services.heygen_service import HeyGenService
+    
+    # 1. Update the prompt first
+    await PersonaRegistryService.update_persona(
+        persona_id,
+        {"appearance_prompt_or_photo": payload.appearance_prompt_or_photo},
+        user_id=session.user_id,
+    )
+    
+    # 2. Generate Image
+    image_service = ImageGenerationService(provider="replicate")
+    try:
+        images = await image_service.generate_images(
+            f"A clear, uncropped, front-facing portrait of {payload.appearance_prompt_or_photo}. High quality, photorealistic, even studio lighting. Direct gaze.",
+            count=1,
+            user_id=session.user_id,
+        )
+    finally:
+        await image_service.close()
+        
+    if not images:
+        raise HTTPException(status_code=500, detail="Failed to generate avatar image")
+        
+    avatar_url = images[0]
+    
+    # 3. Create HeyGen Avatar
+    heygen_service = HeyGenService()
+    try:
+        avatar_name = f"{persona_id}-avatar"
+        heygen_avatar_id = await heygen_service.create_avatar(
+            avatar_url,
+            avatar_name=avatar_name,
+            user_id=session.user_id,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to create HeyGen Avatar: {exc}")
+        
+    # 4. Save and return
+    updated_persona = await PersonaRegistryService.update_persona(
+        persona_id,
+        {
+            "avatar_image_url": avatar_url,
+            "heygen_avatar_id": heygen_avatar_id,
+            "avatar_source_type": "generated",
+            "status": "ready"
+        },
+        user_id=session.user_id,
+    )
+    
+    return {"persona": updated_persona}
 
 
 @router.get("/system/summary")
@@ -667,24 +762,95 @@ async def commit_persona_studio_session(
 
 @router.post("/review-engine/source/validate")
 async def validate_review_engine_source(
-    _payload: ReviewEngineSourceValidateRequest,
-    _session: CustomerSession = Depends(require_customer_session),
+    payload: ReviewEngineSourceValidateRequest,
+    session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
-    raise HTTPException(
-        status_code=501,
-        detail="Review Engine source validation is reserved for Phase 2.",
-    )
+    try:
+        from services.website_review_service import WebsiteReviewService
+        result = await WebsiteReviewService.review_url(
+            url=payload.source_url,
+            user_id=session.user_id,
+        )
+        return {
+            "normalized_url": result.normalized_url,
+            "page_title": result.page_title,
+            "visible_features": [f.model_dump() for f in result.visible_features] if result.visible_features else []
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Source validation failed: {exc}",
+        )
 
 
 @router.post("/review-engine/jobs")
 async def create_review_engine_job(
-    _payload: ReviewEngineJobRequest,
-    _session: CustomerSession = Depends(require_customer_session),
+    payload: ReviewEngineJobRequest,
+    session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
-    raise HTTPException(
-        status_code=501,
-        detail="Review Engine batch jobs are reserved for Phase 2.",
-    )
+    try:
+        from services.website_review_service import WebsiteReviewService
+        from services.script_service import ScriptService
+        from services.customer_campaign_service import CustomerCampaignService
+        from services.persona_registry_service import PersonaRegistryService
+        from services.contracts import VideoReviewPlanContract
+        
+        script_service = ScriptService()
+        
+        page_review_contract = await WebsiteReviewService.review_url(
+            url=payload.source_url,
+            objective=payload.objective,
+            user_id=session.user_id,
+        )
+        page_review_payload = page_review_contract.model_dump(mode="json")
+        
+        results = []
+        for persona_id in payload.target_personas:
+            persona = await PersonaRegistryService.get_persona(persona_id, session.user_id)
+            if not persona:
+                continue
+                
+            review_plan = {
+                "objective": payload.objective,
+                "target_url": payload.source_url,
+                "language": persona.get("language") or "English",
+                "persona_id": persona_id,
+                "execution_mode": "autonomous_screen_recording",
+                "page_review": page_review_payload
+            }
+            
+            script_contract, _ = await script_service.generate_script_from_review_plan(
+                app_name=page_review_contract.page_title or payload.source_url,
+                review_plan=review_plan,
+                persona_config=persona
+            )
+            
+            campaign_payload = {
+                "name": f"Review of {page_review_contract.page_title or payload.source_url} - {persona.get('display_name', persona_id)}",
+                "description": payload.objective,
+                "content_pillars": ["Review"],
+                "target_platforms": ["tiktok"]
+            }
+            campaign = await CustomerCampaignService.create_campaign(
+                session=session,
+                payload=campaign_payload
+            )
+            
+            results.append({
+                "persona_id": persona_id,
+                "campaign_id": campaign["id"],
+                "script": script_contract.model_dump()
+            })
+            
+        return {
+            "status": "success",
+            "jobs": results
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Job creation failed: {exc}"
+        )
 
 
 @router.get("/review-engine/jobs/{job_id}")

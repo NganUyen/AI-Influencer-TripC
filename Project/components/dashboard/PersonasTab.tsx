@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Plus, Search, ArrowUp, Brain, Sparkles, Video, Share2, Info, MoreVertical } from "lucide-react";
+import { Plus, Search, ArrowUp, Brain, Sparkles, Video, Share2, Info, MoreVertical, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Persona {
@@ -9,6 +9,9 @@ interface Persona {
   status: string;
   video_count: number;
   location?: string;
+  tts_voice?: string;
+  language?: string;
+  appearance_prompt_or_photo?: string;
 }
 
 interface PersonasTabProps {
@@ -20,6 +23,71 @@ export function PersonasTab({ personas }: PersonasTabProps) {
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [composer, setComposer] = useState("");
+  
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState({
+    display_name: "",
+    tts_voice: "",
+    appearance_prompt_or_photo: ""
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [isRebuilding, setIsRebuilding] = useState(false);
+
+  React.useEffect(() => {
+    const selected = personas.find(p => p.persona_id === selectedPersonaId);
+    if (selected) {
+      setEditForm({
+        display_name: selected.display_name || "",
+        tts_voice: selected.tts_voice || "",
+        appearance_prompt_or_photo: selected.appearance_prompt_or_photo || ""
+      });
+      setIsEditing(false);
+    }
+  }, [selectedPersonaId, personas]);
+
+  const handleSave = async () => {
+    if (!selectedPersonaId) return;
+    setIsSaving(true);
+    try {
+      const response = await fetch(`/api/personas/${selectedPersonaId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editForm),
+      });
+      if (response.ok) {
+        setIsEditing(false);
+        window.location.reload();
+      } else {
+        alert("Failed to save adjustments.");
+      }
+    } catch (e) {
+      alert("Error saving adjustments");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRebuildAvatar = async () => {
+    if (!selectedPersonaId) return;
+    setIsRebuilding(true);
+    try {
+      const response = await fetch(`/api/personas/${selectedPersonaId}/rebuild-avatar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appearance_prompt_or_photo: editForm.appearance_prompt_or_photo }),
+      });
+      if (response.ok) {
+        setIsEditing(false);
+        window.location.reload();
+      } else {
+        alert("Failed to rebuild avatar");
+      }
+    } catch (e) {
+      alert("Error rebuilding avatar");
+    } finally {
+      setIsRebuilding(false);
+    }
+  };
 
   const filteredPersonas = personas.filter(p =>
     p.display_name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -114,38 +182,114 @@ export function PersonasTab({ personas }: PersonasTabProps) {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-3 md:gap-4">
-                  <button className="btn-secondary btn-sm">Edit Core</button>
+                  {isEditing ? (
+                    <button 
+                      onClick={() => setIsEditing(false)}
+                      className="btn-secondary btn-sm"
+                    >
+                      Cancel
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => setIsEditing(true)}
+                      className="btn-secondary btn-sm"
+                    >
+                      Edit Core
+                    </button>
+                  )}
                   <button className="btn-primary btn-sm">Generate Video</button>
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-8 p-6 md:space-y-12 md:p-12">
-                <div className="grid grid-cols-1 gap-6 md:grid-cols-3 md:gap-8">
-                  <div className="dashboard-card-muted p-8">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-4">Engagement</p>
-                    <p className="text-4xl font-black text-on-surface">4.2M</p>
-                    <p className="text-xs text-on-surface-variant mt-2 font-medium">+12% this week</p>
-                  </div>
-                  <div className="dashboard-card-muted p-8">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-secondary-fixed-dim mb-4">Consistency</p>
-                    <p className="text-4xl font-black text-on-surface">98%</p>
-                    <p className="text-xs text-on-surface-variant mt-2 font-medium">AI Match Rate</p>
-                  </div>
-                  <div className="dashboard-card-muted p-8">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-tertiary mb-4">Market Cap</p>
-                    <p className="text-4xl font-black text-on-surface">$12k</p>
-                    <p className="text-xs text-on-surface-variant mt-2 font-medium">Estimated Value</p>
-                  </div>
-                </div>
-
-                <button type="button" className="dashboard-panel-soft flex aspect-[21/9] w-full items-center justify-center border-2 border-dashed border-outline-variant/30 bg-surface-container-highest/20 transition-all group hover:bg-surface-container-highest/30">
-                  <div className="text-center space-y-4">
-                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-white shadow-brand-md transition-transform group-hover:scale-110">
-                      <Sparkles className="w-8 h-8 text-primary" />
+              <div className="flex-1 overflow-y-auto p-6 md:p-12">
+                {isEditing ? (
+                  <div className="space-y-6 max-w-2xl">
+                    <div className="space-y-4">
+                      <label className="block text-sm font-bold text-on-surface">Persona Name</label>
+                      <input 
+                        type="text"
+                        className="dashboard-field w-full py-3 px-4 font-medium"
+                        value={editForm.display_name}
+                        onChange={e => setEditForm({...editForm, display_name: e.target.value})}
+                      />
                     </div>
-                    <p className="font-bold text-on-surface">View Training Knowledge Base</p>
+                    <div className="space-y-4">
+                      <label className="block text-sm font-bold text-on-surface">TTS Voice (Google Cloud TTS Format)</label>
+                      <input 
+                        type="text"
+                        placeholder="e.g. en-US-Journey-F"
+                        className="dashboard-field w-full py-3 px-4 font-medium"
+                        value={editForm.tts_voice}
+                        onChange={e => setEditForm({...editForm, tts_voice: e.target.value})}
+                      />
+                    </div>
+                    <div className="space-y-4">
+                      <label className="block text-sm font-bold text-on-surface">Appearance / Prompt / Upload URL</label>
+                      <textarea 
+                        className="dashboard-field w-full py-3 px-4 font-medium h-32 resize-none"
+                        placeholder="Describe the visual identity..."
+                        value={editForm.appearance_prompt_or_photo}
+                        onChange={e => setEditForm({...editForm, appearance_prompt_or_photo: e.target.value})}
+                      />
+                    </div>
+
+                    <div className="pt-6 flex flex-wrap gap-4 items-center">
+                      <button 
+                        onClick={handleSave}
+                        disabled={isSaving || isRebuilding}
+                        className="btn-primary shrink-0 min-w-[140px]"
+                      >
+                        {isSaving ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Save Adjustments"}
+                      </button>
+
+                      <p className="text-xs text-on-surface-variant font-medium max-w-[200px]">
+                        Only saves basic metadata. Avatar remains unchanged.
+                      </p>
+                    </div>
+
+                    <div className="pt-6 border-t border-outline-variant/20 flex flex-wrap gap-4 items-center mt-6">
+                      <button 
+                        onClick={handleRebuildAvatar}
+                        disabled={isSaving || isRebuilding}
+                        className="btn-secondary text-primary hover:border-primary/50 hover:bg-primary/5 shrink-0 min-w-[140px]"
+                      >
+                        {isRebuilding ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Rebuild Avatar"}
+                      </button>
+                      <p className="text-xs text-on-surface-variant font-medium max-w-[200px]">
+                        This prompts HeyGen to recreate this persona. May take up to 60 seconds.
+                      </p>
+                    </div>
                   </div>
-                </button>
+                ) : (
+                  <div className="space-y-8 md:space-y-12">
+                    <div className="grid grid-cols-1 gap-6 md:grid-cols-3 md:gap-8">
+                      <div className="dashboard-card-muted p-8">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-4">Engagement</p>
+                        <p className="text-4xl font-black text-on-surface">4.2M</p>
+                        <p className="text-xs text-on-surface-variant mt-2 font-medium">+12% this week</p>
+                      </div>
+                      <div className="dashboard-card-muted p-8">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-secondary-fixed-dim mb-4">Consistency</p>
+                        <p className="text-4xl font-black text-on-surface">98%</p>
+                        <p className="text-xs text-on-surface-variant mt-2 font-medium">AI Match Rate</p>
+                      </div>
+                      <div className="dashboard-card-muted p-8">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-tertiary mb-4">Market Cap</p>
+                        <p className="text-4xl font-black text-on-surface">$12k</p>
+                        <p className="text-xs text-on-surface-variant mt-2 font-medium">Estimated Value</p>
+                      </div>
+                    </div>
+
+                    <button type="button" className="dashboard-panel-soft flex aspect-[21/9] w-full items-center justify-center border-2 border-dashed border-outline-variant/30 bg-surface-container-highest/20 transition-all group hover:bg-surface-container-highest/30">
+                      <div className="text-center space-y-4">
+                        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-white shadow-brand-md transition-transform group-hover:scale-110">
+                          <Sparkles className="w-8 h-8 text-primary" />
+                        </div>
+                        <p className="font-bold text-on-surface">View Training Knowledge Base</p>
+                      </div>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ) : (

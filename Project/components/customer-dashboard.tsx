@@ -152,13 +152,13 @@ export type Persona = {
   status: string;
   video_count: number;
   user_id?: string | null; // System personas have fixed ID, user personas have customer user_id
-  language?: string | null;
-  tts_voice?: string | null;
-  appearance_prompt_or_photo?: string | null;
+  language?: string;
+  tts_voice?: string;
+  appearance_prompt_or_photo?: string;
   region_label?: string | null;
   description?: string | null;
-  market_default?: string | null;
-  tone_default?: string | null;
+  market_default?: string;
+  tone_default?: string;
   is_preset_catalog?: boolean;
 };
 

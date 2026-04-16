@@ -262,7 +262,7 @@ class WebsiteReviewService:
                 fetch_method=fetch_method,
             )
         except Exception as exc:
-            logger.warning("Website review AI analysis failed for %s: %s", normalized_url, exc)
+            logger.warning("Website review AI analysis failed for %s: %s", normalized_url, exc, exc_info=True)
             return cls._fallback_review(
                 normalized_url=normalized_url,
                 source_text=source_text,

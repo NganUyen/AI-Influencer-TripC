@@ -39,6 +39,11 @@ import { PersonasTab } from "./dashboard/PersonasTab";
 import { LiveFeedTab } from "./dashboard/LiveFeedTab";
 import { PublishingTab } from "./dashboard/PublishingTab";
 import { DashboardLoadingSkeleton } from "./dashboard/skeletons/DashboardLoadingSkeleton";
+import {
+  type ReviewEngineSetup,
+  type ReviewEngineJob,
+  type ReviewEngineJobResponse,
+} from "@/lib/review-engine";
 
 
 export type BrandProfile = {
@@ -143,9 +148,18 @@ export type Persona = {
   persona_id: string;
   display_name: string;
   avatar_image_url: string | null;
+  selection_image_url?: string | null;
   status: string;
   video_count: number;
   user_id?: string | null; // System personas have fixed ID, user personas have customer user_id
+  language?: string | null;
+  tts_voice?: string | null;
+  appearance_prompt_or_photo?: string | null;
+  region_label?: string | null;
+  description?: string | null;
+  market_default?: string | null;
+  tone_default?: string | null;
+  is_preset_catalog?: boolean;
 };
 
 export type TelegramLinkStatus = {
@@ -368,6 +382,8 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
   const [telegramLink, setTelegramLink] = useState<TelegramLinkStatus | null>(null);
   const [linkToken, setLinkToken] = useState<TelegramLinkToken | null>(null);
   const [isPollingTelegramLink, setIsPollingTelegramLink] = useState(false);
+  const [reviewEngineSetup, setReviewEngineSetup] = useState<ReviewEngineSetup | null>(null);
+  const [reviewEngineJobs, setReviewEngineJobs] = useState<ReviewEngineJob[]>([]);
 
   const [campaignDraft, setCampaignDraft] = useState({
     name: "",
@@ -429,6 +445,27 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
       }
     }
   }, [isAuthenticated, logout, router]);
+
+  const fetchReviewEngineData = useCallback(async () => {
+    if (typeof window === "undefined" || !isAuthenticated) {
+      return;
+    }
+
+    try {
+      const [setup, jobsResponse] = await Promise.all([
+        customerApiRequest<ReviewEngineSetup>("/api/customer/review-engine/setup"),
+        customerApiRequest<ReviewEngineJobResponse>("/api/customer/review-engine/jobs"),
+      ]);
+      setReviewEngineSetup(setup);
+      setReviewEngineJobs(jobsResponse.jobs || []);
+    } catch (error) {
+      console.error("Failed to fetch review engine data:", error);
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    void fetchReviewEngineData();
+  }, [fetchReviewEngineData]);
 
   useEffect(() => {
     void fetchSystemData();
@@ -1883,6 +1920,9 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                 systemWorkflows={systemWorkflows}
                 content={content}
                 personas={personas}
+                setup={reviewEngineSetup}
+                jobs={reviewEngineJobs}
+                onRefresh={fetchReviewEngineData}
                 onNavigateToPublishing={() => navigateToTab("publishing")}
               />
             )}

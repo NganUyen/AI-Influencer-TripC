@@ -870,6 +870,7 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
         _campaign_id = config.get("campaign_id")
         _owner_key = config.get("owner_key")
         _user_id = config.get("user_id")
+        _workflow_id = config.get("workflow_id")
 
         try:
             with open(final_path, "rb") as file_obj:
@@ -886,7 +887,11 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
                     user_id=_user_id,
                     owner_key=_owner_key,
                     persona_id=assembly_input.persona_id,
-                    metadata={"topic": assembly_input.topic, "source": "split_screen"},
+                    metadata={
+                        "topic": assembly_input.topic,
+                        "source": "split_screen",
+                        "workflow_id": _workflow_id,
+                    },
                     file_name_hint=f"{safe_topic}-final",
                 )
 
@@ -908,6 +913,7 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
         metadata = {
             **assembly_input.model_dump(),
             "assembly_mode": "split_screen",
+            "workflow_id": _workflow_id,
             "used_talking_head": used_talking_head,
             "used_bgm_fallback": using_bgm_fallback,
             "bgm_profile": (bgm_track or {}).get("profile") if bgm_track else None,

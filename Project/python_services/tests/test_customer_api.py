@@ -27,6 +27,9 @@ class _SyncASGIClient:
     def post(self, path: str, **kwargs):
         return self.request("POST", path, **kwargs)
 
+    def patch(self, path: str, **kwargs):
+        return self.request("PATCH", path, **kwargs)
+
 
 def _build_client() -> _SyncASGIClient:
     app = FastAPI()
@@ -244,11 +247,13 @@ def test_launch_campaign_returns_temporal_payload(monkeypatch):
 def test_create_review_engine_job_skips_campaign_creation_without_brand_profile(monkeypatch):
     class _FakeReviewContract:
         page_title = "Chrome Store Listing"
+        normalized_url = "https://play.google.com/store/apps/details?id=com.android.chrome"
+        login_required = False
 
         def model_dump(self, mode: str = "python"):
             assert mode == "json"
             return {
-                "normalized_url": "https://play.google.com/store/apps/details?id=com.android.chrome",
+                "normalized_url": self.normalized_url,
                 "page_title": self.page_title,
                 "visible_features": [],
             }
@@ -288,11 +293,19 @@ def test_create_review_engine_job_skips_campaign_creation_without_brand_profile(
     async def fake_get_for_user(_user_id):
         return None
 
+    async def fake_list_accounts(_user_id):
+        return []
+
+    async def fake_get_telegram_link(_user_id):
+        return None
+
     async def fail_create_campaign(*args, **kwargs):
         raise AssertionError("campaign creation should be skipped when brand profile is missing")
 
     monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
     monkeypatch.setattr(customer.BrandProfileService, "get_for_user", fake_get_for_user)
+    monkeypatch.setattr(customer.AccountConnectionService, "list_accounts", fake_list_accounts)
+    monkeypatch.setattr(customer.TelegramLinkService, "get_link_for_user", fake_get_telegram_link)
     monkeypatch.setattr(customer.CustomerCampaignService, "create_campaign", fail_create_campaign)
     monkeypatch.setattr(customer.PersonaRegistryService, "get_persona", fake_get_persona)
     monkeypatch.setattr(
@@ -322,6 +335,162 @@ def test_create_review_engine_job_skips_campaign_creation_without_brand_profile(
     assert payload["jobs"][0]["campaign_id"] is None
     assert payload["jobs"][0]["script"]["script"] == "Generated review script"
     assert payload["warnings"][0]["code"] == "brand_onboarding_incomplete"
+
+
+def test_get_review_engine_setup_returns_persona_options(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_get_setup(*, user_id):
+        assert user_id == _session().user_id
+        return {
+            "steps": [
+                {"key": "enter_url", "label": "Step 1: Enter URL"},
+                {"key": "choose_persona", "label": "Step 2: Choose an available persona"},
+                {"key": "final_product", "label": "Step 3: Final product"},
+            ],
+            "supported_languages": ["English", "Chinese", "Spanish", "Arabic"],
+            "persona_options": [
+                {
+                    "persona_id": "basic-american-host",
+                    "display_name": "Ava Brooks",
+                    "selection_image_url": "data:image/svg+xml;base64,abc",
+                    "tiktok_integration": {"status": "inactive"},
+                }
+            ],
+            "custom_personas": [],
+            "create_your_own": {"available": True, "label": "Create your own Persona"},
+            "publishing_requirements": {"telegram_linked": False, "tiktok_channels_active": False},
+        }
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.AppReviewStudioService, "get_setup", fake_get_setup)
+
+    client = _build_client()
+    response = client.get(
+        "/api/customer/review-engine/setup",
+        headers={"Authorization": "Bearer customer-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["supported_languages"] == ["English", "Chinese", "Spanish", "Arabic"]
+    assert payload["persona_options"][0]["selection_image_url"].startswith("data:image/svg+xml")
+
+
+def test_list_customer_personas_includes_preset_selection_image(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_list_personas(*, user_id):
+        assert user_id == _session().user_id
+        return [
+            {
+                "persona_id": "persona-1",
+                "display_name": "Custom Host",
+                "language": "English",
+                "tts_voice": "en-US-Standard-F",
+                "avatar_image_url": "https://cdn.example/custom.png",
+                "status": "ready",
+                "video_count": 3,
+            }
+        ]
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.PersonaRegistryService, "list_personas", fake_list_personas)
+    monkeypatch.setattr(
+        customer.AppReviewStudioService,
+        "preset_persona_map",
+        lambda: {
+            "basic-american-host": {
+                "persona_id": "basic-american-host",
+                "display_name": "Ava Brooks",
+                "language": "English",
+                "status": "ready",
+                "video_count": 0,
+                "selection_image_url": "data:image/svg+xml;base64,abc",
+                "region_label": "American",
+                "is_preset_catalog": True,
+            }
+        },
+    )
+
+    client = _build_client()
+    response = client.get(
+        "/api/customer/personas",
+        headers={"Authorization": "Bearer customer-token"},
+    )
+
+    assert response.status_code == 200
+    personas = response.json()["personas"]
+    preset = next(item for item in personas if item["persona_id"] == "basic-american-host")
+    assert preset["selection_image_url"].startswith("data:image/svg+xml")
+    assert preset["region_label"] == "American"
+    assert preset["is_preset_catalog"] is True
+
+
+def test_create_customer_persona_uses_default_voice(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_create_persona(payload):
+        assert payload["persona_id"] == "custom-zoe-founder"
+        assert payload["language"] == "English"
+        assert payload["tts_voice"] == "en-US-Standard-F"
+        assert payload["user_id"] == _session().user_id
+        return payload
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.PersonaRegistryService, "create_persona", fake_create_persona)
+
+    client = _build_client()
+    response = client.post(
+        "/api/customer/personas",
+        headers={"Authorization": "Bearer customer-token"},
+        json={
+            "display_name": "Zoe Founder",
+            "language": "English",
+            "appearance_prompt_or_photo": "Confident startup reviewer",
+            "tone_default": "confident",
+            "market_default": "american",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["persona"]
+    assert payload["persona_id"] == "custom-zoe-founder"
+    assert payload["tts_voice"] == "en-US-Standard-F"
+
+
+def test_get_review_engine_job_returns_serialized_payload(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_get_job(*, user_id, job_id, temporal_client=None):
+        assert user_id == _session().user_id
+        assert job_id == "video-basic-american-host-1234"
+        assert temporal_client is None
+        return {
+            "job_id": job_id,
+            "status": "completed",
+            "persona": {"persona_id": "basic-american-host", "display_name": "Ava Brooks"},
+            "production": {"ready": True, "playable_video_url": "https://cdn.example/review.mp4"},
+            "publish": {"status": "ready_to_publish"},
+        }
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.AppReviewStudioService, "get_job", fake_get_job)
+
+    client = _build_client()
+    response = client.get(
+        "/api/customer/review-engine/jobs/video-basic-american-host-1234",
+        headers={"Authorization": "Bearer customer-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "completed"
+    assert payload["production"]["playable_video_url"] == "https://cdn.example/review.mp4"
 
 
 def test_get_customer_workspace_returns_aggregated_payload(monkeypatch):

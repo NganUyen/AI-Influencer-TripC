@@ -69,4 +69,26 @@ describe("customerApiRequest", () => {
       customerApiRequest("/api/customer/example"),
     ).rejects.toThrow("Customer API request failed with status 502");
   });
+
+  it("preserves explicit non-json content types for binary uploads", async () => {
+    const payload = new Blob(["video-bytes"], { type: "video/mp4" });
+
+    await customerApiRequest("/api/customer/review-engine/jobs/job-1/upload", {
+      method: "POST",
+      headers: {
+        "Content-Type": "video/mp4",
+        "x-filename": "review.mp4",
+      },
+      body: payload,
+    });
+
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    const headers = new Headers(init.headers);
+
+    expect(headers.get("Content-Type")).toBe("video/mp4");
+    expect(headers.get("x-filename")).toBe("review.mp4");
+  });
 });

@@ -29,6 +29,7 @@ with workflow.unsafe.imports_passed_through():
         generate_scene_images,
         create_talking_head_video,
     )
+    from activities.distribution_activities import publish_to_platforms
     from activities.video_activities import build_split_screen_video
     from services.contracts import VideoWorkflowStartPayloadContract
     from services.errors import (
@@ -102,6 +103,9 @@ class ShortVideoWorkflow:
         fallback_persona_id = payload_dict.get("persona_id", "")
         fallback_topic = payload_dict.get("topic", "")
         telegram_chat_id = payload_dict.get("telegram_chat_id")
+        auto_publish_enabled = bool(payload_dict.get("auto_publish_enabled"))
+        caption_draft = str(payload_dict.get("caption_draft") or "").strip()
+        content_title = str(payload_dict.get("content_title") or "").strip()
 
         def log_step_change(new_step: str, details: str = "") -> None:
             """Log workflow step transitions for debugging and monitoring."""
@@ -659,6 +663,7 @@ class ShortVideoWorkflow:
                         "persona_id": persona_id,
                         "owner_key": owner_key,
                         "user_id": user_id,
+                        "workflow_id": workflow_id,
                         "topic": topic,
                         "duration_per_image": 4.0,
                         "audio_policy": audio_policy,
@@ -668,81 +673,109 @@ class ShortVideoWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
 
-            self.workflow_status = "waiting_final_decision"
-            self.current_step = "waiting_final_decision"
-            preview = await workflow.execute_activity(
-                send_preview_to_telegram,
-                args=[
-                    {
-                        "telegram_chat_id": telegram_chat_id,
-                        "video_url": final_video["video_url"],
+            if telegram_chat_id:
+                self.workflow_status = "waiting_final_decision"
+                self.current_step = "waiting_final_decision"
+                preview = await workflow.execute_activity(
+                    send_preview_to_telegram,
+                    args=[
+                        {
+                            "telegram_chat_id": telegram_chat_id,
+                            "video_url": final_video["video_url"],
+                            "workflow_id": workflow_id,
+                            "user_id": user_id,
+                            "topic": topic,
+                            "persona_id": persona_id,
+                            "tone": tone,
+                            "platform": platform,
+                        }
+                    ],
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+
+                try:
+                    decision = await workflow.execute_activity(
+                        wait_for_publish_decision,
+                        args=[preview["request_id"], telegram_chat_id],
+                        start_to_close_timeout=timedelta(minutes=31),
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+                except ActivityError as exc:
+                    cause = getattr(exc, "cause", None)
+                    is_timeout = isinstance(cause, TimeoutError) or (
+                        "timed out" in str(exc).lower()
+                    )
+                    if not is_timeout:
+                        raise
+
+                    self.decision = "timeout"
+                    self.workflow_status = "expired"
+                    self.current_step = "decision_timeout"
+                    log_step_change(
+                        "decision_timeout",
+                        "no publish decision within 31 minutes",
+                    )
+                    workflow.logger.warning(
+                        "Publish decision timed out | workflow_id=%s | request_id=%s",
+                        workflow_id,
+                        preview.get("request_id"),
+                    )
+                    return {
+                        **final_video,
+                        "status": "expired",
                         "workflow_id": workflow_id,
-                        "user_id": user_id,
-                        "topic": topic,
                         "persona_id": persona_id,
-                        "tone": tone,
-                        "platform": platform,
+                        "topic": topic,
+                        "metadata": {
+                            **(final_video.get("metadata") or {}),
+                            "final_decision": "timeout",
+                            "reason": "publish_decision_timeout",
+                        },
                     }
-                ],
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
 
-            try:
-                decision = await workflow.execute_activity(
-                    wait_for_publish_decision,
-                    args=[preview["request_id"], telegram_chat_id],
-                    start_to_close_timeout=timedelta(minutes=31),
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
-            except ActivityError as exc:
-                cause = getattr(exc, "cause", None)
-                is_timeout = isinstance(cause, TimeoutError) or (
-                    "timed out" in str(exc).lower()
-                )
-                if not is_timeout:
-                    raise
-
-                self.decision = "timeout"
-                self.workflow_status = "expired"
-                self.current_step = "decision_timeout"
+                self.decision = decision.get("action")
+                if self.decision == "discard":
+                    self.workflow_status = "discarded"
+                    self.current_step = "discarded"
+                    log_step_change("discarded", "user discarded video")
+                    return {
+                        "type": "video",
+                        "status": "discarded",
+                        "workflow_id": workflow_id,
+                        "persona_id": persona_id,
+                        "topic": topic,
+                        "video_url": None,
+                        "storage_key": None,
+                        "metadata": {"reason": "operator_discarded"},
+                    }
+            else:
+                self.decision = "save"
                 log_step_change(
-                    "decision_timeout",
-                    "no publish decision within 31 minutes",
+                    "completed_without_telegram",
+                    "no telegram link present, auto-saving final product",
                 )
-                workflow.logger.warning(
-                    "Publish decision timed out | workflow_id=%s | request_id=%s",
-                    workflow_id,
-                    preview.get("request_id"),
-                )
-                return {
-                    **final_video,
-                    "status": "expired",
-                    "workflow_id": workflow_id,
-                    "persona_id": persona_id,
-                    "topic": topic,
-                    "metadata": {
-                        **(final_video.get("metadata") or {}),
-                        "final_decision": "timeout",
-                        "reason": "publish_decision_timeout",
-                    },
-                }
 
-            self.decision = decision.get("action")
-            if self.decision == "discard":
-                self.workflow_status = "discarded"
-                self.current_step = "discarded"
-                log_step_change("discarded", "user discarded video")
-                return {
-                    "type": "video",
-                    "status": "discarded",
-                    "workflow_id": workflow_id,
-                    "persona_id": persona_id,
-                    "topic": topic,
-                    "video_url": None,
-                    "storage_key": None,
-                    "metadata": {"reason": "operator_discarded"},
-                }
+            publish_result = None
+            if auto_publish_enabled and final_video.get("video_url"):
+                publish_result = await workflow.execute_activity(
+                    publish_to_platforms,
+                    args=[
+                        {
+                            "id": workflow_id,
+                            "logical_post_id": workflow_id,
+                            "workflow_id": workflow_id,
+                            "user_id": user_id,
+                            "platform": platform,
+                            "content": caption_draft or topic,
+                            "title": content_title or topic,
+                            "theme": topic,
+                            "media": [{"storage_url": final_video["video_url"]}],
+                        }
+                    ],
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
 
             self.workflow_status = "completed"
             self.current_step = "completed"
@@ -756,6 +789,7 @@ class ShortVideoWorkflow:
                 "metadata": {
                     **(final_video.get("metadata") or {}),
                     "final_decision": "save",
+                    "publish_result": publish_result,
                 },
             }
         except (PersonaNotReadyError, PersonaConfigurationError):

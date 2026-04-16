@@ -42,6 +42,13 @@ interface Persona {
   tts_voice?: string;
   language?: string;
   appearance_prompt_or_photo?: string;
+  selection_image_url?: string | null;
+  region_label?: string | null;
+  description?: string | null;
+  market_default?: string | null;
+  tone_default?: string | null;
+  is_preset_catalog?: boolean;
+  user_id?: string | null;
 }
 
 interface PersonasTabProps {

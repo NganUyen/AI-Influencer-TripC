@@ -384,6 +384,7 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
   const [isPollingTelegramLink, setIsPollingTelegramLink] = useState(false);
   const [reviewEngineSetup, setReviewEngineSetup] = useState<ReviewEngineSetup | null>(null);
   const [reviewEngineJobs, setReviewEngineJobs] = useState<ReviewEngineJob[]>([]);
+  const [reviewEngineError, setReviewEngineError] = useState<string | null>(null);
 
   const [campaignDraft, setCampaignDraft] = useState({
     name: "",
@@ -452,6 +453,7 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
     }
 
     try {
+      setReviewEngineError(null);
       const [setup, jobsResponse] = await Promise.all([
         customerApiRequest<ReviewEngineSetup>("/api/customer/review-engine/setup"),
         customerApiRequest<ReviewEngineJobResponse>("/api/customer/review-engine/jobs"),
@@ -459,6 +461,8 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
       setReviewEngineSetup(setup);
       setReviewEngineJobs(jobsResponse.jobs || []);
     } catch (error) {
+      const msg = error instanceof Error ? error.message : "Failed to load review engine data";
+      setReviewEngineError(msg);
       console.error("Failed to fetch review engine data:", error);
     }
   }, [isAuthenticated]);
@@ -1352,14 +1356,12 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                           width={1280}
                           height={720}
                           className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                          onError={(e) => {
+                            const img = e.target as HTMLImageElement;
+                            img.style.display = "none";
+                          }}
                         />
-                      ) : (
-                        <div className="absolute inset-0 bg-gradient-to-br from-aura-primary/20 to-aura-primary-container/30 flex items-center justify-center">
-                          <div className="text-6xl font-headline font-extrabold text-aura-primary/20">
-                            {personas[0]?.display_name?.charAt(0) || "A"}
-                          </div>
-                        </div>
-                      )}
+                      ) : null}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex items-end p-8">
                         <div className="backdrop-blur-sm bg-white/10 p-5 rounded-xl border border-white/20">
                           <h4 className="text-white text-xl font-bold font-headline mb-1">
@@ -1878,20 +1880,23 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                         className="relative block w-full text-left group"
                       >
                         <div className="aspect-[4/5] rounded-2xl overflow-hidden shadow-aura-md transition-transform group-hover:scale-[1.02] duration-300 bg-aura-surface-container-high">
-                          {personas[0]?.avatar_image_url ? (
+                          <div className="w-full h-full bg-gradient-to-br from-aura-primary/20 to-aura-primary-container/30 flex items-center justify-center">
+                            <span className="text-8xl font-extrabold text-aura-primary/20 font-headline">
+                              {personas[0]?.display_name?.charAt(0) || "A"}
+                            </span>
+                          </div>
+                          {personas[0]?.avatar_image_url && (
                             <img
                               src={personas[0].avatar_image_url}
                               alt={personas[0].display_name}
                               width={800}
                               height={1000}
-                              className="w-full h-full object-cover"
+                              className="absolute inset-0 w-full h-full object-cover"
+                              onError={(e) => {
+                                const img = e.target as HTMLImageElement;
+                                img.style.display = "none";
+                              }}
                             />
-                          ) : (
-                            <div className="w-full h-full bg-gradient-to-br from-aura-primary/20 to-aura-primary-container/30 flex items-center justify-center">
-                              <span className="text-8xl font-extrabold text-aura-primary/20 font-headline">
-                                {personas[0]?.display_name?.charAt(0) || "A"}
-                              </span>
-                            </div>
                           )}
                           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                           <div className="absolute bottom-0 left-0 right-0 p-6" style={{ backdropFilter: "blur(12px)", background: "rgba(255,255,255,0.08)", borderTop: "1px solid rgba(255,255,255,0.15)" }}>
@@ -1914,18 +1919,19 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
               </div>
             )}
 
-            {activeTab === "create_video" && (
-              <LiveFeedTab
-                activityItems={activityItems}
-                systemWorkflows={systemWorkflows}
-                content={content}
-                personas={personas}
-                setup={reviewEngineSetup}
-                jobs={reviewEngineJobs}
-                onRefresh={fetchReviewEngineData}
-                onNavigateToPublishing={() => navigateToTab("publishing")}
-              />
-            )}
+             {activeTab === "create_video" && (
+               <LiveFeedTab
+                 activityItems={activityItems}
+                 systemWorkflows={systemWorkflows}
+                 content={content}
+                 personas={userPersonas}
+                 setup={reviewEngineSetup}
+                 jobs={reviewEngineJobs}
+                 reviewEngineError={reviewEngineError}
+                 onRefresh={fetchReviewEngineData}
+                 onNavigateToPublishing={() => navigateToTab("publishing")}
+               />
+             )}
 
             {activeTab === "publishing" && (
               <PublishingTab content={content} />

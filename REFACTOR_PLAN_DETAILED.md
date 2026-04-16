@@ -55,6 +55,143 @@
 
 ## ❌ PHẦN CHƯA CÓ (Need to Build)
 
+---
+
+## 🗄️ PLAN PERSISTENCE STRATEGY - WHY DB, NOT CACHE
+
+### Decision: Plans MUST be persisted in Database (NOT temporary cache)
+
+**Why?** This is a critical architectural decision that enables the entire editing + approval workflow:
+
+#### 1. **Session Persistence & User Control**
+```
+Scenario A (Cache only - BROKEN):
+  User: Generate 5 plans → Edit 3 → Reload page → ALL PLANS LOST ❌
+
+Scenario B (DB Persistence - CORRECT):
+  User: Generate 5 plans → Edit 3 → Reload page → Plans still there ✅
+  User can:
+    - Come back later to finish editing
+    - Have multiple editing sessions
+    - Share plan links with team
+```
+
+#### 2. **Edit Workflow Requires Plan IDs**
+```
+Flow:
+  1. POST /api/customer/review-engine/jobs
+     ← Returns: scripts (ephemeral)
+  
+  2. [MUST save to DB]
+     POST /api/customer/review-engine/plans
+     ← Returns: [{ plan_id: "uuid-123", persona_id, status: 'generated' }]
+  
+  3. User edits in UI (1 hour later)
+     PATCH /api/customer/review-engine/plans/uuid-123
+     ← Requires plan_id to identify WHICH plan to update
+     ← Cannot work without DB persistence
+  
+  4. User approves
+     POST /api/customer/review-engine/plans/uuid-123/approve
+     ← Again: MUST have persisted plan_id
+```
+
+#### 3. **Batch Operations & Selective Approval**
+```
+User workflow:
+- Generate 5 plans for 5 personas
+- Approve: Persona A, C, D (3/5)
+- Reject: Persona B, E (2/5)
+- Later: Start renders for approved only
+- Later: Come back to edit & approve B, E
+
+Without DB: Impossible (no way to track which is which)
+With DB: Each plan has plan_id, status persists independently
+```
+
+#### 4. **Rendering Progress Tracking**
+```
+Timeline:
+  1. User approves plan/uuid-123
+     → POST /approve starts ShortVideoWorkflow
+     → Returns: workflow_id, status='approved'
+     → Saves to video_render_plans.workflow_id
+  
+  2. Frontend polls progress
+     GET /api/customer/review-engine/plans/uuid-123
+     ← Queries DB for current status + progress_percent
+     ← Returns: { status: 'in_progress', progress: 45%, ... }
+  
+  3. Workflow completes (30 mins later)
+     → Updates DB: status='complete', video_url='s3://...'
+  
+  4. User checks dashboard next day
+     GET /api/customer/review-engine/plans/uuid-123
+     ← Retrieves: video_url, allows publishing
+```
+
+#### 5. **Publishing Settings Persistence**
+```
+After video renders complete:
+  User sees: "Ready for Publishing"
+  User configures:
+    - TikTok: Title, description, hashtags, schedule time
+    - YouTube: Title, description, category
+    - Instagram: Caption, hashtags, schedule
+  
+  PATCH /api/customer/review-engine/plans/uuid-123/publish-settings
+  Body: {
+    platforms: {
+      tiktok: { title, description, hashtags, schedule_time },
+      youtube: { title, description, category },
+      instagram: { caption, hashtags, schedule_time }
+    }
+  }
+  ← Saves to video_render_plans.publish_settings JSONB column
+  
+  Later, user clicks "Publish Now"
+  POST /api/customer/review-engine/publish
+  ← Reads ALL plans with status='complete' + publish_settings
+  ← Publishes to configured platforms
+  
+  Without DB: Publishing config lost on page refresh ❌
+```
+
+### Data Lifecycle Table
+
+| Step | Action | Location | Persistence |
+|------|--------|----------|--------------|
+| 1 | User generates scripts | Frontend → Backend | Ephemeral (POST /jobs response) |
+| 2 | **Save plans to DB** | Backend | **DB: video_render_plans** ← plan_id created |
+| 3 | User edits script/scenes | Frontend UI | Temporary (form state) |
+| 4 | **Save edits to DB** | Backend (PATCH) | **DB: update script_text + scenes_data** |
+| 5 | User approves plan | Frontend | Triggers POST /approve |
+| 6 | **Start workflow** | Backend | **DB: status='approved', workflow_id set** |
+| 7 | Workflow renders (30 min) | Background | **DB: updated with progress, video_url** |
+| 8 | User configures publishing | Frontend | Temporary (form state) |
+| 9 | **Save publish settings** | Backend (PATCH) | **DB: publish_settings JSONB** |
+| 10 | User publishes | Frontend → API | **DB: reads plans, publishes to platforms** |
+
+### Implementation Note
+
+**Editing updates ONLY if plan is in 'generated' or 'edited' state:**
+```python
+# PATCH /api/customer/review-engine/plans/{plan_id}
+if plan.status not in ['generated', 'edited']:
+    raise BadRequest(
+        f"Cannot edit plan in {plan.status} state. "
+        f"Only 'generated' and 'edited' plans can be modified."
+    )
+plan.script_text = body.script
+plan.scenes_data = body.scenes
+plan.status = 'edited'  # Mark as user-edited
+plan.save()
+```
+
+This prevents accidental edits to plans that are already rendering or approved.
+
+---
+
 ### Backend - New Endpoints Needed
 
 #### 1. Store Generated Plans

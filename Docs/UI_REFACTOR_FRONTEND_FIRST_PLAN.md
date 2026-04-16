@@ -41,6 +41,12 @@ The current codebase has useful building blocks. The problem is presentation and
 - Publishing orchestration
 - New global Zustand store
 
+**Critical Prerequisite for Phase 3:**
+- ⚠️ Database layer MUST be implemented first (video_render_plans table)
+- Backend endpoints for plan storage, editing, approval must exist
+- See: `REFACTOR_PLAN_DETAILED.md` → "Plan Persistence Strategy" section
+- Reason: Phase 3 integration requires plan_id for all edit/approval/publishing workflows
+
 ---
 
 ## Tab Rename Map

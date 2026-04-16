@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { customerApiRequest } from "@/lib/customer-api";
 import {
   Zap,
   Layers,
@@ -44,21 +45,19 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
     if (!sourceUrl) return;
     try {
       setIsValidating(true);
-      const res = await fetch("/api/customer/review-engine/source/validate", {
+      const data = await customerApiRequest<any>("/api/customer/review-engine/source/validate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source_url: sourceUrl }),
       });
-      const data = await res.json();
-      if (res.ok && data.status === "success") {
+      if (data.status === "success") {
         setValidationResult(data.result);
         setActiveStep(2);
       } else {
         alert("Validation failed: " + (data.detail || "Unknown error"));
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert("Error validating URL");
+      alert("Error validating URL: " + e.message);
     } finally {
       setIsValidating(false);
     }
@@ -67,13 +66,11 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
   const handleInitiateProduction = async () => {
     try {
       setIsGenerating(true);
-      const res = await fetch("/api/customer/review-engine/jobs", {
+      const data = await customerApiRequest<any>("/api/customer/review-engine/jobs", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source_url: sourceUrl, markets: ["Global"] }),
       });
-      const data = await res.json();
-      if (res.ok && data.status === "success") {
+      if (data.status === "success") {
         setScriptResult(data.script);
         setScriptText(data.script?.script || "");
         setActiveStep(3);
@@ -81,9 +78,9 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
       } else {
         alert("Generation failed");
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert("Error generating script");
+      alert("Error generating script: " + e.message);
     } finally {
       setIsGenerating(false);
     }

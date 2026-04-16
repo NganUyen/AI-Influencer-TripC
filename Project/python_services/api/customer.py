@@ -777,6 +777,8 @@ async def validate_review_engine_source(
             "visible_features": [f.model_dump() for f in result.visible_features] if result.visible_features else []
         }
     except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Source validation failed with exception:", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Source validation failed: {exc}",

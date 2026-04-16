@@ -40,6 +40,15 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
   const [isGenerating, setIsGenerating] = useState(false);
   const [scriptResult, setScriptResult] = useState<any>(null);
   const [scriptText, setScriptText] = useState("");
+  const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
+
+  React.useEffect(() => {
+    setSelectedPersonas(personas.map(p => p.persona_id));
+  }, [personas]);
+
+  const togglePersona = (personaId: string) => {
+    setSelectedPersonas(prev => prev.includes(personaId) ? prev.filter(id => id !== personaId) : [...prev, personaId]);
+  };
 
   const handleValidate = async () => {
     if (!sourceUrl) return;
@@ -49,11 +58,11 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
         method: "POST",
         body: JSON.stringify({ source_url: sourceUrl }),
       });
-      if (data.status === "success") {
-        setValidationResult(data.result);
+      if (data.normalized_url || data.page_title) {
+        setValidationResult(data);
         setActiveStep(2);
       } else {
-        alert("Validation failed: " + (data.detail || "Unknown error"));
+        alert("Validation failed: Unexpected response format");
       }
     } catch (e: any) {
       console.error(e);
@@ -64,15 +73,19 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
   };
 
   const handleInitiateProduction = async () => {
+    if (selectedPersonas.length === 0) {
+      alert("Please select at least one persona.");
+      return;
+    }
     try {
       setIsGenerating(true);
       const data = await customerApiRequest<any>("/api/customer/review-engine/jobs", {
         method: "POST",
-        body: JSON.stringify({ source_url: sourceUrl, markets: ["Global"] }),
+        body: JSON.stringify({ source_url: sourceUrl, objective: "Review", target_personas: selectedPersonas }),
       });
       if (data.status === "success") {
-        setScriptResult(data.script);
-        setScriptText(data.script?.script || "");
+        setScriptResult(data.jobs?.[0]?.script);
+        setScriptText(data.jobs?.[0]?.script?.script || "");
         setActiveStep(3);
         setIsModalOpen(false);
       } else {
@@ -402,8 +415,13 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
             {/* Grid Content */}
             <div className="flex-1 overflow-y-auto px-10 py-10 grid grid-cols-1 md:grid-cols-3 gap-6">
               {personas.map(p => (
-                <label key={p.id} className="group relative cursor-pointer">
-                  <input defaultChecked className="peer hidden" type="checkbox" />
+                <label key={p.persona_id} className="group relative cursor-pointer">
+                  <input
+                    checked={selectedPersonas.includes(p.persona_id)}
+                    onChange={() => togglePersona(p.persona_id)}
+                    className="peer hidden"
+                    type="checkbox"
+                  />
                   <div className="bg-aura-surface-container-low rounded-2xl p-5 border-2 border-transparent peer-checked:border-aura-primary peer-checked:bg-aura-primary-container/20 transition-all duration-300 group-hover:scale-[1.02] shadow-aura-sm">
                     <div className="aspect-square rounded-xl overflow-hidden mb-4 relative">
                       <img alt={p.display_name} className="w-full h-full object-cover" src={p.avatar_image_url || "https://randomuser.me/api/portraits/lego/1.jpg"} width={320} height={320} />
@@ -431,7 +449,7 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
             {/* Modal Footer */}
             <div className="p-8 bg-aura-surface-container-lowest flex justify-between items-center px-10 border-t border-aura-outline-variant/5">
               <div className="text-aura-on-surface-variant text-sm font-bold font-body">
-                <span className="text-aura-primary">{personas.length} Personas</span> Selected
+                <span className="text-aura-primary">{selectedPersonas.length} Personas</span> Selected
               </div>
               <div className="flex gap-4">
                 <button 

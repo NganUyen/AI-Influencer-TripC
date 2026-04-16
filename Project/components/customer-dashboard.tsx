@@ -16,6 +16,8 @@ import {
   RefreshCw,
   X,
   AlertCircle,
+  Video,
+  Send,
   type LucideIcon,
 } from "lucide-react";
 import { SocialIcon } from "@/components/ui/SocialIcon";
@@ -33,6 +35,7 @@ import { TextAreaField } from "@/components/ui/TextAreaField";
 import { OverviewTab } from "./dashboard/OverviewTab";
 import { PersonasTab } from "./dashboard/PersonasTab";
 import { LiveFeedTab } from "./dashboard/LiveFeedTab";
+import { PublishingTab } from "./dashboard/PublishingTab";
 
 
 export type BrandProfile = {
@@ -202,7 +205,7 @@ type CustomerWorkspaceResponse = {
   };
 };
 
-export type DashboardTabId = "overview" | "ops" | "skills" | "memory" | "live_feed";
+export type DashboardTabId = "overview" | "ops" | "skills" | "memory" | "create_video" | "publishing";
 
 export type DashboardTab = {
   id: DashboardTabId;
@@ -288,7 +291,8 @@ const DASHBOARD_TABS: DashboardTab[] = [
   { id: "ops", label: "AI Operations", icon: Bot },
   { id: "skills", label: "Personas", icon: Users },
   { id: "memory", label: "Project & Memory", icon: Database },
-  { id: "live_feed", label: "Activity Feed", icon: Radio },
+  { id: "create_video", label: "Create Video", icon: Video },
+  { id: "publishing", label: "Publishing", icon: Send },
 ];
 
 function buildAiBackboneForm(
@@ -1336,10 +1340,10 @@ export default function CustomerDashboard() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setActiveTab("live_feed")}
+                        onClick={() => setActiveTab("create_video")}
                         className="bg-aura-secondary-container text-aura-on-secondary-container min-h-[44px] px-6 md:px-7 py-3 md:py-3.5 rounded-full font-body font-bold hover:scale-105 active:scale-95 transition-all cursor-pointer"
                       >
-                        View Logs
+                        Production Console
                       </button>
                     </div>
                   </div>
@@ -1537,7 +1541,11 @@ export default function CustomerDashboard() {
             )}
 
             {activeTab === "skills" && (
-              <PersonasTab personas={personas} telegramBotUrl={telegramBotUrl || undefined} />
+              <PersonasTab
+                personas={personas}
+                telegramBotUrl={telegramBotUrl || undefined}
+                onNavigateToCreateVideo={() => setActiveTab("create_video")}
+              />
             )}
 
             {activeTab === "memory" && (
@@ -1824,13 +1832,18 @@ export default function CustomerDashboard() {
               </div>
             )}
 
-            {activeTab === "live_feed" && (
+            {activeTab === "create_video" && (
               <LiveFeedTab
                 activityItems={activityItems}
                 systemWorkflows={systemWorkflows}
                 content={content}
                 personas={personas}
+                onNavigateToPublishing={() => setActiveTab("publishing")}
               />
+            )}
+
+            {activeTab === "publishing" && (
+              <PublishingTab content={content} />
             )}
           </div>
 

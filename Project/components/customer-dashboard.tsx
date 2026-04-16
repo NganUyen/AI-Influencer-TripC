@@ -31,6 +31,14 @@ import openClawLogo from "@/app/dashboard/openclaw-logo.svg";
 import { FormField } from "@/components/ui/FormField";
 import { SelectField } from "@/components/ui/SelectField";
 import { TextAreaField } from "@/components/ui/TextAreaField";
+import {
+  type ReviewEngineJob,
+  type ReviewEngineJobResponse,
+  type ReviewEngineSetup,
+  getReviewJobPersonaImage,
+  getReviewJobStatusLabel,
+  getReviewJobTone,
+} from "@/lib/review-engine";
 
 import { OverviewTab } from "./dashboard/OverviewTab";
 import { PersonasTab } from "./dashboard/PersonasTab";
@@ -140,8 +148,17 @@ export type Persona = {
   persona_id: string;
   display_name: string;
   avatar_image_url: string | null;
+  selection_image_url?: string | null;
   status: string;
   video_count: number;
+  language?: string | null;
+  tts_voice?: string | null;
+  appearance_prompt_or_photo?: string | null;
+  region_label?: string | null;
+  description?: string | null;
+  market_default?: string | null;
+  tone_default?: string | null;
+  is_preset_catalog?: boolean;
 };
 
 export type TelegramLinkStatus = {
@@ -220,6 +237,9 @@ export type ActivityItem = {
   title: string;
   detail: string;
   tone?: ActivityItemTone;
+  progress?: number;
+  personaImage?: string | null;
+  timeLabel?: string;
 };
 
 const EMPTY_BRAND: BrandProfile = {
@@ -352,6 +372,8 @@ export default function CustomerDashboard() {
   const [telegramLink, setTelegramLink] = useState<TelegramLinkStatus | null>(null);
   const [linkToken, setLinkToken] = useState<TelegramLinkToken | null>(null);
   const [isPollingTelegramLink, setIsPollingTelegramLink] = useState(false);
+  const [reviewEngineSetup, setReviewEngineSetup] = useState<ReviewEngineSetup | null>(null);
+  const [reviewEngineJobs, setReviewEngineJobs] = useState<ReviewEngineJob[]>([]);
 
   const [campaignDraft, setCampaignDraft] = useState({
     name: "",
@@ -414,6 +436,33 @@ export default function CustomerDashboard() {
     }
   }, [isAuthenticated, logout, router]);
 
+  const loadReviewEngineData = useCallback(async () => {
+    if (typeof window === "undefined" || !isAuthenticated) {
+      return;
+    }
+
+    try {
+      const [setupPayload, jobsPayload] = await Promise.all([
+        customerApiRequest<ReviewEngineSetup>("/api/customer/review-engine/setup"),
+        customerApiRequest<ReviewEngineJobResponse>("/api/customer/review-engine/jobs"),
+      ]);
+      setReviewEngineSetup(setupPayload);
+      setReviewEngineJobs(jobsPayload.jobs || []);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "";
+      if (
+        msg.includes("401") ||
+        msg.includes("Unauthorized") ||
+        msg.toLowerCase().includes("invalid or expired")
+      ) {
+        void logout();
+        router.replace("/auth");
+        return;
+      }
+      console.warn("Failed to refresh review engine data:", error);
+    }
+  }, [isAuthenticated, logout, router]);
+
   useEffect(() => {
     void fetchSystemData();
     const interval = setInterval(fetchSystemData, 30000);
@@ -433,6 +482,15 @@ export default function CustomerDashboard() {
   }, [searchParams]);
 
   useEffect(() => {
+    if (
+      dashboardTabParam &&
+      DASHBOARD_TABS.some((tab) => tab.id === dashboardTabParam)
+    ) {
+      setActiveTab(dashboardTabParam as DashboardTabId);
+    }
+  }, [dashboardTabParam]);
+
+  useEffect(() => {
     if (!initialized && !isLoading) {
       // Only start initialize if we aren't already loading
       void initialize();
@@ -450,7 +508,8 @@ export default function CustomerDashboard() {
       return;
     }
     void loadWorkspace();
-  }, [initialized, isLoading, isAuthenticated, router, pageError]);
+    void loadReviewEngineData();
+  }, [initialized, isLoading, isAuthenticated, router, pageError, loadReviewEngineData]);
 
   useEffect(() => {
     if (selectedThreadId && isAuthenticated) {
@@ -898,8 +957,9 @@ export default function CustomerDashboard() {
         approvals,
         content,
         systemWorkflows,
+        reviewJobs: reviewEngineJobs,
       }),
-    [campaigns, approvals, content, systemWorkflows],
+    [campaigns, approvals, content, systemWorkflows, reviewEngineJobs],
   );
 
   const quotaWarnings = useMemo(
@@ -911,6 +971,12 @@ export default function CustomerDashboard() {
   );
 
   const [quotaBannerDismissed, setQuotaBannerDismissed] = useState(false);
+  const dashboardTabParam = searchParams.get("dashboard_tab");
+  const reviewSourceUrl = searchParams.get("review_source_url") || "";
+  const reviewPersonaIds = (searchParams.get("review_personas") || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 
   if (isLoading || !initialized) {
     return (
@@ -1033,6 +1099,22 @@ export default function CustomerDashboard() {
                 onTabChange={setActiveTab}
                 activityItems={activityItems}
                 quotaWarnings={quotaWarnings}
+                reviewJobs={reviewEngineJobs}
+                onPublishJob={async (jobId) => {
+                  try {
+                    await customerApiRequest(`/api/customer/review-engine/jobs/${jobId}/publish`, {
+                      method: "POST",
+                      body: JSON.stringify({}),
+                    });
+                    setBanner("Publish started.");
+                    await loadReviewEngineData();
+                    await loadWorkspace();
+                  } catch (error) {
+                    setPageError(
+                      error instanceof Error ? error.message : "Failed to publish review",
+                    );
+                  }
+                }}
               />
             )}
 
@@ -1543,8 +1625,12 @@ export default function CustomerDashboard() {
             {activeTab === "skills" && (
               <PersonasTab
                 personas={personas}
-                telegramBotUrl={telegramBotUrl || undefined}
+                setup={reviewEngineSetup}
                 onNavigateToCreateVideo={() => setActiveTab("create_video")}
+                onPersonasChanged={async () => {
+                  await loadWorkspace();
+                  await loadReviewEngineData();
+                }}
               />
             )}
 
@@ -1838,6 +1924,15 @@ export default function CustomerDashboard() {
                 systemWorkflows={systemWorkflows}
                 content={content}
                 personas={personas}
+                setup={reviewEngineSetup}
+                jobs={reviewEngineJobs}
+                initialSourceUrl={reviewSourceUrl}
+                initialPersonaIds={reviewPersonaIds}
+                onRefresh={async () => {
+                  await loadReviewEngineData();
+                  await loadWorkspace();
+                }}
+                onNavigateToPersonas={() => setActiveTab("skills")}
                 onNavigateToPublishing={() => setActiveTab("publishing")}
               />
             )}
@@ -1880,13 +1975,35 @@ function buildActivityItems({
   approvals,
   content,
   systemWorkflows,
+  reviewJobs,
 }: {
   campaigns: Campaign[];
   approvals: Campaign[];
   content: ContentItem[];
   systemWorkflows: SystemWorkflowData[];
+  reviewJobs: ReviewEngineJob[];
 }): ActivityItem[] {
   const items: ActivityItem[] = [];
+
+  (reviewJobs || []).slice(0, 6).forEach((job) => {
+    items.push({
+      id: `review-job-${job.job_id}`,
+      title:
+        job.content?.title ||
+        job.page_title ||
+        job.persona?.display_name ||
+        "App review",
+      detail: `${getReviewJobStatusLabel(job)} • ${job.progress}% complete`,
+      tone: getReviewJobTone(job),
+      progress: job.progress,
+      personaImage: getReviewJobPersonaImage(job),
+      timeLabel: job.updated_at || job.started_at || "",
+    });
+  });
+
+  if (items.length >= 8) {
+    return items.slice(0, 8);
+  }
 
   (systemWorkflows || []).slice(0, 3).forEach((workflow) => {
     items.push({

@@ -98,6 +98,87 @@ const DEV_MOCK_DATA: Record<string, unknown> = {
       { id: "wf-dev-2", workflow_id: "wf-dev-2", name: "Audience Analysis", status: "completed", progress: 100 }
     ]
   },
+  "review-engine/setup": {
+    steps: [
+      { key: "enter_url", label: "Step 1: Enter URL" },
+      { key: "choose_persona", label: "Step 2: Choose an available persona" },
+      { key: "final_product", label: "Step 3: Final product" },
+    ],
+    supported_languages: ["English", "Chinese", "Spanish", "Arabic"],
+    persona_options: [
+      {
+        persona_id: "basic-american-host",
+        display_name: "Ava Brooks",
+        language: "English",
+        region_label: "American",
+        selection_image_url:
+          "https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=800&auto=format&fit=crop",
+        tiktok_integration: {
+          status: "active",
+          active_channels: 1,
+          inactive_channels: 0,
+          channels: [{ display_name: "US Channel", handle: "@ava_us", status: "active" }],
+        },
+        demo: {
+          available: true,
+          label: "Ava demo",
+          summary: "AI-generated English product review demo.",
+        },
+      },
+    ],
+    custom_personas: [],
+    create_your_own: {
+      available: true,
+      label: "Create your own Persona",
+    },
+    publishing_requirements: {
+      telegram_linked: false,
+      tiktok_channels_active: true,
+      tiktok_channels_total: 1,
+    },
+  },
+  "review-engine/jobs": {
+    jobs: [
+      {
+        job_id: "video-basic-american-host-demo",
+        workflow_id: "video-basic-american-host-demo",
+        type: "app_review_video",
+        status: "running",
+        current_step: "generating_talking_head",
+        progress: 65,
+        activity_feed: [
+          { key: "enter_url", label: "Step 1: Enter URL", status: "completed" },
+          { key: "choose_persona", label: "Step 2: Choose Persona", status: "completed" },
+          { key: "final_product", label: "Step 3: Final Product", status: "in_progress" },
+        ],
+        source_url: "https://example.com/app",
+        objective: "Generate a short English app review.",
+        page_title: "Example App",
+        persona: {
+          persona_id: "basic-american-host",
+          display_name: "Ava Brooks",
+          language: "English",
+          region_label: "American",
+          image_url:
+            "https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=800&auto=format&fit=crop",
+        },
+        content: {
+          title: "Example App · Ava Brooks",
+          body: "A quick English-first review ready for TikTok.",
+          status: "draft",
+          published: false,
+        },
+        production: {
+          ready: false,
+          publish_enabled: false,
+        },
+        publish: {
+          requested: false,
+          status: "not_requested",
+        },
+      },
+    ],
+  },
   "brand/context": {
     product_name: "My Brand",
     audience: "Content creators",
@@ -143,19 +224,23 @@ async function proxyCustomerRequest(
   const body =
     request.method === "GET" || request.method === "HEAD"
       ? undefined
-      : await request.text();
+      : (() => request.arrayBuffer())();
 
   const headers = new Headers();
   if (authHeader) headers.set("Authorization", authHeader);
   const accept = request.headers.get("accept");
   if (accept) headers.set("Accept", accept);
-  if (body !== undefined) headers.set("Content-Type", "application/json");
+  const contentType = request.headers.get("content-type");
+  if (contentType) headers.set("Content-Type", contentType);
+  const fileName = request.headers.get("x-filename");
+  if (fileName) headers.set("x-filename", fileName);
 
   try {
+    const resolvedBody = body === undefined ? undefined : await body;
     const response = await fetch(targetUrl, {
       method: request.method,
       headers,
-      body,
+      body: resolvedBody,
       cache: "no-store",
       redirect: "manual",
     });

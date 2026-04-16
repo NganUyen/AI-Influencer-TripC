@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import aiAvatarImage from "./dashboard/ai-avatar.webp";
 
 import { LandingHeader } from "@/components/layout/LandingHeader";
@@ -12,32 +13,68 @@ import { Footer } from "@/components/landing/Footer";
 
 const personas = [
   {
+    id: "basic-american-host",
     img: "https://lh3.googleusercontent.com/aida-public/AB6AXuBfStrPhBXQvwYbJR4cG1oLcOEISkZBiXs7y8agPanzui9q3iyoOCEAZY8p44efWhmT_llXjlpyEnt5te5IsLze_3EOnXjN1H0e53ymZZI9JzCd39QasE-APa0Z9oH_BJhNkGnh_D7enhJzmh9gMVjhYZhezoBFID_Zje5OwdF9zvR4DG4Pl53K1ZhfcqdyaNnO1LXsJsBn_PSvlrqNvEij4I1rg0Me3yzHUP7cy1BHb6iKGktIzJt6tQB5yHzAs7AOZ2qkBYpslOY",
     lang: "English",
     category: "Lifestyle & Tech",
     active: true,
   },
   {
+    id: "basic-chinese-host",
     img: "https://lh3.googleusercontent.com/aida-public/AB6AXuAEehgjQNiAYTpI2oJzE5dbujH7PTC-4BkSLcYZdGp5OkEAuoPZpFpXSFVKRdEe5tdWLMD64T7gMQMad0yv1usEqrBiBXoLN9CYQIg7MI0YkQWmgNAKkwhUldxv-aNeFc2JsBgdMIiRptgag0rCgXOljZe2zCYQ_xMKAm5eK40lpjGth1ZzTHKaytkF1ow2gUyp4nHfVZJCv2fwvNCfpt56rTLg6h734Viq6FAq0PImh5P8Qa-S51As6IW2RHhcT5AIpPytwnFyND8",
     lang: "Chinese",
     category: "Gaming & Viral",
   },
   {
+    id: "basic-latin-host",
     img: "https://lh3.googleusercontent.com/aida-public/AB6AXuCXjK_FceHz3d4Jb3lbuRK1LMPumbRQ-2VaQ3pqibpICuY-fLLhbpo2xmv5iHMXQE2-0iU_1NnswjTN28ukjiQpIoy4wA6yMB7c6jottg_ztm3wIvsqLl24r2u-sIBLr-UuZ8Qjn6Tp-IQqKJwI8SlqBmkuEphVw4X-DQeoMPs24fUXyHd5IsgH3sZEDi5w3s1EDCFEGEWO8U7I0R6XMwq3WnKKl6F4qxokPKFEt_URo6QvTOwLyHogxEZ4gc4aSiLfqBhweYN12H0",
     lang: "Spanish",
     category: "Travel & Social",
   },
   {
+    id: "basic-muslim-host",
     img: "https://lh3.googleusercontent.com/aida-public/AB6AXuB-fvcwqBLACyUyHzbIvUiq7Fmw2RaFhqoQo6MoL4_zcjrRPa5OBswgbfWqhc06jke785Et2bvTXYhjN752lBPQL4zZXHWtgbq_H2EpIVnRxU9G5uUA4EN54Zb7sAoP8iiNM-aTNMW9p1z8bv0z7lkO4LI7TQg8VAOSOMZpjsUVeuoydoCtpUA5CxExHNdDp0wZxabtnFgaJD6S_9ZDIZQU0_OI25vI1e_mJKDRUYe0E1-5DAEpXA5E_gVtdxxqGeTkMv9QLzoFo_k",
     lang: "Arabic",
     category: "Business & Fin",
   },
 ];
 
-const liveNodes = ["EN", "ZH", "ES", "AR", "+6"];
-
 export default function HomePage() {
   const router = useRouter();
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [selectedPersonaIds, setSelectedPersonaIds] = useState<string[]>(
+    personas.filter((persona) => persona.active).map((persona) => persona.id),
+  );
+
+  const dashboardNextPath = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set("dashboard_tab", "create_video");
+    if (sourceUrl.trim()) {
+      params.set("review_source_url", sourceUrl.trim());
+    }
+    if (selectedPersonaIds.length > 0) {
+      params.set("review_personas", selectedPersonaIds.join(","));
+    }
+    return `/dashboard?${params.toString()}`;
+  }, [selectedPersonaIds, sourceUrl]);
+
+  const handleGenerate = () => {
+    router.push(`/auth?next=${encodeURIComponent(dashboardNextPath)}`);
+  };
+
+  const handleCreateOwnPersona = () => {
+    router.push(
+      `/auth?next=${encodeURIComponent("/dashboard?dashboard_tab=skills")}`,
+    );
+  };
+
+  const handleTogglePersona = (personaId: string) => {
+    setSelectedPersonaIds((current) =>
+      current.includes(personaId)
+        ? current.filter((id) => id !== personaId)
+        : [...current, personaId],
+    );
+  };
 
   return (
     <div className="surface-page min-h-screen bg-background font-body text-on-background selection:bg-primary-container/20 selection:text-on-primary-container">
@@ -69,12 +106,20 @@ export default function HomePage() {
                     className="min-w-0 flex-1 bg-transparent text-base font-medium text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none sm:text-base"
                     placeholder="Paste App Store or Play Store URL"
                     type="text"
+                    value={sourceUrl}
+                    onChange={(event) => setSourceUrl(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        handleGenerate();
+                      }
+                    }}
                   />
                 </div>
                 <BaseButton
                   variant="primary"
                   size="lg"
-                  onClick={() => router.push("/auth")}
+                  onClick={handleGenerate}
                   className="shrink-0"
                 >
                   Generate
@@ -88,13 +133,23 @@ export default function HomePage() {
               <div className="grid grid-cols-2 gap-2 xs:grid-cols-2 sm:grid-cols-4">
                 {personas.map((persona) => (
                   <PersonaOptionCard
-                    key={persona.lang}
+                    key={persona.id}
                     img={persona.img}
                     lang={persona.lang}
                     category={persona.category}
-                    active={persona.active}
+                    active={selectedPersonaIds.includes(persona.id)}
+                    onClick={() => handleTogglePersona(persona.id)}
                   />
                 ))}
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleCreateOwnPersona}
+                  className="text-sm font-bold text-primary hover:underline underline-offset-4"
+                >
+                  Create your own Persona
+                </button>
               </div>
             </div>
           </div>

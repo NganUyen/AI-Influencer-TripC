@@ -313,6 +313,41 @@ describe("API proxy routes", () => {
     expect(await response.json()).toEqual({ status: "launched" });
   });
 
+  it("preserves binary upload headers when proxying customer upload routes", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      text: async () => JSON.stringify({ status: "uploaded" }),
+    } as Response);
+
+    const request = new NextRequest(
+      "http://localhost/api/customer/review-engine/jobs/job-1/upload",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer customer-token",
+          "Content-Type": "video/mp4",
+          "x-filename": "review.mp4",
+        },
+        body: new Uint8Array([1, 2, 3, 4]),
+      },
+    );
+    const response = await postCustomerProxy(request, {
+      params: { path: ["review-engine", "jobs", "job-1", "upload"] },
+    });
+
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    const headers = init.headers as Headers;
+
+    expect(headers.get("Content-Type")).toBe("video/mp4");
+    expect(headers.get("x-filename")).toBe("review.mp4");
+    expect(init.body).toBeInstanceOf(ArrayBuffer);
+    expect(response.status).toBe(200);
+  });
+
   it("proxies telegram auth POST routes", async () => {
     global.fetch = jest.fn().mockResolvedValue({
       status: 200,

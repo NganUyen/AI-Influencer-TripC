@@ -40,7 +40,12 @@ export async function customerApiRequest<T>(
   const accessToken = session?.access_token || persistedSession?.accessToken;
 
   const headers = new Headers(init?.headers || {});
-  headers.set("Content-Type", "application/json");
+  const body = init?.body;
+  const hasExplicitContentType = headers.has("Content-Type");
+  const isJsonStringBody = typeof body === "string";
+  if (!hasExplicitContentType && isJsonStringBody) {
+    headers.set("Content-Type", "application/json");
+  }
   if (accessToken) {
     headers.set("Authorization", `Bearer ${accessToken}`);
   }

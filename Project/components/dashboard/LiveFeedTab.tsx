@@ -1,885 +1,763 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Download,
+  ExternalLink,
+  Link as LinkIcon,
+  Loader2,
+  Send,
+  Upload,
+  Wand2,
+} from "lucide-react";
 import { customerApiRequest } from "@/lib/customer-api";
 import { cn } from "@/lib/utils";
 import {
-  Zap,
-  Layers,
-  CheckCircle,
-  Settings,
-  Link as LinkIcon,
-  PlayCircle,
-  Info,
-  Store,
-  Edit3,
-  Eye,
-  X as Close,
-  Plus as Add,
-  Radio,
-  Hand,
-  Smile,
-  MapPin,
-  Rocket as RocketLaunch,
-  Wand2 as MagicButton,
-  Check,
-  Send,
-} from "lucide-react";
+  type ReviewEngineJob,
+  type ReviewEnginePersonaOption,
+  type ReviewEngineSetup,
+  getReviewJobPersonaImage,
+  getReviewJobStatusLabel,
+  getReviewJobTone,
+} from "@/lib/review-engine";
 
 interface LiveFeedTabProps {
   activityItems: any[];
   systemWorkflows: any[];
   content: any[];
   personas: any[];
+  setup: ReviewEngineSetup | null;
+  jobs: ReviewEngineJob[];
+  initialSourceUrl?: string;
+  initialPersonaIds?: string[];
+  onRefresh?: () => Promise<void> | void;
+  onNavigateToPersonas?: () => void;
   onNavigateToPublishing?: () => void;
 }
 
-type VideoMode = 'ai_auto' | 'ai_remote' | 'human_phone';
+type InputMode = "ai_autonomous" | "user_upload";
 
-const VIDEO_MODES = [
-  {
-    id: 'ai_auto' as VideoMode,
-    title: 'AI Auto Record',
-    description: 'AI handles the full recording and assembly process automatically.',
-    badge: 'Default · Active',
-    readiness: 'ready' as const,
-    note: 'Default mode — fully integrated with current workflow.',
-  },
-  {
-    id: 'ai_remote' as VideoMode,
-    title: 'AI from Computer',
-    description: 'AI operates a remote computer session to record content.',
-    badge: 'Coming Soon',
-    readiness: 'coming_later' as const,
-    note: 'Requires website login and remote desktop handoff.',
-  },
-  {
-    id: 'human_phone' as VideoMode,
-    title: 'Human Phone Recording',
-    description: 'Human captures footage on a phone, then AI assembles the video.',
-    badge: 'Coming Soon',
-    readiness: 'coming_later' as const,
-    note: 'Human-captured footage; AI assembles the final video.',
-  },
-] as const;
+function statusPillClass(status?: string | null) {
+  if (status === "published") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (status === "failed") return "bg-amber-50 text-amber-700 border-amber-200";
+  return "bg-aura-surface-container text-aura-on-surface-variant border-aura-outline-variant/20";
+}
 
-export function LiveFeedTab({ activityItems, systemWorkflows, content, personas, onNavigateToPublishing }: LiveFeedTabProps) {
-  const [activeStep, setActiveStep] = useState<1 | 2 | 3>(1);
-  const [selectedMode, setSelectedMode] = useState<VideoMode>('ai_auto');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [sourceUrl, setSourceUrl] = useState("https://apps.apple.com/us/app/ai-influencer-tracker/id12345678");
+function progressBarClass(job: ReviewEngineJob) {
+  const tone = getReviewJobTone(job);
+  if (tone === "success") return "from-emerald-500 to-emerald-300";
+  if (tone === "warning") return "from-amber-500 to-amber-300";
+  return "from-aura-primary to-aura-primary-container";
+}
 
-  const [isValidating, setIsValidating] = useState(false);
-  const [validationResult, setValidationResult] = useState<any>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [scriptResult, setScriptResult] = useState<any>(null);
-  const [scriptText, setScriptText] = useState("");
+function buildPersonaFallback(persona: any): ReviewEnginePersonaOption {
+  return {
+    persona_id: persona.persona_id,
+    display_name: persona.display_name,
+    language: persona.language,
+    region_label: persona.region_label,
+    description: persona.description,
+    selection_image_url:
+      persona.selection_image_url || persona.avatar_image_url || null,
+    image_url: persona.selection_image_url || persona.avatar_image_url || null,
+    is_preset: Boolean(persona.is_preset_catalog),
+    is_preset_catalog: Boolean(persona.is_preset_catalog),
+  };
+}
+
+export function LiveFeedTab({
+  personas,
+  setup,
+  jobs,
+  initialSourceUrl = "",
+  initialPersonaIds = [],
+  onRefresh,
+  onNavigateToPersonas,
+  onNavigateToPublishing,
+}: LiveFeedTabProps) {
+  const [sourceUrl, setSourceUrl] = useState(initialSourceUrl);
+  const [objective, setObjective] = useState("Create an English app review ready for TikTok.");
+  const [inputMode, setInputMode] = useState<InputMode>("ai_autonomous");
+  const [publishToTiktok, setPublishToTiktok] = useState(false);
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
+  const [validationResult, setValidationResult] = useState<any>(null);
+  const [isValidating, setIsValidating] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [publishingJobId, setPublishingJobId] = useState<string | null>(null);
+  const [savingJobId, setSavingJobId] = useState<string | null>(null);
+  const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
 
-  React.useEffect(() => {
-    setSelectedPersonas(personas.map(p => p.persona_id));
-  }, [personas]);
+  const personaOptions = useMemo(() => {
+    const map = new Map<string, ReviewEnginePersonaOption>();
+    (setup?.persona_options || []).forEach((persona) => {
+      map.set(persona.persona_id, persona);
+    });
+    (setup?.custom_personas || []).forEach((persona) => {
+      map.set(persona.persona_id, persona);
+    });
+    (personas || []).forEach((persona) => {
+      if (!map.has(persona.persona_id)) {
+        map.set(persona.persona_id, buildPersonaFallback(persona));
+      }
+    });
+    return Array.from(map.values());
+  }, [personas, setup]);
 
-  const togglePersona = (personaId: string) => {
-    setSelectedPersonas(prev => prev.includes(personaId) ? prev.filter(id => id !== personaId) : [...prev, personaId]);
+  useEffect(() => {
+    if (!sourceUrl && initialSourceUrl) {
+      setSourceUrl(initialSourceUrl);
+    }
+  }, [initialSourceUrl, sourceUrl]);
+
+  useEffect(() => {
+    setSelectedPersonas((current) => {
+      if (current.length > 0) return current;
+      if (initialPersonaIds.length > 0) return initialPersonaIds;
+      return personaOptions.slice(0, 8).map((persona) => persona.persona_id);
+    });
+  }, [initialPersonaIds, personaOptions]);
+
+  useEffect(() => {
+    setDrafts((current) => {
+      const next = { ...current };
+      jobs.forEach((job) => {
+        if (!(job.job_id in next)) {
+          next[job.job_id] = job.content?.body || job.script?.script || "";
+        }
+      });
+      return next;
+    });
+  }, [jobs]);
+
+  const handleTogglePersona = (personaId: string) => {
+    setSelectedPersonas((current) =>
+      current.includes(personaId)
+        ? current.filter((id) => id !== personaId)
+        : [...current, personaId],
+    );
   };
 
   const handleValidate = async () => {
-    if (!sourceUrl) return;
+    if (!sourceUrl.trim()) return;
+    setPageError(null);
+    setIsValidating(true);
     try {
-      setIsValidating(true);
-      const data = await customerApiRequest<any>("/api/customer/review-engine/source/validate", {
-        method: "POST",
-        body: JSON.stringify({ source_url: sourceUrl }),
-      });
-      if (data.normalized_url || data.page_title) {
-        setValidationResult(data);
-        setActiveStep(2);
-      } else {
-        alert("Validation failed: Unexpected response format");
-      }
-    } catch (e: any) {
-      console.error(e);
-      alert("Error validating URL: " + e.message);
+      const payload = await customerApiRequest<any>(
+        "/api/customer/review-engine/source/validate",
+        {
+          method: "POST",
+          body: JSON.stringify({ source_url: sourceUrl.trim() }),
+        },
+      );
+      setValidationResult(payload);
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : "Failed to validate source URL",
+      );
     } finally {
       setIsValidating(false);
     }
   };
 
-  const handleInitiateProduction = async () => {
-    if (selectedPersonas.length === 0) {
-      alert("Please select at least one persona.");
+  const handleGenerate = async () => {
+    if (!sourceUrl.trim()) {
+      setPageError("Enter an app URL first.");
       return;
     }
-    try {
-      setIsGenerating(true);
-      const data = await customerApiRequest<any>("/api/customer/review-engine/jobs", {
-        method: "POST",
-        body: JSON.stringify({ source_url: sourceUrl, objective: "Review", target_personas: selectedPersonas }),
-      });
-      if (data.status === "success") {
-        setScriptResult(data.jobs?.[0]?.script);
-        setScriptText(data.jobs?.[0]?.script?.script || "");
-        setIsModalOpen(false); // stay on Step 2 — show plan preview
-      } else {
-        alert("Generation failed");
-      }
-    } catch (e: any) {
-      console.error(e);
-      alert("Error generating script: " + e.message);
-    } finally {
-      setIsGenerating(false);
+    if (selectedPersonas.length === 0) {
+      setPageError("Select at least one persona.");
+      return;
     }
-  };
 
-  const handleDeployAll = async () => {
+    setPageError(null);
     setIsGenerating(true);
     try {
-      // Simulate bulk launch deployment delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      alert("Success! All selected regional campaigns have been deployed to the rendering engine.");
-      setActiveStep(1); // Reset back to start
+      await customerApiRequest("/api/customer/review-engine/jobs", {
+        method: "POST",
+        body: JSON.stringify({
+          source_url: sourceUrl.trim(),
+          objective: objective.trim(),
+          target_personas: selectedPersonas,
+          input_mode: inputMode,
+          publish_to_tiktok: publishToTiktok,
+        }),
+      });
+      await onRefresh?.();
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : "Failed to create review jobs",
+      );
     } finally {
       setIsGenerating(false);
     }
   };
 
-  // Step 1: Multi-Country Review Engine
-  const renderStep1 = () => (
-    <div className="space-y-10 animate-fade-in">
-      {/* Page Title & Primary Action */}
-      <div className="flex justify-between items-start">
-        <div>
-          <h2 className="text-4xl font-extrabold tracking-tight text-aura-on-surface font-headline">Multi-Country Review Engine</h2>
-          <p className="text-aura-on-surface-variant mt-3 max-w-xl text-lg font-body">
-            Synchronize your global video presence. Deploy localized influencer content across 10 strategic markets simultaneously.
-          </p>
-        </div>
-        <button 
-          onClick={() => setActiveStep(2)}
-          className="btn-primary btn-lg group relative overflow-hidden"
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-[150%] skew-x-[-15deg] group-hover:animate-shine" />
-          <Zap className="w-5 h-5 fill-current relative z-10" />
-          <span className="relative z-10 uppercase tracking-widest text-[13px]">Batch Generate All</span>
-        </button>
-      </div>
+  const handleSaveJob = async (job: ReviewEngineJob) => {
+    setPageError(null);
+    setSavingJobId(job.job_id);
+    try {
+      await customerApiRequest(`/api/customer/review-engine/jobs/${job.job_id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: job.content?.title || job.page_title || "App Review",
+          content: drafts[job.job_id] || "",
+        }),
+      });
+      await onRefresh?.();
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : "Failed to update content",
+      );
+    } finally {
+      setSavingJobId(null);
+    }
+  };
 
-      {/* Production Mode Selection */}
-      <div className="space-y-5">
-        <div>
-          <h3 className="text-sm font-black uppercase tracking-widest text-aura-on-surface-variant font-label mb-1">Production Mode</h3>
-          <p className="text-xs text-aura-on-surface-variant/60 font-body">Choose how AI will capture and assemble your video content.</p>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {VIDEO_MODES.map((mode) => {
-            const isReady = mode.readiness === 'ready';
-            const isSelected = selectedMode === mode.id;
-            return (
-              <button
-                key={mode.id}
-                type="button"
-                disabled={!isReady}
-                onClick={() => isReady && setSelectedMode(mode.id)}
-                aria-pressed={isSelected}
-                aria-label={`Select ${mode.title} production mode`}
-                className={cn(
-                  "text-left p-5 rounded-2xl border-2 transition-all duration-200 min-h-[44px]",
-                  isReady && isSelected ? "border-aura-primary bg-aura-primary/5 shadow-sm" : "",
-                  isReady && !isSelected ? "border-aura-outline-variant/20 hover:border-aura-primary/40 cursor-pointer" : "",
-                  !isReady ? "border-aura-outline-variant/10 opacity-50 cursor-not-allowed" : ""
-                )}
-              >
-                <div className="mb-3">
-                  <span className={cn(
-                    "px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border",
-                    isReady ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"
-                  )}>
-                    {mode.badge}
-                  </span>
-                </div>
-                <p className="font-bold text-aura-on-surface text-sm font-headline mb-1">{mode.title}</p>
-                <p className="text-xs text-aura-on-surface-variant font-body leading-relaxed">{mode.description}</p>
-                {mode.note && (
-                  <p className="text-[11px] text-aura-on-surface-variant/60 font-body mt-3 italic">{mode.note}</p>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+  const handlePublishJob = async (jobId: string) => {
+    setPageError(null);
+    setPublishingJobId(jobId);
+    try {
+      await customerApiRequest(`/api/customer/review-engine/jobs/${jobId}/publish`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      await onRefresh?.();
+      onNavigateToPublishing?.();
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : "Failed to publish review",
+      );
+    } finally {
+      setPublishingJobId(null);
+    }
+  };
 
-      {/* Production Control Panel */}
-      <div className="dashboard-panel p-8">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 items-end">
-          <div className="md:col-span-3 space-y-3">
-            <label htmlFor="production-source-url" className="text-xs font-bold uppercase tracking-widest text-aura-on-surface-variant ml-4 font-label">Production Source URL</label>
-            <div className="relative">
-              <LinkIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-aura-primary w-5 h-5" />
-              <input
-                id="production-source-url"
-                name="sourceUrl"
-                className="w-full pl-14 pr-6 py-5 bg-aura-surface-container rounded-full border-none focus:ring-2 focus:ring-aura-primary/20 transition-all font-medium text-aura-on-surface outline-none" 
-                type="url"
-                autoComplete="url"
-                value={sourceUrl}
-                onChange={(e) => setSourceUrl(e.target.value)}
-              />
-            </div>
-          </div>
-          <div>
-            <button 
-              onClick={handleValidate}
-              disabled={isValidating || !sourceUrl}
-              className="btn-primary btn-wide disabled:opacity-50"
-            >
-              {isValidating ? "Validating..." : "Validate App URL"}
-            </button>
-          </div>
-        </div>
-      </div>
+  const handleUploadVideo = async (jobId: string, file: File | null) => {
+    if (!file) return;
+    setPageError(null);
+    setUploadingJobId(jobId);
+    try {
+      await customerApiRequest(`/api/customer/review-engine/jobs/${jobId}/upload`, {
+        method: "POST",
+        headers: {
+          "Content-Type": file.type || "video/mp4",
+          "x-filename": file.name,
+        },
+        body: file,
+      });
+      await onRefresh?.();
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : "Failed to upload video",
+      );
+    } finally {
+      setUploadingJobId(null);
+    }
+  };
 
-      {/* Global Production Grid */}
-      <div className="space-y-6 pb-2">
-        <div className="hidden xl:grid xl:grid-cols-12 px-8 text-[11px] font-bold uppercase tracking-widest text-aura-on-surface-variant/70">
-          <div className="col-span-3 font-label">Country & Language</div>
-          <div className="col-span-3 font-label">Selected Persona</div>
-          <div className="col-span-2 text-center font-label">TikTok Status</div>
-          <div className="col-span-2 text-center font-label">Production</div>
-          <div className="col-span-2 text-right font-label">Action</div>
-        </div>
-        
-        <div className="space-y-4">
-          {/* US Row */}
-          <div className="dashboard-panel dashboard-card-interactive grid grid-cols-1 gap-4 p-5 group hover:shadow-aura-md sm:grid-cols-2 xl:grid-cols-12">
-            <div className="flex items-center gap-4 sm:col-span-1 xl:col-span-3">
-              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-aura-surface-container shrink-0">
-                <img alt="USA Flag" className="w-full h-full object-cover" src="https://flagcdn.com/w160/us.png" width={48} height={48} />
-              </div>
-              <div>
-                <p className="font-bold text-aura-on-surface">United States</p>
-                <p className="text-xs text-aura-on-surface-variant font-medium">English (US)</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 sm:col-span-1 xl:col-span-3">
-              <div className="w-10 h-10 rounded-full overflow-hidden border border-aura-primary/20 shrink-0">
-                <img alt="Persona" className="w-full h-full object-cover" src="https://randomuser.me/api/portraits/women/44.jpg" width={40} height={40} />
-              </div>
-              <p className="text-sm font-bold text-aura-on-surface">Sarah J. <span className="text-xs font-semibold text-aura-primary block">Lifestyle Tech</span></p>
-            </div>
-            <div className="flex justify-start sm:col-span-1 xl:col-span-2 xl:justify-center">
-              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-bold uppercase tracking-wider">
-                <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Connected
-              </div>
-            </div>
-            <div className="flex flex-col items-start gap-2 sm:col-span-1 xl:col-span-2 xl:items-center">
-              <span className="text-xs font-bold text-aura-primary italic">Rendering</span>
-              <div className="w-28 h-2 bg-aura-surface-container rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-aura-primary to-aura-primary-container w-2/3 rounded-full"></div>
-              </div>
-            </div>
-            <div className="sm:col-span-2 xl:col-span-2 xl:text-right">
-              <button className="px-6 py-2.5 bg-aura-surface-container text-aura-on-surface-variant text-xs font-bold rounded-full opacity-50 cursor-not-allowed">Publish</button>
-            </div>
-          </div>
+  const requirements = setup?.publishing_requirements;
 
-          {/* Japan Row */}
-          <div className="dashboard-panel dashboard-card-interactive grid grid-cols-1 gap-4 p-5 group hover:shadow-aura-md sm:grid-cols-2 xl:grid-cols-12">
-            <div className="flex items-center gap-4 sm:col-span-1 xl:col-span-3">
-              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-aura-surface-container shrink-0">
-                <img alt="Japan Flag" className="w-full h-full object-cover" src="https://flagcdn.com/w160/jp.png" width={48} height={48} />
-              </div>
-              <div>
-                <p className="font-bold text-aura-on-surface">Japan</p>
-                <p className="text-xs text-aura-on-surface-variant font-medium">Japanese</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 sm:col-span-1 xl:col-span-3">
-              <div className="w-10 h-10 rounded-full overflow-hidden border border-aura-primary/20 shrink-0">
-                <img alt="Persona" className="w-full h-full object-cover" src="https://randomuser.me/api/portraits/men/32.jpg" width={40} height={40} />
-              </div>
-              <p className="text-sm font-bold text-aura-on-surface">Kenji T. <span className="text-xs font-semibold text-aura-primary block">App Reviewer</span></p>
-            </div>
-            <div className="flex justify-start sm:col-span-1 xl:col-span-2 xl:justify-center">
-              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-bold uppercase tracking-wider">
-                <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Connected
-              </div>
-            </div>
-            <div className="flex flex-col items-start gap-2 sm:col-span-1 xl:col-span-2 xl:items-center">
-              <span className="text-xs font-bold text-emerald-600">Ready</span>
-              <div className="w-28 h-2 bg-emerald-500 rounded-full"></div>
-            </div>
-            <div className="sm:col-span-2 xl:col-span-2 xl:text-right">
-              <button className="btn-primary btn-sm">Publish</button>
-            </div>
-          </div>
+  return (
+    <div className="space-y-8 animate-fade-in">
+      <header className="space-y-3">
+        <h1 className="text-4xl font-extrabold tracking-tight text-aura-on-surface font-headline">
+          App Review Studio
+        </h1>
+        <p className="max-w-3xl text-aura-on-surface-variant text-base leading-relaxed">
+          Enter one URL, choose ready personas, generate English-first review content,
+          then download or publish directly to TikTok when Telegram and TikTok auth are active.
+        </p>
+      </header>
 
-          {/* Vietnam Row */}
-          <div className="dashboard-panel dashboard-card-interactive grid grid-cols-1 gap-4 p-5 group hover:shadow-aura-md sm:grid-cols-2 xl:grid-cols-12">
-            <div className="flex items-center gap-4 sm:col-span-1 xl:col-span-3">
-              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-aura-surface-container shrink-0">
-                <img alt="Vietnam Flag" className="w-full h-full object-cover" src="https://flagcdn.com/w160/vn.png" width={48} height={48} />
-              </div>
-              <div>
-                <p className="font-bold text-aura-on-surface">Vietnam</p>
-                <p className="text-xs text-aura-on-surface-variant font-medium">Vietnamese</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 sm:col-span-1 xl:col-span-3">
-              <div className="w-10 h-10 rounded-full overflow-hidden border border-aura-primary/20 shrink-0">
-                <img alt="Persona" className="w-full h-full object-cover" src="https://randomuser.me/api/portraits/women/68.jpg" width={40} height={40} />
-              </div>
-              <p className="text-sm font-bold text-aura-on-surface">Linh N. <span className="text-xs font-semibold text-aura-primary block">Digital Nomad</span></p>
-            </div>
-            <div className="flex justify-start sm:col-span-1 xl:col-span-2 xl:justify-center">
-              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-50 text-amber-600 text-[10px] font-bold uppercase tracking-wider">
-                <span className="w-2 h-2 rounded-full bg-amber-500"></span> Pending Auth
-              </div>
-            </div>
-            <div className="flex flex-col items-start gap-2 sm:col-span-1 xl:col-span-2 xl:items-center">
-              <span className="text-xs font-bold text-aura-on-surface-variant/40">Paused</span>
-              <div className="w-28 h-2 bg-aura-surface-container rounded-full"></div>
-            </div>
-            <div className="sm:col-span-2 xl:col-span-2 xl:text-right">
-              <button className="px-6 py-2.5 bg-aura-surface-container text-aura-on-surface-variant text-xs font-bold rounded-full opacity-50 cursor-not-allowed">Publish</button>
-            </div>
-          </div>
-
-          <div className="dashboard-panel-soft flex items-center justify-between border border-dashed border-aura-outline-variant/60 p-6">
-            <div className="flex items-center gap-3 text-aura-on-surface-variant">
-              <Info className="w-5 h-5 text-aura-primary/60" />
-              <p className="text-sm font-medium italic font-body">5 additional markets (Germany, France, South Korea, India, Mexico) configured and awaiting URL validation.</p>
-            </div>
-            <button className="text-aura-primary text-sm font-bold hover:underline transition-all underline-offset-4 font-body">View All Rows</button>
-          </div>
-        </div>
-      </div>
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-        <div className="dashboard-panel p-8 space-y-4">
-          <p className="text-[11px] font-bold uppercase text-aura-on-surface-variant/70 tracking-widest font-label">Active Campaigns</p>
-          <div className="flex items-end justify-between">
-            <p className="text-4xl font-extrabold text-aura-primary font-headline">12</p>
-            <div className="w-16 h-1.5 bg-gradient-to-r from-aura-primary to-aura-primary-container rounded-full"></div>
-          </div>
-        </div>
-        <div className="dashboard-panel p-8 space-y-4">
-          <p className="text-[11px] font-bold uppercase text-aura-on-surface-variant/70 tracking-widest font-label">Total Rendered</p>
-          <div className="flex items-end justify-between">
-            <p className="text-4xl font-extrabold text-aura-on-surface font-headline">1,402</p>
-            <div className="w-16 h-1.5 bg-aura-tertiary rounded-full"></div>
-          </div>
-        </div>
-        <div className="dashboard-panel p-8 space-y-4">
-          <p className="text-[11px] font-bold uppercase text-aura-on-surface-variant/70 tracking-widest font-label">Avg Completion</p>
-          <div className="flex items-end justify-between">
-            <p className="text-4xl font-extrabold text-aura-on-surface font-headline">4.2m</p>
-            <div className="w-16 h-1.5 bg-aura-primary-container rounded-full ring-1 ring-aura-primary/20"></div>
-          </div>
-        </div>
-        <div className="dashboard-panel p-8 space-y-4">
-          <p className="text-[11px] font-bold uppercase text-aura-on-surface-variant/70 tracking-widest font-label">Market Reach</p>
-          <div className="flex items-end justify-between">
-            <p className="text-4xl font-extrabold text-aura-on-surface font-headline">42 <span className="text-sm font-bold text-aura-on-surface-variant/60 ml-1">Countries</span></p>
-            <div className="w-16 h-1.5 bg-aura-on-surface/10 rounded-full"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  // Step 2: Selection (Influencer Studio)
-  const renderStep2 = () => (
-    <div className="animate-fade-in space-y-8 pb-10">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-      {/* Column 1: Source (Validated) */}
-      <section className="flex flex-col gap-6">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xl font-headline font-bold text-aura-on-surface">Step 1: Source</h2>
-          <span className="px-3 py-1 bg-aura-tertiary/10 text-aura-tertiary rounded-full text-[10px] font-bold tracking-widest uppercase">VALIDATED</span>
-        </div>
-        <div className="bg-white p-8 rounded-[2.5rem] shadow-aura border border-aura-outline-variant/15 flex flex-col gap-6">
-          <div className="flex items-start gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-aura-surface-container flex items-center justify-center">
-              <Store className="text-aura-primary w-8 h-8" />
-            </div>
-            <div>
-              <p className="font-headline font-bold text-lg leading-tight text-aura-on-surface line-clamp-1" title={validationResult?.page_title}>
-                {validationResult?.page_title || "ZenFocus Meditation"}
-              </p>
-              <p className="text-aura-on-surface-variant text-sm mt-1 font-body line-clamp-2" title={validationResult?.product_summary}>
-                {validationResult?.product_summary || "Health & Fitness • iOS App"}
-              </p>
-            </div>
-          </div>
-          <div className="space-y-4">
-            <div className="p-4 bg-aura-surface-container-low rounded-xl">
-              <p className="text-[10px] text-aura-on-surface-variant uppercase tracking-widest font-bold mb-1 font-label">Target URL</p>
-              <p className="text-xs font-mono truncate text-aura-primary uppercase tracking-tight" title={sourceUrl}>
-                {sourceUrl.replace(/^https?:\/\//, '')}
-              </p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2 text-sm text-aura-tertiary font-bold font-body">
-                <CheckCircle className="w-4 h-4" />
-                Metadata Scraped ({validationResult?.visible_features?.length || 0} Features)
-              </div>
-              <div className="flex items-center gap-2 text-sm text-aura-tertiary font-bold font-body">
-                <CheckCircle className="w-4 h-4" />
-                Keyword Analysis Complete
-              </div>
-            </div>
-          </div>
-          <div className="mt-4 rounded-xl overflow-hidden border border-aura-outline-variant/10">
-            <img alt="App Screenshot" className="w-full h-48 object-cover opacity-80 grayscale-[30%]" src="https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=800&q=80" width={800} height={192} />
-          </div>
-        </div>
-      </section>
-
-      {/* Column 2: Selection (Active) */}
-      <section className="flex flex-col gap-6 relative">
-        <h2 className="text-xl font-headline font-bold text-aura-on-surface">Step 2: Selection</h2>
-        <button
-          type="button"
-          onClick={() => setIsModalOpen(true)}
-          className="flex-1 bg-aura-surface-container-high/30 rounded-[2.5rem] border-2 border-dashed border-aura-outline-variant/30 flex items-center justify-center hover:bg-aura-surface-container-high/50 transition-all group text-left"
-        >
-          <div className="text-center space-y-4 px-8">
-            <div className="w-20 h-20 bg-aura-primary-container/20 rounded-full flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
-              <Add className="w-10 h-10 text-aura-primary" />
-            </div>
-            <p className="text-aura-on-surface font-bold font-headline text-lg">Click to Select Personas</p>
-            <p className="text-aura-on-surface-variant text-sm font-body leading-relaxed">Choose from your persona library to localize content for different regions.</p>
-          </div>
-        </button>
-      </section>
-
-      {/* Column 3: Output (Blurred) */}
-      <section className="flex flex-col gap-6 blur-[8px] pointer-events-none transition-all duration-700">
-        <h2 className="text-xl font-headline font-bold text-aura-on-surface">Step 3: Factory Output</h2>
-        <div className="flex flex-col gap-4">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="bg-white p-6 rounded-2xl shadow-aura-sm opacity-60 flex items-center gap-4">
-              <div className="w-14 h-14 bg-aura-surface-container rounded-xl shrink-0"></div>
-              <div className="flex-1 space-y-2">
-                <div className="h-4 bg-aura-surface-container rounded-full w-3/4"></div>
-                <div className="h-3 bg-aura-surface-container rounded-full w-1/2"></div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-      </div>{/* end grid */}
-
-      {/* Generated Plan Preview */}
-      {scriptResult && !isGenerating && (
-        <div className="dashboard-panel p-8 animate-fade-in space-y-6">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div>
-              <h3 className="text-xl font-extrabold font-headline text-aura-on-surface">Generated Plan</h3>
-              <p className="text-sm text-aura-on-surface-variant font-body mt-1">Review the AI-generated content plan before creating your video.</p>
-            </div>
-            <div className="flex gap-3">
-              <button type="button" onClick={() => setIsModalOpen(true)} className="btn-secondary btn-sm" aria-label="Edit persona selection">
-                Edit Selection
-              </button>
-              <button type="button" onClick={() => setActiveStep(3)} className="btn-primary flex items-center gap-2" aria-label="Confirm and create video">
-                Confirm &amp; Create Video <RocketLaunch className="w-4 h-4 fill-current" />
-              </button>
-            </div>
-          </div>
-          <div className="bg-aura-surface-container-low rounded-2xl p-6 space-y-5">
-            <div>
-              <p className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant font-label mb-2">Script Preview</p>
-              <p className="text-sm text-aura-on-surface font-body leading-relaxed line-clamp-4">
-                {scriptText || "Your personalized video script has been generated based on the source URL and selected personas."}
-              </p>
-            </div>
-            <div className="pt-4 border-t border-aura-outline-variant/10">
-              <p className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant font-label mb-3">Scene Breakdown</p>
-              <div className="space-y-2">
-                {[{i:1,l:"Opening hook",d:"5s"},{i:2,l:"Core feature demo",d:"12s"},{i:3,l:"Call to action",d:"4s"}].map(scene => (
-                  <div key={scene.i} className="flex items-center gap-4 text-sm">
-                    <span className="w-6 h-6 rounded-full bg-aura-primary/10 text-aura-primary flex items-center justify-center text-[11px] font-black shrink-0">{scene.i}</span>
-                    <span className="flex-1 text-aura-on-surface font-medium">{scene.l}</span>
-                    <span className="text-aura-on-surface-variant/60 font-body text-xs">{scene.d}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <button type="button" onClick={() => setActiveStep(3)} className="btn-primary btn-lg flex items-center gap-3" aria-label="Create video">
-              Create Video <RocketLaunch className="w-5 h-5 fill-current" />
-            </button>
-          </div>
+      {pageError && (
+        <div className="dashboard-banner dashboard-banner-error text-sm font-semibold">
+          {pageError}
         </div>
       )}
 
-      {/* STEP 2 MODAL */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-aura-on-surface/20 backdrop-blur-md animate-fade-in">
-          <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[2.5rem] shadow-aura-lg flex flex-col overflow-hidden animate-slide-up">
-            {/* Modal Header */}
-            <div className="px-10 py-8 flex items-center justify-between border-b border-aura-outline-variant/10">
-              <div>
-                <h3 className="text-3xl font-headline font-extrabold tracking-tight text-aura-on-surface">Select Personas</h3>
-                <p className="text-aura-on-surface-variant font-medium mt-2 font-body">Choose influencers for regional campaign localization</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="w-12 h-12 flex items-center justify-center rounded-full bg-aura-surface-container-low text-aura-on-surface-variant hover:text-aura-primary transition-colors hover:bg-aura-surface-container-high"
-                aria-label="Close persona selection dialog"
-              >
-                <Close className="w-6 h-6" />
-              </button>
-            </div>
-            {/* Grid Content */}
-            <div className="flex-1 overflow-y-auto px-10 py-10 grid grid-cols-1 md:grid-cols-3 gap-6">
-              {personas.map(p => (
-                <label key={p.persona_id} className="group relative cursor-pointer">
-                  <input
-                    checked={selectedPersonas.includes(p.persona_id)}
-                    onChange={() => togglePersona(p.persona_id)}
-                    className="peer hidden"
-                    type="checkbox"
-                  />
-                  <div className="bg-aura-surface-container-low rounded-2xl p-5 border-2 border-transparent peer-checked:border-aura-primary peer-checked:bg-aura-primary-container/20 transition-all duration-300 group-hover:scale-[1.02] shadow-aura-sm">
-                    <div className="aspect-square rounded-xl overflow-hidden mb-4 relative">
-                      <img alt={p.display_name} className="w-full h-full object-cover" src={p.avatar_image_url || "https://randomuser.me/api/portraits/lego/1.jpg"} width={320} height={320} />
-                      <div className="absolute top-2 right-2 w-7 h-7 bg-aura-primary text-white rounded-full flex items-center justify-center opacity-0 peer-checked:opacity-100 transition-opacity shadow-aura-md">
-                        <CheckCircle className="w-4 h-4" />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <h4 className="font-headline font-bold text-aura-on-surface">{p.display_name}</h4>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className={cn(
-                          "text-[10px] font-black tracking-widest uppercase px-2.5 py-1 rounded-full font-label border",
-                          p.status === 'active' ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-aura-surface-container text-aura-on-surface-variant/70 border-aura-outline-variant/20"
-                        )}>{p.status}</span>
-                        {p.video_count > 0 && (
-                          <span className="text-[10px] text-aura-primary font-bold">{p.video_count} videos</span>
-                        )}
-                      </div>
-                      {p.language && (
-                        <p className="text-[10px] text-aura-on-surface-variant/50 font-body">{p.language}</p>
-                      )}
-                    </div>
-                  </div>
-                </label>
-              ))}
-              <button type="button" className="bg-aura-surface-container border-2 border-dashed border-aura-outline-variant/40 rounded-2xl flex flex-col items-center justify-center p-6 group hover:bg-aura-surface-container-high transition-colors min-h-[220px] text-center">
-                <div className="w-14 h-14 rounded-full bg-white shadow-aura-sm flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <Add className="w-7 h-7 text-aura-primary" />
-                </div>
-                <p className="font-headline font-bold text-sm text-aura-on-surface-variant font-label uppercase tracking-widest">Create Persona</p>
-              </button>
-            </div>
-            {/* Modal Footer */}
-            <div className="p-8 bg-aura-surface-container-lowest flex justify-between items-center px-10 border-t border-aura-outline-variant/5">
-              <div className="flex items-center gap-5">
-                <div className="text-aura-on-surface-variant text-sm font-bold font-body">
-                  <span className="text-aura-primary">{selectedPersonas.length} Personas</span> Selected
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (selectedPersonas.length === personas.length) {
-                      setSelectedPersonas([]);
-                    } else {
-                      setSelectedPersonas(personas.map((p: any) => p.persona_id));
+      <section className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+        <div className="xl:col-span-7 dashboard-panel p-8 space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-4 items-end">
+            <div className="space-y-2">
+              <label className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant">
+                App URL
+              </label>
+              <div className="flex items-center gap-3 rounded-full bg-aura-surface-container px-5 py-4">
+                <LinkIcon className="w-5 h-5 text-aura-primary" />
+                <input
+                  type="url"
+                  value={sourceUrl}
+                  onChange={(event) => setSourceUrl(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleGenerate();
                     }
                   }}
-                  className="text-xs font-bold text-aura-primary hover:underline underline-offset-2 transition-all cursor-pointer min-h-[44px] px-2"
-                >
-                  {selectedPersonas.length === personas.length ? 'Deselect All' : 'Select All'}
-                </button>
-              </div>
-              <div className="flex gap-4">
-                <button 
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-8 py-3.5 rounded-full text-aura-on-surface font-bold text-sm hover:bg-aura-surface-container transition-colors min-h-[44px]"
-                >Cancel</button>
-                <button 
-                  onClick={handleInitiateProduction}
-                  disabled={isGenerating}
-                  className="btn-primary flex items-center gap-3 disabled:opacity-50"
-                >
-                  {isGenerating ? "Generating..." : "Generate Plan"}
-                  {!isGenerating && <Zap className="w-5 h-5 fill-current" />}
-                </button>
+                  placeholder="Paste App Store, Play Store, or website URL"
+                  className="w-full bg-transparent outline-none text-sm font-medium text-aura-on-surface"
+                />
               </div>
             </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-
-  // Step 3: Factory Output (Final Production)
-  const renderStep3 = () => (
-    <div className="animate-fade-in flex flex-col h-full relative">
-      <div className="flex-1 overflow-y-auto pb-32">
-        <div className="space-y-8">
-          {/* Main Editing Block */}
-          <section className="bg-white rounded-[2.5rem] overflow-hidden shadow-aura-md border-2 border-aura-primary/10 ring-8 ring-aura-primary/5">
-            <div className="flex flex-col lg:flex-row min-h-[600px]">
-              <div className="lg:w-1/3 relative aspect-[9/16] lg:aspect-auto group bg-black">
-                <img alt="TikTok Preview" className="w-full h-full object-cover opacity-90" src="https://images.unsplash.com/photo-1533107862482-0e6974b06017?auto=format&fit=crop&w=800&q=80" width={800} height={1422} />
-                <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                  <PlayCircle className="text-white w-20 h-20" />
-                </div>
-                <div className="absolute bottom-10 left-8 right-8 p-6 bg-white/10 backdrop-blur-2xl rounded-2xl border border-white/20 shadow-2xl">
-                  <p className="text-[10px] font-extrabold text-aura-primary uppercase tracking-widest font-label mb-2">Region: UK (London)</p>
-                  <p className="text-lg font-bold text-white truncate font-headline">@AIInfluencer_London</p>
-                </div>
-              </div>
-              <div className="flex-1 p-10 bg-white flex flex-col gap-10">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="text-3xl font-extrabold font-headline text-aura-on-surface tracking-tight">Editing Content</h3>
-                    <p className="text-aura-on-surface-variant font-body text-lg mt-1 italic opacity-80">Refining the 'Urban Chic' Campaign</p>
-                  </div>
-                  <span className="px-5 py-2 bg-aura-tertiary/10 text-aura-tertiary rounded-full text-[11px] font-extrabold flex items-center gap-3 uppercase tracking-widest border border-aura-tertiary/20">
-                    <Radio className="w-4 h-4 animate-pulse fill-current" /> LIVE SYNC ACTIVE
-                  </span>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3 text-aura-primary font-bold px-2">
-                      <Layers className="w-5 h-5" />
-                      <h4 className="text-[11px] uppercase tracking-widest font-label">Script Editor</h4>
-                    </div>
-                    <div className="bg-aura-surface-container-low p-8 rounded-[2rem] space-y-6 shadow-aura-sm border border-aura-outline-variant/5">
-                      <label htmlFor="live-feed-script-editor" className="sr-only">Script editor</label>
-                      <textarea
-                        id="live-feed-script-editor"
-                        className="w-full bg-transparent border-none focus:ring-0 text-aura-on-surface p-0 text-base leading-relaxed font-body resize-none italic" 
-                        rows={10}
-                        value={scriptText}
-                        onChange={(e) => setScriptText(e.target.value)}
-                        placeholder="Loading generated script..."
-                      />
-                      <div className="pt-6 border-t border-aura-outline-variant/10 flex flex-col gap-6">
-                        <div className="flex items-center justify-between">
-                          <label htmlFor="tone-slang-range" className="text-[11px] font-extrabold text-aura-on-surface-variant uppercase tracking-widest font-label">Tone & Slang Control</label>
-                          <span className="text-[11px] font-extrabold text-aura-primary uppercase tracking-widest px-3 py-1 bg-aura-primary/10 rounded-full">Casual / Gen-Z</span>
-                        </div>
-                        <div className="relative h-2 bg-aura-surface-container rounded-full overflow-hidden">
-                          <div className="absolute left-0 top-0 h-full bg-aura-primary w-2/3 rounded-full"></div>
-                          <input id="tone-slang-range" className="absolute inset-0 w-full opacity-0 cursor-pointer" type="range" aria-label="Tone and slang control" />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3 text-aura-primary font-bold px-2">
-                      <Settings className="w-5 h-5" />
-                      <h4 className="text-[11px] uppercase tracking-widest font-label">Persona Actions</h4>
-                    </div>
-                    <div className="bg-aura-surface-container-low p-8 rounded-[2rem] space-y-8 shadow-aura-sm border border-aura-outline-variant/5">
-                      <div className="space-y-4">
-                        <label className="text-[11px] font-extrabold text-aura-on-surface-variant block uppercase tracking-widest font-label px-1">Movement & Gestures</label>
-                        <div className="grid grid-cols-2 gap-3">
-                          <button className="flex items-center justify-center gap-3 py-4 bg-white border-2 border-aura-primary rounded-2xl text-[11px] font-extrabold text-aura-primary shadow-aura-sm transition-all hover:translate-y-[-1px] uppercase tracking-widest">
-                            <Hand className="w-4 h-4" /> Wave & Smile
-                          </button>
-                          <button className="flex items-center justify-center gap-3 py-4 bg-white border border-transparent rounded-2xl text-[11px] font-extrabold text-aura-on-surface-variant transition-all hover:bg-white hover:border-aura-outline-variant uppercase tracking-widest">
-                            <Smile className="w-4 h-4" /> Idle Sway
-                          </button>
-                        </div>
-                      </div>
-                      <div className="space-y-4">
-                        <label className="text-[11px] font-extrabold text-aura-on-surface-variant block uppercase tracking-widest font-label px-1">Global Environment</label>
-                        <button type="button" className="flex w-full items-center gap-4 p-5 bg-white rounded-2xl shadow-aura-sm border border-aura-outline-variant/10 group hover:border-aura-primary/30 transition-all text-left">
-                          <div className="w-12 h-12 rounded-xl bg-aura-surface-container flex items-center justify-center shrink-0 group-hover:bg-aura-primary/10 transition-colors">
-                            <MapPin className="w-6 h-6 text-aura-primary" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[11px] font-extrabold text-aura-on-surface truncate uppercase tracking-widest mb-1">Shoreditch Streetscape</p>
-                            <p className="text-[10px] text-aura-on-surface-variant font-bold font-body opacity-60 uppercase tracking-widest">London, UK</p>
-                          </div>
-                          <span className="text-aura-primary text-[10px] font-extrabold underline px-2 uppercase tracking-widest hover:text-aura-primary-hover">Change</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex justify-end gap-5 mt-auto border-t border-aura-outline-variant/10 pt-10">
-                  <button 
-                    onClick={() => setActiveStep(1)} 
-                    className="btn-secondary btn-sm"
-                  >
-                    Cancel Batch
-                  </button>
-                  <button 
-                    onClick={handleDeployAll}
-                    disabled={isGenerating}
-                    className="btn-primary disabled:opacity-50"
-                  >
-                    {isGenerating ? "Deploying..." : "Deploy All Campaigns"}
-                  </button>
-                  {onNavigateToPublishing && (
-                    <button
-                      type="button"
-                      onClick={onNavigateToPublishing}
-                      className="btn-primary flex items-center gap-2 min-h-[44px]"
-                      aria-label="Go to Publishing tab"
-                    >
-                      <Send className="w-4 h-4" />
-                      Publish Results
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Account Bento Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-            <div className="bg-white rounded-[2rem] p-5 flex flex-col gap-5 shadow-aura-sm hover:shadow-aura-md transition-all group border border-aura-outline-variant/10">
-              <div className="aspect-video rounded-2xl overflow-hidden relative">
-                <img alt="Tokyo" className="w-full h-full object-cover" src="https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&w=800&q=80" width={800} height={450} />
-                <div className="absolute inset-0 bg-aura-on-surface/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                  <Eye className="text-white w-12 h-12" />
-                </div>
-                <div className="absolute top-4 left-4 px-4 py-1.5 bg-black/60 backdrop-blur-xl rounded-full text-[10px] text-white font-extrabold font-label uppercase tracking-widest">Japan (Tokyo)</div>
-              </div>
-              <div className="flex items-center justify-between px-3 pb-2">
-                <div>
-                  <p className="text-sm font-bold text-aura-on-surface font-headline uppercase tracking-tight">@AIInfluencer_Tokyo</p>
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <span className="w-2 h-2 bg-aura-tertiary rounded-full shadow-[0_0_8px_rgba(var(--aura-tertiary-rgb),0.6)]"></span>
-                    <p className="text-[10px] text-aura-tertiary font-extrabold uppercase tracking-widest">Rendering Complete</p>
-                  </div>
-                </div>
-                <button className="w-12 h-12 flex items-center justify-center rounded-full bg-aura-surface-container text-aura-on-surface-variant hover:bg-aura-primary/10 hover:text-aura-primary transition-all shadow-aura-sm">
-                  <Edit3 className="w-6 h-6" />
-                </button>
-              </div>
-            </div>
-
-            <div className="xl:col-span-2 bg-gradient-to-br from-aura-primary/5 via-white to-aura-secondary/5 rounded-[2rem] p-10 flex flex-col md:flex-row items-center gap-10 border border-white shadow-aura-md relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-aura-primary/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl group-hover:bg-aura-primary/10 transition-colors"></div>
-              <div className="relative flex-shrink-0">
-                <div className="h-36 w-36 rounded-full ring-[12px] ring-aura-primary/5 p-1.5 overflow-hidden shadow-aura-lg bg-white relative">
-                  <img alt="Portrait" className="w-full h-full object-cover rounded-full" src="https://randomuser.me/api/portraits/women/32.jpg" width={144} height={144} />
-                </div>
-                <div className="absolute -bottom-1 -right-1 bg-aura-primary text-white h-12 w-12 rounded-full flex items-center justify-center shadow-aura-lg border-4 border-white transition-transform hover:scale-110 cursor-pointer">
-                  <MagicButton className="w-6 h-6" />
-                </div>
-              </div>
-              <div className="space-y-5 text-center md:text-left z-10">
-                <h4 className="text-2xl font-extrabold font-headline text-aura-on-surface tracking-tight">Bulk Sync Actions</h4>
-                <p className="text-base text-aura-on-surface-variant max-w-lg font-body leading-relaxed opacity-80 italic">Apply script tone changes or environment lighting across all remaining <span className="text-aura-primary font-bold">6 regional accounts</span> simultaneously with AI precision.</p>
-                <div className="flex flex-wrap gap-4 pt-2 justify-center md:justify-start">
-                  <button className="btn-primary">Style All Regions</button>
-                  <button className="btn-secondary">Optimize for Algo</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Deploy Action Bar */}
-      <div className="fixed bottom-10 left-1/2 -translate-x-1/2 w-[90%] lg:w-[850px] z-50 animate-slide-up pointer-events-none">
-        <div className="bg-white/70 backdrop-blur-3xl rounded-full px-12 py-7 flex flex-col md:flex-row items-center gap-12 shadow-aura-xl border border-white/40 pointer-events-auto ring-1 ring-aura-on-surface/5">
-          <div className="flex flex-col gap-2 flex-grow">
-            <span className="text-[11px] font-extrabold text-aura-primary tracking-[0.2em] uppercase font-label">Global Production Progress</span>
-            <div className="flex items-center gap-6">
-              <div className="flex-1 h-3 bg-aura-surface-container-highest rounded-full overflow-hidden border border-aura-outline-variant/10 shadow-inner">
-                <div className="bg-gradient-to-r from-aura-primary to-aura-primary-container h-full rounded-full shadow-[0_0_12px_rgba(var(--aura-primary-rgb),0.4)] transition-all duration-1000" style={{ width: "40%" }}></div>
-              </div>
-              <span className="text-sm font-black text-aura-on-surface tabular-nums tracking-tighter">4/10 SYNCED</span>
-            </div>
-          </div>
-          <div className="hidden md:block h-16 w-px bg-aura-outline-variant/20"></div>
-          <div className="flex gap-5 shrink-0">
-            <button 
-              onClick={() => setActiveStep(2)}
-              className="btn-secondary btn-sm"
-            >Back to Studio</button>
-            <button className="btn-primary btn-lg flex items-center gap-4">
-              Deploy All <RocketLaunch className="w-5 h-5 fill-current" />
+            <button
+              type="button"
+              onClick={handleValidate}
+              disabled={isValidating || !sourceUrl.trim()}
+              className="btn-secondary btn-sm disabled:opacity-50"
+            >
+              {isValidating ? "Validating..." : "Validate URL"}
             </button>
-            {onNavigateToPublishing && (
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant">
+              Content Objective
+            </label>
+            <textarea
+              value={objective}
+              onChange={(event) => setObjective(event.target.value)}
+              className="w-full rounded-3xl bg-aura-surface-container px-5 py-4 min-h-[120px] outline-none text-sm text-aura-on-surface"
+              placeholder="Describe what the content should focus on."
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <button
+              type="button"
+              onClick={() => setInputMode("ai_autonomous")}
+              className={cn(
+                "rounded-3xl border p-5 text-left transition-all",
+                inputMode === "ai_autonomous"
+                  ? "border-aura-primary bg-aura-primary/5"
+                  : "border-aura-outline-variant/20",
+              )}
+            >
+              <p className="text-sm font-black text-aura-on-surface">AI Autonomous</p>
+              <p className="text-xs text-aura-on-surface-variant mt-2">
+                AI records, generates, and assembles the review video automatically.
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setInputMode("user_upload")}
+              className={cn(
+                "rounded-3xl border p-5 text-left transition-all",
+                inputMode === "user_upload"
+                  ? "border-aura-primary bg-aura-primary/5"
+                  : "border-aura-outline-variant/20",
+              )}
+            >
+              <p className="text-sm font-black text-aura-on-surface">User Upload</p>
+              <p className="text-xs text-aura-on-surface-variant mt-2">
+                AI generates the plan and captions; user records and uploads the final footage.
+              </p>
+            </button>
+          </div>
+
+          <div className="rounded-3xl bg-aura-surface-container-low p-5 flex items-start gap-4">
+            <input
+              id="publish-to-tiktok"
+              type="checkbox"
+              checked={publishToTiktok}
+              onChange={(event) => setPublishToTiktok(event.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-aura-outline-variant"
+            />
+            <div className="space-y-1">
+              <label
+                htmlFor="publish-to-tiktok"
+                className="text-sm font-bold text-aura-on-surface"
+              >
+                Publish to TikTok with auto-generated captions
+              </label>
+              <p className="text-xs text-aura-on-surface-variant">
+                Requires Telegram auth and at least one active TikTok integration.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={isGenerating || selectedPersonas.length === 0 || !sourceUrl.trim()}
+              className="btn-primary btn-lg flex items-center gap-2 disabled:opacity-50"
+            >
+              {isGenerating ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Wand2 className="w-5 h-5" />
+              )}
+              Generate Output
+            </button>
+            {onNavigateToPersonas && (
               <button
                 type="button"
-                onClick={onNavigateToPublishing}
-                className="btn-secondary flex items-center gap-2 min-h-[44px]"
-                aria-label="Go to Publishing tab"
+                onClick={onNavigateToPersonas}
+                className="btn-secondary btn-sm"
               >
-                <Send className="w-4 h-4" />
-                Publish
+                Create Your Own Persona
               </button>
             )}
           </div>
         </div>
-      </div>
-    </div>
-  );
 
-  const STEP_DEFS = [
-    { id: 1 as const, label: 'Mode & Source' },
-    { id: 2 as const, label: 'Review Plan' },
-    { id: 3 as const, label: 'Output & Publish' },
-  ];
-
-  return (
-    <div className="h-full min-h-[800px] pb-10 space-y-8">
-      {/* Progression Node Header */}
-      <div className="flex items-start gap-0">
-        {STEP_DEFS.map((step, index) => {
-          const isCompleted = step.id < activeStep;
-          const isActive = step.id === activeStep;
-          return (
-            <React.Fragment key={step.id}>
-              <button
-                type="button"
-                onClick={() => { if (isCompleted) setActiveStep(step.id); }}
-                disabled={!isCompleted && !isActive}
-                aria-label={`Step ${step.id}: ${step.label}`}
-                className={cn(
-                  "flex flex-col items-center gap-2 shrink-0",
-                  isCompleted ? "cursor-pointer" : "cursor-default"
-                )}
-              >
-                <div className={cn(
-                  "w-11 h-11 rounded-full flex items-center justify-center text-sm font-black transition-all duration-300",
-                  isCompleted ? "bg-aura-primary text-white shadow-lg" : isActive ? "bg-aura-primary text-white ring-4 ring-aura-primary/20" : "bg-aura-surface-container text-aura-on-surface-variant/40"
-                )}>
-                  {isCompleted ? <Check className="w-4 h-4" /> : <span>{step.id}</span>}
-                </div>
-                <span className={cn(
-                  "text-[11px] font-bold uppercase tracking-widest whitespace-nowrap font-label",
-                  isActive ? "text-aura-primary" : isCompleted ? "text-aura-on-surface-variant" : "text-aura-on-surface-variant/40"
-                )}>
-                  {step.label}
-                </span>
-              </button>
-              {index < STEP_DEFS.length - 1 && (
-                <div className="flex-1 mt-[1.375rem] px-3">
-                  <div className="w-full h-0.5 relative overflow-hidden rounded-full bg-aura-surface-container">
-                    <div className={cn(
-                      "absolute left-0 top-0 h-full bg-aura-primary transition-all duration-500 rounded-full",
-                      step.id < activeStep ? "w-full" : "w-0"
-                    )} />
-                  </div>
+        <div className="xl:col-span-5 dashboard-panel p-8 space-y-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-black text-aura-on-surface font-headline">
+              Publishing Readiness
+            </h2>
+            <span className="text-[10px] uppercase tracking-widest text-aura-on-surface-variant font-bold">
+              {requirements?.tiktok_channels_total || 0} channels
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="rounded-3xl bg-aura-surface-container-low p-5">
+              <p className="text-[10px] uppercase tracking-widest text-aura-on-surface-variant font-bold">
+                Telegram
+              </p>
+              <p className="mt-3 text-xl font-black text-aura-on-surface">
+                {requirements?.telegram_linked ? "Linked" : "Not linked"}
+              </p>
+            </div>
+            <div className="rounded-3xl bg-aura-surface-container-low p-5">
+              <p className="text-[10px] uppercase tracking-widest text-aura-on-surface-variant font-bold">
+                TikTok
+              </p>
+              <p className="mt-3 text-xl font-black text-aura-on-surface">
+                {requirements?.tiktok_channels_active ? "Active" : "Inactive"}
+              </p>
+            </div>
+          </div>
+          {validationResult ? (
+            <div className="rounded-3xl border border-aura-outline-variant/10 p-5 space-y-3">
+              <p className="text-sm font-black text-aura-on-surface">
+                {validationResult.page_title || "Source validated"}
+              </p>
+              <p className="text-xs text-aura-on-surface-variant break-all">
+                {validationResult.normalized_url || sourceUrl}
+              </p>
+              {validationResult.visible_features?.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {validationResult.visible_features.slice(0, 6).map((feature: any, index: number) => (
+                    <span
+                      key={`${feature.name || "feature"}-${index}`}
+                      className="rounded-full bg-aura-primary/10 px-3 py-1 text-[11px] font-bold text-aura-primary"
+                    >
+                      {feature.name || feature.label || "Feature"}
+                    </span>
+                  ))}
                 </div>
               )}
-            </React.Fragment>
-          );
-        })}
-      </div>
-      {activeStep === 1 && renderStep1()}
-      {activeStep === 2 && renderStep2()}
-      {activeStep === 3 && renderStep3()}
+            </div>
+          ) : (
+            <p className="text-sm text-aura-on-surface-variant">
+              Validate a source URL to preview page title and visible features before generation.
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section className="space-y-5">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="text-2xl font-black text-aura-on-surface font-headline">
+              Select Persona Options
+            </h2>
+            <p className="text-sm text-aura-on-surface-variant">
+              English, Chinese, Spanish, Arabic, plus custom personas from your workspace.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (selectedPersonas.length === personaOptions.length) {
+                setSelectedPersonas([]);
+              } else {
+                setSelectedPersonas(personaOptions.map((persona) => persona.persona_id));
+              }
+            }}
+            className="btn-secondary btn-sm"
+          >
+            {selectedPersonas.length === personaOptions.length ? "Deselect All" : "Select All"}
+          </button>
+        </div>
+
+        {personaOptions.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+            {personaOptions.map((persona) => {
+              const isSelected = selectedPersonas.includes(persona.persona_id);
+              const activeChannels = persona.tiktok_integration?.active_channels || 0;
+              return (
+                <button
+                  key={persona.persona_id}
+                  type="button"
+                  onClick={() => handleTogglePersona(persona.persona_id)}
+                  className={cn(
+                    "dashboard-panel p-4 text-left transition-all border-2",
+                    isSelected
+                      ? "border-aura-primary bg-aura-primary/5"
+                      : "border-transparent hover:border-aura-outline-variant/20",
+                  )}
+                >
+                  <img
+                    alt={persona.display_name}
+                    className="w-full aspect-[4/5] rounded-2xl object-cover mb-4"
+                    src={
+                      persona.selection_image_url ||
+                      persona.image_url ||
+                      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=800&auto=format&fit=crop"
+                    }
+                  />
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-black text-aura-on-surface truncate">
+                        {persona.display_name}
+                      </p>
+                      {isSelected && <Check className="w-4 h-4 text-aura-primary" />}
+                    </div>
+                    <p className="text-xs text-aura-on-surface-variant uppercase tracking-widest">
+                      {persona.region_label || persona.language || "Global"}
+                    </p>
+                    <p className="text-xs text-aura-on-surface-variant line-clamp-2">
+                      {persona.description || "Ready for regional app review production."}
+                    </p>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className={cn("rounded-full border px-2.5 py-1 font-bold", statusPillClass(activeChannels > 0 ? "published" : "draft"))}>
+                        {activeChannels > 0 ? "TikTok active" : "TikTok inactive"}
+                      </span>
+                      {persona.demo?.available && (
+                        <span className="text-aura-primary font-bold">Demo</span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="dashboard-panel-soft p-10 text-center text-aura-on-surface-variant">
+            No personas found yet.
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-5">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="text-2xl font-black text-aura-on-surface font-headline">
+              Activity Feed
+            </h2>
+            <p className="text-sm text-aura-on-surface-variant">
+              Step 1 URL, Step 2 persona, Step 3 final product. Edit content, upload manual video, or publish.
+            </p>
+          </div>
+          {onNavigateToPublishing && (
+            <button
+              type="button"
+              onClick={onNavigateToPublishing}
+              className="btn-secondary btn-sm"
+            >
+              Open Publishing
+            </button>
+          )}
+        </div>
+
+        {jobs.length > 0 ? (
+          <div className="space-y-6">
+            {jobs.map((job) => {
+              const personaImage =
+                getReviewJobPersonaImage(job) ||
+                "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=800&auto=format&fit=crop";
+              const statusLabel = getReviewJobStatusLabel(job);
+              return (
+                <article key={job.job_id} className="dashboard-panel p-6 space-y-6">
+                  <div className="flex flex-col xl:flex-row gap-6">
+                    <div className="xl:w-72 shrink-0 space-y-4">
+                      {job.production?.playable_video_url ? (
+                        <video
+                          className="w-full aspect-[9/16] rounded-3xl object-cover bg-black"
+                          src={job.production.playable_video_url}
+                          controls
+                          playsInline
+                        />
+                      ) : (
+                        <img
+                          alt={job.persona?.display_name || "Persona"}
+                          className="w-full aspect-[9/16] rounded-3xl object-cover"
+                          src={personaImage}
+                        />
+                      )}
+                      <div className="rounded-3xl bg-aura-surface-container-low p-4">
+                        <p className="text-[10px] uppercase tracking-widest text-aura-on-surface-variant font-bold">
+                          Persona
+                        </p>
+                        <p className="mt-2 text-lg font-black text-aura-on-surface">
+                          {job.persona?.display_name || "Persona"}
+                        </p>
+                        <p className="text-xs text-aura-on-surface-variant mt-1">
+                          {job.persona?.region_label || job.persona?.language || "Global"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex-1 space-y-5">
+                      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                        <div>
+                          <h3 className="text-2xl font-black text-aura-on-surface font-headline">
+                            {job.content?.title || job.page_title || "App Review"}
+                          </h3>
+                          <p className="text-sm text-aura-on-surface-variant mt-2 break-all">
+                            {job.source_url}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <span className={cn("rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-widest", statusPillClass(job.publish?.status || job.status))}>
+                            {statusLabel}
+                          </span>
+                          <span className={cn("rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-widest", statusPillClass(job.production?.ready ? "published" : "draft"))}>
+                            {job.production?.ready ? "Final product ready" : "In production"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="w-full h-2 rounded-full bg-aura-surface-container overflow-hidden">
+                          <div
+                            className={`h-full bg-gradient-to-r ${progressBarClass(job)}`}
+                            style={{ width: `${job.progress || 0}%` }}
+                          />
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {job.activity_feed?.map((step) => (
+                            <span
+                              key={`${job.job_id}-${step.key}`}
+                              className={cn(
+                                "rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-widest",
+                                step.status === "completed"
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : step.status === "in_progress"
+                                    ? "bg-aura-primary/10 text-aura-primary"
+                                    : "bg-aura-surface-container text-aura-on-surface-variant",
+                              )}
+                            >
+                              {step.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                        <div className="rounded-3xl bg-aura-surface-container-low p-5 space-y-3">
+                          <p className="text-[10px] uppercase tracking-widest text-aura-on-surface-variant font-bold">
+                            Editable Content
+                          </p>
+                          <textarea
+                            value={drafts[job.job_id] || ""}
+                            onChange={(event) =>
+                              setDrafts((current) => ({
+                                ...current,
+                                [job.job_id]: event.target.value,
+                              }))
+                            }
+                            className="w-full min-h-[180px] rounded-2xl bg-white px-4 py-4 outline-none text-sm text-aura-on-surface"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void handleSaveJob(job)}
+                            disabled={savingJobId === job.job_id}
+                            className="btn-secondary btn-sm disabled:opacity-50"
+                          >
+                            {savingJobId === job.job_id ? "Saving..." : "Save Content"}
+                          </button>
+                        </div>
+
+                        <div className="rounded-3xl bg-aura-surface-container-low p-5 space-y-4">
+                          <div>
+                            <p className="text-[10px] uppercase tracking-widest text-aura-on-surface-variant font-bold">
+                              Publish State
+                            </p>
+                            <p className="mt-2 text-sm font-bold text-aura-on-surface">
+                              {job.publish?.status || "not_requested"}
+                            </p>
+                          </div>
+                          {job.publish?.publish_error && (
+                            <p className="text-xs text-amber-700 rounded-2xl bg-amber-50 px-4 py-3">
+                              {job.publish.publish_error}
+                            </p>
+                          )}
+                          {job.publish?.post_url && (
+                            <a
+                              href={job.publish.post_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-2 text-sm font-bold text-aura-primary"
+                            >
+                              View published post <ExternalLink className="w-4 h-4" />
+                            </a>
+                          )}
+                          {job.type === "app_review_upload" && !job.production?.ready && (
+                            <label className="btn-secondary btn-sm inline-flex items-center gap-2 cursor-pointer">
+                              <Upload className="w-4 h-4" />
+                              {uploadingJobId === job.job_id ? "Uploading..." : "Upload final video"}
+                              <input
+                                type="file"
+                                accept="video/*"
+                                className="hidden"
+                                onChange={(event) =>
+                                  void handleUploadVideo(
+                                    job.job_id,
+                                    event.target.files?.[0] || null,
+                                  )
+                                }
+                              />
+                            </label>
+                          )}
+                          <div className="flex flex-wrap gap-3 pt-2">
+                            {job.production?.download_url ? (
+                              <a
+                                href={job.production.download_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="btn-secondary btn-sm flex items-center gap-2"
+                              >
+                                <Download className="w-4 h-4" />
+                                Download
+                              </a>
+                            ) : null}
+                            <button
+                              type="button"
+                              disabled={
+                                !job.production?.ready ||
+                                job.publish?.status === "published" ||
+                                publishingJobId === job.job_id
+                              }
+                              onClick={() => void handlePublishJob(job.job_id)}
+                              className="btn-primary btn-sm flex items-center gap-2 disabled:opacity-50"
+                            >
+                              {publishingJobId === job.job_id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Send className="w-4 h-4" />
+                              )}
+                              {job.publish?.status === "published" ? "Published" : "Publish"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="dashboard-panel-soft p-12 text-center text-aura-on-surface-variant">
+            No app review jobs yet. Generate one above.
+          </div>
+        )}
+      </section>
     </div>
   );
 }

@@ -35,10 +35,55 @@ async def test_list_personas_falls_back_to_legacy_system_scope_for_owner_key(mon
         "_list_from_db",
         fake_list_from_db,
     )
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_list_unowned_from_db",
+        AsyncMock(return_value=[]),
+    )
 
     personas = await PersonaRegistryService.list_personas(owner_key="telegram:1972936401")
 
     assert personas == [{"persona_id": "legacy-demo", "status": "ready"}]
+
+
+@pytest.mark.asyncio
+async def test_list_personas_merges_user_and_system_personas_for_explicit_user_id(
+    monkeypatch,
+):
+    resolved_user_id = "550e8400-e29b-41d4-a716-446655440000"
+    list_calls = []
+
+    async def fake_resolve_owner_user_id(*, user_id=None, owner_key=None):
+        assert user_id == resolved_user_id
+        assert owner_key is None
+        return resolved_user_id
+
+    async def fake_list_from_db(*, user_id, status=None):
+        list_calls.append(user_id)
+        if user_id == resolved_user_id:
+            return [{"persona_id": "custom-hero", "status": "ready"}]
+        if user_id == _SYSTEM_PERSONA_USER_ID:
+            return [{"persona_id": "global-mx-valeria", "status": "draft"}]
+        return []
+
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_resolve_owner_user_id",
+        fake_resolve_owner_user_id,
+    )
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_list_from_db",
+        fake_list_from_db,
+    )
+
+    personas = await PersonaRegistryService.list_personas(user_id=resolved_user_id)
+
+    assert personas == [
+        {"persona_id": "custom-hero", "status": "ready"},
+        {"persona_id": "global-mx-valeria", "status": "draft"},
+    ]
+    assert list_calls == [resolved_user_id, _SYSTEM_PERSONA_USER_ID]
 
 
 @pytest.mark.asyncio
@@ -75,6 +120,45 @@ async def test_list_personas_falls_back_to_unowned_legacy_scope_for_owner_key(mo
     personas = await PersonaRegistryService.list_personas(owner_key="telegram:1972936401")
 
     assert personas == [{"persona_id": "legacy-unowned", "status": "draft"}]
+
+
+@pytest.mark.asyncio
+async def test_get_persona_falls_back_to_system_scope_for_explicit_user_id(monkeypatch):
+    resolved_user_id = "550e8400-e29b-41d4-a716-446655440000"
+    get_calls = []
+
+    async def fake_resolve_owner_user_id(*, user_id=None, owner_key=None):
+        assert user_id == resolved_user_id
+        assert owner_key is None
+        return resolved_user_id
+
+    async def fake_get_from_db(persona_id, *, user_id):
+        get_calls.append((persona_id, user_id))
+        if user_id == _SYSTEM_PERSONA_USER_ID:
+            return {"persona_id": persona_id, "status": "draft"}
+        return None
+
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_resolve_owner_user_id",
+        fake_resolve_owner_user_id,
+    )
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_get_from_db",
+        fake_get_from_db,
+    )
+
+    persona = await PersonaRegistryService.get_persona(
+        "global-mx-valeria",
+        user_id=resolved_user_id,
+    )
+
+    assert persona == {"persona_id": "global-mx-valeria", "status": "draft"}
+    assert get_calls == [
+        ("global-mx-valeria", resolved_user_id),
+        ("global-mx-valeria", _SYSTEM_PERSONA_USER_ID),
+    ]
 
 
 @pytest.mark.asyncio

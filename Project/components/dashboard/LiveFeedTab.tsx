@@ -29,6 +29,7 @@ interface LiveFeedTabProps {
   personas: any[];
   setup: ReviewEngineSetup | null;
   jobs: ReviewEngineJob[];
+  reviewEngineError?: string | null;
   initialSourceUrl?: string;
   initialPersonaIds?: string[];
   onRefresh?: () => Promise<void> | void;
@@ -70,6 +71,7 @@ export function LiveFeedTab({
   personas,
   setup,
   jobs,
+  reviewEngineError,
   initialSourceUrl = "",
   initialPersonaIds = [],
   onRefresh,
@@ -275,6 +277,12 @@ export function LiveFeedTab({
       {pageError && (
         <div className="dashboard-banner dashboard-banner-error text-sm font-semibold">
           {pageError}
+        </div>
+      )}
+
+      {reviewEngineError && (
+        <div className="dashboard-banner dashboard-banner-error text-sm font-semibold">
+          Review engine unavailable: {reviewEngineError}
         </div>
       )}
 
@@ -510,6 +518,12 @@ export function LiveFeedTab({
                       persona.image_url ||
                       "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=800&auto=format&fit=crop"
                     }
+                    onError={(e) => {
+                      const img = e.target as HTMLImageElement;
+                      if (!img.src?.includes("images.unsplash.com")) {
+                        img.src = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=800&auto=format&fit=crop";
+                      }
+                    }}
                   />
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
@@ -588,6 +602,12 @@ export function LiveFeedTab({
                           alt={job.persona?.display_name || "Persona"}
                           className="w-full aspect-[9/16] rounded-3xl object-cover"
                           src={personaImage}
+                          onError={(e) => {
+                            const img = e.target as HTMLImageElement;
+                            if (!img.src?.includes("unsplash")) {
+                              img.src = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=800&auto=format&fit=crop";
+                            }
+                          }}
                         />
                       )}
                       <div className="rounded-3xl bg-aura-surface-container-low p-4">

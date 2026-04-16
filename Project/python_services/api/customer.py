@@ -5,11 +5,11 @@ Customer-facing authenticated API surface.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
@@ -29,6 +29,7 @@ from services.customer_auth_service import (
 )
 from services.customer_campaign_service import CustomerCampaignService
 from services.customer_media_service import CustomerMediaService
+from services.app_review_studio_service import AppReviewStudioService
 from services.workspace_service import WorkspaceService
 from services.telegram_link_service import TelegramLinkService
 from services.video_capture_handoff_service import (
@@ -37,10 +38,17 @@ from services.video_capture_handoff_service import (
 )
 from services.video_planner_handoff_service import VideoPlannerHandoffService
 from services.persona_registry_service import PersonaRegistryService
-from fastapi import Request
+from services.errors import PersonaConfigurationError
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+try:  # pragma: no cover - depends on environment extras
+    import multipart as _multipart  # type: ignore
+
+    _MULTIPART_AVAILABLE = _multipart is not None
+except Exception:  # pragma: no cover - optional dependency
+    _MULTIPART_AVAILABLE = False
 
 
 async def require_customer_session(
@@ -154,6 +162,27 @@ class ReviewEngineJobRequest(BaseModel):
     source_url: str
     objective: str
     target_personas: List[str]
+    input_mode: Literal["ai_autonomous", "user_upload"] = "ai_autonomous"
+    publish_to_tiktok: bool = False
+
+
+class ReviewEngineJobUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+
+
+class ReviewEnginePublishRequest(BaseModel):
+    schedule_time: Optional[str] = None
+
+
+class CreateCustomerPersonaRequest(BaseModel):
+    display_name: str
+    language: str
+    tts_voice: Optional[str] = None
+    appearance_prompt_or_photo: Optional[str] = None
+    tone_default: Optional[str] = None
+    market_default: Optional[str] = None
+    description: Optional[str] = None
 
 
 class UpdatePersonaRequest(BaseModel):
@@ -165,6 +194,26 @@ class UpdatePersonaRequest(BaseModel):
 
 class RebuildAvatarRequest(BaseModel):
     appearance_prompt_or_photo: str
+
+
+def _slugify_persona_id(value: str) -> str:
+    normalized = "".join(
+        ch.lower() if ch.isalnum() else "-" for ch in str(value or "").strip()
+    )
+    collapsed = "-".join(part for part in normalized.split("-") if part)
+    return collapsed or "persona"
+
+
+def _default_tts_voice_for_language(language: str) -> str:
+    normalized = str(language or "").strip().lower()
+    voice_map = {
+        "english": "en-US-Standard-F",
+        "spanish": "es-US-Standard-B",
+        "chinese": "cmn-CN-Standard-B",
+        "arabic": "ar-XA-Standard-C",
+        "hindi": "en-IN-Standard-D",
+    }
+    return voice_map.get(normalized, "en-US-Standard-F")
 
 
 @router.get("/brand")
@@ -574,8 +623,12 @@ async def list_customer_approvals(
 async def list_customer_personas(
     session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
-    # This ensures personas are strictly filtered by the authenticated user's ID
     personas = await PersonaRegistryService.list_personas(user_id=session.user_id)
+    preset_map = AppReviewStudioService.preset_persona_map()
+    seen_ids = {item.get("persona_id") for item in personas if item.get("persona_id")}
+    for preset_persona_id, preset_persona in preset_map.items():
+        if preset_persona_id not in seen_ids:
+            personas.append(preset_persona)
     return {
         "personas": [
             {
@@ -585,13 +638,48 @@ async def list_customer_personas(
                 "tts_voice": item.get("tts_voice"),
                 "appearance_prompt_or_photo": item.get("appearance_prompt_or_photo"),
                 "avatar_image_url": item.get("avatar_image_url"),
+                "selection_image_url": item.get("selection_image_url")
+                or item.get("thumbnail_url")
+                or item.get("avatar_image_url"),
+                "region_label": item.get("region_label")
+                or str(item.get("market_default") or "global").replace("_", " ").title(),
+                "is_preset_catalog": bool(item.get("is_preset_catalog")),
                 "status": item.get("status"),
                 "video_count": int(item.get("video_count") or 0),
+                "description": item.get("description"),
+                "market_default": item.get("market_default"),
+                "tone_default": item.get("tone_default"),
                 "created_at": item.get("created_at"),
             }
             for item in personas
         ]
     }
+
+
+@router.post("/personas")
+async def create_customer_persona(
+    payload: CreateCustomerPersonaRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    try:
+        persona = await PersonaRegistryService.create_persona(
+            {
+                "persona_id": f"custom-{_slugify_persona_id(payload.display_name)}",
+                "display_name": payload.display_name,
+                "language": payload.language,
+                "tts_voice": payload.tts_voice
+                or _default_tts_voice_for_language(payload.language),
+                "avatar_prompt": payload.appearance_prompt_or_photo,
+                "tone_default": payload.tone_default,
+                "market_default": payload.market_default,
+                "description": payload.description,
+                "user_id": session.user_id,
+                "status": "draft",
+            }
+        )
+    except (ValueError, PersonaConfigurationError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"persona": persona}
 
 
 @router.get("/personas/{persona_id}/readiness")
@@ -789,84 +877,21 @@ async def validate_review_engine_source(
 
 @router.post("/review-engine/jobs")
 async def create_review_engine_job(
+    request: Request,
     payload: ReviewEngineJobRequest,
     session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
     try:
-        from services.website_review_service import WebsiteReviewService
-        from services.script_service import ScriptService
-        from services.customer_campaign_service import CustomerCampaignService
-        from services.persona_registry_service import PersonaRegistryService
-
-        script_service = ScriptService()
-        brand_profile = await BrandProfileService.get_for_user(session.user_id)
-        can_create_campaigns = brand_profile is not None
-
-        if not can_create_campaigns:
-            logger.info(
-                "Skipping review-engine campaign creation until brand onboarding completes | user_id=%s",
-                session.user_id,
-            )
-
-        page_review_contract = await WebsiteReviewService.review_url(
-            url=payload.source_url,
-            objective=payload.objective,
-            user_id=session.user_id,
+        return await AppReviewStudioService.create_jobs(
+            session=session,
+            payload=payload.model_dump(mode="json"),
+            temporal_client=getattr(request.app.state, "temporal_client", None),
         )
-        page_review_payload = page_review_contract.model_dump(mode="json")
-        
-        results = []
-        for persona_id in payload.target_personas:
-            persona = await PersonaRegistryService.get_persona(persona_id, user_id=session.user_id)
-            if not persona:
-                continue
-                
-            review_plan = {
-                "objective": payload.objective,
-                "target_url": payload.source_url,
-                "language": persona.get("language") or "English",
-                "persona_id": persona_id,
-                "execution_mode": "autonomous_screen_recording",
-                "page_review": page_review_payload
-            }
-            
-            script_contract, _ = await script_service.generate_script_from_review_plan(
-                app_name=page_review_contract.page_title or payload.source_url,
-                review_plan=review_plan,
-                persona_config=persona
-            )
-
-            campaign = None
-            if can_create_campaigns:
-                campaign_payload = {
-                    "name": f"Review of {page_review_contract.page_title or payload.source_url} - {persona.get('display_name', persona_id)}",
-                    "description": payload.objective,
-                    "content_pillars": ["Review"],
-                    "target_platforms": ["tiktok"]
-                }
-                campaign = await CustomerCampaignService.create_campaign(
-                    session=session,
-                    payload=campaign_payload
-                )
-
-            results.append({
-                "persona_id": persona_id,
-                "campaign_id": campaign["id"] if campaign else None,
-                "script": script_contract.model_dump()
-            })
-
-        response: Dict[str, Any] = {
-            "status": "success",
-            "jobs": results
-        }
-        if not can_create_campaigns:
-            response["warnings"] = [
-                {
-                    "code": "brand_onboarding_incomplete",
-                    "message": "Generated scripts without creating campaigns. Complete brand onboarding to launch campaigns from this flow.",
-                }
-            ]
-        return response
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=500,
@@ -874,12 +899,111 @@ async def create_review_engine_job(
         )
 
 
+@router.get("/review-engine/setup")
+async def get_review_engine_setup(
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    return await AppReviewStudioService.get_setup(user_id=session.user_id)
+
+
+@router.get("/review-engine/jobs")
+async def list_review_engine_jobs(
+    request: Request,
+    session: CustomerSession = Depends(require_customer_session),
+    limit: int = Query(default=50, ge=1, le=100),
+) -> Dict[str, Any]:
+    return await AppReviewStudioService.list_jobs(
+        user_id=session.user_id,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
+        limit=limit,
+    )
+
+
 @router.get("/review-engine/jobs/{job_id}")
 async def get_review_engine_job(
+    request: Request,
     job_id: str,
-    _session: CustomerSession = Depends(require_customer_session),
+    session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
-    raise HTTPException(
-        status_code=501,
-        detail=f"Review Engine job '{job_id}' is reserved for Phase 2.",
+    job = await AppReviewStudioService.get_job(
+        user_id=session.user_id,
+        job_id=job_id,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
     )
+    if not job:
+        raise HTTPException(status_code=404, detail="Review Engine job not found.")
+    return job
+
+
+@router.patch("/review-engine/jobs/{job_id}")
+async def update_review_engine_job(
+    job_id: str,
+    payload: ReviewEngineJobUpdateRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    try:
+        return await AppReviewStudioService.update_job_content(
+            user_id=session.user_id,
+            job_id=job_id,
+            title=payload.title,
+            content=payload.content,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+if _MULTIPART_AVAILABLE:
+
+    @router.post("/review-engine/jobs/{job_id}/upload")
+    async def upload_review_engine_job_video(
+        job_id: str,
+        file: UploadFile = File(...),
+        session: CustomerSession = Depends(require_customer_session),
+    ) -> Dict[str, Any]:
+        try:
+            payload = await file.read()
+            return await AppReviewStudioService.upload_manual_video(
+                session=session,
+                job_id=job_id,
+                file_name=file.filename or "review-upload.mp4",
+                content_type=file.content_type or "video/mp4",
+                data=payload,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+else:
+
+    @router.post("/review-engine/jobs/{job_id}/upload")
+    async def upload_review_engine_job_video(
+        job_id: str,
+        request: Request,
+        session: CustomerSession = Depends(require_customer_session),
+    ) -> Dict[str, Any]:
+        try:
+            payload = await request.body()
+            return await AppReviewStudioService.upload_manual_video(
+                session=session,
+                job_id=job_id,
+                file_name=request.headers.get("x-filename") or "review-upload.mp4",
+                content_type=request.headers.get("content-type") or "video/mp4",
+                data=payload,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/review-engine/jobs/{job_id}/publish")
+async def publish_review_engine_job(
+    job_id: str,
+    payload: ReviewEnginePublishRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    try:
+        return await AppReviewStudioService.publish_job_to_tiktok(
+            session=session,
+            job_id=job_id,
+            schedule_time=payload.schedule_time,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

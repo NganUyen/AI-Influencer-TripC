@@ -662,25 +662,32 @@ class PersonaRegistryService:
             resolved_user_id=resolved_user_id,
         )
         try:
+            aggregated_personas: List[Dict[str, Any]] = []
+
+            # Step 1: Collect user-owned personas across all candidate scopes
             for candidate_user_id in candidate_user_ids:
                 personas = await cls._list_from_db(
                     status=status, user_id=candidate_user_id
                 )
                 if personas:
-                    return personas
+                    aggregated_personas.extend(personas)
 
+            # Step 2: Always append global system personas so every account sees them,
+            # even if the user already has custom personas of their own.
+            if _SYSTEM_PERSONA_USER_ID not in candidate_user_ids:
+                system_personas = await cls._list_from_db(
+                    status=status, user_id=_SYSTEM_PERSONA_USER_ID
+                )
+                if system_personas:
+                    aggregated_personas.extend(system_personas)
+
+            # Step 3: Legacy unowned fallback (unchanged)
             if include_legacy_scope:
-                legacy_personas: List[Dict[str, Any]] = []
-                if _SYSTEM_PERSONA_USER_ID not in candidate_user_ids:
-                    legacy_personas.extend(
-                        await cls._list_from_db(
-                            status=status, user_id=_SYSTEM_PERSONA_USER_ID
-                        )
-                    )
-                legacy_personas.extend(await cls._list_unowned_from_db(status=status))
-                return cls._dedupe_personas(legacy_personas)
+                aggregated_personas.extend(
+                    await cls._list_unowned_from_db(status=status)
+                )
 
-            return []
+            return cls._dedupe_personas(aggregated_personas) if aggregated_personas else []
         except Exception as exc:  # pragma: no cover - degraded-mode fallback
             logger.exception("Persona DB list failed, using in-memory fallback")
             personas = [
@@ -719,6 +726,14 @@ class PersonaRegistryService:
                 persona = await cls._get_from_db(persona_id, user_id=candidate_user_id)
                 if persona:
                     return persona
+            # Always fall back to global system personas so workflow jobs can resolve
+            # the 5 global market persona IDs regardless of which user initiated the job.
+            if _SYSTEM_PERSONA_USER_ID not in candidate_user_ids:
+                system_persona = await cls._get_from_db(
+                    persona_id, user_id=_SYSTEM_PERSONA_USER_ID
+                )
+                if system_persona:
+                    return system_persona
             if include_legacy_scope:
                 return await cls._get_unowned_from_db(persona_id)
             return None

@@ -21,7 +21,8 @@ const TAB_SUBTITLES: Record<string, string> = {
   ops: "AI orchestration",
   skills: "Manage personas",
   memory: "Campaigns & data",
-  live_feed: "Live activity",
+  create_video: "Direct factory production",
+  publishing: "Content distribution",
 };
 
 export function DashboardSidebar({

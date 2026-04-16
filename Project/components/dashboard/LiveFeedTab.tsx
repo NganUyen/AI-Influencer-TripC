@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { customerApiRequest } from "@/lib/customer-api";
+import { cn } from "@/lib/utils";
 import {
   Zap,
   Layers,
@@ -21,6 +22,8 @@ import {
   MapPin,
   Rocket as RocketLaunch,
   Wand2 as MagicButton,
+  Check,
+  Send,
 } from "lucide-react";
 
 interface LiveFeedTabProps {
@@ -28,10 +31,41 @@ interface LiveFeedTabProps {
   systemWorkflows: any[];
   content: any[];
   personas: any[];
+  onNavigateToPublishing?: () => void;
 }
 
-export function LiveFeedTab({ activityItems, systemWorkflows, content, personas }: LiveFeedTabProps) {
+type VideoMode = 'ai_auto' | 'ai_remote' | 'human_phone';
+
+const VIDEO_MODES = [
+  {
+    id: 'ai_auto' as VideoMode,
+    title: 'AI Auto Record',
+    description: 'AI handles the full recording and assembly process automatically.',
+    badge: 'Default · Active',
+    readiness: 'ready' as const,
+    note: 'Default mode — fully integrated with current workflow.',
+  },
+  {
+    id: 'ai_remote' as VideoMode,
+    title: 'AI from Computer',
+    description: 'AI operates a remote computer session to record content.',
+    badge: 'Coming Soon',
+    readiness: 'coming_later' as const,
+    note: 'Requires website login and remote desktop handoff.',
+  },
+  {
+    id: 'human_phone' as VideoMode,
+    title: 'Human Phone Recording',
+    description: 'Human captures footage on a phone, then AI assembles the video.',
+    badge: 'Coming Soon',
+    readiness: 'coming_later' as const,
+    note: 'Human-captured footage; AI assembles the final video.',
+  },
+] as const;
+
+export function LiveFeedTab({ activityItems, systemWorkflows, content, personas, onNavigateToPublishing }: LiveFeedTabProps) {
   const [activeStep, setActiveStep] = useState<1 | 2 | 3>(1);
+  const [selectedMode, setSelectedMode] = useState<VideoMode>('ai_auto');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [sourceUrl, setSourceUrl] = useState("https://apps.apple.com/us/app/ai-influencer-tracker/id12345678");
 
@@ -86,8 +120,7 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
       if (data.status === "success") {
         setScriptResult(data.jobs?.[0]?.script);
         setScriptText(data.jobs?.[0]?.script?.script || "");
-        setActiveStep(3);
-        setIsModalOpen(false);
+        setIsModalOpen(false); // stay on Step 2 — show plan preview
       } else {
         alert("Generation failed");
       }
@@ -130,6 +163,50 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
           <Zap className="w-5 h-5 fill-current relative z-10" />
           <span className="relative z-10 uppercase tracking-widest text-[13px]">Batch Generate All</span>
         </button>
+      </div>
+
+      {/* Production Mode Selection */}
+      <div className="space-y-5">
+        <div>
+          <h3 className="text-sm font-black uppercase tracking-widest text-aura-on-surface-variant font-label mb-1">Production Mode</h3>
+          <p className="text-xs text-aura-on-surface-variant/60 font-body">Choose how AI will capture and assemble your video content.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {VIDEO_MODES.map((mode) => {
+            const isReady = mode.readiness === 'ready';
+            const isSelected = selectedMode === mode.id;
+            return (
+              <button
+                key={mode.id}
+                type="button"
+                disabled={!isReady}
+                onClick={() => isReady && setSelectedMode(mode.id)}
+                aria-pressed={isSelected}
+                aria-label={`Select ${mode.title} production mode`}
+                className={cn(
+                  "text-left p-5 rounded-2xl border-2 transition-all duration-200 min-h-[44px]",
+                  isReady && isSelected ? "border-aura-primary bg-aura-primary/5 shadow-sm" : "",
+                  isReady && !isSelected ? "border-aura-outline-variant/20 hover:border-aura-primary/40 cursor-pointer" : "",
+                  !isReady ? "border-aura-outline-variant/10 opacity-50 cursor-not-allowed" : ""
+                )}
+              >
+                <div className="mb-3">
+                  <span className={cn(
+                    "px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border",
+                    isReady ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"
+                  )}>
+                    {mode.badge}
+                  </span>
+                </div>
+                <p className="font-bold text-aura-on-surface text-sm font-headline mb-1">{mode.title}</p>
+                <p className="text-xs text-aura-on-surface-variant font-body leading-relaxed">{mode.description}</p>
+                {mode.note && (
+                  <p className="text-[11px] text-aura-on-surface-variant/60 font-body mt-3 italic">{mode.note}</p>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Production Control Panel */}
@@ -314,7 +391,8 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
 
   // Step 2: Selection (Influencer Studio)
   const renderStep2 = () => (
-    <div className="animate-fade-in grid grid-cols-1 lg:grid-cols-3 gap-8 overflow-hidden h-full pb-10">
+    <div className="animate-fade-in space-y-8 pb-10">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       {/* Column 1: Source (Validated) */}
       <section className="flex flex-col gap-6">
         <div className="flex items-center justify-between mb-2">
@@ -392,6 +470,52 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
           ))}
         </div>
       </section>
+      </div>{/* end grid */}
+
+      {/* Generated Plan Preview */}
+      {scriptResult && !isGenerating && (
+        <div className="dashboard-panel p-8 animate-fade-in space-y-6">
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <h3 className="text-xl font-extrabold font-headline text-aura-on-surface">Generated Plan</h3>
+              <p className="text-sm text-aura-on-surface-variant font-body mt-1">Review the AI-generated content plan before creating your video.</p>
+            </div>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setIsModalOpen(true)} className="btn-secondary btn-sm" aria-label="Edit persona selection">
+                Edit Selection
+              </button>
+              <button type="button" onClick={() => setActiveStep(3)} className="btn-primary flex items-center gap-2" aria-label="Confirm and create video">
+                Confirm &amp; Create Video <RocketLaunch className="w-4 h-4 fill-current" />
+              </button>
+            </div>
+          </div>
+          <div className="bg-aura-surface-container-low rounded-2xl p-6 space-y-5">
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant font-label mb-2">Script Preview</p>
+              <p className="text-sm text-aura-on-surface font-body leading-relaxed line-clamp-4">
+                {scriptText || "Your personalized video script has been generated based on the source URL and selected personas."}
+              </p>
+            </div>
+            <div className="pt-4 border-t border-aura-outline-variant/10">
+              <p className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant font-label mb-3">Scene Breakdown</p>
+              <div className="space-y-2">
+                {[{i:1,l:"Opening hook",d:"5s"},{i:2,l:"Core feature demo",d:"12s"},{i:3,l:"Call to action",d:"4s"}].map(scene => (
+                  <div key={scene.i} className="flex items-center gap-4 text-sm">
+                    <span className="w-6 h-6 rounded-full bg-aura-primary/10 text-aura-primary flex items-center justify-center text-[11px] font-black shrink-0">{scene.i}</span>
+                    <span className="flex-1 text-aura-on-surface font-medium">{scene.l}</span>
+                    <span className="text-aura-on-surface-variant/60 font-body text-xs">{scene.d}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <button type="button" onClick={() => setActiveStep(3)} className="btn-primary btn-lg flex items-center gap-3" aria-label="Create video">
+              Create Video <RocketLaunch className="w-5 h-5 fill-current" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* STEP 2 MODAL */}
       {isModalOpen && (
@@ -429,12 +553,20 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
                         <CheckCircle className="w-4 h-4" />
                       </div>
                     </div>
-                    <div className="flex justify-between items-end">
-                      <div>
-                        <h4 className="font-headline font-bold text-aura-on-surface">{p.display_name}</h4>
-                        <p className="text-[10px] text-aura-on-surface-variant font-bold tracking-widest uppercase font-label">{p.status}</p>
+                    <div className="space-y-1.5">
+                      <h4 className="font-headline font-bold text-aura-on-surface">{p.display_name}</h4>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={cn(
+                          "text-[10px] font-black tracking-widest uppercase px-2.5 py-1 rounded-full font-label border",
+                          p.status === 'active' ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-aura-surface-container text-aura-on-surface-variant/70 border-aura-outline-variant/20"
+                        )}>{p.status}</span>
+                        {p.video_count > 0 && (
+                          <span className="text-[10px] text-aura-primary font-bold">{p.video_count} videos</span>
+                        )}
                       </div>
-                      <Info className="w-4 h-4 text-aura-on-surface-variant/40" />
+                      {p.language && (
+                        <p className="text-[10px] text-aura-on-surface-variant/50 font-body">{p.language}</p>
+                      )}
                     </div>
                   </div>
                 </label>
@@ -448,20 +580,35 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
             </div>
             {/* Modal Footer */}
             <div className="p-8 bg-aura-surface-container-lowest flex justify-between items-center px-10 border-t border-aura-outline-variant/5">
-              <div className="text-aura-on-surface-variant text-sm font-bold font-body">
-                <span className="text-aura-primary">{selectedPersonas.length} Personas</span> Selected
+              <div className="flex items-center gap-5">
+                <div className="text-aura-on-surface-variant text-sm font-bold font-body">
+                  <span className="text-aura-primary">{selectedPersonas.length} Personas</span> Selected
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedPersonas.length === personas.length) {
+                      setSelectedPersonas([]);
+                    } else {
+                      setSelectedPersonas(personas.map((p: any) => p.persona_id));
+                    }
+                  }}
+                  className="text-xs font-bold text-aura-primary hover:underline underline-offset-2 transition-all cursor-pointer min-h-[44px] px-2"
+                >
+                  {selectedPersonas.length === personas.length ? 'Deselect All' : 'Select All'}
+                </button>
               </div>
               <div className="flex gap-4">
                 <button 
                   onClick={() => setIsModalOpen(false)}
-                  className="px-8 py-3.5 rounded-full text-aura-on-surface font-bold text-sm hover:bg-aura-surface-container transition-colors"
+                  className="px-8 py-3.5 rounded-full text-aura-on-surface font-bold text-sm hover:bg-aura-surface-container transition-colors min-h-[44px]"
                 >Cancel</button>
                 <button 
                   onClick={handleInitiateProduction}
                   disabled={isGenerating}
                   className="btn-primary flex items-center gap-3 disabled:opacity-50"
                 >
-                  {isGenerating ? "Generating..." : "Initiate Production"}
+                  {isGenerating ? "Generating..." : "Generate Plan"}
                   {!isGenerating && <Zap className="w-5 h-5 fill-current" />}
                 </button>
               </div>
@@ -577,6 +724,17 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
                   >
                     {isGenerating ? "Deploying..." : "Deploy All Campaigns"}
                   </button>
+                  {onNavigateToPublishing && (
+                    <button
+                      type="button"
+                      onClick={onNavigateToPublishing}
+                      className="btn-primary flex items-center gap-2 min-h-[44px]"
+                      aria-label="Go to Publishing tab"
+                    >
+                      <Send className="w-4 h-4" />
+                      Publish Results
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -650,14 +808,75 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas 
             <button className="btn-primary btn-lg flex items-center gap-4">
               Deploy All <RocketLaunch className="w-5 h-5 fill-current" />
             </button>
+            {onNavigateToPublishing && (
+              <button
+                type="button"
+                onClick={onNavigateToPublishing}
+                className="btn-secondary flex items-center gap-2 min-h-[44px]"
+                aria-label="Go to Publishing tab"
+              >
+                <Send className="w-4 h-4" />
+                Publish
+              </button>
+            )}
           </div>
         </div>
       </div>
     </div>
   );
 
+  const STEP_DEFS = [
+    { id: 1 as const, label: 'Mode & Source' },
+    { id: 2 as const, label: 'Review Plan' },
+    { id: 3 as const, label: 'Output & Publish' },
+  ];
+
   return (
-    <div className="h-full min-h-[800px] pb-10">
+    <div className="h-full min-h-[800px] pb-10 space-y-8">
+      {/* Progression Node Header */}
+      <div className="flex items-start gap-0">
+        {STEP_DEFS.map((step, index) => {
+          const isCompleted = step.id < activeStep;
+          const isActive = step.id === activeStep;
+          return (
+            <React.Fragment key={step.id}>
+              <button
+                type="button"
+                onClick={() => { if (isCompleted) setActiveStep(step.id); }}
+                disabled={!isCompleted && !isActive}
+                aria-label={`Step ${step.id}: ${step.label}`}
+                className={cn(
+                  "flex flex-col items-center gap-2 shrink-0",
+                  isCompleted ? "cursor-pointer" : "cursor-default"
+                )}
+              >
+                <div className={cn(
+                  "w-11 h-11 rounded-full flex items-center justify-center text-sm font-black transition-all duration-300",
+                  isCompleted ? "bg-aura-primary text-white shadow-lg" : isActive ? "bg-aura-primary text-white ring-4 ring-aura-primary/20" : "bg-aura-surface-container text-aura-on-surface-variant/40"
+                )}>
+                  {isCompleted ? <Check className="w-4 h-4" /> : <span>{step.id}</span>}
+                </div>
+                <span className={cn(
+                  "text-[11px] font-bold uppercase tracking-widest whitespace-nowrap font-label",
+                  isActive ? "text-aura-primary" : isCompleted ? "text-aura-on-surface-variant" : "text-aura-on-surface-variant/40"
+                )}>
+                  {step.label}
+                </span>
+              </button>
+              {index < STEP_DEFS.length - 1 && (
+                <div className="flex-1 mt-[1.375rem] px-3">
+                  <div className="w-full h-0.5 relative overflow-hidden rounded-full bg-aura-surface-container">
+                    <div className={cn(
+                      "absolute left-0 top-0 h-full bg-aura-primary transition-all duration-500 rounded-full",
+                      step.id < activeStep ? "w-full" : "w-0"
+                    )} />
+                  </div>
+                </div>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
       {activeStep === 1 && renderStep1()}
       {activeStep === 2 && renderStep2()}
       {activeStep === 3 && renderStep3()}

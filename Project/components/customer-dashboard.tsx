@@ -142,6 +142,7 @@ export type Persona = {
   avatar_image_url: string | null;
   status: string;
   video_count: number;
+  user_id?: string | null; // System personas have fixed ID, user personas have customer user_id
 };
 
 export type TelegramLinkStatus = {
@@ -349,6 +350,8 @@ export default function CustomerDashboard() {
     ),
   );
   const [personas, setPersonas] = useState<Persona[]>([]);
+  const [defaultPersonas, setDefaultPersonas] = useState<Persona[]>([]);
+  const [userPersonas, setUserPersonas] = useState<Persona[]>([]);
   const [telegramLink, setTelegramLink] = useState<TelegramLinkStatus | null>(null);
   const [linkToken, setLinkToken] = useState<TelegramLinkToken | null>(null);
   const [isPollingTelegramLink, setIsPollingTelegramLink] = useState(false);
@@ -523,6 +526,15 @@ export default function CustomerDashboard() {
       }
     };
   }, [isAuthenticated, linkToken, telegramLink?.linked]);
+
+  // Partition personas into default (system) and user personas
+  useEffect(() => {
+    const SYSTEM_PERSONA_USER_ID = "00000000-0000-0000-0000-000000000001";
+    const defaults = personas.filter(p => p.user_id === SYSTEM_PERSONA_USER_ID);
+    const users = personas.filter(p => p.user_id !== SYSTEM_PERSONA_USER_ID);
+    setDefaultPersonas(defaults);
+    setUserPersonas(users);
+  }, [personas]);
 
   async function loadWorkspace() {
     try {
@@ -1542,7 +1554,8 @@ export default function CustomerDashboard() {
 
             {activeTab === "skills" && (
               <PersonasTab
-                personas={personas}
+                defaultPersonas={defaultPersonas}
+                userPersonas={userPersonas}
                 telegramBotUrl={telegramBotUrl || undefined}
                 onNavigateToCreateVideo={() => setActiveTab("create_video")}
               />

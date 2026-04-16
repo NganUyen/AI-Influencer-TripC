@@ -23,9 +23,12 @@ import {
   Activity,
   ChevronRight,
   ExternalLink,
+  CheckCircle2,
 } from "lucide-react";
 import { customerApiRequest } from "@/lib/customer-api";
 import { cn } from "@/lib/utils";
+import { PersonaGroup } from "./personas/PersonaGroup";
+import { PersonaSkeleton } from "./personas/PersonaSkeleton";
 
 /* ── Types ────────────────────────────────────────────────────────────────── */
 
@@ -42,7 +45,8 @@ interface Persona {
 }
 
 interface PersonasTabProps {
-  personas: Persona[];
+  defaultPersonas: Persona[];
+  userPersonas: Persona[];
   telegramBotUrl?: string | null;
   onNavigateToCreateVideo?: () => void;
 }
@@ -77,13 +81,17 @@ function toTikTokChannelStatus(persona: Persona): TikTokChannelStatus {
 
 /* ── Main Component ─────────────────────────────────────────────────────── */
 
-export function PersonasTab({ personas, onNavigateToCreateVideo }: PersonasTabProps) {
+export function PersonasTab({ defaultPersonas, userPersonas, onNavigateToCreateVideo }: PersonasTabProps) {
+  // Combine personas for backward compatibility with existing logic
+  const personas = [...defaultPersonas, ...userPersonas];
+
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(
     personas[0]?.persona_id ?? null
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreationOpen, setIsCreationOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isLoadingPersonas, setIsLoadingPersonas] = useState(false);
   const [editForm, setEditForm] = useState({
     display_name: "",
     tts_voice: "",
@@ -223,38 +231,82 @@ export function PersonasTab({ personas, onNavigateToCreateVideo }: PersonasTabPr
             />
           </div>
 
-          {/* Default Persona Section */}
-          <p className="text-[10px] font-black uppercase tracking-widest text-aura-on-surface-variant/50 font-label mb-3">
-            AI Personas
-          </p>
+          {/* Persona Groups with Expandable Sections */}
+          <div className="flex-1 overflow-y-auto scrollbar-hide space-y-4 pr-1">
+            {/* Default Personas Group */}
+            <PersonaGroup
+              title="System Personas"
+              subtitle="AI-powered defaults"
+              personas={defaultPersonas}
+              selectedPersonaId={selectedPersonaId}
+              onSelectPersona={setSelectedPersonaId}
+              isExpandedByDefault={true}
+              isLoading={isLoadingPersonas}
+            >
+              {isLoadingPersonas ? (
+                <>
+                  {Array.from({ length: 2 }).map((_, i) => (
+                    <PersonaSkeleton key={`default-skeleton-${i}`} />
+                  ))}
+                </>
+              ) : (
+                defaultPersonas.map((p) => (
+                  <PersonaListItem
+                    key={p.persona_id}
+                    persona={p}
+                    isActive={selectedPersonaId === p.persona_id}
+                    onClick={() => setSelectedPersonaId(p.persona_id)}
+                  />
+                ))
+              )}
+            </PersonaGroup>
 
-          {/* List */}
-          <div className="flex-1 overflow-y-auto space-y-2 scrollbar-hide pr-1">
-            {filteredPersonas.length === 0 ? (
-              <div className="py-14 text-center space-y-3">
-                <div className="w-14 h-14 rounded-3xl bg-aura-surface-container mx-auto flex items-center justify-center opacity-40">
-                  <Plus className="w-7 h-7 text-aura-outline" />
+            {/* User Personas Group */}
+            <PersonaGroup
+              title="Your Personas"
+              subtitle="Custom influencers"
+              personas={userPersonas}
+              selectedPersonaId={selectedPersonaId}
+              onSelectPersona={setSelectedPersonaId}
+              isExpandedByDefault={true}
+              isLoading={isLoadingPersonas}
+            >
+              {isLoadingPersonas ? (
+                <>
+                  {Array.from({ length: 2 }).map((_, i) => (
+                    <PersonaSkeleton key={`user-skeleton-${i}`} />
+                  ))}
+                </>
+              ) : userPersonas.length === 0 ? (
+                <div className="py-8 text-center space-y-2">
+                  <p className="text-xs text-aura-on-surface-variant font-body">
+                    No custom personas yet.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsCreationOpen(true)}
+                    className="text-xs text-aura-primary font-bold hover:underline cursor-pointer"
+                  >
+                    Create one
+                  </button>
                 </div>
-                <p className="text-aura-on-surface-variant text-sm font-medium">
-                  No personas found
-                </p>
-              </div>
-            ) : (
-              filteredPersonas.map((p) => (
-                <PersonaListItem
-                  key={p.persona_id}
-                  persona={p}
-                  isActive={selectedPersonaId === p.persona_id}
-                  onClick={() => setSelectedPersonaId(p.persona_id)}
-                />
-              ))
-            )}
+              ) : (
+                userPersonas.map((p) => (
+                  <PersonaListItem
+                    key={p.persona_id}
+                    persona={p}
+                    isActive={selectedPersonaId === p.persona_id}
+                    onClick={() => setSelectedPersonaId(p.persona_id)}
+                  />
+                ))
+              )}
+            </PersonaGroup>
 
             {/* Create new dashed button */}
             <button
               type="button"
               onClick={() => setIsCreationOpen(true)}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-aura-outline-variant/30 p-4 text-sm font-bold text-aura-on-surface-variant transition-all hover:border-aura-primary/40 hover:bg-aura-primary/5 cursor-pointer min-h-[44px] group"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-aura-outline-variant/30 p-4 text-sm font-bold text-aura-on-surface-variant transition-all hover:border-aura-primary/40 hover:bg-aura-primary/5 cursor-pointer min-h-[44px] group mt-2"
             >
               <Plus className="w-4 h-4 text-aura-primary group-hover:scale-110 transition-transform" />
               Build New Persona
@@ -988,50 +1040,66 @@ function TikTokChannelCard({
   bannerMessage: string | null;
   onDismissBanner: () => void;
 }) {
-  const connectionBadge: Record<TikTokConnectionState, { label: string; cls: string }> = {
+  const connectionBadge: Record<TikTokConnectionState, { label: string; cls: string; icon: React.ReactNode }> = {
     connected_demo: {
       label: "Connected (demo)",
-      cls: "bg-amber-50 text-amber-700 border-amber-200",
+      cls: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      icon: <CheckCircle2 className="w-3 h-3" />,
     },
     not_connected: {
       label: "Not connected",
       cls: "bg-aura-surface-container text-aura-on-surface-variant/70 border-aura-outline-variant/30",
+      icon: <Globe className="w-3 h-3 opacity-50" />,
     },
     needs_reconnect: {
       label: "Needs reconnect",
       cls: "bg-red-50 text-red-700 border-red-200",
+      icon: <AlertTriangle className="w-3 h-3" />,
     },
   };
 
   const conn = connectionBadge[status.connectionState];
 
   return (
-    <div className="dashboard-panel p-8 space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          {/* TikTok brand icon (correct SVG path) */}
-          <div className="w-10 h-10 rounded-xl bg-aura-on-surface flex items-center justify-center shadow-sm shrink-0">
-            <svg
-              viewBox="0 0 24 24"
-              className="w-5 h-5 fill-white"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden="true"
-            >
-              <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.32 6.32 0 0 0-.79-.05A6.34 6.34 0 0 0 3.15 15.3a6.34 6.34 0 0 0 6.34 6.35 6.34 6.34 0 0 0 6.33-6.35V8.89a8.27 8.27 0 0 0 4.83 1.54V7a4.85 4.85 0 0 1-1.06-.31Z" />
-            </svg>
-          </div>
-          <div>
-            <h3 className="text-sm font-black text-aura-on-surface font-headline">
-              TikTok Channel
-            </h3>
-            <p className="text-xs text-aura-on-surface-variant/60 font-body">
-              Platform distribution
-            </p>
-          </div>
+    // ✨ Enhanced Card with Left Border Accent
+    <div className="dashboard-panel border-l-4 border-l-aura-primary p-6 space-y-4">
+      {/* Header: Icon + Status */}
+      <div className="flex items-start gap-4">
+        {/* Icon Container (40x40px) */}
+        <div className="relative w-12 h-12 rounded-xl bg-aura-surface-container/40 flex items-center justify-center flex-shrink-0">
+          <svg
+            viewBox="0 0 24 24"
+            className="w-6 h-6 fill-aura-on-surface"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.32 6.32 0 0 0-.79-.05A6.34 6.34 0 0 0 3.15 15.3a6.34 6.34 0 0 0 6.34 6.35 6.34 6.34 0 0 0 6.33-6.35V8.89a8.27 8.27 0 0 0 4.83 1.54V7a4.85 4.85 0 0 1-1.06-.31Z" />
+          </svg>
+
+          {/* Connection Status Dot */}
+          {status.connectionState === "connected_demo" && (
+            <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-white bg-emerald-500 animate-pulse-slow" />
+          )}
         </div>
+
+        {/* Title + Status Label Stack */}
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-bold text-aura-on-surface font-headline">
+            TikTok Channel
+          </h3>
+          <span className={cn(
+            "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border mt-1.5",
+            conn.cls
+          )}>
+            {conn.icon}
+            {conn.label}
+          </span>
+        </div>
+
+        {/* Active/Inactive Badge */}
         <span
           className={cn(
-            "px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border font-label",
+            "px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border font-label flex-shrink-0",
             status.activeState === "active"
               ? "bg-emerald-50 text-emerald-700 border-emerald-200"
               : "bg-aura-surface-container text-aura-on-surface-variant border-aura-outline-variant/30"
@@ -1060,48 +1128,38 @@ function TikTokChannelCard({
         </div>
       )}
 
-      {/* Metadata grid */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-aura-surface-container-low rounded-2xl p-4 space-y-1">
-          <p className="text-[10px] font-black uppercase tracking-widest text-aura-on-surface-variant/50 font-label">
-            Connection
+      {/* Metadata: Vertical Stacks (Improved Scannability) */}
+      <div className="space-y-2.5 pt-1">
+        <div className="flex justify-between items-baseline gap-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-aura-on-surface-variant/60 font-label flex-shrink-0">
+            Channel Handle
           </p>
-          <span
-            className={cn(
-              "inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border",
-              conn.cls
-            )}
-          >
-            {conn.label}
-          </span>
-        </div>
-        <div className="bg-aura-surface-container-low rounded-2xl p-4 space-y-1">
-          <p className="text-[10px] font-black uppercase tracking-widest text-aura-on-surface-variant/50 font-label">
-            Handle
-          </p>
-          <p className="text-sm font-bold text-aura-on-surface">
+          <p className="text-sm font-bold text-aura-on-surface text-right truncate">
             {status.channelHandle ?? "—"}
           </p>
         </div>
-        <div className="bg-aura-surface-container-low rounded-2xl p-4 space-y-1">
-          <p className="text-[10px] font-black uppercase tracking-widest text-aura-on-surface-variant/50 font-label">
+
+        <div className="flex justify-between items-baseline gap-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-aura-on-surface-variant/60 font-label flex-shrink-0">
             Display Name
           </p>
-          <p className="text-sm font-bold text-aura-on-surface">
+          <p className="text-sm font-bold text-aura-on-surface text-right truncate">
             {status.displayName ?? "—"}
           </p>
         </div>
-        <div className="bg-aura-surface-container-low rounded-2xl p-4 space-y-1">
-          <p className="text-[10px] font-black uppercase tracking-widest text-aura-on-surface-variant/50 font-label">
+
+        <div className="flex justify-between items-baseline gap-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-aura-on-surface-variant/60 font-label flex-shrink-0">
             Last Sync
           </p>
-          <p className="text-sm font-bold text-aura-on-surface">
+          <p className="text-sm font-bold text-aura-on-surface text-right truncate">
             {status.lastSyncLabel ?? "—"}
           </p>
         </div>
       </div>
 
-      <div className="flex gap-3">
+      {/* CTA Buttons: Full Width with Icon + Label */}
+      <div className="flex gap-3 pt-2">
         <button
           type="button"
           onClick={onAction}
@@ -1109,7 +1167,7 @@ function TikTokChannelCard({
           aria-label={actionLabel}
         >
           <Link className="w-4 h-4" />
-          {actionLabel}
+          <span className="font-bold">{actionLabel}</span>
         </button>
         <button
           type="button"

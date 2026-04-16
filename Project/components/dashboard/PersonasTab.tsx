@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Plus, Search, ArrowUp, Brain, Sparkles, Video, Share2, Info, MoreVertical, Loader2 } from "lucide-react";
+import { customerApiRequest } from "@/lib/customer-api";
 import { cn } from "@/lib/utils";
 
 interface Persona {
@@ -49,19 +50,14 @@ export function PersonasTab({ personas }: PersonasTabProps) {
     if (!selectedPersonaId) return;
     setIsSaving(true);
     try {
-      const response = await fetch(`/api/personas/${selectedPersonaId}`, {
+      await customerApiRequest<any>(`/api/customer/personas/${selectedPersonaId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(editForm),
       });
-      if (response.ok) {
-        setIsEditing(false);
-        window.location.reload();
-      } else {
-        alert("Failed to save adjustments.");
-      }
-    } catch (e) {
-      alert("Error saving adjustments");
+      setIsEditing(false);
+      window.location.reload();
+    } catch (e: any) {
+      alert("Error saving adjustments: " + e.message);
     } finally {
       setIsSaving(false);
     }
@@ -71,19 +67,14 @@ export function PersonasTab({ personas }: PersonasTabProps) {
     if (!selectedPersonaId) return;
     setIsRebuilding(true);
     try {
-      const response = await fetch(`/api/personas/${selectedPersonaId}/rebuild-avatar`, {
+      await customerApiRequest<any>(`/api/customer/personas/${selectedPersonaId}/rebuild-avatar`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ appearance_prompt_or_photo: editForm.appearance_prompt_or_photo }),
       });
-      if (response.ok) {
-        setIsEditing(false);
-        window.location.reload();
-      } else {
-        alert("Failed to rebuild avatar");
-      }
-    } catch (e) {
-      alert("Error rebuilding avatar");
+      setIsEditing(false);
+      window.location.reload();
+    } catch (e: any) {
+      alert("Error rebuilding avatar: " + e.message);
     } finally {
       setIsRebuilding(false);
     }

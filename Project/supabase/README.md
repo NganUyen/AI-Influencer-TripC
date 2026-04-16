@@ -30,6 +30,8 @@ supabase/
     |-- 20260327_supabase_canonical_consolidation.sql
     |-- 20260329_supabase_auth_user_sync.sql
     |-- 20260329_telegram_link_tokens_anonymous_auth.sql
+    |-- 20260416_global_market_personas.sql
+    |-- 20260416_personas_generating_status.sql
     `-- latest.sql
 ```
 
@@ -117,6 +119,7 @@ supabase db push
 - a demo customer user
 - a completed brand profile
 - a demo persona registry record
+- five shared global market personas under the system owner
 - a connected social account
 - an assistant thread, messages, and artifact
 - a draft campaign and scheduled content row

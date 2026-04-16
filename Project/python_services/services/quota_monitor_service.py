@@ -524,6 +524,13 @@ class QuotaMonitorService:
                 force=force,
             )
 
+    @staticmethod
+    def _normalize_user_id(user_id: Optional[str]) -> Optional[str]:
+        raw_user_id = str(user_id or "").strip()
+        if not raw_user_id:
+            return None
+        return str(ContentPersistenceService._resolve_user_uuid(raw_user_id))
+
     @classmethod
     def _build_snapshot_record(
         cls,
@@ -539,7 +546,7 @@ class QuotaMonitorService:
         snapshot_time = observed_at or datetime.utcnow()
         return {
             "id": str(uuid4()),
-            "user_id": user_id,
+            "user_id": cls._normalize_user_id(user_id),
             "provider": _normalize_provider(provider),
             "source": source or "manual",
             "usage": _json_clone(usage or {}),
@@ -709,6 +716,7 @@ class QuotaMonitorService:
         user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         provider_key = _normalize_provider(provider) if provider else None
+        normalized_user_id = cls._normalize_user_id(user_id)
         try:
             pool = await cls._get_pool()
             where_clauses = ["event_type = 'api_usage'"]
@@ -718,8 +726,8 @@ class QuotaMonitorService:
                 params.append(provider_key)
                 where_clauses.append(f"platform = ${len(params)}")
             
-            if user_id:
-                params.append(user_id)
+            if normalized_user_id:
+                params.append(normalized_user_id)
                 where_clauses.append(f"user_id = ${len(params)}::uuid")
             
             if days > 0:
@@ -740,7 +748,10 @@ class QuotaMonitorService:
         except Exception as exc:
             logger.warning("Falling back to in-memory quota snapshots: %s", exc)
             return await cls._list_memory_snapshots(
-                provider=provider_key, limit=limit, days=days, user_id=user_id
+                provider=provider_key,
+                limit=limit,
+                days=days,
+                user_id=normalized_user_id,
             )
 
     @classmethod

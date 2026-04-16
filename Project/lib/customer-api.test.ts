@@ -55,4 +55,18 @@ describe("customerApiRequest", () => {
 
     expect(headers.get("Authorization")).toBe(`Bearer ${token}`);
   });
+
+  it("replaces raw HTML error pages with a status-based message", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      headers: new Headers({ "content-type": "text/html" }),
+      text: async () =>
+        "<html><body><center>openresty</center></body></html>",
+    });
+
+    await expect(
+      customerApiRequest("/api/customer/example"),
+    ).rejects.toThrow("Customer API request failed with status 502");
+  });
 });

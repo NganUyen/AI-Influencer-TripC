@@ -4,6 +4,7 @@ Customer-facing authenticated API surface.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
@@ -39,6 +40,7 @@ from services.persona_registry_service import PersonaRegistryService
 from fastapi import Request
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 async def require_customer_session(
@@ -795,10 +797,17 @@ async def create_review_engine_job(
         from services.script_service import ScriptService
         from services.customer_campaign_service import CustomerCampaignService
         from services.persona_registry_service import PersonaRegistryService
-        from services.contracts import VideoReviewPlanContract
-        
+
         script_service = ScriptService()
-        
+        brand_profile = await BrandProfileService.get_for_user(session.user_id)
+        can_create_campaigns = brand_profile is not None
+
+        if not can_create_campaigns:
+            logger.info(
+                "Skipping review-engine campaign creation until brand onboarding completes | user_id=%s",
+                session.user_id,
+            )
+
         page_review_contract = await WebsiteReviewService.review_url(
             url=payload.source_url,
             objective=payload.objective,
@@ -826,28 +835,38 @@ async def create_review_engine_job(
                 review_plan=review_plan,
                 persona_config=persona
             )
-            
-            campaign_payload = {
-                "name": f"Review of {page_review_contract.page_title or payload.source_url} - {persona.get('display_name', persona_id)}",
-                "description": payload.objective,
-                "content_pillars": ["Review"],
-                "target_platforms": ["tiktok"]
-            }
-            campaign = await CustomerCampaignService.create_campaign(
-                session=session,
-                payload=campaign_payload
-            )
-            
+
+            campaign = None
+            if can_create_campaigns:
+                campaign_payload = {
+                    "name": f"Review of {page_review_contract.page_title or payload.source_url} - {persona.get('display_name', persona_id)}",
+                    "description": payload.objective,
+                    "content_pillars": ["Review"],
+                    "target_platforms": ["tiktok"]
+                }
+                campaign = await CustomerCampaignService.create_campaign(
+                    session=session,
+                    payload=campaign_payload
+                )
+
             results.append({
                 "persona_id": persona_id,
-                "campaign_id": campaign["id"],
+                "campaign_id": campaign["id"] if campaign else None,
                 "script": script_contract.model_dump()
             })
-            
-        return {
+
+        response: Dict[str, Any] = {
             "status": "success",
             "jobs": results
         }
+        if not can_create_campaigns:
+            response["warnings"] = [
+                {
+                    "code": "brand_onboarding_incomplete",
+                    "message": "Generated scripts without creating campaigns. Complete brand onboarding to launch campaigns from this flow.",
+                }
+            ]
+        return response
     except Exception as exc:
         raise HTTPException(
             status_code=500,

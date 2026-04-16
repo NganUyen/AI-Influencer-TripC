@@ -1,6 +1,33 @@
 import { readPersistedCustomerSession } from "@/lib/customer-session";
 import { getSupabaseClient } from "@/lib/supabase";
 
+function buildCustomerApiErrorMessage(
+  response: Response,
+  errorText: string,
+): string {
+  const trimmed = errorText.trim();
+  if (!trimmed) {
+    return `Customer API request failed with status ${response.status}`;
+  }
+
+  try {
+    const payload = JSON.parse(trimmed) as { detail?: string };
+    if (payload.detail) {
+      return payload.detail;
+    }
+  } catch {}
+
+  const contentType = response.headers.get("content-type") || "";
+  const looksLikeHtml =
+    contentType.includes("text/html") || /^<!doctype html/i.test(trimmed) || /^<html/i.test(trimmed) || /^</.test(trimmed);
+
+  if (looksLikeHtml) {
+    return `Customer API request failed with status ${response.status}`;
+  }
+
+  return trimmed.replace(/\s+/g, " ");
+}
+
 export async function customerApiRequest<T>(
   path: string,
   init?: RequestInit,
@@ -33,12 +60,7 @@ export async function customerApiRequest<T>(
     if (!response.ok) {
       const errorText = await response.text();
       if (errorText) {
-        let message = errorText;
-        try {
-          const payload = JSON.parse(errorText) as { detail?: string };
-          message = payload.detail || errorText;
-        } catch {}
-        throw new Error(message);
+        throw new Error(buildCustomerApiErrorMessage(response, errorText));
       }
       throw new Error(`Customer API request failed with status ${response.status}`);
     }

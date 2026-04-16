@@ -6,6 +6,7 @@ os.environ["DEBUG"] = "true"
 
 import pytest
 
+from services.content_persistence_service import ContentPersistenceService
 from services.quota_monitor_service import QuotaMonitorService
 from services.errors import QuotaExceededError
 
@@ -92,6 +93,54 @@ async def test_record_snapshot_uses_memory_fallback_when_db_unavailable(monkeypa
     items = await QuotaMonitorService.list_snapshots(provider="anthropic", limit=10)
     assert len(items) == 1
     assert items[0]["usage"]["tokens"] == 500
+
+
+@pytest.mark.asyncio
+async def test_quota_snapshots_normalize_non_uuid_user_ids_for_db_storage_and_filters(monkeypatch):
+    captured: dict[str, tuple] = {}
+    normalized_user_id = str(
+        ContentPersistenceService._resolve_user_uuid("review-plan:persona-1")
+    )
+
+    class FakeConn:
+        async def execute(self, _query, *params):
+            captured["insert_params"] = params
+
+        async def fetch(self, _query, *params):
+            captured["fetch_params"] = params
+            return []
+
+    class FakePool:
+        def acquire(self):
+            return self
+
+        async def __aenter__(self):
+            return FakeConn()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+    async def fake_get_pool():
+        return FakePool()
+
+    monkeypatch.setattr(QuotaMonitorService, "_get_pool", fake_get_pool)
+
+    snapshot = await QuotaMonitorService.record_snapshot(
+        provider="openai",
+        usage={"requests": 1},
+        user_id="review-plan:persona-1",
+    )
+
+    await QuotaMonitorService.list_snapshots(
+        provider="openai",
+        limit=10,
+        days=0,
+        user_id="review-plan:persona-1",
+    )
+
+    assert snapshot["user_id"] == normalized_user_id
+    assert captured["insert_params"][1] == normalized_user_id
+    assert captured["fetch_params"][1] == normalized_user_id
 
 
 @pytest.mark.asyncio

@@ -241,6 +241,89 @@ def test_launch_campaign_returns_temporal_payload(monkeypatch):
     assert response.json()["workflow_id"] == "weekly-marketing-1"
 
 
+def test_create_review_engine_job_skips_campaign_creation_without_brand_profile(monkeypatch):
+    class _FakeReviewContract:
+        page_title = "Chrome Store Listing"
+
+        def model_dump(self, mode: str = "python"):
+            assert mode == "json"
+            return {
+                "normalized_url": "https://play.google.com/store/apps/details?id=com.android.chrome",
+                "page_title": self.page_title,
+                "visible_features": [],
+            }
+
+    class _FakeScriptContract:
+        def model_dump(self):
+            return {
+                "script": "Generated review script",
+                "duration_estimate": 40,
+                "scenes": [],
+            }
+
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_review_url(url, objective=None, user_id=None):
+        assert url == "https://play.google.com/store/apps/details?id=com.android.chrome"
+        assert objective == "Review"
+        assert user_id == _session().user_id
+        return _FakeReviewContract()
+
+    async def fake_get_persona(persona_id, user_id=None):
+        assert persona_id == "persona-1"
+        assert user_id == _session().user_id
+        return {
+            "persona_id": persona_id,
+            "display_name": "Chrome Reviewer",
+            "language": "English",
+        }
+
+    async def fake_generate_script_from_review_plan(_self, *, app_name, review_plan, persona_config):
+        assert app_name == "Chrome Store Listing"
+        assert review_plan["persona_id"] == "persona-1"
+        assert persona_config["display_name"] == "Chrome Reviewer"
+        return _FakeScriptContract(), None
+
+    async def fake_get_for_user(_user_id):
+        return None
+
+    async def fail_create_campaign(*args, **kwargs):
+        raise AssertionError("campaign creation should be skipped when brand profile is missing")
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.BrandProfileService, "get_for_user", fake_get_for_user)
+    monkeypatch.setattr(customer.CustomerCampaignService, "create_campaign", fail_create_campaign)
+    monkeypatch.setattr(customer.PersonaRegistryService, "get_persona", fake_get_persona)
+    monkeypatch.setattr(
+        "services.website_review_service.WebsiteReviewService.review_url",
+        fake_review_url,
+    )
+    monkeypatch.setattr(
+        "services.script_service.ScriptService.generate_script_from_review_plan",
+        fake_generate_script_from_review_plan,
+    )
+
+    client = _build_client()
+    response = client.post(
+        "/api/customer/review-engine/jobs",
+        headers={"Authorization": "Bearer customer-token"},
+        json={
+            "source_url": "https://play.google.com/store/apps/details?id=com.android.chrome",
+            "objective": "Review",
+            "target_personas": ["persona-1"],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert payload["jobs"][0]["persona_id"] == "persona-1"
+    assert payload["jobs"][0]["campaign_id"] is None
+    assert payload["jobs"][0]["script"]["script"] == "Generated review script"
+    assert payload["warnings"][0]["code"] == "brand_onboarding_incomplete"
+
+
 def test_get_customer_workspace_returns_aggregated_payload(monkeypatch):
     async def fake_resolve_session(_authorization):
         return _session()

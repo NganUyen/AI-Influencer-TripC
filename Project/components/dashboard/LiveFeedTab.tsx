@@ -9,6 +9,7 @@ import {
   Send,
   Upload,
   Wand2,
+  Check,
 } from "lucide-react";
 import { customerApiRequest } from "@/lib/customer-api";
 import { cn } from "@/lib/utils";
@@ -564,7 +565,7 @@ export function LiveFeedTab({
           )}
         </div>
 
-        {jobs.length > 0 ? (
+        {(jobs ?? []).length > 0 ? (
           <div className="space-y-6">
             {jobs.map((job) => {
               const personaImage =

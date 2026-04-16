@@ -317,10 +317,27 @@ Personas → [Generate Plans] → Plans stored in DB with plan_id
 ## 📝 IMPORTANT NOTES
 
 1. **Plans are stored in DB** - All generated plans saved with `plan_id` for retrieval/editing
+   - ⚠️ NOT temporary cache — DB persistence required for editing workflow
+   - Why: User edits need plan_id, progress tracking needs DB polling, publishing config needs persistence
+   - See: `REFACTOR_PLAN_DETAILED.md` → "Plan Persistence Strategy" section
+
 2. **Edit before approval** - User can modify scripts/scenes before workflow starts
+   - Edit only allowed in 'generated' or 'edited' state (not after approval)
+   - Each edit: PATCH /plans/{plan_id} → updates script_text + scenes_data in DB
+
 3. **No Telegram blocking** - Approval happens in UI, not Telegram (cleaner UX)
+
 4. **Per-persona progress** - See status for each video separately
+   - Frontend polls GET /plans/{plan_id} every 2-3s during rendering
+   - Status: 'approved' → 'in_progress' → 'complete' → 'ready for publishing'
+
 5. **Batch publishing** - Configure multiple videos → publish to multiple platforms at once
+   - Each plan can have different settings per platform (title, hashtags, schedule)
+   - Stored: PATCH /plans/{plan_id}/publish-settings → publish_settings JSONB column
+
 6. **Platform-specific settings** - Each video/platform combo can have custom title, description, schedule
+   - Persisted separately from video render state
+   - Enables user to configure while video is still rendering
+
 7. **Reuse infrastructure** - Leverages existing ScriptService, ShortVideoWorkflow, etc.
 

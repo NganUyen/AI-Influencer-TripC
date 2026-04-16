@@ -1,15 +1,19 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
-import { X, ChevronLeft, ChevronRight, HelpCircle, LogOut, ExternalLink } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, HelpCircle, LogOut, ExternalLink, type LucideIcon } from "lucide-react";
 import { SocialIcon } from "@/components/ui/SocialIcon";
 import { cn } from "@/lib/utils";
-import type { DashboardTabId, DashboardTab } from "./customer-dashboard";
+import { getDashboardTabHref, type DashboardTabId } from "@/lib/dashboard-tabs";
 
 interface DashboardSidebarProps {
-  tabs: DashboardTab[];
+  tabs: Array<{
+    id: DashboardTabId;
+    label: string;
+    icon: LucideIcon;
+  }>;
   activeTab: DashboardTabId;
-  onTabChange: (tabId: DashboardTabId) => void;
   userEmail?: string;
   telegramBotUrl?: string | null;
   isMobileOpen?: boolean;
@@ -28,7 +32,6 @@ const TAB_SUBTITLES: Record<string, string> = {
 export function DashboardSidebar({
   tabs,
   activeTab,
-  onTabChange,
   telegramBotUrl,
   isMobileOpen = false,
   onMobileClose = () => { },
@@ -86,13 +89,14 @@ export function DashboardSidebar({
             const isActive = activeTab === tab.id;
             const Icon = tab.icon;
             return (
-              <button
+              <Link
                 key={tab.id}
-                type="button"
+                href={getDashboardTabHref(tab.id)}
+                prefetch={true}
                 onClick={() => {
-                  onTabChange(tab.id);
                   onMobileClose();
                 }}
+                aria-current={isActive ? "page" : undefined}
                 className={cn(
                   "group relative flex w-full min-h-[44px] items-center rounded-card px-4 py-3 text-sm font-medium transition-all duration-200 ease-out",
                   isCollapsed ? "md:justify-center" : "gap-3",
@@ -115,7 +119,7 @@ export function DashboardSidebar({
                     {TAB_SUBTITLES[tab.id] || tab.label}
                   </div>
                 )}
-              </button>
+              </Link>
             );
           })}
         </nav>

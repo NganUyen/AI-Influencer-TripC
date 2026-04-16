@@ -23,7 +23,9 @@ import {
 import { SocialIcon } from "@/components/ui/SocialIcon";
 
 import { customerApiRequest } from "@/lib/customer-api";
+import { getDashboardTabHref, type DashboardTabId } from "@/lib/dashboard-tabs";
 import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
+import { getWorkspaceCache, setWorkspaceCache, clearWorkspaceCache } from "@/lib/workspace-cache";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
@@ -31,19 +33,17 @@ import openClawLogo from "@/app/dashboard/openclaw-logo.svg";
 import { FormField } from "@/components/ui/FormField";
 import { SelectField } from "@/components/ui/SelectField";
 import { TextAreaField } from "@/components/ui/TextAreaField";
-import {
-  type ReviewEngineJob,
-  type ReviewEngineJobResponse,
-  type ReviewEngineSetup,
-  getReviewJobPersonaImage,
-  getReviewJobStatusLabel,
-  getReviewJobTone,
-} from "@/lib/review-engine";
 
 import { OverviewTab } from "./dashboard/OverviewTab";
 import { PersonasTab } from "./dashboard/PersonasTab";
 import { LiveFeedTab } from "./dashboard/LiveFeedTab";
 import { PublishingTab } from "./dashboard/PublishingTab";
+import { DashboardLoadingSkeleton } from "./dashboard/skeletons/DashboardLoadingSkeleton";
+import {
+  type ReviewEngineSetup,
+  type ReviewEngineJob,
+  type ReviewEngineJobResponse,
+} from "@/lib/review-engine";
 
 
 export type BrandProfile = {
@@ -151,13 +151,14 @@ export type Persona = {
   selection_image_url?: string | null;
   status: string;
   video_count: number;
-  language?: string | null;
-  tts_voice?: string | null;
-  appearance_prompt_or_photo?: string | null;
+  user_id?: string | null; // System personas have fixed ID, user personas have customer user_id
+  language?: string;
+  tts_voice?: string;
+  appearance_prompt_or_photo?: string;
   region_label?: string | null;
   description?: string | null;
-  market_default?: string | null;
-  tone_default?: string | null;
+  market_default?: string;
+  tone_default?: string;
   is_preset_catalog?: boolean;
 };
 
@@ -222,8 +223,6 @@ type CustomerWorkspaceResponse = {
   };
 };
 
-export type DashboardTabId = "overview" | "ops" | "skills" | "memory" | "create_video" | "publishing";
-
 export type DashboardTab = {
   id: DashboardTabId;
   label: string;
@@ -237,9 +236,6 @@ export type ActivityItem = {
   title: string;
   detail: string;
   tone?: ActivityItemTone;
-  progress?: number;
-  personaImage?: string | null;
-  timeLabel?: string;
 };
 
 const EMPTY_BRAND: BrandProfile = {
@@ -330,12 +326,24 @@ function buildAiBackboneForm(
   };
 }
 
-export default function CustomerDashboard() {
+type CustomerDashboardProps = {
+  activeTab: DashboardTabId;
+};
+
+export default function CustomerDashboard({ activeTab }: CustomerDashboardProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, isAuthenticated, initialized, isLoading, logout, initialize } = useCustomerAuthStore();
+  const { user, isAuthenticated, initialized, isLoading, logout, initialize } = useCustomerAuthStore(
+    (state) => ({
+      user: state.user,
+      isAuthenticated: state.isAuthenticated,
+      initialized: state.initialized,
+      isLoading: state.isLoading,
+      logout: state.logout,
+      initialize: state.initialize,
+    }),
+  );
 
-  const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [systemSummary, setSystemSummary] = useState<SystemSummaryData | null>(null);
   const [systemWorkflows, setSystemWorkflows] = useState<SystemWorkflowData[]>([]);
@@ -369,6 +377,8 @@ export default function CustomerDashboard() {
     ),
   );
   const [personas, setPersonas] = useState<Persona[]>([]);
+  const [defaultPersonas, setDefaultPersonas] = useState<Persona[]>([]);
+  const [userPersonas, setUserPersonas] = useState<Persona[]>([]);
   const [telegramLink, setTelegramLink] = useState<TelegramLinkStatus | null>(null);
   const [linkToken, setLinkToken] = useState<TelegramLinkToken | null>(null);
   const [isPollingTelegramLink, setIsPollingTelegramLink] = useState(false);
@@ -436,32 +446,26 @@ export default function CustomerDashboard() {
     }
   }, [isAuthenticated, logout, router]);
 
-  const loadReviewEngineData = useCallback(async () => {
+  const fetchReviewEngineData = useCallback(async () => {
     if (typeof window === "undefined" || !isAuthenticated) {
       return;
     }
 
     try {
-      const [setupPayload, jobsPayload] = await Promise.all([
+      const [setup, jobsResponse] = await Promise.all([
         customerApiRequest<ReviewEngineSetup>("/api/customer/review-engine/setup"),
         customerApiRequest<ReviewEngineJobResponse>("/api/customer/review-engine/jobs"),
       ]);
-      setReviewEngineSetup(setupPayload);
-      setReviewEngineJobs(jobsPayload.jobs || []);
+      setReviewEngineSetup(setup);
+      setReviewEngineJobs(jobsResponse.jobs || []);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "";
-      if (
-        msg.includes("401") ||
-        msg.includes("Unauthorized") ||
-        msg.toLowerCase().includes("invalid or expired")
-      ) {
-        void logout();
-        router.replace("/auth");
-        return;
-      }
-      console.warn("Failed to refresh review engine data:", error);
+      console.error("Failed to fetch review engine data:", error);
     }
-  }, [isAuthenticated, logout, router]);
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    void fetchReviewEngineData();
+  }, [fetchReviewEngineData]);
 
   useEffect(() => {
     void fetchSystemData();
@@ -482,15 +486,6 @@ export default function CustomerDashboard() {
   }, [searchParams]);
 
   useEffect(() => {
-    if (
-      dashboardTabParam &&
-      DASHBOARD_TABS.some((tab) => tab.id === dashboardTabParam)
-    ) {
-      setActiveTab(dashboardTabParam as DashboardTabId);
-    }
-  }, [dashboardTabParam]);
-
-  useEffect(() => {
     if (!initialized && !isLoading) {
       // Only start initialize if we aren't already loading
       void initialize();
@@ -508,8 +503,7 @@ export default function CustomerDashboard() {
       return;
     }
     void loadWorkspace();
-    void loadReviewEngineData();
-  }, [initialized, isLoading, isAuthenticated, router, pageError, loadReviewEngineData]);
+  }, [initialized, isLoading, isAuthenticated, router, pageError]);
 
   useEffect(() => {
     if (selectedThreadId && isAuthenticated) {
@@ -559,7 +553,7 @@ export default function CustomerDashboard() {
 
         timeoutId = window.setTimeout(() => {
           void pollTelegramLink();
-        }, 2500);
+        }, 5000);
       } catch (error) {
         if (cancelled) {
           return;
@@ -583,12 +577,30 @@ export default function CustomerDashboard() {
     };
   }, [isAuthenticated, linkToken, telegramLink?.linked]);
 
+  // Partition personas into default (system) and user personas
+  useEffect(() => {
+    const SYSTEM_PERSONA_USER_ID = "00000000-0000-0000-0000-000000000001";
+    const defaults = personas.filter(p => p.user_id === SYSTEM_PERSONA_USER_ID);
+    const users = personas.filter(p => p.user_id !== SYSTEM_PERSONA_USER_ID);
+    setDefaultPersonas(defaults);
+    setUserPersonas(users);
+  }, [personas]);
+
   async function loadWorkspace() {
     try {
       setPageError(null);
-      const workspace = await customerApiRequest<CustomerWorkspaceResponse>(
-        "/api/customer/workspace",
-      );
+
+      // Check cache first
+      let workspace = getWorkspaceCache() as CustomerWorkspaceResponse | null;
+
+      // If cache miss, fetch from API
+      if (!workspace) {
+        workspace = await customerApiRequest<CustomerWorkspaceResponse>(
+          "/api/customer/workspace",
+        );
+        // Cache the result
+        setWorkspaceCache(workspace);
+      }
 
       setBrandForm(workspace?.brand || EMPTY_BRAND);
       setAccounts(workspace?.social_accounts || []);
@@ -658,6 +670,7 @@ export default function CustomerDashboard() {
         }),
       });
       setBanner("Brand profile saved.");
+      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to save brand profile");
@@ -686,6 +699,7 @@ export default function CustomerDashboard() {
       await customerApiRequest(`/api/customer/social-accounts/${accountId}/disconnect`, {
         method: "POST",
       });
+      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to disconnect account");
@@ -732,6 +746,7 @@ export default function CustomerDashboard() {
       setMessages(payload.messages);
       setArtifacts(payload.artifacts);
       setComposer("");
+      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Assistant request failed");
@@ -772,6 +787,7 @@ export default function CustomerDashboard() {
         chatgptSubscriptionTier: current.chatgptSubscriptionTier,
       }));
       setBanner("AI backbone settings saved.");
+      clearWorkspaceCache();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to save AI backbone settings");
     } finally {
@@ -802,6 +818,7 @@ export default function CustomerDashboard() {
         ),
       );
       setBanner("GPT OAuth link connected for this customer.");
+      clearWorkspaceCache();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to link GPT OAuth");
     } finally {
@@ -829,6 +846,7 @@ export default function CustomerDashboard() {
         chatgptSubscriptionTier: current.chatgptSubscriptionTier,
       }));
       setBanner("GPT OAuth link disconnected.");
+      clearWorkspaceCache();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to disconnect GPT OAuth");
     } finally {
@@ -895,6 +913,7 @@ export default function CustomerDashboard() {
             : "Rejected from customer dashboard",
         }),
       });
+      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to update approval");
@@ -910,6 +929,7 @@ export default function CustomerDashboard() {
         method: "POST",
       });
       setBanner("Campaign launched into Temporal.");
+      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to launch campaign");
@@ -957,9 +977,8 @@ export default function CustomerDashboard() {
         approvals,
         content,
         systemWorkflows,
-        reviewJobs: reviewEngineJobs,
       }),
-    [campaigns, approvals, content, systemWorkflows, reviewEngineJobs],
+    [campaigns, approvals, content, systemWorkflows],
   );
 
   const quotaWarnings = useMemo(
@@ -971,12 +990,13 @@ export default function CustomerDashboard() {
   );
 
   const [quotaBannerDismissed, setQuotaBannerDismissed] = useState(false);
-  const dashboardTabParam = searchParams.get("dashboard_tab");
-  const reviewSourceUrl = searchParams.get("review_source_url") || "";
-  const reviewPersonaIds = (searchParams.get("review_personas") || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+
+  const navigateToTab = useCallback(
+    (tabId: DashboardTabId) => {
+      router.push(getDashboardTabHref(tabId));
+    },
+    [router],
+  );
 
   if (isLoading || !initialized) {
     return (
@@ -998,13 +1018,9 @@ export default function CustomerDashboard() {
           <DashboardSidebar
             tabs={DASHBOARD_TABS}
             activeTab={activeTab}
-            onTabChange={setActiveTab}
           />
           <main id="dashboard-main" className="flex-1 min-w-0 px-4 py-6 sm:px-6 md:px-10 md:py-8">
-            <div className="mx-auto max-w-7xl h-[60vh] flex flex-col items-center justify-center space-y-4">
-              <div className="animate-spin h-10 w-10 border-2 border-aura-primary border-t-transparent rounded-full" />
-              <p className="text-sm text-aura-outline font-body">Loading workspace…</p>
-            </div>
+            <DashboardLoadingSkeleton />
           </main>
         </div>
       </div>
@@ -1032,7 +1048,6 @@ export default function CustomerDashboard() {
         <DashboardSidebar
           tabs={DASHBOARD_TABS}
           activeTab={activeTab}
-          onTabChange={setActiveTab}
           telegramBotUrl={telegramBotUrl}
           isMobileOpen={isMobileMenuOpen}
           onMobileClose={() => setIsMobileMenuOpen(false)}
@@ -1096,25 +1111,9 @@ export default function CustomerDashboard() {
                 content={content}
                 personas={personas}
                 systemSummary={systemSummary}
-                onTabChange={setActiveTab}
+                onTabChange={navigateToTab}
                 activityItems={activityItems}
                 quotaWarnings={quotaWarnings}
-                reviewJobs={reviewEngineJobs}
-                onPublishJob={async (jobId) => {
-                  try {
-                    await customerApiRequest(`/api/customer/review-engine/jobs/${jobId}/publish`, {
-                      method: "POST",
-                      body: JSON.stringify({}),
-                    });
-                    setBanner("Publish started.");
-                    await loadReviewEngineData();
-                    await loadWorkspace();
-                  } catch (error) {
-                    setPageError(
-                      error instanceof Error ? error.message : "Failed to publish review",
-                    );
-                  }
-                }}
               />
             )}
 
@@ -1249,7 +1248,7 @@ export default function CustomerDashboard() {
                             </div>
                             <button
                               type="button"
-                              onClick={() => setActiveTab("memory")}
+                              onClick={() => navigateToTab("memory")}
                               className="text-[10px] min-h-[44px] font-bold px-4 py-2 bg-aura-error text-white rounded-lg hover:bg-aura-error/90 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap cursor-pointer"
                             >
                               Configure
@@ -1269,7 +1268,7 @@ export default function CustomerDashboard() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => setActiveTab("memory")}
+                      onClick={() => navigateToTab("memory")}
                       className="mt-6 w-full py-3 min-h-[44px] bg-aura-primary text-white rounded-xl text-sm font-body font-semibold hover:bg-aura-primary/90 transition-all active:scale-95 cursor-pointer"
                     >
                       Full Configuration
@@ -1422,7 +1421,7 @@ export default function CustomerDashboard() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setActiveTab("create_video")}
+                        onClick={() => navigateToTab("create_video")}
                         className="bg-aura-secondary-container text-aura-on-secondary-container min-h-[44px] px-6 md:px-7 py-3 md:py-3.5 rounded-full font-body font-bold hover:scale-105 active:scale-95 transition-all cursor-pointer"
                       >
                         Production Console
@@ -1624,13 +1623,10 @@ export default function CustomerDashboard() {
 
             {activeTab === "skills" && (
               <PersonasTab
-                personas={personas}
-                setup={reviewEngineSetup}
-                onNavigateToCreateVideo={() => setActiveTab("create_video")}
-                onPersonasChanged={async () => {
-                  await loadWorkspace();
-                  await loadReviewEngineData();
-                }}
+                defaultPersonas={defaultPersonas}
+                userPersonas={userPersonas}
+                telegramBotUrl={telegramBotUrl || undefined}
+                onNavigateToCreateVideo={() => navigateToTab("create_video")}
               />
             )}
 
@@ -1878,7 +1874,7 @@ export default function CustomerDashboard() {
                     {personas.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => setActiveTab("skills")}
+                        onClick={() => navigateToTab("skills")}
                         className="relative block w-full text-left group"
                       >
                         <div className="aspect-[4/5] rounded-2xl overflow-hidden shadow-aura-md transition-transform group-hover:scale-[1.02] duration-300 bg-aura-surface-container-high">
@@ -1926,14 +1922,8 @@ export default function CustomerDashboard() {
                 personas={personas}
                 setup={reviewEngineSetup}
                 jobs={reviewEngineJobs}
-                initialSourceUrl={reviewSourceUrl}
-                initialPersonaIds={reviewPersonaIds}
-                onRefresh={async () => {
-                  await loadReviewEngineData();
-                  await loadWorkspace();
-                }}
-                onNavigateToPersonas={() => setActiveTab("skills")}
-                onNavigateToPublishing={() => setActiveTab("publishing")}
+                onRefresh={fetchReviewEngineData}
+                onNavigateToPublishing={() => navigateToTab("publishing")}
               />
             )}
 
@@ -1975,35 +1965,13 @@ function buildActivityItems({
   approvals,
   content,
   systemWorkflows,
-  reviewJobs,
 }: {
   campaigns: Campaign[];
   approvals: Campaign[];
   content: ContentItem[];
   systemWorkflows: SystemWorkflowData[];
-  reviewJobs: ReviewEngineJob[];
 }): ActivityItem[] {
   const items: ActivityItem[] = [];
-
-  (reviewJobs || []).slice(0, 6).forEach((job) => {
-    items.push({
-      id: `review-job-${job.job_id}`,
-      title:
-        job.content?.title ||
-        job.page_title ||
-        job.persona?.display_name ||
-        "App review",
-      detail: `${getReviewJobStatusLabel(job)} • ${job.progress}% complete`,
-      tone: getReviewJobTone(job),
-      progress: job.progress,
-      personaImage: getReviewJobPersonaImage(job),
-      timeLabel: job.updated_at || job.started_at || "",
-    });
-  });
-
-  if (items.length >= 8) {
-    return items.slice(0, 8);
-  }
 
   (systemWorkflows || []).slice(0, 3).forEach((workflow) => {
     items.push({

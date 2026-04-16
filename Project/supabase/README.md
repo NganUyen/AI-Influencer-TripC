@@ -31,6 +31,7 @@ supabase/
     |-- 20260329_supabase_auth_user_sync.sql
     |-- 20260329_telegram_link_tokens_anonymous_auth.sql
     |-- 20260416_global_market_personas.sql
+    |-- 20260416_personas_generating_status.sql
     `-- latest.sql
 ```
 

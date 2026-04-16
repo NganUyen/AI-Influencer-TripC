@@ -241,7 +241,7 @@ CREATE TABLE public.personas (
   avatar_source_type text,
   avatar_prompt text,
   heygen_avatar_id text,
-  status text DEFAULT 'draft'::text CHECK (status = ANY (ARRAY['draft'::text, 'ready'::text, 'failed'::text, 'archived'::text])),
+  status text DEFAULT 'draft'::text CHECK (status = ANY (ARRAY['draft'::text, 'generating'::text, 'ready'::text, 'failed'::text, 'archived'::text])),
   video_count integer DEFAULT 0,
   tone_default text,
   market_default text,

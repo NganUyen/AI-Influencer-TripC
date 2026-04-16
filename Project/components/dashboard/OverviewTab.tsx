@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Edit2, Download, Send, RotateCcw } from "lucide-react";
+import type { DashboardTabId } from "@/lib/dashboard-tabs";
 
 interface OverviewTabProps {
   campaigns: any[];
@@ -9,7 +10,7 @@ interface OverviewTabProps {
   content: any[];
   personas: any[];
   systemSummary: any;
-  onTabChange: (tabId: any) => void;
+  onTabChange: (tabId: DashboardTabId) => void;
   activityItems: any[];
   quotaWarnings: any[];
 }
@@ -171,8 +172,8 @@ export function OverviewTab({
                 <span className="material-symbols-outlined text-6xl mb-4">video_library</span>
                 <p className="text-lg font-bold">No published content yet</p>
                 <p className="text-sm">Start your first production in the Video Engine</p>
-                <button 
-                  onClick={() => onTabChange("ops")}
+                 <button 
+                  onClick={() => onTabChange("create_video")}
                   className="mt-6 bg-primary text-on-primary px-8 py-3 rounded-full font-bold shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
                 >
                   Create New Video

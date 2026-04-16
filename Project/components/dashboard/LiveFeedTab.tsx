@@ -242,116 +242,65 @@ export function LiveFeedTab({ activityItems, systemWorkflows, content, personas,
       {/* Global Production Grid */}
       <div className="space-y-6 pb-2">
         <div className="hidden xl:grid xl:grid-cols-12 px-8 text-[11px] font-bold uppercase tracking-widest text-aura-on-surface-variant/70">
-          <div className="col-span-3 font-label">Country & Language</div>
-          <div className="col-span-3 font-label">Selected Persona</div>
-          <div className="col-span-2 text-center font-label">TikTok Status</div>
-          <div className="col-span-2 text-center font-label">Production</div>
+          <div className="col-span-3 font-label">Persona Name</div>
+          <div className="col-span-3 font-label">Language</div>
+          <div className="col-span-2 text-center font-label">Status</div>
+          <div className="col-span-2 text-center font-label">Videos</div>
           <div className="col-span-2 text-right font-label">Action</div>
         </div>
         
         <div className="space-y-4">
-          {/* US Row */}
-          <div className="dashboard-panel dashboard-card-interactive grid grid-cols-1 gap-4 p-5 group hover:shadow-aura-md sm:grid-cols-2 xl:grid-cols-12">
-            <div className="flex items-center gap-4 sm:col-span-1 xl:col-span-3">
-              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-aura-surface-container shrink-0">
-                <img alt="USA Flag" className="w-full h-full object-cover" src="https://flagcdn.com/w160/us.png" width={48} height={48} />
+          {personas && personas.length > 0 ? (
+            personas.map((persona: any) => (
+              <div key={persona.persona_id} className="dashboard-panel dashboard-card-interactive grid grid-cols-1 gap-4 p-5 group hover:shadow-aura-md sm:grid-cols-2 xl:grid-cols-12">
+                <div className="flex items-center gap-3 sm:col-span-1 xl:col-span-3">
+                  <div className="w-10 h-10 rounded-full overflow-hidden border border-aura-primary/20 shrink-0">
+                    <img alt={persona.display_name} className="w-full h-full object-cover" src={persona.avatar_image_url || "https://randomuser.me/api/portraits/lego/1.jpg"} width={40} height={40} />
+                  </div>
+                  <p className="text-sm font-bold text-aura-on-surface">{persona.display_name}</p>
+                </div>
+                <div className="flex items-center gap-3 sm:col-span-1 xl:col-span-3">
+                  <p className="text-sm text-aura-on-surface-variant">{persona.language || "Not specified"}</p>
+                </div>
+                <div className="flex justify-start sm:col-span-1 xl:col-span-2 xl:justify-center">
+                  <div className={cn(
+                    "flex items-center gap-2 px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
+                    persona.status === 'active' 
+                      ? "bg-emerald-50 text-emerald-600" 
+                      : persona.status === 'draft'
+                      ? "bg-amber-50 text-amber-600"
+                      : "bg-aura-surface-container text-aura-on-surface-variant/70"
+                  )}>
+                    <span className={cn(
+                      "w-2 h-2 rounded-full",
+                      persona.status === 'active' ? "bg-emerald-500" : persona.status === 'draft' ? "bg-amber-500" : "bg-aura-on-surface-variant/50"
+                    )}></span> 
+                    {persona.status || "Unknown"}
+                  </div>
+                </div>
+                <div className="flex flex-col items-start gap-2 sm:col-span-1 xl:col-span-2 xl:items-center">
+                  <span className="text-xs font-bold text-aura-on-surface">{persona.video_count || 0} videos</span>
+                </div>
+                <div className="sm:col-span-2 xl:col-span-2 xl:text-right">
+                  <button className={cn(
+                    "px-6 py-2.5 text-xs font-bold rounded-full transition-all",
+                    persona.status === 'active' 
+                      ? "btn-primary" 
+                      : "bg-aura-surface-container text-aura-on-surface-variant opacity-50 cursor-not-allowed"
+                  )}>
+                    {persona.status === 'active' ? 'Create' : 'Unavailable'}
+                  </button>
+                </div>
               </div>
-              <div>
-                <p className="font-bold text-aura-on-surface">United States</p>
-                <p className="text-xs text-aura-on-surface-variant font-medium">English (US)</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 sm:col-span-1 xl:col-span-3">
-              <div className="w-10 h-10 rounded-full overflow-hidden border border-aura-primary/20 shrink-0">
-                <img alt="Persona" className="w-full h-full object-cover" src="https://randomuser.me/api/portraits/women/44.jpg" width={40} height={40} />
-              </div>
-              <p className="text-sm font-bold text-aura-on-surface">Sarah J. <span className="text-xs font-semibold text-aura-primary block">Lifestyle Tech</span></p>
-            </div>
-            <div className="flex justify-start sm:col-span-1 xl:col-span-2 xl:justify-center">
-              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-bold uppercase tracking-wider">
-                <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Connected
-              </div>
-            </div>
-            <div className="flex flex-col items-start gap-2 sm:col-span-1 xl:col-span-2 xl:items-center">
-              <span className="text-xs font-bold text-aura-primary italic">Rendering</span>
-              <div className="w-28 h-2 bg-aura-surface-container rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-aura-primary to-aura-primary-container w-2/3 rounded-full"></div>
-              </div>
-            </div>
-            <div className="sm:col-span-2 xl:col-span-2 xl:text-right">
-              <button className="px-6 py-2.5 bg-aura-surface-container text-aura-on-surface-variant text-xs font-bold rounded-full opacity-50 cursor-not-allowed">Publish</button>
-            </div>
-          </div>
-
-          {/* Japan Row */}
-          <div className="dashboard-panel dashboard-card-interactive grid grid-cols-1 gap-4 p-5 group hover:shadow-aura-md sm:grid-cols-2 xl:grid-cols-12">
-            <div className="flex items-center gap-4 sm:col-span-1 xl:col-span-3">
-              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-aura-surface-container shrink-0">
-                <img alt="Japan Flag" className="w-full h-full object-cover" src="https://flagcdn.com/w160/jp.png" width={48} height={48} />
-              </div>
-              <div>
-                <p className="font-bold text-aura-on-surface">Japan</p>
-                <p className="text-xs text-aura-on-surface-variant font-medium">Japanese</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 sm:col-span-1 xl:col-span-3">
-              <div className="w-10 h-10 rounded-full overflow-hidden border border-aura-primary/20 shrink-0">
-                <img alt="Persona" className="w-full h-full object-cover" src="https://randomuser.me/api/portraits/men/32.jpg" width={40} height={40} />
-              </div>
-              <p className="text-sm font-bold text-aura-on-surface">Kenji T. <span className="text-xs font-semibold text-aura-primary block">App Reviewer</span></p>
-            </div>
-            <div className="flex justify-start sm:col-span-1 xl:col-span-2 xl:justify-center">
-              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-bold uppercase tracking-wider">
-                <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Connected
+            ))
+          ) : (
+            <div className="dashboard-panel-soft flex items-center justify-center border border-dashed border-aura-outline-variant/60 p-12 text-center">
+              <div className="flex flex-col items-center gap-3">
+                <p className="text-aura-on-surface-variant font-medium">No personas available</p>
+                <p className="text-sm text-aura-on-surface-variant/70">Create personas in the <span className="font-bold">Personas</span> tab to get started</p>
               </div>
             </div>
-            <div className="flex flex-col items-start gap-2 sm:col-span-1 xl:col-span-2 xl:items-center">
-              <span className="text-xs font-bold text-emerald-600">Ready</span>
-              <div className="w-28 h-2 bg-emerald-500 rounded-full"></div>
-            </div>
-            <div className="sm:col-span-2 xl:col-span-2 xl:text-right">
-              <button className="btn-primary btn-sm">Publish</button>
-            </div>
-          </div>
-
-          {/* Vietnam Row */}
-          <div className="dashboard-panel dashboard-card-interactive grid grid-cols-1 gap-4 p-5 group hover:shadow-aura-md sm:grid-cols-2 xl:grid-cols-12">
-            <div className="flex items-center gap-4 sm:col-span-1 xl:col-span-3">
-              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-aura-surface-container shrink-0">
-                <img alt="Vietnam Flag" className="w-full h-full object-cover" src="https://flagcdn.com/w160/vn.png" width={48} height={48} />
-              </div>
-              <div>
-                <p className="font-bold text-aura-on-surface">Vietnam</p>
-                <p className="text-xs text-aura-on-surface-variant font-medium">Vietnamese</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 sm:col-span-1 xl:col-span-3">
-              <div className="w-10 h-10 rounded-full overflow-hidden border border-aura-primary/20 shrink-0">
-                <img alt="Persona" className="w-full h-full object-cover" src="https://randomuser.me/api/portraits/women/68.jpg" width={40} height={40} />
-              </div>
-              <p className="text-sm font-bold text-aura-on-surface">Linh N. <span className="text-xs font-semibold text-aura-primary block">Digital Nomad</span></p>
-            </div>
-            <div className="flex justify-start sm:col-span-1 xl:col-span-2 xl:justify-center">
-              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-50 text-amber-600 text-[10px] font-bold uppercase tracking-wider">
-                <span className="w-2 h-2 rounded-full bg-amber-500"></span> Pending Auth
-              </div>
-            </div>
-            <div className="flex flex-col items-start gap-2 sm:col-span-1 xl:col-span-2 xl:items-center">
-              <span className="text-xs font-bold text-aura-on-surface-variant/40">Paused</span>
-              <div className="w-28 h-2 bg-aura-surface-container rounded-full"></div>
-            </div>
-            <div className="sm:col-span-2 xl:col-span-2 xl:text-right">
-              <button className="px-6 py-2.5 bg-aura-surface-container text-aura-on-surface-variant text-xs font-bold rounded-full opacity-50 cursor-not-allowed">Publish</button>
-            </div>
-          </div>
-
-          <div className="dashboard-panel-soft flex items-center justify-between border border-dashed border-aura-outline-variant/60 p-6">
-            <div className="flex items-center gap-3 text-aura-on-surface-variant">
-              <Info className="w-5 h-5 text-aura-primary/60" />
-              <p className="text-sm font-medium italic font-body">5 additional markets (Germany, France, South Korea, India, Mexico) configured and awaiting URL validation.</p>
-            </div>
-            <button className="text-aura-primary text-sm font-bold hover:underline transition-all underline-offset-4 font-body">View All Rows</button>
-          </div>
+          )}
         </div>
       </div>
 

@@ -23,7 +23,9 @@ import {
 import { SocialIcon } from "@/components/ui/SocialIcon";
 
 import { customerApiRequest } from "@/lib/customer-api";
+import { getDashboardTabHref, type DashboardTabId } from "@/lib/dashboard-tabs";
 import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
+import { getWorkspaceCache, setWorkspaceCache, clearWorkspaceCache } from "@/lib/workspace-cache";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
@@ -36,6 +38,7 @@ import { OverviewTab } from "./dashboard/OverviewTab";
 import { PersonasTab } from "./dashboard/PersonasTab";
 import { LiveFeedTab } from "./dashboard/LiveFeedTab";
 import { PublishingTab } from "./dashboard/PublishingTab";
+import { DashboardLoadingSkeleton } from "./dashboard/skeletons/DashboardLoadingSkeleton";
 
 
 export type BrandProfile = {
@@ -206,8 +209,6 @@ type CustomerWorkspaceResponse = {
   };
 };
 
-export type DashboardTabId = "overview" | "ops" | "skills" | "memory" | "create_video" | "publishing";
-
 export type DashboardTab = {
   id: DashboardTabId;
   label: string;
@@ -311,12 +312,24 @@ function buildAiBackboneForm(
   };
 }
 
-export default function CustomerDashboard() {
+type CustomerDashboardProps = {
+  activeTab: DashboardTabId;
+};
+
+export default function CustomerDashboard({ activeTab }: CustomerDashboardProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, isAuthenticated, initialized, isLoading, logout, initialize } = useCustomerAuthStore();
+  const { user, isAuthenticated, initialized, isLoading, logout, initialize } = useCustomerAuthStore(
+    (state) => ({
+      user: state.user,
+      isAuthenticated: state.isAuthenticated,
+      initialized: state.initialized,
+      isLoading: state.isLoading,
+      logout: state.logout,
+      initialize: state.initialize,
+    }),
+  );
 
-  const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [systemSummary, setSystemSummary] = useState<SystemSummaryData | null>(null);
   const [systemWorkflows, setSystemWorkflows] = useState<SystemWorkflowData[]>([]);
@@ -503,7 +516,7 @@ export default function CustomerDashboard() {
 
         timeoutId = window.setTimeout(() => {
           void pollTelegramLink();
-        }, 2500);
+        }, 5000);
       } catch (error) {
         if (cancelled) {
           return;
@@ -539,9 +552,18 @@ export default function CustomerDashboard() {
   async function loadWorkspace() {
     try {
       setPageError(null);
-      const workspace = await customerApiRequest<CustomerWorkspaceResponse>(
-        "/api/customer/workspace",
-      );
+
+      // Check cache first
+      let workspace = getWorkspaceCache() as CustomerWorkspaceResponse | null;
+
+      // If cache miss, fetch from API
+      if (!workspace) {
+        workspace = await customerApiRequest<CustomerWorkspaceResponse>(
+          "/api/customer/workspace",
+        );
+        // Cache the result
+        setWorkspaceCache(workspace);
+      }
 
       setBrandForm(workspace?.brand || EMPTY_BRAND);
       setAccounts(workspace?.social_accounts || []);
@@ -611,6 +633,7 @@ export default function CustomerDashboard() {
         }),
       });
       setBanner("Brand profile saved.");
+      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to save brand profile");
@@ -639,6 +662,7 @@ export default function CustomerDashboard() {
       await customerApiRequest(`/api/customer/social-accounts/${accountId}/disconnect`, {
         method: "POST",
       });
+      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to disconnect account");
@@ -685,6 +709,7 @@ export default function CustomerDashboard() {
       setMessages(payload.messages);
       setArtifacts(payload.artifacts);
       setComposer("");
+      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Assistant request failed");
@@ -725,6 +750,7 @@ export default function CustomerDashboard() {
         chatgptSubscriptionTier: current.chatgptSubscriptionTier,
       }));
       setBanner("AI backbone settings saved.");
+      clearWorkspaceCache();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to save AI backbone settings");
     } finally {
@@ -755,6 +781,7 @@ export default function CustomerDashboard() {
         ),
       );
       setBanner("GPT OAuth link connected for this customer.");
+      clearWorkspaceCache();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to link GPT OAuth");
     } finally {
@@ -782,6 +809,7 @@ export default function CustomerDashboard() {
         chatgptSubscriptionTier: current.chatgptSubscriptionTier,
       }));
       setBanner("GPT OAuth link disconnected.");
+      clearWorkspaceCache();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to disconnect GPT OAuth");
     } finally {
@@ -848,6 +876,7 @@ export default function CustomerDashboard() {
             : "Rejected from customer dashboard",
         }),
       });
+      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to update approval");
@@ -863,6 +892,7 @@ export default function CustomerDashboard() {
         method: "POST",
       });
       setBanner("Campaign launched into Temporal.");
+      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to launch campaign");
@@ -924,6 +954,13 @@ export default function CustomerDashboard() {
 
   const [quotaBannerDismissed, setQuotaBannerDismissed] = useState(false);
 
+  const navigateToTab = useCallback(
+    (tabId: DashboardTabId) => {
+      router.push(getDashboardTabHref(tabId));
+    },
+    [router],
+  );
+
   if (isLoading || !initialized) {
     return (
       <div className="dashboard-shell min-h-screen bg-aura-surface">
@@ -944,13 +981,9 @@ export default function CustomerDashboard() {
           <DashboardSidebar
             tabs={DASHBOARD_TABS}
             activeTab={activeTab}
-            onTabChange={setActiveTab}
           />
           <main id="dashboard-main" className="flex-1 min-w-0 px-4 py-6 sm:px-6 md:px-10 md:py-8">
-            <div className="mx-auto max-w-7xl h-[60vh] flex flex-col items-center justify-center space-y-4">
-              <div className="animate-spin h-10 w-10 border-2 border-aura-primary border-t-transparent rounded-full" />
-              <p className="text-sm text-aura-outline font-body">Loading workspace…</p>
-            </div>
+            <DashboardLoadingSkeleton />
           </main>
         </div>
       </div>
@@ -978,7 +1011,6 @@ export default function CustomerDashboard() {
         <DashboardSidebar
           tabs={DASHBOARD_TABS}
           activeTab={activeTab}
-          onTabChange={setActiveTab}
           telegramBotUrl={telegramBotUrl}
           isMobileOpen={isMobileMenuOpen}
           onMobileClose={() => setIsMobileMenuOpen(false)}
@@ -1042,7 +1074,7 @@ export default function CustomerDashboard() {
                 content={content}
                 personas={personas}
                 systemSummary={systemSummary}
-                onTabChange={setActiveTab}
+                onTabChange={navigateToTab}
                 activityItems={activityItems}
                 quotaWarnings={quotaWarnings}
               />
@@ -1179,7 +1211,7 @@ export default function CustomerDashboard() {
                             </div>
                             <button
                               type="button"
-                              onClick={() => setActiveTab("memory")}
+                              onClick={() => navigateToTab("memory")}
                               className="text-[10px] min-h-[44px] font-bold px-4 py-2 bg-aura-error text-white rounded-lg hover:bg-aura-error/90 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap cursor-pointer"
                             >
                               Configure
@@ -1199,7 +1231,7 @@ export default function CustomerDashboard() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => setActiveTab("memory")}
+                      onClick={() => navigateToTab("memory")}
                       className="mt-6 w-full py-3 min-h-[44px] bg-aura-primary text-white rounded-xl text-sm font-body font-semibold hover:bg-aura-primary/90 transition-all active:scale-95 cursor-pointer"
                     >
                       Full Configuration
@@ -1352,7 +1384,7 @@ export default function CustomerDashboard() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setActiveTab("create_video")}
+                        onClick={() => navigateToTab("create_video")}
                         className="bg-aura-secondary-container text-aura-on-secondary-container min-h-[44px] px-6 md:px-7 py-3 md:py-3.5 rounded-full font-body font-bold hover:scale-105 active:scale-95 transition-all cursor-pointer"
                       >
                         Production Console
@@ -1557,7 +1589,7 @@ export default function CustomerDashboard() {
                 defaultPersonas={defaultPersonas}
                 userPersonas={userPersonas}
                 telegramBotUrl={telegramBotUrl || undefined}
-                onNavigateToCreateVideo={() => setActiveTab("create_video")}
+                onNavigateToCreateVideo={() => navigateToTab("create_video")}
               />
             )}
 
@@ -1805,7 +1837,7 @@ export default function CustomerDashboard() {
                     {personas.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => setActiveTab("skills")}
+                        onClick={() => navigateToTab("skills")}
                         className="relative block w-full text-left group"
                       >
                         <div className="aspect-[4/5] rounded-2xl overflow-hidden shadow-aura-md transition-transform group-hover:scale-[1.02] duration-300 bg-aura-surface-container-high">
@@ -1851,7 +1883,7 @@ export default function CustomerDashboard() {
                 systemWorkflows={systemWorkflows}
                 content={content}
                 personas={personas}
-                onNavigateToPublishing={() => setActiveTab("publishing")}
+                onNavigateToPublishing={() => navigateToTab("publishing")}
               />
             )}
 

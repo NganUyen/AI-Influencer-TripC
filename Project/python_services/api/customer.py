@@ -808,7 +808,7 @@ async def create_review_engine_job(
         
         results = []
         for persona_id in payload.target_personas:
-            persona = await PersonaRegistryService.get_persona(persona_id, session.user_id)
+            persona = await PersonaRegistryService.get_persona(persona_id, user_id=session.user_id)
             if not persona:
                 continue
                 

@@ -1,0 +1,1177 @@
+/* ==========================================================================
+   create-video.css
+   Styles for the Create Video tab — Step 1, 2, 3 and shared sub-components.
+   Uses project design tokens from globals.css and Tailwind utilities.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Keyframes (injected once here, referenced from components via className)
+   -------------------------------------------------------------------------- */
+
+@keyframes cv-spin {
+  to { transform: translateY(-50%) rotate(360deg); }
+}
+
+@keyframes cv-pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(160, 57, 41, 0.2); }
+  50%       { box-shadow: 0 0 0 6px rgba(160, 57, 41, 0.08); }
+}
+
+@keyframes cv-skeleton {
+  0%   { opacity: 0.5; }
+  50%  { opacity: 1; }
+  100% { opacity: 0.5; }
+}
+
+/* --------------------------------------------------------------------------
+   Step Indicator
+   -------------------------------------------------------------------------- */
+
+.cv-step-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 0 1.5rem;
+  border-bottom: 1px solid rgb(174 173 169 / 0.16);
+  margin-bottom: 0;
+}
+
+.cv-step-item {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.cv-step-item:last-child {
+  flex: 0;
+}
+
+.cv-step-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.cv-step-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  border: 2px solid rgb(174 173 169 / 0.3);
+  background: transparent;
+  color: rgb(92 92 88 / 0.5);
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.cv-step-circle--active {
+  border-color: #a03929;
+  background: #a03929;
+  color: #ffefed;
+}
+
+.cv-step-circle--done {
+  border-color: #00684f;
+  background: rgb(0 104 79 / 0.1);
+  color: #00684f;
+}
+
+.cv-step-label {
+  font-size: 11px;
+  font-weight: 400;
+  color: rgb(92 92 88 / 0.45);
+  white-space: nowrap;
+  transition: color 0.2s ease;
+}
+
+.cv-step-label--active {
+  font-weight: 700;
+  color: #2e2f2c;
+}
+
+.cv-step-label--done {
+  color: #00684f;
+}
+
+.cv-step-connector {
+  flex: 1;
+  height: 2px;
+  margin-bottom: 18px;
+  margin-left: 8px;
+  margin-right: 8px;
+  background: rgb(174 173 169 / 0.2);
+  transition: background 0.3s ease;
+}
+
+.cv-step-connector--done {
+  background: #00684f;
+}
+
+/* --------------------------------------------------------------------------
+   Setup Step — Layout grid
+   -------------------------------------------------------------------------- */
+
+.cv-setup-grid {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 32px;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .cv-setup-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Field Group
+   -------------------------------------------------------------------------- */
+
+.cv-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cv-field-form {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.cv-field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #5c5c58;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cv-field-label--toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #5c5c58;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  min-height: 44px;
+}
+
+.cv-required-star {
+  color: #b41340;
+  font-size: 12px;
+}
+
+.cv-field-optional {
+  font-size: 11px;
+  opacity: 0.5;
+  font-weight: 400;
+}
+
+.cv-brief-chevron {
+  display: inline-block;
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+
+.cv-brief-chevron--open {
+  transform: rotate(180deg);
+}
+
+/* --------------------------------------------------------------------------
+   Input / Textarea
+   -------------------------------------------------------------------------- */
+
+.cv-input {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgb(174 173 169 / 0.22);
+  background: var(--surface-card-muted);
+  color: #2e2f2c;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.5;
+  outline: none;
+  box-sizing: border-box;
+  min-height: 44px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cv-input::placeholder {
+  color: rgb(92 92 88 / 0.5);
+}
+
+.cv-input:focus {
+  border-color: rgb(160 57 41 / 0.35);
+  box-shadow: 0 0 0 3px rgb(160 57 41 / 0.1);
+  background: var(--surface-card);
+}
+
+.cv-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.cv-input-wrap {
+  position: relative;
+}
+
+/* --------------------------------------------------------------------------
+   Validation feedback
+   -------------------------------------------------------------------------- */
+
+.cv-validation-msg {
+  font-size: 12px;
+  margin: 4px 0 0;
+  line-height: 1.5;
+}
+
+.cv-validation-msg--valid {
+  color: #00684f;
+}
+
+.cv-validation-msg--invalid {
+  color: #b41340;
+}
+
+.cv-validation-msg--loading {
+  color: #5c5c58;
+}
+
+.cv-spinner {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgb(174 173 169 / 0.3);
+  border-top-color: #777773;
+  border-radius: 50%;
+  animation: cv-spin 0.6s linear infinite;
+  display: inline-block;
+}
+
+/* Character counter */
+.cv-char-count {
+  position: absolute;
+  bottom: 8px;
+  right: 10px;
+  font-size: 11px;
+  color: rgb(92 92 88 / 0.4);
+  pointer-events: none;
+  font-family: inherit;
+}
+
+.cv-char-count--warn {
+  color: #705900;
+}
+
+/* --------------------------------------------------------------------------
+   Persona Multi-select
+   -------------------------------------------------------------------------- */
+
+.cv-persona-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cv-persona-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgb(174 173 169 / 0.2);
+  background: var(--surface-card-muted);
+  cursor: pointer;
+  text-align: left;
+  min-height: 44px;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  font-family: inherit;
+}
+
+.cv-persona-option:hover {
+  border-color: rgb(160 57 41 / 0.2);
+  background: var(--surface-card);
+}
+
+.cv-persona-option--selected {
+  border: 2px solid #a03929;
+  background: rgb(160 57 41 / 0.06);
+}
+
+.cv-persona-option--selected:hover {
+  border-color: #a03929;
+  background: rgb(160 57 41 / 0.08);
+}
+
+.cv-persona-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.cv-persona-avatar-fallback {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface-card-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #5c5c58;
+  flex-shrink: 0;
+  border: 1px solid rgb(174 173 169 / 0.2);
+}
+
+.cv-persona-name {
+  font-size: 13px;
+  font-weight: 400;
+  color: #2e2f2c;
+  flex: 1;
+}
+
+.cv-persona-name--selected {
+  font-weight: 600;
+}
+
+.cv-persona-check {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #a03929;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #ffefed;
+}
+
+.cv-empty-box {
+  padding: 24px;
+  border-radius: var(--radius-card);
+  border: 1px dashed rgb(174 173 169 / 0.35);
+  text-align: center;
+  color: #777773;
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--surface-card-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Mode Cards
+   -------------------------------------------------------------------------- */
+
+.cv-mode-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .cv-mode-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cv-mode-card {
+  text-align: left;
+  padding: 16px;
+  border-radius: var(--radius-card);
+  border: 1.5px solid rgb(174 173 169 / 0.2);
+  background: var(--surface-card-muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: inherit;
+}
+
+.cv-mode-card:hover:not(:disabled) {
+  border-color: rgb(160 57 41 / 0.25);
+  background: var(--surface-card);
+}
+
+.cv-mode-card--selected {
+  border: 2px solid #a03929;
+  background: rgb(160 57 41 / 0.05);
+  box-shadow: 0 4px 16px rgba(160, 57, 41, 0.1);
+}
+
+.cv-mode-card--selected:hover {
+  border-color: #a03929;
+}
+
+.cv-mode-card--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.cv-mode-badge {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.cv-mode-badge--ready {
+  background: rgb(0 104 79 / 0.1);
+  color: #00684f;
+}
+
+.cv-mode-badge--coming {
+  background: rgb(112 89 0 / 0.1);
+  color: #705900;
+}
+
+.cv-mode-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2e2f2c;
+  line-height: 1.3;
+}
+
+.cv-mode-desc {
+  font-size: 12px;
+  color: #5c5c58;
+  line-height: 1.5;
+}
+
+.cv-mode-note {
+  font-size: 11px;
+  color: #777773;
+  line-height: 1.5;
+  margin-top: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   Summary Panel
+   -------------------------------------------------------------------------- */
+
+.cv-summary-panel {
+  background: var(--surface-card);
+  border: 1px solid rgb(174 173 169 / 0.18);
+  border-radius: var(--radius-panel);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  position: sticky;
+  top: 24px;
+  box-shadow: 0 8px 24px rgba(46, 47, 44, 0.06);
+}
+
+.cv-summary-heading {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #777773;
+  margin: 0;
+}
+
+.cv-summary-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cv-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.cv-summary-label {
+  font-size: 12px;
+  color: #777773;
+  flex-shrink: 0;
+  min-width: 72px;
+}
+
+.cv-summary-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: #2e2f2c;
+  text-align: right;
+  word-break: break-all;
+}
+
+.cv-summary-value--valid {
+  color: #00684f;
+}
+
+.cv-summary-value--invalid {
+  color: #b41340;
+}
+
+.cv-summary-value--loading {
+  color: #705900;
+}
+
+.cv-summary-value--empty {
+  color: #aeada9;
+  font-weight: 400;
+}
+
+.cv-summary-divider {
+  border: none;
+  border-top: 1px solid rgb(174 173 169 / 0.16);
+  margin: 0;
+}
+
+.cv-summary-hint {
+  font-size: 12px;
+  color: #777773;
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* --------------------------------------------------------------------------
+   CTA Buttons (Create Video specific)
+   -------------------------------------------------------------------------- */
+
+.cv-cta-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cv-cta-disabled-reason {
+  font-size: 12px;
+  color: #777773;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.cv-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 9999px;
+  border: 1.5px solid rgb(119 119 115 / 0.28);
+  background: transparent;
+  color: #5c5c58;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+
+.cv-back-btn:hover {
+  background: var(--surface-card-muted);
+  border-color: rgb(119 119 115 / 0.45);
+}
+
+.cv-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 9999px;
+  border: 1.5px solid rgb(174 173 169 / 0.28);
+  background: transparent;
+  color: #5c5c58;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  font-family: inherit;
+}
+
+.cv-action-btn:hover:not(:disabled) {
+  background: var(--surface-card-muted);
+}
+
+.cv-action-btn--approve {
+  color: #00684f;
+  border-color: rgb(0 104 79 / 0.25);
+}
+
+.cv-action-btn--approve:hover:not(:disabled) {
+  background: rgb(0 104 79 / 0.07);
+  border-color: rgb(0 104 79 / 0.4);
+}
+
+.cv-action-btn--approve--done {
+  background: rgb(0 104 79 / 0.08);
+  color: #00684f;
+  border-color: transparent;
+  cursor: default;
+}
+
+.cv-action-btn--reject {
+  color: #b41340;
+  border-color: rgb(180 19 64 / 0.2);
+}
+
+.cv-action-btn--reject:hover:not(:disabled) {
+  background: rgb(180 19 64 / 0.06);
+}
+
+.cv-action-btn--reject--done {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+   Step header row (Back + heading)
+   -------------------------------------------------------------------------- */
+
+.cv-step-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.cv-step-heading {
+  font-size: 18px;
+  font-weight: 800;
+  color: #2e2f2c;
+  margin: 0 0 4px;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+.cv-step-sub {
+  font-size: 13px;
+  color: #777773;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* --------------------------------------------------------------------------
+   Plan Cards (Step 2)
+   -------------------------------------------------------------------------- */
+
+.cv-plan-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.cv-plan-card {
+  border-radius: var(--radius-panel);
+  border: 1px solid rgb(174 173 169 / 0.18);
+  background: var(--surface-card);
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(46, 47, 44, 0.06);
+  transition: opacity 0.2s ease, border-color 0.2s ease;
+}
+
+.cv-plan-card--approved {
+  border-color: rgb(0 104 79 / 0.3);
+}
+
+.cv-plan-card--rejected {
+  border-color: rgb(174 173 169 / 0.12);
+  opacity: 0.65;
+}
+
+.cv-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgb(174 173 169 / 0.12);
+  background: var(--surface-card-muted);
+}
+
+.cv-card-persona-name {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 700;
+  color: #2e2f2c;
+}
+
+.cv-card-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cv-card-rejected-hint {
+  padding: 12px 20px;
+  font-size: 12px;
+  color: #777773;
+}
+
+.cv-card-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #aeada9;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0 0 8px;
+}
+
+.cv-script-text {
+  font-size: 13px;
+  color: #2e2f2c;
+  line-height: 1.7;
+  margin: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.cv-script-text--expanded {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+
+.cv-script-toggle {
+  background: none;
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #a03929;
+  display: block;
+  margin-top: 4px;
+  font-family: inherit;
+}
+
+.cv-script-toggle:hover {
+  text-decoration: underline;
+}
+
+.cv-scene-list {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cv-scene-item {
+  font-size: 13px;
+  color: #2e2f2c;
+  line-height: 1.5;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cv-scene-duration {
+  color: #aeada9;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.cv-card-action-row {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid rgb(174 173 169 / 0.12);
+  justify-content: flex-end;
+  background: var(--surface-card-muted);
+}
+
+/* Inline edit textarea */
+.cv-edit-textarea {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  border: 1.5px solid #a03929;
+  background: var(--surface-card);
+  color: #2e2f2c;
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.6;
+  box-sizing: border-box;
+  resize: vertical;
+  outline: none;
+  min-height: 96px;
+}
+
+.cv-edit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* --------------------------------------------------------------------------
+   Status Badges
+   -------------------------------------------------------------------------- */
+
+.cv-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.cv-badge--loading  { background: var(--surface-card-muted); color: #aeada9; }
+.cv-badge--demo     { background: rgb(112 89 0 / 0.1); color: #705900; }
+.cv-badge--ready    { background: rgb(160 57 41 / 0.1); color: #a03929; }
+.cv-badge--approved { background: rgb(0 104 79 / 0.1); color: #00684f; }
+.cv-badge--rejected { background: rgb(180 19 64 / 0.08); color: #b41340; }
+.cv-badge--pending  { background: var(--surface-card-muted); color: #aeada9; }
+
+/* Render status badges */
+.cv-badge--queued        { background: var(--surface-card-muted); color: #aeada9; }
+.cv-badge--in_progress   { background: rgb(160 57 41 / 0.08); color: #a03929; }
+.cv-badge--completed     { background: rgb(0 104 79 / 0.1); color: #00684f; }
+.cv-badge--failed        { background: rgb(180 19 64 / 0.08); color: #b41340; }
+.cv-badge--pending_backend { background: rgb(112 89 0 / 0.1); color: #705900; }
+
+/* --------------------------------------------------------------------------
+   Continue CTA bar
+   -------------------------------------------------------------------------- */
+
+.cv-continue-bar {
+  padding-top: 8px;
+  border-top: 1px solid rgb(174 173 169 / 0.14);
+}
+
+/* --------------------------------------------------------------------------
+   Empty state
+   -------------------------------------------------------------------------- */
+
+.cv-empty-state {
+  padding: 48px 24px;
+  text-align: center;
+  border-radius: var(--radius-panel);
+  border: 1px dashed rgb(174 173 169 / 0.3);
+  background: var(--surface-card-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.cv-empty-state p {
+  font-size: 14px;
+  color: #777773;
+  margin: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Render Step — Progress cards
+   -------------------------------------------------------------------------- */
+
+.cv-render-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.cv-progress-card {
+  border-radius: var(--radius-panel);
+  border: 1px solid rgb(174 173 169 / 0.18);
+  background: var(--surface-card);
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(46, 47, 44, 0.06);
+}
+
+.cv-progress-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Progress bar */
+.cv-progress-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--surface-card-muted);
+  overflow: hidden;
+  border: 1px solid rgb(174 173 169 / 0.14);
+}
+
+.cv-progress-fill {
+  height: 100%;
+  border-radius: 9999px;
+  background: #a03929;
+  transition: width 0.6s ease;
+}
+
+.cv-progress-fill--done {
+  background: #00684f;
+}
+
+/* Timeline */
+.cv-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cv-timeline-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.cv-timeline-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.cv-timeline-dot--done {
+  background: #00684f;
+}
+
+.cv-timeline-dot--active {
+  background: #a03929;
+  box-shadow: 0 0 0 3px rgba(160, 57, 41, 0.2);
+  animation: cv-pulse-dot 1.2s ease-in-out infinite;
+}
+
+.cv-timeline-dot--pending {
+  background: transparent;
+  border: 2px solid rgb(174 173 169 / 0.35);
+}
+
+.cv-timeline-content {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cv-timeline-label {
+  font-size: 13px;
+  color: #aeada9;
+}
+
+.cv-timeline-label--done {
+  color: #5c5c58;
+}
+
+.cv-timeline-label--active {
+  color: #2e2f2c;
+  font-weight: 500;
+}
+
+.cv-timeline-time {
+  font-size: 11px;
+  color: #aeada9;
+  flex-shrink: 0;
+}
+
+/* Output preview */
+.cv-output-preview-img {
+  width: 100%;
+  max-height: 200px;
+  object-fit: cover;
+  border-radius: var(--radius-card);
+}
+
+.cv-output-placeholder {
+  padding: 20px;
+  border-radius: var(--radius-card);
+  border: 1px dashed rgb(174 173 169 / 0.3);
+  text-align: center;
+  font-size: 13px;
+  color: #aeada9;
+  background: var(--surface-card-muted);
+}
+
+/* Final state ready banner */
+.cv-ready-banner {
+  padding: 12px 16px;
+  border-radius: var(--radius-card);
+  background: rgb(160 57 41 / 0.05);
+  border: 1px solid rgb(160 57 41 / 0.14);
+  font-size: 13px;
+  color: #5c5c58;
+  line-height: 1.5;
+}
+
+.cv-ready-banner strong {
+  color: #a03929;
+  margin-right: 4px;
+}
+
+/* --------------------------------------------------------------------------
+   Persona avatar (shared)
+   -------------------------------------------------------------------------- */
+
+.cv-avatar {
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.cv-avatar-fallback {
+  border-radius: 50%;
+  background: var(--surface-card-muted);
+  border: 1px solid rgb(174 173 169 / 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #5c5c58;
+  flex-shrink: 0;
+}
+
+/* --------------------------------------------------------------------------
+   TikTok Channel Card
+   -------------------------------------------------------------------------- */
+
+.cv-tiktok-card {
+  border-radius: var(--radius-panel);
+  border: 1px solid rgb(174 173 169 / 0.18);
+  background: var(--surface-card);
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(46, 47, 44, 0.06);
+}
+
+.cv-tiktok-card-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid rgb(174 173 169 / 0.12);
+  background: var(--surface-card-muted);
+}
+
+.cv-tiktok-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #2e2f2c;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+.cv-tiktok-demo-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 20px;
+  background: rgb(112 89 0 / 0.07);
+  border-bottom: 1px solid rgb(112 89 0 / 0.12);
+}
+
+.cv-tiktok-demo-banner p {
+  flex: 1;
+  font-size: 12px;
+  color: #5c5c58;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.cv-tiktok-dismiss-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #777773;
+  font-size: 14px;
+  padding: 0 4px;
+  flex-shrink: 0;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+}
+
+.cv-tiktok-info-rows {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cv-tiktok-info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 24px;
+}
+
+.cv-tiktok-info-label {
+  font-size: 12px;
+  color: #777773;
+  flex-shrink: 0;
+  min-width: 96px;
+}
+
+.cv-tiktok-info-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2e2f2c;
+  text-align: right;
+}
+
+.cv-tiktok-info-value--empty {
+  color: #aeada9;
+  font-weight: 400;
+}
+
+.cv-tiktok-card-footer {
+  padding: 12px 20px;
+  border-top: 1px solid rgb(174 173 169 / 0.12);
+  background: var(--surface-card-muted);
+}
+
+/* Status pill variants */
+.cv-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.cv-pill--active      { background: rgb(0 104 79 / 0.1); color: #00684f; }
+.cv-pill--inactive    { background: var(--surface-card-muted); color: #aeada9; border: 1px solid rgb(174 173 169 / 0.2); }
+.cv-pill--connected   { background: rgb(112 89 0 / 0.1); color: #705900; }
+.cv-pill--not-conn    { background: var(--surface-card-muted); color: #aeada9; border: 1px solid rgb(174 173 169 / 0.2); }
+.cv-pill--needs-recon { background: rgb(180 19 64 / 0.08); color: #b41340; }
+
+/* --------------------------------------------------------------------------
+   Skeleton loader
+   -------------------------------------------------------------------------- */
+
+.cv-skeleton {
+  border-radius: 6px;
+  background: var(--surface-card-muted);
+  animation: cv-skeleton 1.5s ease-in-out infinite;
+}

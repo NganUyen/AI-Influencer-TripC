@@ -1,5 +1,6 @@
 'use client';
 
+import '@/app/create-video.css';
 import { useCallback, useRef, useState } from 'react';
 import type { CreateVideoSetupState, VideoCreationMode } from '@/types/video-planning';
 import type { Persona } from '@/components/customer-dashboard';
@@ -52,7 +53,6 @@ export function CreateVideoSetupStep({
       return;
     }
 
-    // Cancel any in-flight validation
     validationAbortRef.current?.abort();
     const controller = new AbortController();
     validationAbortRef.current = controller;
@@ -62,10 +62,7 @@ export function CreateVideoSetupStep({
     try {
       const result = await customerApiRequest<{ valid: boolean; message?: string; domain?: string }>(
         '/api/customer/review-engine/source/validate',
-        {
-          method: 'POST',
-          body: JSON.stringify({ url }),
-        },
+        { method: 'POST', body: JSON.stringify({ url }) },
       );
 
       if (controller.signal.aborted) return;
@@ -89,7 +86,7 @@ export function CreateVideoSetupStep({
   }, [sourceUrl, onChange]);
 
   // -------------------------------------------------------------------------
-  // Persona selection
+  // Persona selection toggle
   // -------------------------------------------------------------------------
 
   const togglePersona = (id: string) => {
@@ -103,421 +100,187 @@ export function CreateVideoSetupStep({
   // Continue guard
   // -------------------------------------------------------------------------
 
-  const canContinue =
-    urlValidationStatus === 'valid' && selectedPersonaIds.length > 0;
+  const canContinue = urlValidationStatus === 'valid' && selectedPersonaIds.length > 0;
 
-  const getDisabledReason = () => {
-    if (urlValidationStatus !== 'valid' && selectedPersonaIds.length === 0) {
+  const disabledReason = (() => {
+    if (urlValidationStatus !== 'valid' && selectedPersonaIds.length === 0)
       return 'Enter a valid source URL and select at least one persona to continue.';
-    }
-    if (urlValidationStatus !== 'valid') {
+    if (urlValidationStatus !== 'valid')
       return 'Enter a valid source URL to continue.';
-    }
-    if (selectedPersonaIds.length === 0) {
+    if (selectedPersonaIds.length === 0)
       return 'Select at least one persona to continue.';
-    }
     return null;
-  };
-
-  const disabledReason = getDisabledReason();
+  })();
 
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
 
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 320px',
-        gap: '32px',
-        alignItems: 'start',
-      }}
-      className="create-video-setup-grid"
-    >
-      {/* ------------------------------------------------------------------ */}
-      {/* LEFT — Form                                                          */}
-      {/* ------------------------------------------------------------------ */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+    <>
+      {/* Keyframes live in create-video.css */}
+      <div className="cv-setup-grid">
+        {/* ---------------------------------------------------------------- */}
+        {/* LEFT — Form                                                       */}
+        {/* ---------------------------------------------------------------- */}
+        <div className="cv-field-form">
 
-        {/* Source URL */}
-        <FieldGroup label="Source URL" required>
-          <div style={{ position: 'relative' }}>
-            <input
-              type="url"
-              id="cv-source-url"
-              placeholder="https://example.com/product"
-              value={sourceUrl}
-              onChange={(e) => onChange({ sourceUrl: e.target.value, urlValidationStatus: 'idle', urlValidationMessage: undefined })}
-              onBlur={handleUrlBlur}
-              style={inputStyle}
-            />
+          {/* Source URL */}
+          <div className="cv-field-group">
+            <label htmlFor="cv-source-url" className="cv-field-label">
+              Source URL <span className="cv-required-star">*</span>
+            </label>
+            <div className="cv-input-wrap">
+              <input
+                id="cv-source-url"
+                type="url"
+                placeholder="https://example.com/product"
+                value={sourceUrl}
+                onChange={(e) =>
+                  onChange({ sourceUrl: e.target.value, urlValidationStatus: 'idle', urlValidationMessage: undefined })
+                }
+                onBlur={handleUrlBlur}
+                className="cv-input"
+              />
+              {urlValidationStatus === 'validating' && (
+                <span className="cv-spinner" aria-label="Validating" />
+              )}
+            </div>
+            {urlValidationStatus === 'valid' && urlValidationMessage && (
+              <p className="cv-validation-msg cv-validation-msg--valid">✓ {urlValidationMessage}</p>
+            )}
+            {urlValidationStatus === 'invalid' && urlValidationMessage && (
+              <p className="cv-validation-msg cv-validation-msg--invalid">✗ {urlValidationMessage}</p>
+            )}
             {urlValidationStatus === 'validating' && (
-              <span style={inlineSpinnerStyle} aria-label="Validating" />
+              <p className="cv-validation-msg cv-validation-msg--loading">Validating source...</p>
             )}
           </div>
 
-          {/* Inline validation feedback */}
-          {urlValidationStatus === 'valid' && urlValidationMessage && (
-            <p style={{ ...validationMsgStyle, color: 'var(--color-success, #86efac)' }}>
-              ✓ {urlValidationMessage}
-            </p>
-          )}
-          {urlValidationStatus === 'invalid' && urlValidationMessage && (
-            <p style={{ ...validationMsgStyle, color: 'var(--color-error, #f87171)' }}>
-              ✗ {urlValidationMessage}
-            </p>
-          )}
-          {urlValidationStatus === 'validating' && (
-            <p style={{ ...validationMsgStyle, color: 'var(--color-on-surface-variant, rgba(244,244,245,0.5))' }}>
-              Validating source...
-            </p>
-          )}
-        </FieldGroup>
-
-        {/* Personas */}
-        <FieldGroup label="Personas" required>
-          {personas.length === 0 ? (
-            <EmptyPersonas />
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {personas.map((p) => {
-                const selected = selectedPersonaIds.includes(p.persona_id);
-                return (
-                  <button
-                    key={p.persona_id}
-                    type="button"
-                    onClick={() => togglePersona(p.persona_id)}
-                    aria-pressed={selected}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px',
-                      padding: '10px 14px',
-                      borderRadius: '10px',
-                      border: selected
-                        ? '2px solid var(--color-border-info, #3b82f6)'
-                        : '1px solid var(--color-border-tertiary, rgba(255,255,255,0.1))',
-                      background: selected
-                        ? 'var(--color-surface-info-subtle, rgba(59,130,246,0.08))'
-                        : 'var(--color-surface-secondary, rgba(255,255,255,0.04))',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      minHeight: '44px',
-                      transition: 'border-color 0.15s ease, background 0.15s ease',
-                    }}
-                  >
-                    {/* Avatar */}
-                    {p.avatar_image_url ? (
-                      <img
-                        src={p.avatar_image_url}
-                        alt={p.display_name}
-                        style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
-                      />
-                    ) : (
-                      <div
-                        style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: '50%',
-                          background: 'var(--color-surface-tertiary, rgba(255,255,255,0.1))',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          color: 'var(--color-on-surface-variant, rgba(244,244,245,0.6))',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {p.display_name.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-
-                    <span
-                      style={{
-                        fontSize: '13px',
-                        fontWeight: selected ? 500 : 400,
-                        color: 'var(--color-on-surface, #f4f4f5)',
-                        flex: 1,
-                      }}
+          {/* Personas */}
+          <div className="cv-field-group">
+            <span className="cv-field-label">
+              Personas <span className="cv-required-star">*</span>
+            </span>
+            {personas.length === 0 ? (
+              <div className="cv-empty-box">
+                No personas available — create one in the <strong>Personas</strong> tab.
+              </div>
+            ) : (
+              <div className="cv-persona-list">
+                {personas.map((p) => {
+                  const selected = selectedPersonaIds.includes(p.persona_id);
+                  return (
+                    <button
+                      key={p.persona_id}
+                      type="button"
+                      onClick={() => togglePersona(p.persona_id)}
+                      aria-pressed={selected}
+                      className={`cv-persona-option${selected ? ' cv-persona-option--selected' : ''}`}
                     >
-                      {p.display_name}
-                    </span>
-
-                    {/* Check indicator */}
-                    {selected && (
-                      <span
-                        style={{
-                          width: 16,
-                          height: 16,
-                          borderRadius: '50%',
-                          background: 'var(--color-border-info, #3b82f6)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                          fontSize: '10px',
-                          color: '#fff',
-                        }}
-                        aria-hidden="true"
-                      >
-                        ✓
+                      {p.avatar_image_url ? (
+                        <img
+                          src={p.avatar_image_url}
+                          alt={p.display_name}
+                          className="cv-persona-avatar"
+                        />
+                      ) : (
+                        <div className="cv-persona-avatar-fallback">
+                          {p.display_name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <span className={`cv-persona-name${selected ? ' cv-persona-name--selected' : ''}`}>
+                        {p.display_name}
                       </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </FieldGroup>
-
-        {/* Objective */}
-        <FieldGroup label="Video Objective" required>
-          <div style={{ position: 'relative' }}>
-            <textarea
-              id="cv-objective"
-              placeholder="Describe the goal of this video (e.g. drive signups, showcase a feature…)"
-              value={objective}
-              onChange={(e) =>
-                onChange({ objective: e.target.value.slice(0, 200) })
-              }
-              rows={3}
-              style={{ ...inputStyle, resize: 'vertical', minHeight: '80px' }}
-            />
-            <CharCounter current={objective.length} max={200} />
+                      {selected && (
+                        <span className="cv-persona-check" aria-hidden="true">✓</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        </FieldGroup>
 
-        {/* Brief — collapsible */}
-        <FieldGroup
-          label={
+          {/* Video Objective */}
+          <div className="cv-field-group">
+            <label htmlFor="cv-objective" className="cv-field-label">
+              Video Objective <span className="cv-required-star">*</span>
+            </label>
+            <div className="cv-input-wrap">
+              <textarea
+                id="cv-objective"
+                placeholder="Describe the goal of this video (e.g. drive signups, showcase a feature…)"
+                value={objective}
+                onChange={(e) => onChange({ objective: e.target.value.slice(0, 200) })}
+                rows={3}
+                className="cv-input cv-textarea"
+              />
+              <span className={`cv-char-count${objective.length >= 160 ? ' cv-char-count--warn' : ''}`}>
+                {objective.length}/200
+              </span>
+            </div>
+          </div>
+
+          {/* Brief — collapsible */}
+          <div className="cv-field-group">
             <button
               type="button"
+              className="cv-field-label--toggle"
               onClick={() => setIsBriefExpanded((v) => !v)}
-              style={{
-                background: 'none',
-                border: 'none',
-                padding: 0,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                color: 'var(--color-on-surface-variant, rgba(244,244,245,0.7))',
-                fontSize: '13px',
-                fontWeight: 500,
-              }}
             >
               Brief
-              <span
-                style={{
-                  display: 'inline-block',
-                  fontSize: '10px',
-                  transition: 'transform 0.15s ease',
-                  transform: isBriefExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                }}
-              >
-                ▼
-              </span>
-              <span style={{ fontSize: '11px', opacity: 0.5, fontWeight: 400 }}>(optional)</span>
+              <span className={`cv-brief-chevron${isBriefExpanded ? ' cv-brief-chevron--open' : ''}`}>▼</span>
+              <span className="cv-field-optional">(optional)</span>
             </button>
-          }
-        >
-          {isBriefExpanded && (
-            <div style={{ position: 'relative' }}>
-              <textarea
-                id="cv-brief"
-                placeholder="Any additional context, brand guidelines, or tone requirements…"
-                value={brief ?? ''}
-                onChange={(e) => onChange({ brief: e.target.value.slice(0, 500) })}
-                rows={4}
-                style={{ ...inputStyle, resize: 'vertical', minHeight: '96px' }}
-              />
-              <CharCounter current={(brief ?? '').length} max={500} />
-            </div>
-          )}
-        </FieldGroup>
+            {isBriefExpanded && (
+              <div className="cv-input-wrap">
+                <textarea
+                  id="cv-brief"
+                  placeholder="Any additional context, brand guidelines, or tone requirements…"
+                  value={brief ?? ''}
+                  onChange={(e) => onChange({ brief: e.target.value.slice(0, 500) })}
+                  rows={4}
+                  className="cv-input cv-textarea"
+                />
+                <span className={`cv-char-count${(brief ?? '').length >= 400 ? ' cv-char-count--warn' : ''}`}>
+                  {(brief ?? '').length}/500
+                </span>
+              </div>
+            )}
+          </div>
 
-        {/* Mode */}
-        <FieldGroup label="Recording Mode">
-          <CreateVideoModeCards
-            selectedMode={selectedMode}
-            onSelect={(mode: VideoCreationMode) => onChange({ selectedMode: mode })}
-          />
-        </FieldGroup>
+          {/* Mode */}
+          <div className="cv-field-group">
+            <span className="cv-field-label">Recording Mode</span>
+            <CreateVideoModeCards
+              selectedMode={selectedMode}
+              onSelect={(mode: VideoCreationMode) => onChange({ selectedMode: mode })}
+            />
+          </div>
 
-        {/* CTA */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <button
-            type="button"
-            id="cv-continue-btn"
-            onClick={canContinue ? onContinue : undefined}
-            disabled={!canContinue}
-            style={{
-              padding: '14px 24px',
-              borderRadius: '10px',
-              border: 'none',
-              background: canContinue
-                ? 'var(--color-primary, #6366f1)'
-                : 'var(--color-surface-disabled, rgba(255,255,255,0.08))',
-              color: canContinue
-                ? '#fff'
-                : 'var(--color-on-surface-variant, rgba(244,244,245,0.3))',
-              fontSize: '14px',
-              fontWeight: 600,
-              cursor: canContinue ? 'pointer' : 'not-allowed',
-              minHeight: '44px',
-              transition: 'background 0.15s ease, color 0.15s ease',
-              letterSpacing: '0.01em',
-            }}
-          >
-            Review Plan →
-          </button>
-
-          {/* Inline disabled reason */}
-          {!canContinue && disabledReason && (
-            <p
-              style={{
-                fontSize: '12px',
-                color: 'var(--color-on-surface-variant, rgba(244,244,245,0.45))',
-                margin: 0,
-                lineHeight: 1.5,
-              }}
+          {/* CTA */}
+          <div className="cv-cta-wrap">
+            <button
+              id="cv-continue-btn"
+              type="button"
+              onClick={canContinue ? onContinue : undefined}
+              disabled={!canContinue}
+              className="btn-primary btn-wide"
             >
-              {disabledReason}
-            </p>
-          )}
+              Review Plan →
+            </button>
+            {!canContinue && disabledReason && (
+              <p className="cv-cta-disabled-reason">{disabledReason}</p>
+            )}
+          </div>
         </div>
+
+        {/* ---------------------------------------------------------------- */}
+        {/* RIGHT — Summary panel                                             */}
+        {/* ---------------------------------------------------------------- */}
+        <CreateVideoSummaryPanel setupState={setupState} />
       </div>
-
-      {/* ------------------------------------------------------------------ */}
-      {/* RIGHT — Summary panel                                               */}
-      {/* ------------------------------------------------------------------ */}
-      <CreateVideoSummaryPanel setupState={setupState} />
-
-      {/* Responsive breakpoint */}
-      <style>{`
-        @media (max-width: 768px) {
-          .create-video-setup-grid {
-            grid-template-columns: 1fr !important;
-          }
-        }
-      `}</style>
-    </div>
+    </>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function FieldGroup({
-  label,
-  required,
-  children,
-}: {
-  label: React.ReactNode;
-  required?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      <label
-        style={{
-          fontSize: '13px',
-          fontWeight: 500,
-          color: 'var(--color-on-surface-variant, rgba(244,244,245,0.7))',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-        }}
-      >
-        {label}
-        {required && (
-          <span style={{ color: 'var(--color-error, #f87171)', fontSize: '12px' }}>*</span>
-        )}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-function CharCounter({ current, max }: { current: number; max: number }) {
-  const nearLimit = current >= max * 0.8;
-  return (
-    <span
-      style={{
-        position: 'absolute',
-        bottom: '8px',
-        right: '10px',
-        fontSize: '11px',
-        color: nearLimit
-          ? 'var(--color-warning, #fde68a)'
-          : 'var(--color-on-surface-variant, rgba(244,244,245,0.35))',
-        pointerEvents: 'none',
-      }}
-    >
-      {current}/{max}
-    </span>
-  );
-}
-
-function EmptyPersonas() {
-  return (
-    <div
-      style={{
-        padding: '24px',
-        borderRadius: '10px',
-        border: '1px dashed var(--color-border-tertiary, rgba(255,255,255,0.1))',
-        textAlign: 'center',
-        color: 'var(--color-on-surface-variant, rgba(244,244,245,0.5))',
-        fontSize: '13px',
-        lineHeight: 1.6,
-      }}
-    >
-      No personas available — create one in the <strong>Personas</strong> tab.
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Style constants
-// ---------------------------------------------------------------------------
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '10px 14px',
-  borderRadius: '10px',
-  border: '1px solid var(--color-border-tertiary, rgba(255,255,255,0.1))',
-  background: 'var(--color-surface-secondary, rgba(255,255,255,0.04))',
-  color: 'var(--color-on-surface, #f4f4f5)',
-  fontSize: '14px',
-  lineHeight: 1.5,
-  outline: 'none',
-  boxSizing: 'border-box',
-  minHeight: '44px',
-  fontFamily: 'inherit',
-  transition: 'border-color 0.15s ease',
-};
-
-const validationMsgStyle: React.CSSProperties = {
-  fontSize: '12px',
-  margin: '4px 0 0',
-  lineHeight: 1.5,
-};
-
-const inlineSpinnerStyle: React.CSSProperties = {
-  position: 'absolute',
-  right: '12px',
-  top: '50%',
-  transform: 'translateY(-50%)',
-  width: '14px',
-  height: '14px',
-  border: '2px solid var(--color-border-tertiary, rgba(255,255,255,0.1))',
-  borderTopColor: 'var(--color-on-surface-variant, rgba(244,244,245,0.6))',
-  borderRadius: '50%',
-  animation: 'cv-spin 0.6s linear infinite',
-  display: 'inline-block',
-};
-
-import React from 'react';

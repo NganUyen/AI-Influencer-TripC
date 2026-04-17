@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Clapperboard, FileCheck2, Play, Settings2, type LucideIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import type { Persona } from '@/components/customer-dashboard';
+import type { ReviewEnginePersonaOption, ReviewEngineSetup } from '@/lib/review-engine';
 import type {
   CreateVideoSetupState,
   PersonaPlanCardViewModel,
@@ -28,28 +29,54 @@ type Step = 1 | 2 | 3 | 4;
 
 interface CreateVideoTabProps {
   personas: Persona[];
+  setup?: ReviewEngineSetup | null;
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function CreateVideoTab({ personas }: CreateVideoTabProps) {
+export function CreateVideoTab({ personas, setup }: CreateVideoTabProps) {
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [setupState, setSetupState] = useState<CreateVideoSetupState>(DEFAULT_SETUP_STATE);
   const [planCards, setPlanCards] = useState<PersonaPlanCardViewModel[]>([]);
   const [progressItems, setProgressItems] = useState<CreateVideoProgressViewModel[]>([]);
   const renderProgressCleanupRef = useRef<(() => void) | null>(null);
 
+  const setupPersonaLists = useMemo(() => {
+    if (setup) {
+      const configuredSystemPersonas = (setup.persona_options || []).map(reviewPersonaToPersona);
+      const configuredCustomPersonas = (setup.custom_personas || []).map(reviewPersonaToPersona);
+      const systemPersonas = dedupePersonas([
+        ...configuredSystemPersonas,
+        ...configuredCustomPersonas.filter(isSystemPersona),
+      ]);
+      const customPersonas = configuredCustomPersonas.filter((persona) => !isSystemPersona(persona));
+      return {
+        systemPersonas,
+        customPersonas,
+        allPersonas: [...systemPersonas, ...customPersonas],
+      };
+    }
+
+    const systemPersonas = personas.filter(isSystemPersona);
+    const customPersonas = personas.filter((persona) => !isSystemPersona(persona));
+    return {
+      systemPersonas,
+      customPersonas,
+      allPersonas: personas,
+    };
+  }, [personas, setup]);
+
   const personaMap = useMemo(
-    () => personas.reduce<Record<string, { name: string; avatarUrl?: string }>>((acc, p) => {
+    () => setupPersonaLists.allPersonas.reduce<Record<string, { name: string; avatarUrl?: string }>>((acc, p) => {
       acc[p.persona_id] = {
         name: p.display_name,
-        avatarUrl: p.avatar_image_url ?? undefined,
+        avatarUrl: p.avatar_image_url ?? p.selection_image_url ?? undefined,
       };
       return acc;
     }, {}),
-    [personas],
+    [setupPersonaLists.allPersonas],
   );
 
   const handleSetupChange = useCallback((patch: Partial<CreateVideoSetupState>) => {
@@ -112,7 +139,9 @@ export function CreateVideoTab({ personas }: CreateVideoTabProps) {
           <CreateVideoSetupStep
             setupState={setupState}
             onChange={handleSetupChange}
-            personas={personas}
+            personas={setupPersonaLists.allPersonas}
+            systemPersonaOptions={setupPersonaLists.systemPersonas}
+            customPersonaOptions={setupPersonaLists.customPersonas}
             onContinue={goToStep2}
           />
         )}
@@ -256,4 +285,43 @@ function PublishStep({ onBack }: { onBack: () => void }) {
       </div>
     </div>
   );
+}
+
+const SYSTEM_PERSONA_USER_ID = '00000000-0000-0000-0000-000000000001';
+
+function isSystemPersona(persona: Persona): boolean {
+  return (
+    !persona.user_id ||
+    persona.user_id === SYSTEM_PERSONA_USER_ID ||
+    Boolean(persona.is_preset_catalog)
+  );
+}
+
+function reviewPersonaToPersona(persona: ReviewEnginePersonaOption): Persona {
+  return {
+    persona_id: persona.persona_id,
+    display_name: persona.display_name,
+    avatar_image_url: persona.selection_image_url || persona.image_url || null,
+    selection_image_url: persona.selection_image_url || persona.image_url || null,
+    status: 'ready',
+    video_count: 0,
+    language: persona.language || undefined,
+    region_label: persona.region_label,
+    description: persona.description,
+    market_default: persona.market_default,
+    tone_default: persona.tone_default,
+    is_preset_catalog: Boolean(persona.is_preset_catalog || persona.is_preset),
+    user_id: persona.is_preset_catalog || persona.is_preset ? SYSTEM_PERSONA_USER_ID : 'customer',
+  };
+}
+
+function dedupePersonas(personas: Persona[]): Persona[] {
+  const seen = new Set<string>();
+  return personas.filter((persona) => {
+    if (seen.has(persona.persona_id)) {
+      return false;
+    }
+    seen.add(persona.persona_id);
+    return true;
+  });
 }

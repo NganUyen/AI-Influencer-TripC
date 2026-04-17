@@ -2,40 +2,29 @@
 
 import type { CreateVideoSetupState, VideoCreationMode } from '@/types/video-planning';
 
-// ---------------------------------------------------------------------------
-// Mode label map
-// ---------------------------------------------------------------------------
-
 const MODE_LABELS: Record<VideoCreationMode, string> = {
-  ai_auto: 'AI tự quay',
-  ai_remote: 'AI quay từ máy tính',
-  human_phone: 'Người quay từ điện thoại',
+  ai_auto: 'AI Auto-Record',
+  ai_remote: 'AI Remote Recording',
+  human_phone: 'Human Phone Recording',
 };
-
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
 
 interface CreateVideoSummaryPanelProps {
   setupState: CreateVideoSetupState;
 }
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelProps) {
   const {
     sourceUrl,
     urlValidationStatus,
     urlValidationMessage,
+    urlValidationDetails,
     selectedPersonaIds,
     selectedMode,
   } = setupState;
 
-  const domainLabel = extractDomain(sourceUrl) || '—';
+  const domainLabel = extractDomain(sourceUrl) || '-';
   const personaCount = selectedPersonaIds.length;
-  const modeLabel = MODE_LABELS[selectedMode] ?? '—';
+  const modeLabel = MODE_LABELS[selectedMode] ?? '-';
   const isSourceReady = urlValidationStatus === 'valid';
   const isPersonaReady = personaCount > 0;
   const completedItems = [isSourceReady, isPersonaReady, Boolean(selectedMode)].filter(Boolean).length;
@@ -46,10 +35,10 @@ export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelP
     : 'Complete the required source and persona choices.';
 
   const validationLabel =
-    urlValidationStatus === 'idle'       ? '—' :
+    urlValidationStatus === 'idle'       ? '-' :
     urlValidationStatus === 'validating' ? 'Validating...' :
-    urlValidationStatus === 'valid'      ? '✓ Valid' :
-                                           '✗ Invalid';
+    urlValidationStatus === 'valid'      ? 'Valid' :
+                                           'Invalid';
 
   const validationClass =
     urlValidationStatus === 'valid'      ? 'cv-summary-value--valid' :
@@ -74,7 +63,6 @@ export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelP
         <span className="cv-summary-progress-step cv-summary-progress-step--done" />
       </div>
 
-      {/* Fields */}
       <div className="cv-summary-rows">
         <SummaryRow label="Source" value={domainLabel} />
 
@@ -88,9 +76,21 @@ export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelP
           <p className="cv-validation-msg cv-validation-msg--invalid">{urlValidationMessage}</p>
         )}
 
+        {urlValidationStatus === 'valid' && urlValidationDetails && (
+          <>
+            {urlValidationDetails.pageTitle && (
+              <SummaryRow label="Page" value={urlValidationDetails.pageTitle} />
+            )}
+            <SummaryRow
+              label="Features"
+              value={`${urlValidationDetails.visibleFeatureCount ?? 0} found`}
+            />
+          </>
+        )}
+
         <SummaryRow
           label="Personas"
-          value={personaCount === 0 ? '—' : `${personaCount} selected`}
+          value={personaCount === 0 ? '-' : `${personaCount} selected`}
           valueClass={personaCount === 0 ? 'cv-summary-value--empty' : undefined}
         />
 
@@ -106,10 +106,6 @@ export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelP
     </aside>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Sub-component
-// ---------------------------------------------------------------------------
 
 function SummaryRow({
   label,
@@ -128,16 +124,12 @@ function SummaryRow({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Helper
-// ---------------------------------------------------------------------------
-
 function extractDomain(url: string): string {
   if (!url) return '';
   try {
     const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
     return parsed.hostname;
   } catch {
-    return url.length > 32 ? `${url.slice(0, 32)}…` : url;
+    return url.length > 32 ? `${url.slice(0, 32)}...` : url;
   }
 }

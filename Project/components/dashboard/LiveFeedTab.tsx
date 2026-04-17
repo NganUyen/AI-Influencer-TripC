@@ -392,21 +392,6 @@ export function LiveFeedTab({
             </button>
           </div>
 
-          {/* Hide Content Objective in Step 1 as requested - it will appear for review in Step 3 */}
-          {activeStep === 3 && (
-            <div className="space-y-2">
-              <label className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant">
-                Content Objective
-              </label>
-              <textarea
-                value={objective}
-                onChange={(event) => setObjective(event.target.value)}
-                className="w-full rounded-3xl bg-aura-surface-container px-5 py-4 min-h-[120px] outline-none text-sm text-aura-on-surface"
-                placeholder="Describe what the content should focus on."
-              />
-            </div>
-          )}
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <button
               type="button"

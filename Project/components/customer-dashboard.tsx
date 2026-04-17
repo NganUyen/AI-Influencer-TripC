@@ -1977,20 +1977,22 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
             )}
 
              {activeTab === "create_video" && (
-               <LiveFeedTab
-                 activityItems={[]}
-                 systemWorkflows={systemWorkflows}
-                 content={content}
-                 personas={userPersonas}
-                 setup={reviewEngineSetup}
-                 jobs={reviewEngineJobs}
-                 plans={reviewEnginePlans}
-                 reviewEngineError={reviewEngineError}
-                 onRefresh={fetchReviewEngineData}
-                 onNavigateToPersonas={() => navigateToTab("skills")}
-                 onNavigateToPublishing={() => navigateToTab("publishing")}
-               />
-               <CreateVideoTab personas={personas} />
+              <>
+                <LiveFeedTab
+                  activityItems={[]}
+                  systemWorkflows={systemWorkflows}
+                  content={content}
+                  personas={userPersonas}
+                  setup={reviewEngineSetup}
+                  jobs={reviewEngineJobs}
+                  plans={reviewEnginePlans}
+                  reviewEngineError={reviewEngineError}
+                  onRefresh={fetchReviewEngineData}
+                  onNavigateToPersonas={() => navigateToTab("skills")}
+                  onNavigateToPublishing={() => navigateToTab("publishing")}
+                />
+                <CreateVideoTab personas={personas} />
+              </>
              )}
 
             {activeTab === "publishing" && (

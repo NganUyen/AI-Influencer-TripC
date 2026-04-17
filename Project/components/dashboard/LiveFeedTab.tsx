@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, memo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Download,
   ExternalLink,
@@ -9,10 +9,14 @@ import {
   Send,
   Upload,
   Wand2,
+  Check,
+  Monitor,
+  User,
+  Cpu,
+  Tv,
 } from "lucide-react";
 import { customerApiRequest } from "@/lib/customer-api";
 import { cn } from "@/lib/utils";
-import PersonaSelectionModal from "@/components/dashboard/PersonaSelectionModal";
 import {
   type ReviewEngineJob,
   type ReviewEnginePersonaOption,
@@ -29,8 +33,10 @@ interface LiveFeedTabProps {
   personas: any[];
   setup: ReviewEngineSetup | null;
   jobs: ReviewEngineJob[];
+  plans?: any[];
   reviewEngineError?: string | null;
   initialSourceUrl?: string;
+  initialPersonaIds?: string[];
   onRefresh?: () => Promise<void> | void;
   onNavigateToPersonas?: () => void;
   onNavigateToPublishing?: () => void;
@@ -66,12 +72,13 @@ function buildPersonaFallback(persona: any): ReviewEnginePersonaOption {
   };
 }
 
-function LiveFeedTab({
+export function LiveFeedTab({
   personas,
   setup,
   jobs,
   reviewEngineError,
   initialSourceUrl = "",
+  initialPersonaIds = [],
   onRefresh,
   onNavigateToPersonas,
   onNavigateToPublishing,
@@ -82,9 +89,6 @@ function LiveFeedTab({
   const [publishToTiktok, setPublishToTiktok] = useState(false);
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
   const [validationResult, setValidationResult] = useState<any>(null);
-  const [validatedSourceUrl, setValidatedSourceUrl] = useState<string>("");
-  const [showPersonaModal, setShowPersonaModal] = useState(false);
-  const [modalPersonaIds, setModalPersonaIds] = useState<string[]>([]);
   const [isValidating, setIsValidating] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [publishingJobId, setPublishingJobId] = useState<string | null>(null);
@@ -92,6 +96,8 @@ function LiveFeedTab({
   const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [activeStep, setActiveStep] = useState<1 | 2 | 3 | 4>(1);
+  const [activePlanForReview, setActivePlanForReview] = useState<any | null>(null);
 
   const personaOptions = useMemo(() => {
     const map = new Map<string, ReviewEnginePersonaOption>();
@@ -113,7 +119,20 @@ function LiveFeedTab({
     if (!sourceUrl && initialSourceUrl) {
       setSourceUrl(initialSourceUrl);
     }
-  }, [initialSourceUrl]); // Removed sourceUrl from dependencies to prevent re-render loop
+  }, [initialSourceUrl, sourceUrl]);
+
+  useEffect(() => {
+    setSelectedPersonas((current) => {
+      if (current.length > 0) return current;
+      if (initialPersonaIds.length > 0) return initialPersonaIds;
+      
+      const defaultIds = personaOptions.slice(0, 8).map((persona) => persona.persona_id);
+      // Preventing infinite loop by ensuring we don't return a new empty array 
+      // if it's already empty and there are no default personas to select.
+      if (defaultIds.length === 0 && current.length === 0) return current;
+      return defaultIds;
+    });
+  }, [initialPersonaIds, personaOptions]);
 
   useEffect(() => {
     setDrafts((current) => {
@@ -126,6 +145,14 @@ function LiveFeedTab({
       return next;
     });
   }, [jobs]);
+
+  const handleTogglePersona = (personaId: string) => {
+    setSelectedPersonas((current) =>
+      current.includes(personaId)
+        ? current.filter((id) => id !== personaId)
+        : [...current, personaId],
+    );
+  };
 
   const handleValidate = async () => {
     if (!sourceUrl.trim()) return;
@@ -140,9 +167,10 @@ function LiveFeedTab({
         },
       );
       setValidationResult(payload);
-      setValidatedSourceUrl(sourceUrl.trim());
-      setModalPersonaIds(selectedPersonas);
-      setShowPersonaModal(true);
+      if (payload.suggested_objective) {
+        setObjective(payload.suggested_objective);
+      }
+      setActiveStep(2);
     } catch (error) {
       setPageError(
         error instanceof Error ? error.message : "Failed to validate source URL",
@@ -157,14 +185,6 @@ function LiveFeedTab({
       setPageError("Enter an app URL first.");
       return;
     }
-    if (!validationResult) {
-      setPageError("Validate URL before generating output.");
-      return;
-    }
-    if (validatedSourceUrl !== sourceUrl.trim()) {
-      setPageError("URL changed. Validate URL again before generating output.");
-      return;
-    }
     if (selectedPersonas.length === 0) {
       setPageError("Select at least one persona.");
       return;
@@ -173,7 +193,7 @@ function LiveFeedTab({
     setPageError(null);
     setIsGenerating(true);
     try {
-      await customerApiRequest("/api/customer/review-engine/jobs", {
+      const result = await customerApiRequest<any>("/api/customer/review-engine/jobs", {
         method: "POST",
         body: JSON.stringify({
           source_url: sourceUrl.trim(),
@@ -183,7 +203,15 @@ function LiveFeedTab({
           publish_to_tiktok: publishToTiktok,
         }),
       });
-      await onRefresh?.();
+      
+      // If result contains jobs/plans, pick the first one to show in Review step
+      if (result.jobs && result.jobs.length > 0) {
+        setActivePlanForReview(result.jobs[0]);
+        setActiveStep(3);
+      } else {
+        await onRefresh?.();
+        setActiveStep(4);
+      }
     } catch (error) {
       setPageError(
         error instanceof Error ? error.message : "Failed to create review jobs",
@@ -193,21 +221,19 @@ function LiveFeedTab({
     }
   };
 
-  const handlePersonaSelectionConfirm = (personaIds: string[]) => {
-    setSelectedPersonas(personaIds);
-    setShowPersonaModal(false);
-    setPageError(null);
-  };
-
   const handleSaveJob = async (job: ReviewEngineJob) => {
     setPageError(null);
     setSavingJobId(job.job_id);
     try {
-      await customerApiRequest(`/api/customer/review-engine/jobs/${job.job_id}`, {
+      const endpoint = job.plan_id ? `/api/customer/review-engine/plans/${job.plan_id}` : `/api/customer/review-engine/jobs/${job.job_id}`;
+      await customerApiRequest(endpoint, {
         method: "PATCH",
         body: JSON.stringify({
-          title: job.content?.title || job.page_title || "App Review",
-          content: drafts[job.job_id] || "",
+          script_text: drafts[job.job_id] || job.script?.script || "",
+          publish_settings: {
+             ...job.publish_settings,
+             caption_draft: drafts[job.job_id] || "",
+          }
         }),
       });
       await onRefresh?.();
@@ -220,14 +246,22 @@ function LiveFeedTab({
     }
   };
 
-  const handlePublishJob = async (jobId: string) => {
+  const handlePublishJob = async (job: ReviewEngineJob) => {
     setPageError(null);
-    setPublishingJobId(jobId);
+    setPublishingJobId(job.job_id);
     try {
-      await customerApiRequest(`/api/customer/review-engine/jobs/${jobId}/publish`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
+      // For new schema, approve triggers the workflow
+      if (job.plan_id) {
+         await customerApiRequest(`/api/customer/review-engine/plans/${job.plan_id}/approve`, {
+           method: "POST",
+           body: JSON.stringify({ approved: true }),
+         });
+      } else {
+         await customerApiRequest(`/api/customer/review-engine/jobs/${job.job_id}/publish`, {
+           method: "POST",
+           body: JSON.stringify({}),
+         });
+      }
       await onRefresh?.();
       onNavigateToPublishing?.();
     } catch (error) {
@@ -288,8 +322,44 @@ function LiveFeedTab({
         </div>
       )}
 
-      <section className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-        <div className="xl:col-span-7 dashboard-panel p-8 space-y-6">
+      <div className="flex items-center gap-4 mb-8">
+        {[
+          { step: 1, label: "Validate URL" },
+          { step: 2, label: "Review Design" },
+          { step: 3, label: "Approve Script" },
+          { step: 4, label: "Production Feed" },
+        ].map((s) => (
+          <button
+            key={s.step}
+            onClick={() => setActiveStep(s.step as any)}
+            className="flex items-center gap-3 group transition-all"
+            disabled={s.step > activeStep && !validationResult}
+          >
+            <div className={cn(
+              "w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all",
+              activeStep === s.step 
+                ? "bg-aura-primary text-aura-on-primary ring-4 ring-aura-primary/10 shadow-lg" 
+                : s.step < activeStep 
+                  ? "bg-emerald-500 text-white" 
+                  : "bg-aura-surface-container text-aura-on-surface-variant opacity-50"
+            )}>
+              {s.step < activeStep ? <Check className="w-4 h-4" /> : s.step}
+            </div>
+            <span className={cn(
+              "text-[10px] uppercase tracking-widest font-black transition-all",
+              activeStep === s.step ? "text-aura-on-surface" : "text-aura-on-surface-variant opacity-40 group-hover:opacity-60"
+            )}>
+              {s.label}
+            </span>
+            {s.step < 4 && <div className="w-8 h-[2px] bg-aura-outline/10" />}
+          </button>
+        ))}
+      </div>
+
+      {(activeStep === 1 || activeStep === 2) && (
+        <>
+        <section className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+          <div className="xl:col-span-7 dashboard-panel p-8 space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-4 items-end">
             <div className="space-y-2">
               <label className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant">
@@ -300,17 +370,11 @@ function LiveFeedTab({
                 <input
                   type="url"
                   value={sourceUrl}
-                  onChange={(event) => {
-                    const nextUrl = event.target.value;
-                    setSourceUrl(nextUrl);
-                    if (nextUrl.trim() !== validatedSourceUrl) {
-                      setValidationResult(null);
-                    }
-                  }}
+                  onChange={(event) => setSourceUrl(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
-                      void handleValidate();
+                      void handleGenerate();
                     }
                   }}
                   placeholder="Paste App Store, Play Store, or website URL"
@@ -326,18 +390,6 @@ function LiveFeedTab({
             >
               {isValidating ? "Validating..." : "Validate URL"}
             </button>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant">
-              Content Objective
-            </label>
-            <textarea
-              value={objective}
-              onChange={(event) => setObjective(event.target.value)}
-              className="w-full rounded-3xl bg-aura-surface-container px-5 py-4 min-h-[120px] outline-none text-sm text-aura-on-surface"
-              placeholder="Describe what the content should focus on."
-            />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -398,13 +450,7 @@ function LiveFeedTab({
             <button
               type="button"
               onClick={handleGenerate}
-              disabled={
-                isGenerating ||
-                selectedPersonas.length === 0 ||
-                !sourceUrl.trim() ||
-                !validationResult ||
-                validatedSourceUrl !== sourceUrl.trim()
-              }
+              disabled={isGenerating || selectedPersonas.length === 0 || !sourceUrl.trim()}
               className="btn-primary btn-lg flex items-center gap-2 disabled:opacity-50"
             >
               {isGenerating ? (
@@ -483,37 +529,205 @@ function LiveFeedTab({
       </section>
 
       <section className="space-y-5">
-        <div className="flex items-center justify-between flex-wrap gap-4 p-5 rounded-2xl bg-aura-surface-container/40 border border-aura-outline-variant/20">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <h2 className="text-xl font-black text-aura-on-surface font-headline">
-                Persona Selection
-              </h2>
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-aura-primary/10 border border-aura-primary/30 text-xs font-bold text-aura-primary">
-                {selectedPersonas.length} selected
-              </span>
-            </div>
-            <p className="text-sm text-aura-on-surface-variant leading-relaxed">
-              Personas are now selected in a modal after URL validation.
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="text-2xl font-black text-aura-on-surface font-headline">
+              Select Persona Options
+            </h2>
+            <p className="text-sm text-aura-on-surface-variant">
+              English, Chinese, Spanish, Arabic, plus custom personas from your workspace.
             </p>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                setModalPersonaIds(selectedPersonas);
-                setShowPersonaModal(true);
-              }}
-              disabled={!validationResult || personaOptions.length === 0}
-              className="btn-secondary btn-sm disabled:opacity-50"
-            >
-              Choose Personas
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (selectedPersonas.length === personaOptions.length) {
+                setSelectedPersonas([]);
+              } else {
+                setSelectedPersonas(personaOptions.map((persona) => persona.persona_id));
+              }
+            }}
+            className="btn-secondary btn-sm"
+          >
+            {selectedPersonas.length === personaOptions.length ? "Deselect All" : "Select All"}
+          </button>
         </div>
-      </section>
 
-      <section className="space-y-5">
+        {personaOptions.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+            {personaOptions.map((persona) => {
+              const isSelected = selectedPersonas.includes(persona.persona_id);
+              const activeChannels = persona.tiktok_integration?.active_channels || 0;
+              return (
+                <button
+                  key={persona.persona_id}
+                  type="button"
+                  onClick={() => handleTogglePersona(persona.persona_id)}
+                  className={cn(
+                    "dashboard-panel p-4 text-left transition-all border-2",
+                    isSelected
+                      ? "border-aura-primary bg-aura-primary/5"
+                      : "border-transparent hover:border-aura-outline-variant/20",
+                  )}
+                >
+                  <img
+                    alt={persona.display_name}
+                    className="w-full aspect-[4/5] rounded-2xl object-cover mb-4"
+                    src={
+                      persona.selection_image_url ||
+                      persona.image_url ||
+                      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=800&auto=format&fit=crop"
+                    }
+                    onError={(e) => {
+                      const img = e.target as HTMLImageElement;
+                      if (!img.src?.includes("images.unsplash.com")) {
+                        img.src = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=800&auto=format&fit=crop";
+                      }
+                    }}
+                  />
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-black text-aura-on-surface truncate">
+                        {persona.display_name}
+                      </p>
+                      {isSelected && <Check className="w-4 h-4 text-aura-primary" />}
+                    </div>
+                    <p className="text-xs text-aura-on-surface-variant uppercase tracking-widest">
+                      {persona.region_label || persona.language || "Global"}
+                    </p>
+                    <p className="text-xs text-aura-on-surface-variant line-clamp-2">
+                      {persona.description || "Ready for regional app review production."}
+                    </p>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className={cn("rounded-full border px-2.5 py-1 font-bold", statusPillClass(activeChannels > 0 ? "published" : "draft"))}>
+                        {activeChannels > 0 ? "TikTok active" : "TikTok inactive"}
+                      </span>
+                      {persona.demo?.available && (
+                        <span className="text-aura-primary font-bold">Demo</span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="dashboard-panel-soft p-10 text-center text-aura-on-surface-variant">
+            No personas found yet.
+          </div>
+        )}
+      </section>
+      </>
+      )}
+
+      {activeStep === 3 && activePlanForReview && (
+        <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+           <div className="dashboard-panel p-10 space-y-8">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-3xl font-black text-aura-on-surface font-headline">Review Content Plan</h2>
+                  <p className="text-sm text-aura-on-surface-variant mt-1">Review the AI-generated script and scene breakdown before rendering.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                   <button 
+                    onClick={() => setActiveStep(2)}
+                    className="btn-secondary btn-sm"
+                   >
+                     Back to Setup
+                   </button>
+                   <button 
+                    onClick={() => handlePublishJob(activePlanForReview)}
+                    disabled={publishingJobId === activePlanForReview.job_id}
+                    className="btn-primary btn-lg flex items-center gap-2"
+                   >
+                     {publishingJobId === activePlanForReview.job_id ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                     Send to Render
+                   </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+                 <div className="lg:col-span-7 space-y-6">
+                    <div className="space-y-4">
+                      <label className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant">Content Objective</label>
+                      <textarea 
+                        value={objective}
+                        onChange={(e) => setObjective(e.target.value)}
+                        className="w-full rounded-3xl bg-aura-surface-container-low px-8 py-4 min-h-[100px] outline-none text-base text-aura-on-surface border border-aura-outline/5 focus:border-aura-primary/30 transition-all font-body"
+                        placeholder="What should the AI focus on in this review?"
+                      />
+                    </div>
+                    <div className="space-y-4">
+                      <label className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant">Editable Script</label>
+                      <textarea 
+                        value={drafts[activePlanForReview.job_id] || activePlanForReview.script?.script || ""}
+                        onChange={(e) => setDrafts(prev => ({ ...prev, [activePlanForReview.job_id]: e.target.value }))}
+                        className="w-full rounded-3xl bg-aura-surface-container-low px-8 py-6 min-h-[400px] outline-none text-base leading-relaxed text-aura-on-surface border border-aura-outline/5 focus:border-aura-primary/30 transition-all font-body"
+                      />
+                      <div className="flex justify-end">
+                        <button 
+                          onClick={() => handleSaveJob(activePlanForReview)}
+                          disabled={savingJobId === activePlanForReview.job_id}
+                          className="btn-secondary btn-sm flex items-center gap-2"
+                        >
+                          {savingJobId === activePlanForReview.job_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                          Save Draft
+                        </button>
+                      </div>
+                    </div>
+                 </div>
+
+                 <div className="lg:col-span-5 space-y-8">
+                    <div className="rounded-3xl bg-aura-surface-container-low p-8 border border-aura-outline/5">
+                      <h3 className="text-sm font-black text-aura-on-surface uppercase tracking-widest mb-6">Scene Preview</h3>
+                      <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                        {(activePlanForReview.script?.scenes || []).map((scene: any, idx: number) => {
+                          const Icon = scene.top_half_source_type === "screen_recording" ? Monitor : 
+                                       scene.top_half_source_type === "talking_head" ? User : Tv;
+                          return (
+                            <div key={idx} className="p-5 rounded-2xl bg-aura-surface-container border border-aura-outline/5 space-y-3 group hover:border-aura-primary/20 transition-all">
+                               <div className="flex items-center justify-between">
+                                 <div className="flex items-center gap-2">
+                                   <div className="w-6 h-6 rounded-lg bg-aura-primary/10 flex items-center justify-center">
+                                      <Icon className="w-3.5 h-3.5 text-aura-primary" />
+                                   </div>
+                                   <span className="text-[10px] font-black text-aura-on-surface uppercase tracking-widest">Scene {idx + 1}</span>
+                                 </div>
+                                 <span className="text-[10px] text-aura-on-surface-variant opacity-60 font-mono bg-aura-surface-container-low px-2 py-0.5 rounded-md">
+                                   {scene.timestamp_start}s - {scene.timestamp_end}s
+                                 </span>
+                               </div>
+                               <p className="text-xs text-aura-on-surface font-medium leading-relaxed group-hover:text-aura-primary transition-colors">{scene.caption}</p>
+                               <div className="pt-1 flex flex-wrap gap-2">
+                                  <div className="px-2 py-0.5 rounded-md bg-aura-surface-container-high text-[9px] font-bold text-aura-on-surface-variant uppercase tracking-tighter border border-aura-outline/5">
+                                    {scene.top_half_source_type?.replace(/_/g, " ")}
+                                  </div>
+                                  {scene.audio_policy && (
+                                    <div className="px-2 py-0.5 rounded-md bg-aura-primary/5 text-[9px] font-bold text-aura-primary uppercase tracking-tighter">
+                                      VO Active
+                                    </div>
+                                  )}
+                               </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl bg-aura-primary/5 p-8 border border-aura-primary/10">
+                      <h3 className="text-sm font-black text-aura-primary uppercase tracking-widest mb-4">Production Note</h3>
+                      <p className="text-xs text-aura-on-surface-variant leading-relaxed italic">
+                        "Your selected persona ({activePlanForReview.persona?.display_name}) will deliver this script with a natural, engaging tone. Ensure the key features of the app are highlighted in the script for best conversion."
+                      </p>
+                    </div>
+                 </div>
+              </div>
+           </div>
+        </section>
+      )}
+
+      {activeStep === 4 && (
+      <section className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 className="text-2xl font-black text-aura-on-surface font-headline">
@@ -625,10 +839,23 @@ function LiveFeedTab({
                       </div>
 
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                        <div className="rounded-3xl bg-aura-surface-container-low p-5 space-y-3">
-                          <p className="text-[10px] uppercase tracking-widest text-aura-on-surface-variant font-bold">
-                            Editable Content
-                          </p>
+                        <div className="rounded-3xl bg-aura-surface-container-low p-6 space-y-4 border border-aura-outline/5">
+                          <div className="flex items-center justify-between">
+                            <p className="text-[10px] uppercase tracking-widest text-aura-on-surface-variant font-bold">
+                              Captions & Script
+                            </p>
+                            {job.status === "generated" && (
+                              <button
+                                onClick={() => {
+                                  setActivePlanForReview(job);
+                                  setActiveStep(3);
+                                }}
+                                className="text-[10px] font-bold text-aura-primary uppercase hover:underline"
+                              >
+                                Full Editor
+                              </button>
+                            )}
+                          </div>
                           <textarea
                             value={drafts[job.job_id] || ""}
                             onChange={(event) =>
@@ -637,15 +864,17 @@ function LiveFeedTab({
                                 [job.job_id]: event.target.value,
                               }))
                             }
-                            className="w-full min-h-[180px] rounded-2xl bg-white px-4 py-4 outline-none text-sm text-aura-on-surface"
+                            placeholder="Drafting your review script..."
+                            className="w-full min-h-[160px] rounded-2xl bg-aura-surface-container-high/50 border border-aura-outline/10 px-4 py-4 outline-none text-sm text-aura-on-surface focus:border-aura-primary/30 transition-all font-body"
                           />
                           <button
                             type="button"
                             onClick={() => void handleSaveJob(job)}
                             disabled={savingJobId === job.job_id}
-                            className="btn-secondary btn-sm disabled:opacity-50"
+                            className="btn-secondary btn-sm w-full py-2.5 flex items-center justify-center gap-2"
                           >
-                            {savingJobId === job.job_id ? "Saving..." : "Save Content"}
+                            {savingJobId === job.job_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                            {savingJobId === job.job_id ? "Saving..." : "Save Changes"}
                           </button>
                         </div>
 
@@ -705,11 +934,9 @@ function LiveFeedTab({
                             <button
                               type="button"
                               disabled={
-                                !job.production?.ready ||
-                                job.publish?.status === "published" ||
-                                publishingJobId === job.job_id
+                                publishingJobId === job.job_id || (!job.plan_id && !job.production?.ready)
                               }
-                              onClick={() => void handlePublishJob(job.job_id)}
+                              onClick={() => void handlePublishJob(job)}
                               className="btn-primary btn-sm flex items-center gap-2 disabled:opacity-50"
                             >
                               {publishingJobId === job.job_id ? (
@@ -717,7 +944,7 @@ function LiveFeedTab({
                               ) : (
                                 <Send className="w-4 h-4" />
                               )}
-                              {job.publish?.status === "published" ? "Published" : "Publish"}
+                              {statusLabel === "Generated" || job.status === "generated" || job.status === "edited" ? "Send to Render" : "Publish to TikTok"}
                             </button>
                           </div>
                         </div>
@@ -734,17 +961,7 @@ function LiveFeedTab({
           </div>
         )}
       </section>
-      <PersonaSelectionModal
-        isOpen={showPersonaModal}
-        validationResult={validationResult}
-        personas={personaOptions}
-        selectedPersonaIds={modalPersonaIds}
-        onChangeSelectedPersonaIds={setModalPersonaIds}
-        onClose={() => setShowPersonaModal(false)}
-        onConfirm={handlePersonaSelectionConfirm}
-      />
+      )}
     </div>
   );
 }
-
-export default memo(LiveFeedTab);

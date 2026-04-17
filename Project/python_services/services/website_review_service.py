@@ -87,6 +87,7 @@ class WebsiteReviewService:
             "Analyze the source and return ONLY valid JSON with exactly these keys:\n"
             "{\n"
             '  "page_title": "...",\n'
+            '  "suggested_objective": "A concise content objective for an AI influencer video review based on this page.",\n'
             '  "product_summary": "...",\n'
             '  "access_level": "public_page_only|has_logged_in_access|login_required_but_not_available|unknown",\n'
             '  "login_required": true,\n'
@@ -202,6 +203,7 @@ class WebsiteReviewService:
             target_url=normalized_url,
             normalized_url=normalized_url,
             page_title=str(raw_payload.get("page_title") or cls._host_label(normalized_url)).strip() or cls._host_label(normalized_url),
+            suggested_objective=str(raw_payload.get("suggested_objective") or "").strip() or None,
             product_summary=str(raw_payload.get("product_summary") or "").strip(),
             page_fetch_method=fetch_method,
             access_level=access_level,

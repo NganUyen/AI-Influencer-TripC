@@ -40,6 +40,7 @@ from services.video_capture_handoff_service import (
 from services.video_planner_handoff_service import VideoPlannerHandoffService
 from services.persona_registry_service import PersonaRegistryService
 from services.errors import PersonaConfigurationError
+from services.video_planning_service import VideoPlanningService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -177,6 +178,25 @@ class ReviewEnginePublishRequest(BaseModel):
     schedule_time: Optional[str] = None
 
 
+class VideoPlanCreateRequest(BaseModel):
+    campaign_id: Optional[str] = None
+    persona_id: str
+    source_url: str
+    objective: Optional[str] = None
+    script_text: str
+    scenes_data: List[Dict[str, Any]] = []
+    duration_estimate: Optional[float] = None
+    status: str = "generated"
+
+
+class VideoPlanUpdateRequest(BaseModel):
+    script_text: Optional[str] = None
+    scenes_data: Optional[List[Dict[str, Any]]] = None
+    duration_estimate: Optional[float] = None
+    status: Optional[str] = None
+    publish_settings: Optional[Dict[str, Any]] = None
+
+
 class CreateCustomerPersonaRequest(BaseModel):
     display_name: str
     language: str
@@ -185,6 +205,8 @@ class CreateCustomerPersonaRequest(BaseModel):
     tone_default: Optional[str] = None
     market_default: Optional[str] = None
     description: Optional[str] = None
+    gender: Optional[str] = None
+    channel_configs: Optional[Dict[str, Any]] = None
 
 
 class UpdatePersonaRequest(BaseModel):
@@ -192,6 +214,8 @@ class UpdatePersonaRequest(BaseModel):
     tts_voice: Optional[str] = None
     appearance_prompt_or_photo: Optional[str] = None
     language: Optional[str] = None
+    gender: Optional[str] = None
+    channel_configs: Optional[Dict[str, Any]] = None
 
 
 class RebuildAvatarRequest(BaseModel):
@@ -890,6 +914,7 @@ async def validate_review_engine_source(
         return {
             "normalized_url": result.normalized_url,
             "page_title": result.page_title,
+            "suggested_objective": result.suggested_objective,
             "visible_features": [f.model_dump() for f in result.visible_features] if result.visible_features else []
         }
     except Exception as exc:
@@ -1033,3 +1058,85 @@ async def publish_review_engine_job(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/review-engine/plans")
+async def list_review_engine_plans(
+    session: CustomerSession = Depends(require_customer_session),
+    limit: int = 50,
+) -> Dict[str, Any]:
+    plans = await VideoPlanningService.list_plans(session.user_id, limit=limit)
+    return {"plans": plans}
+
+@router.post("/review-engine/plans")
+async def create_review_engine_plan(
+    payload: VideoPlanCreateRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    plan = await VideoPlanningService.create_plan(
+        {
+            "user_id": session.user_id,
+            **payload.model_dump()
+        }
+    )
+    return plan
+
+
+@router.get("/review-engine/plans/{plan_id}")
+async def get_review_engine_plan(
+    plan_id: str,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    plan = await VideoPlanningService.get_plan(plan_id, session.user_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return plan
+
+
+@router.patch("/review-engine/plans/{plan_id}")
+async def update_review_engine_plan(
+    plan_id: str,
+    payload: VideoPlanUpdateRequest,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    updates = payload.model_dump(exclude_unset=True)
+    plan = await VideoPlanningService.update_plan(plan_id, session.user_id, updates)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return plan
+
+
+@router.post("/review-engine/plans/{plan_id}/approve")
+async def approve_review_engine_plan(
+    plan_id: str,
+    request: Request,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    plan = await VideoPlanningService.approve_plan(plan_id, session.user_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+        
+    try:
+        from services.app_review_studio_service import AppReviewStudioService
+        result = await AppReviewStudioService.start_workflow_from_plan(
+            session=session,
+            plan_id=plan_id,
+            temporal_client=request.app.state.temporal_client,
+        )
+        return {"status": "approved", "workflow": result}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@router.delete("/review-engine/plans/{plan_id}")
+async def delete_review_engine_plan(
+    plan_id: str,
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    success = await VideoPlanningService.delete_plan(plan_id, session.user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return {"status": "deleted"}

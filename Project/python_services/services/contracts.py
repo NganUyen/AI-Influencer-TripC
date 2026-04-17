@@ -599,6 +599,8 @@ class WebPageReviewContract(BaseModel):
     recording_candidates: List[str] = Field(default_factory=list)
     risks: List[str] = Field(default_factory=list)
     assumptions: List[str] = Field(default_factory=list)
+    suggested_objective: Optional[str] = None
+
 
     @field_validator("access_level")
     @classmethod

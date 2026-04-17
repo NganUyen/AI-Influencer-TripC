@@ -53,6 +53,8 @@ interface Persona {
   tone_default?: string | null;
   is_preset_catalog?: boolean;
   user_id?: string | null;
+  gender?: string | null;
+  channel_configs?: Record<string, any> | null;
 }
 
 interface PersonasTabProps {
@@ -113,7 +115,11 @@ export function PersonasTab({
     display_name: "",
     tts_voice: "",
     appearance_prompt_or_photo: "",
+    gender: "",
+    tiktok_username: "",
+    youtube_channel_id: "",
   });
+
   const [isSaving, setIsSaving] = useState(false);
   const [isRebuilding, setIsRebuilding] = useState(false);
   const [tiktokBannerMsg, setTiktokBannerMsg] = useState<string | null>(null);
@@ -133,6 +139,9 @@ export function PersonasTab({
         display_name: selected.display_name || "",
         tts_voice: selected.tts_voice || "",
         appearance_prompt_or_photo: selected.appearance_prompt_or_photo || "",
+        gender: selected.gender || "",
+        tiktok_username: selected.channel_configs?.tiktok?.username || "",
+        youtube_channel_id: selected.channel_configs?.youtube?.channel_id || "",
       });
       setIsEditing(false);
     }
@@ -155,9 +164,17 @@ export function PersonasTab({
     if (!selectedPersonaId) return;
     setIsSaving(true);
     try {
+      const payload = {
+        ...editForm,
+        channel_configs: {
+          tiktok: { username: editForm.tiktok_username },
+          youtube: { channel_id: editForm.youtube_channel_id },
+        }
+      };
+      
       await customerApiRequest<any>(`/api/customer/personas/${selectedPersonaId}`, {
         method: "PATCH",
-        body: JSON.stringify(editForm),
+        body: JSON.stringify(payload),
       });
       setIsEditing(false);
       await onRefreshPersonas?.();
@@ -613,6 +630,52 @@ export function PersonasTab({
                         setEditForm({ ...editForm, tts_voice: e.target.value })
                       }
                     />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="block text-xs font-bold uppercase tracking-widest text-aura-on-surface-variant font-label">
+                      Gender
+                    </label>
+                    <select
+                      aria-label="Persona Gender"
+                      className="w-full py-3 px-4 rounded-2xl bg-aura-surface-container border border-aura-outline-variant/20 font-medium text-aura-on-surface focus:outline-none focus:ring-2 focus:ring-aura-primary/20 transition-all text-sm appearance-none"
+                      value={editForm.gender}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, gender: e.target.value })
+                      }
+                    >
+                      <option value="">Auto Select / Not specified</option>
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-xs font-bold uppercase tracking-widest text-aura-on-surface-variant font-label">
+                      Channel Settings
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        aria-label="TikTok Username"
+                        placeholder="@tiktok_user"
+                        className="w-1/2 py-3 px-4 rounded-2xl bg-aura-surface-container border border-aura-outline-variant/20 font-medium text-aura-on-surface focus:outline-none focus:ring-2 focus:ring-aura-primary/20 transition-all text-sm"
+                        value={editForm.tiktok_username}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, tiktok_username: e.target.value })
+                        }
+                      />
+                      <input
+                        type="text"
+                        aria-label="YouTube Channel ID"
+                        placeholder="YouTube ID"
+                        className="w-1/2 py-3 px-4 rounded-2xl bg-aura-surface-container border border-aura-outline-variant/20 font-medium text-aura-on-surface focus:outline-none focus:ring-2 focus:ring-aura-primary/20 transition-all text-sm"
+                        value={editForm.youtube_channel_id}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, youtube_channel_id: e.target.value })
+                        }
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="space-y-2">

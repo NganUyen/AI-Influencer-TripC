@@ -1,13 +1,11 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
   Database,
   LayoutDashboard,
-  Radio,
   Users,
   Check,
   Cpu,
@@ -24,9 +22,7 @@ import {
 import { SocialIcon } from "@/components/ui/SocialIcon";
 
 import { customerApiRequest } from "@/lib/customer-api";
-import { getDashboardTabHref, type DashboardTabId } from "@/lib/dashboard-tabs";
 import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
-import { getWorkspaceCache, setWorkspaceCache, clearWorkspaceCache } from "@/lib/workspace-cache";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
@@ -34,27 +30,21 @@ import openClawLogo from "@/app/dashboard/openclaw-logo.svg";
 import { FormField } from "@/components/ui/FormField";
 import { SelectField } from "@/components/ui/SelectField";
 import { TextAreaField } from "@/components/ui/TextAreaField";
+import {
+  type ReviewEngineJob,
+  type ReviewEngineJobResponse,
+  type ReviewEngineSetup,
+  getReviewJobPersonaImage,
+  getReviewJobStatusLabel,
+  getReviewJobTone,
+} from "@/lib/review-engine";
 
-import { DashboardLoadingSkeleton } from "./dashboard/skeletons/DashboardLoadingSkeleton";
+import { OverviewTab } from "./dashboard/OverviewTab";
+import { PersonasTab } from "./dashboard/PersonasTab";
+import { CreateVideoTab } from "./dashboard/CreateVideoTab";
+import { PublishingTab } from "./dashboard/PublishingTab";
+import { MemoryTab } from "./dashboard/MemoryTab";
 
-const OverviewTab = dynamic(
-  () => import("./dashboard/OverviewTab").then((mod) => mod.OverviewTab),
-  { loading: () => <DashboardLoadingSkeleton /> },
-);
-const PersonasTab = dynamic(
-  () => import("./dashboard/PersonasTab").then((mod) => mod.PersonasTab),
-  { loading: () => <DashboardLoadingSkeleton /> },
-);
-const CreateVideoTab = dynamic(
-  () => import("./dashboard/CreateVideoTab").then((mod) => mod.CreateVideoTab),
-  { loading: () => <DashboardLoadingSkeleton /> },
-);
-const PublishingTab = dynamic(
-  () => import("./dashboard/PublishingTab").then((mod) => mod.PublishingTab),
-  { loading: () => <DashboardLoadingSkeleton /> },
-);
-
-const LIVE_SYSTEM_DATA_TABS = new Set<DashboardTabId>(["overview", "ops"]);
 
 
 export type BrandProfile = {
@@ -162,14 +152,14 @@ export type Persona = {
   selection_image_url?: string | null;
   status: string;
   video_count: number;
-  user_id?: string | null; // System personas have fixed ID, user personas have customer user_id
+  user_id?: string | null;
   language?: string;
   tts_voice?: string;
   appearance_prompt_or_photo?: string;
   region_label?: string | null;
   description?: string | null;
-  market_default?: string;
-  tone_default?: string;
+  market_default?: string | null;
+  tone_default?: string | null;
   is_preset_catalog?: boolean;
 };
 
@@ -187,8 +177,68 @@ export type TelegramLinkToken = {
 };
 
 export type SystemSummaryData = {
-  services: { name: string; status: "online" | "warning" | "error"; latency: string }[];
-  quota: { name: string; used: number; total: number; unit: string }[];
+  services: {
+    key?: string;
+    provider?: string | null;
+    name: string;
+    status: "online" | "warning" | "error";
+    status_reason?: string | null;
+    latency: string;
+    latency_ms?: number | null;
+    latency_band?: string | null;
+    detail?: string | null;
+    source?: string | null;
+    checked_at?: string | null;
+    configured?: boolean;
+    last_error?: string | null;
+    telemetry_scope?: string | null;
+  }[];
+  quota: {
+    provider?: string | null;
+    name: string;
+    used: number;
+    total: number;
+    unit: string;
+    status?: string | null;
+    usage_percent?: number | null;
+    remaining?: number | null;
+    remaining_unit?: string | null;
+    remaining_exact?: boolean;
+    remaining_source?: string | null;
+    remaining_message?: string | null;
+    reset_at?: string | null;
+    observed_at?: string | null;
+    billing_type?: string | null;
+    warn_at_percent?: number | null;
+    snapshot_count?: number;
+    cost_usd?: number | null;
+    requests_remaining?: number | null;
+    requests_limit?: number | null;
+    requests_reset_at?: string | null;
+    last_error?: string | null;
+    last_error_type?: string | null;
+    telemetry_scope?: string | null;
+  }[];
+  summary?: {
+    provider_count?: number;
+    total_cost_usd?: number;
+    total_snapshots?: number;
+    average_latency_ms?: number | null;
+    peak_latency_ms?: number | null;
+    peak_latency_service?: string | null;
+    online_services?: number;
+    total_services?: number;
+    degraded_services?: number;
+    average_quota_usage_percent?: number | null;
+    hottest_quota_name?: string | null;
+    hottest_quota_usage_percent?: number | null;
+    warning_quotas?: number;
+    critical_quotas?: number;
+    alert_count?: number;
+    telemetry_scope?: string | null;
+    workspace_fallback_used?: boolean;
+    refreshed_at?: string | null;
+  } | null;
   telegram_bot_url?: string | null;
   recent_videos?: {
     asset_id: string;
@@ -234,6 +284,8 @@ type CustomerWorkspaceResponse = {
   };
 };
 
+export type DashboardTabId = "overview" | "ops" | "skills" | "memory" | "create_video" | "publishing";
+
 export type DashboardTab = {
   id: DashboardTabId;
   label: string;
@@ -247,6 +299,9 @@ export type ActivityItem = {
   title: string;
   detail: string;
   tone?: ActivityItemTone;
+  progress?: number;
+  personaImage?: string | null;
+  timeLabel?: string;
 };
 
 const EMPTY_BRAND: BrandProfile = {
@@ -315,12 +370,12 @@ const VIDEO_PLATFORM_OPTIONS = [
 
 const DASHBOARD_TABS: DashboardTab[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
-  { id: "ops", label: "AI Operations", icon: Bot },
   { id: "skills", label: "Personas", icon: Users },
-  { id: "memory", label: "Project & Memory", icon: Database },
+  { id: "memory", label: "Agent & Instrument", icon: Database },
   { id: "create_video", label: "Create Video", icon: Video },
   { id: "publishing", label: "Publishing", icon: Send },
 ];
+
 
 function buildAiBackboneForm(
   settings: AIBackboneSettings,
@@ -337,24 +392,16 @@ function buildAiBackboneForm(
   };
 }
 
-type CustomerDashboardProps = {
-  activeTab: DashboardTabId;
-};
+interface CustomerDashboardProps {
+  activeTab?: DashboardTabId;
+}
 
-export default function CustomerDashboard({ activeTab }: CustomerDashboardProps) {
+export default function CustomerDashboard({ activeTab: initialTab }: CustomerDashboardProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, isAuthenticated, initialized, isLoading, logout, initialize } = useCustomerAuthStore(
-    (state) => ({
-      user: state.user,
-      isAuthenticated: state.isAuthenticated,
-      initialized: state.initialized,
-      isLoading: state.isLoading,
-      logout: state.logout,
-      initialize: state.initialize,
-    }),
-  );
+  const { user, isAuthenticated, initialized, isLoading, logout, initialize } = useCustomerAuthStore();
 
+  const [activeTab, setActiveTab] = useState<DashboardTabId>(initialTab || "overview");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [systemSummary, setSystemSummary] = useState<SystemSummaryData | null>(null);
   const [systemWorkflows, setSystemWorkflows] = useState<SystemWorkflowData[]>([]);
@@ -388,11 +435,12 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
     ),
   );
   const [personas, setPersonas] = useState<Persona[]>([]);
-  const [defaultPersonas, setDefaultPersonas] = useState<Persona[]>([]);
-  const [userPersonas, setUserPersonas] = useState<Persona[]>([]);
   const [telegramLink, setTelegramLink] = useState<TelegramLinkStatus | null>(null);
   const [linkToken, setLinkToken] = useState<TelegramLinkToken | null>(null);
   const [isPollingTelegramLink, setIsPollingTelegramLink] = useState(false);
+  const [reviewEngineSetup, setReviewEngineSetup] = useState<ReviewEngineSetup | null>(null);
+  const [reviewEngineJobs, setReviewEngineJobs] = useState<ReviewEngineJob[]>([]);
+
   const [campaignDraft, setCampaignDraft] = useState({
     name: "",
     description: "",
@@ -454,20 +502,49 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
     }
   }, [isAuthenticated, logout, router]);
 
-  useEffect(() => {
-    if (!LIVE_SYSTEM_DATA_TABS.has(activeTab)) {
+  // Extract URL parameters
+  const dashboardTabParam = searchParams.get("dashboard_tab");
+  const reviewSourceUrl = searchParams.get("review_source_url") || "";
+  const reviewPersonaIds = (searchParams.get("review_personas") || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const loadReviewEngineData = useCallback(async () => {
+    if (typeof window === "undefined" || !isAuthenticated) {
       return;
     }
 
+    try {
+      const [setupPayload, jobsPayload] = await Promise.all([
+        customerApiRequest<ReviewEngineSetup>("/api/customer/review-engine/setup"),
+        customerApiRequest<ReviewEngineJobResponse>("/api/customer/review-engine/jobs"),
+      ]);
+      setReviewEngineSetup(setupPayload);
+      setReviewEngineJobs(jobsPayload.jobs || []);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "";
+      if (
+        msg.includes("401") ||
+        msg.includes("Unauthorized") ||
+        msg.toLowerCase().includes("invalid or expired")
+      ) {
+        void logout();
+        router.replace("/auth");
+        return;
+      }
+      console.warn("Failed to refresh review engine data:", error);
+    }
+  }, [isAuthenticated, logout, router]);
+
+  useEffect(() => {
+    if (activeTab !== "memory") {
+      return;
+    }
     void fetchSystemData();
     const interval = setInterval(fetchSystemData, 30000);
     return () => clearInterval(interval);
   }, [activeTab, fetchSystemData]);
-
-  // Prefetch the create_video route to reduce lag when navigating
-  useEffect(() => {
-    router.prefetch(getDashboardTabHref("create_video"));
-  }, [router]);
 
   useEffect(() => {
     const oauthStatus = searchParams.get("oauth_status");
@@ -480,6 +557,15 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
       setBanner(reason || "OAuth connection failed.");
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    if (
+      dashboardTabParam &&
+      DASHBOARD_TABS.some((tab) => tab.id === dashboardTabParam)
+    ) {
+      setActiveTab(dashboardTabParam as DashboardTabId);
+    }
+  }, [dashboardTabParam]);
 
   useEffect(() => {
     if (!initialized && !isLoading) {
@@ -499,7 +585,8 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
       return;
     }
     void loadWorkspace();
-  }, [initialized, isLoading, isAuthenticated, router, pageError]);
+    void loadReviewEngineData();
+  }, [initialized, isLoading, isAuthenticated, router, pageError, loadReviewEngineData]);
 
   useEffect(() => {
     if (selectedThreadId && isAuthenticated) {
@@ -549,7 +636,7 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
 
         timeoutId = window.setTimeout(() => {
           void pollTelegramLink();
-        }, 5000);
+        }, 2500);
       } catch (error) {
         if (cancelled) {
           return;
@@ -573,30 +660,12 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
     };
   }, [isAuthenticated, linkToken, telegramLink?.linked]);
 
-  // Partition personas into default (system) and user personas
-  useEffect(() => {
-    const SYSTEM_PERSONA_USER_ID = "00000000-0000-0000-0000-000000000001";
-    const defaults = personas.filter(p => p.user_id === SYSTEM_PERSONA_USER_ID);
-    const users = personas.filter(p => p.user_id !== SYSTEM_PERSONA_USER_ID);
-    setDefaultPersonas(defaults);
-    setUserPersonas(users);
-  }, [personas]);
-
   async function loadWorkspace() {
     try {
       setPageError(null);
-
-      // Check cache first
-      let workspace = getWorkspaceCache() as CustomerWorkspaceResponse | null;
-
-      // If cache miss, fetch from API
-      if (!workspace) {
-        workspace = await customerApiRequest<CustomerWorkspaceResponse>(
-          "/api/customer/workspace",
-        );
-        // Cache the result
-        setWorkspaceCache(workspace);
-      }
+      const workspace = await customerApiRequest<CustomerWorkspaceResponse>(
+        "/api/customer/workspace",
+      );
 
       setBrandForm(workspace?.brand || EMPTY_BRAND);
       setAccounts(workspace?.social_accounts || []);
@@ -666,7 +735,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
         }),
       });
       setBanner("Brand profile saved.");
-      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to save brand profile");
@@ -695,7 +763,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
       await customerApiRequest(`/api/customer/social-accounts/${accountId}/disconnect`, {
         method: "POST",
       });
-      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to disconnect account");
@@ -742,7 +809,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
       setMessages(payload.messages);
       setArtifacts(payload.artifacts);
       setComposer("");
-      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Assistant request failed");
@@ -783,7 +849,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
         chatgptSubscriptionTier: current.chatgptSubscriptionTier,
       }));
       setBanner("AI backbone settings saved.");
-      clearWorkspaceCache();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to save AI backbone settings");
     } finally {
@@ -814,7 +879,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
         ),
       );
       setBanner("GPT OAuth link connected for this customer.");
-      clearWorkspaceCache();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to link GPT OAuth");
     } finally {
@@ -842,7 +906,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
         chatgptSubscriptionTier: current.chatgptSubscriptionTier,
       }));
       setBanner("GPT OAuth link disconnected.");
-      clearWorkspaceCache();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to disconnect GPT OAuth");
     } finally {
@@ -909,7 +972,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
             : "Rejected from customer dashboard",
         }),
       });
-      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to update approval");
@@ -925,7 +987,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
         method: "POST",
       });
       setBanner("Campaign launched into Temporal.");
-      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to launch campaign");
@@ -973,8 +1034,9 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
         approvals,
         content,
         systemWorkflows,
+        reviewJobs: reviewEngineJobs,
       }),
-    [campaigns, approvals, content, systemWorkflows],
+    [campaigns, approvals, content, systemWorkflows, reviewEngineJobs],
   );
 
   const quotaWarnings = useMemo(
@@ -986,13 +1048,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
   );
 
   const [quotaBannerDismissed, setQuotaBannerDismissed] = useState(false);
-
-  const navigateToTab = useCallback(
-    (tabId: DashboardTabId) => {
-      router.push(getDashboardTabHref(tabId));
-    },
-    [router],
-  );
 
   if (isLoading || !initialized) {
     return (
@@ -1016,7 +1071,10 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
             activeTab={activeTab}
           />
           <main id="dashboard-main" className="flex-1 min-w-0 px-4 py-6 sm:px-6 md:px-10 md:py-8">
-            <DashboardLoadingSkeleton />
+            <div className="mx-auto max-w-7xl h-[60vh] flex flex-col items-center justify-center space-y-4">
+              <div className="animate-spin h-10 w-10 border-2 border-aura-primary border-t-transparent rounded-full" />
+              <p className="text-sm text-aura-outline font-body">Loading workspace…</p>
+            </div>
           </main>
         </div>
       </div>
@@ -1107,9 +1165,25 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                 content={content}
                 personas={personas}
                 systemSummary={systemSummary}
-                onTabChange={navigateToTab}
+                onTabChange={setActiveTab}
                 activityItems={activityItems}
                 quotaWarnings={quotaWarnings}
+                reviewJobs={reviewEngineJobs}
+                onPublishJob={async (jobId) => {
+                  try {
+                    await customerApiRequest(`/api/customer/review-engine/jobs/${jobId}/publish`, {
+                      method: "POST",
+                      body: JSON.stringify({}),
+                    });
+                    setBanner("Publish started.");
+                    await loadReviewEngineData();
+                    await loadWorkspace();
+                  } catch (error) {
+                    setPageError(
+                      error instanceof Error ? error.message : "Failed to publish review",
+                    );
+                  }
+                }}
               />
             )}
 
@@ -1244,7 +1318,7 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                             </div>
                             <button
                               type="button"
-                              onClick={() => navigateToTab("memory")}
+                              onClick={() => setActiveTab("memory")}
                               className="text-[10px] min-h-[44px] font-bold px-4 py-2 bg-aura-error text-white rounded-lg hover:bg-aura-error/90 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap cursor-pointer"
                             >
                               Configure
@@ -1264,7 +1338,7 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                     </div>
                     <button
                       type="button"
-                      onClick={() => navigateToTab("memory")}
+                      onClick={() => setActiveTab("memory")}
                       className="mt-6 w-full py-3 min-h-[44px] bg-aura-primary text-white rounded-xl text-sm font-body font-semibold hover:bg-aura-primary/90 transition-all active:scale-95 cursor-pointer"
                     >
                       Full Configuration
@@ -1348,12 +1422,14 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                           width={1280}
                           height={720}
                           className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                          onError={(e) => {
-                            const img = e.target as HTMLImageElement;
-                            img.style.display = "none";
-                          }}
                         />
-                      ) : null}
+                      ) : (
+                        <div className="absolute inset-0 bg-gradient-to-br from-aura-primary/20 to-aura-primary-container/30 flex items-center justify-center">
+                          <div className="text-6xl font-headline font-extrabold text-aura-primary/20">
+                            {personas[0]?.display_name?.charAt(0) || "A"}
+                          </div>
+                        </div>
+                      )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex items-end p-8">
                         <div className="backdrop-blur-sm bg-white/10 p-5 rounded-xl border border-white/20">
                           <h4 className="text-white text-xl font-bold font-headline mb-1">
@@ -1415,7 +1491,7 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                       </button>
                       <button
                         type="button"
-                        onClick={() => navigateToTab("create_video")}
+                        onClick={() => setActiveTab("create_video")}
                         className="bg-aura-secondary-container text-aura-on-secondary-container min-h-[44px] px-6 md:px-7 py-3 md:py-3.5 rounded-full font-body font-bold hover:scale-105 active:scale-95 transition-all cursor-pointer"
                       >
                         Production Console
@@ -1617,307 +1693,35 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
 
             {activeTab === "skills" && (
               <PersonasTab
-                defaultPersonas={defaultPersonas}
-                userPersonas={userPersonas}
-                telegramBotUrl={telegramBotUrl || undefined}
-                onNavigateToCreateVideo={() => navigateToTab("create_video")}
-                onRefreshPersonas={async () => {
-                  clearWorkspaceCache();
-                  await loadWorkspace();
-                }}
+                defaultPersonas={personas.filter((p) => !p.user_id || p.is_preset_catalog)}
+                userPersonas={personas.filter((p) => p.user_id && !p.is_preset_catalog)}
+                telegramBotUrl={telegramBotUrl}
+                onNavigateToCreateVideo={() => setActiveTab("create_video")}
               />
             )}
 
             {activeTab === "memory" && (
-              <div className="space-y-10 animate-fade-in">
-
-                {/* Page header */}
-                <header>
-                  <h1 className="text-4xl font-extrabold text-aura-on-surface font-headline tracking-tight mb-2">Project &amp; Memory</h1>
-                  <p className="text-aura-on-surface-variant max-w-2xl text-sm font-body">
-                    Define the core identity of your digital brand. These settings shape how AI learns, remembers, and communicates across every channel.
-                  </p>
-                </header>
-
-                {/* Bento grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-
-                  {/* ── Left: Brand Context (8 col) ── */}
-                  <section className="lg:col-span-8 space-y-8">
-
-                    {/* Brand Context card */}
-                    <div className="bg-white rounded-2xl p-5 md:p-8 shadow-aura">
-                      <div className="flex items-center gap-3 mb-8">
-                        <div className="w-12 h-12 rounded-2xl bg-aura-primary/10 flex items-center justify-center shrink-0">
-                          <BookOpen className="w-5 h-5 text-aura-primary stroke-[1.5]" />
-                        </div>
-                        <h3 className="text-xl font-bold text-aura-on-surface font-headline">Brand Context</h3>
-                      </div>
-
-                      <form className="space-y-6" onSubmit={handleBrandSave}>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div className="space-y-2">
-                            <label htmlFor="brand-name" className="block text-sm font-semibold text-aura-on-surface-variant px-1">Brand Name</label>
-                            <input
-                              id="brand-name"
-                              name="brandName"
-                              type="text"
-                              value={brandForm.product_name || ""}
-                              onChange={e => setBrandForm(c => ({ ...c, product_name: e.target.value }))}
-                              placeholder="Enter brand name…"
-                              autoComplete="organization"
-                              className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all outline-none"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <label htmlFor="brand-audience" className="block text-sm font-semibold text-aura-on-surface-variant px-1">Target Audience</label>
-                            <input
-                              id="brand-audience"
-                              name="targetAudience"
-                              type="text"
-                              value={brandForm.audience || ""}
-                              onChange={e => setBrandForm(c => ({ ...c, audience: e.target.value }))}
-                              placeholder="Describe your target audience…"
-                              autoComplete="off"
-                              className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all outline-none"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <label htmlFor="brand-summary" className="block text-sm font-semibold text-aura-on-surface-variant px-1">Value Summary</label>
-                          <textarea
-                            id="brand-summary"
-                            name="valueSummary"
-                            value={brandForm.offer_summary || ""}
-                            onChange={e => setBrandForm(c => ({ ...c, offer_summary: e.target.value }))}
-                            placeholder="Summarize your product or service…"
-                            rows={4}
-                            autoComplete="off"
-                            className="w-full bg-aura-surface-container border-none rounded-2xl px-4 py-4 focus:ring-2 focus:ring-aura-primary/20 text-aura-on-surface font-body font-medium transition-all resize-none outline-none"
-                          />
-                        </div>
-
-                        <div className="flex justify-end">
-                          <button
-                            type="submit"
-                            disabled={busyKey === "brand"}
-                            className="w-full md:w-auto min-h-[44px] px-10 py-3.5 bg-aura-primary text-aura-on-primary font-bold rounded-full hover:opacity-90 transition-all shadow-aura-md active:scale-95 disabled:opacity-50 cursor-pointer"
-                          >
-                            {busyKey === "brand" ? "Saving..." : "Save Context"}
-                          </button>
-                        </div>
-                      </form>
-                    </div>
-
-                    {/* Intelligence Mode + System Bridge */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-
-                      {/* Intelligence Mode */}
-                      <div className="bg-white rounded-2xl p-5 md:p-8 shadow-aura flex flex-col justify-between">
-                        <div>
-                          <div className="flex items-center gap-3 mb-6">
-                            <div className="w-10 h-10 rounded-xl bg-aura-tertiary/10 flex items-center justify-center shrink-0">
-                              <Brain className="w-5 h-5 text-aura-tertiary stroke-[1.5]" />
-                            </div>
-                            <h3 className="font-bold text-aura-on-surface font-headline">Intelligence Mode</h3>
-                          </div>
-                          <p className="text-sm text-aura-on-surface-variant mb-6 leading-relaxed font-body">
-                            Define how AI accesses and uses stored memory in conversations.
-                          </p>
-                        </div>
-                        <div className="flex flex-col gap-3">
-                          <div className="flex items-center justify-between w-full p-5 bg-aura-surface-container-lowest rounded-2xl border-2 border-aura-primary shadow-aura-sm">
-                            <span className="font-bold text-aura-on-surface text-sm">
-                              {aiBackbone?.access_mode.replace(/_/g, " ") || "Platform Managed"}
-                            </span>
-                            <Check className="w-4 h-4 text-aura-tertiary stroke-[2.5]" />
-                          </div>
-                          <div className="flex items-center justify-between w-full p-5 bg-aura-surface-container-low rounded-2xl border-2 border-transparent">
-                            <span className="text-sm font-medium text-aura-on-surface-variant/80">
-                              {aiBackbone?.effective_status.message || "Initializing…"}
-                            </span>
-                            <span className={`w-2 h-2 rounded-full ${aiBackbone?.effective_status.ready ? "bg-aura-tertiary" : "bg-aura-secondary animate-pulse"}`} />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* System Bridge — Telegram */}
-                      <div className="bg-white rounded-2xl p-5 md:p-8 shadow-aura flex flex-col justify-between">
-                        <div>
-                          <div className="flex items-center gap-3 mb-6">
-                            <div className="w-10 h-10 rounded-xl bg-aura-secondary/10 flex items-center justify-center shrink-0">
-                              <Link2 className="w-5 h-5 text-aura-secondary stroke-[1.5]" />
-                            </div>
-                            <h3 className="font-bold text-aura-on-surface font-headline">System Bridge</h3>
-                          </div>
-                          <p className="text-sm text-aura-on-surface-variant mb-6 leading-relaxed font-body">
-                            Enable direct control and monitoring through secure messaging protocols.
-                          </p>
-                        </div>
-
-                        {telegramLink?.linked ? (
-                          <div className="p-5 bg-aura-surface-container rounded-2xl flex items-center gap-4">
-                            <div className="w-10 h-10 bg-aura-surface-container rounded-full flex items-center justify-center flex-shrink-0 shadow-aura-sm">
-                              <SocialIcon platform="telegram" size={20} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-bold text-aura-on-surface">@{telegramLink.link?.telegram_username || "Linked Account"}</p>
-                              <p className="text-[10px] text-aura-on-surface-variant">ID: {telegramLink.link?.chat_id}</p>
-                              <p className="text-[10px] text-aura-tertiary font-bold uppercase tracking-wide mt-0.5">Connected</p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={handleStartTelegramLink}
-                              className="text-aura-on-surface-variant hover:text-aura-primary transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer shrink-0"
-                              aria-label="Re-link Telegram"
-                            ><RefreshCw className="w-4 h-4 stroke-[1.75]" /></button>
-                          </div>
-                        ) : (
-                          <div className="space-y-3">
-                            <button
-                              type="button"
-                              onClick={handleStartTelegramLink}
-                              disabled={busyKey === "telegram-link"}
-                              className="w-full min-h-[44px] py-3 bg-white text-aura-on-surface border border-aura-outline/20 font-bold rounded-full hover:bg-aura-surface-container-low active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-aura-sm cursor-pointer"
-                            >
-                              {busyKey !== "telegram-link" && <SocialIcon platform="telegram" size={18} />}
-                              {busyKey === "telegram-link" ? "Generating link..." : "Connect Telegram"}
-                            </button>
-                            {linkToken && telegramVerificationUrl && (
-                              <div className="p-4 bg-aura-secondary-container/30 border border-aura-secondary/20 rounded-xl text-center">
-                                <p className="text-xs text-aura-secondary mb-3 font-medium">
-                                  {isPollingTelegramLink ? "Waiting for Telegram confirmation..." : "Link is ready. Confirm on Telegram."}
-                                </p>
-                                <a
-                                  href={telegramVerificationUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center justify-center min-h-[44px] px-6 py-2 bg-aura-secondary text-aura-on-secondary rounded-full font-bold text-xs hover:opacity-90 active:scale-95 transition-all cursor-pointer"
-                                >
-                                  Confirm Now
-                                </a>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </section>
-
-                  {/* ── Right: Social Grid + Persona visual (4 col) ── */}
-                  <aside className="lg:col-span-4 space-y-8">
-
-                    {/* Social Grid */}
-                    <div className="bg-aura-surface-container-high rounded-2xl p-5 md:p-8">
-                      <h3 className="text-lg font-bold font-headline text-aura-on-surface mb-2">Social Network</h3>
-                      <p className="text-xs text-aura-on-surface-variant mb-8 font-body">
-                        Enable or disable automatic posting targets for the memory-optimized content cycle.
-                      </p>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        {SUPPORTED_PLATFORMS.map(p => {
-                          const acc = accounts.find(a => a.platform === p);
-                          return (
-                            <div
-                              key={p}
-                              className="bg-white/60 backdrop-blur p-4 rounded-3xl flex flex-col items-center justify-center gap-3 shadow-aura-sm transition-all"
-                            >
-                              <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center border border-aura-outline/5">
-                                <SocialIcon platform={p} size={24} />
-                              </div>
-                              <span className="text-xs font-bold text-aura-on-surface capitalize">{p}</span>
-                              {acc ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleConnect(p)} // Typically opens disconnect modal or something, matching toggle pattern
-                                  aria-label={`Manage ${p} connection`}
-                                  aria-pressed={true}
-                                  className="w-12 h-6 bg-aura-primary rounded-full relative cursor-pointer hover:bg-aura-primary/90 transition-colors flex items-center justify-end px-1"
-                                >
-                                  <div className="w-4 h-4 bg-white rounded-full" />
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => handleConnect(p)}
-                                  aria-label={`Manage ${p} connection`}
-                                  aria-pressed={false}
-                                  className="w-12 h-6 bg-aura-surface-container-high border border-aura-outline/20 rounded-full relative cursor-pointer hover:bg-aura-outline/20 transition-colors flex items-center justify-start px-1"
-                                >
-                                  <div className="w-4 h-4 bg-white rounded-full shadow-sm" />
-                                </button>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Memory capacity bar */}
-                      <div className="mt-8 pt-8 border-t border-aura-outline-variant/20">
-                        <div className="flex items-end justify-between mb-3">
-                          <span className="text-[10px] font-semibold uppercase tracking-widest text-aura-on-surface-variant">Memory Capacity</span>
-                          <span className="text-5xl font-black text-aura-primary leading-none">84%</span>
-                        </div>
-                        <div className="w-full bg-aura-surface-container-lowest h-2 rounded-full overflow-hidden">
-                          <div className="bg-gradient-to-r from-aura-primary to-aura-primary-container h-full w-[84%] rounded-full shadow-aura-sm" />
-                        </div>
-                        <p className="text-[10px] text-aura-on-surface-variant mt-4 leading-relaxed italic font-body">
-                          Higher retention lets AI recall nuanced brand preferences from past interactions more accurately.
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Persona visual card */}
-                    {personas.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => navigateToTab("skills")}
-                        className="relative block w-full text-left group"
-                      >
-                        <div className="aspect-[4/5] rounded-2xl overflow-hidden shadow-aura-md transition-transform group-hover:scale-[1.02] duration-300 bg-aura-surface-container-high">
-                          <div className="w-full h-full bg-gradient-to-br from-aura-primary/20 to-aura-primary-container/30 flex items-center justify-center">
-                            <span className="text-8xl font-extrabold text-aura-primary/20 font-headline">
-                              {personas[0]?.display_name?.charAt(0) || "A"}
-                            </span>
-                          </div>
-                          {personas[0]?.avatar_image_url && (
-                            <img
-                              src={personas[0].avatar_image_url}
-                              alt={personas[0].display_name}
-                              width={800}
-                              height={1000}
-                              className="absolute inset-0 w-full h-full object-cover"
-                              onError={(e) => {
-                                const img = e.target as HTMLImageElement;
-                                img.style.display = "none";
-                              }}
-                            />
-                          )}
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                          <div className="absolute bottom-0 left-0 right-0 p-6" style={{ backdropFilter: "blur(12px)", background: "rgba(255,255,255,0.08)", borderTop: "1px solid rgba(255,255,255,0.15)" }}>
-                            <h4 className="text-white font-bold text-xl font-headline">{personas[0]?.display_name}</h4>
-                            <p className="text-white/70 text-xs font-body mt-0.5">Active Persona</p>
-                            <div className="mt-4 flex items-center gap-2">
-                              <span className="w-2 h-2 bg-aura-tertiary rounded-full animate-pulse" />
-                              <span className="text-[10px] text-white/90 font-body font-medium uppercase tracking-widest">
-                                {personas[0]?.status === "active" ? "Optimized & Synced" : "Awaiting Activation"}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </button>
-                    )}
-
-                  </aside>
-                </div>
-
-              </div>
+              <MemoryTab
+                brandForm={brandForm}
+                accounts={accounts}
+                aiBackboneForm={aiBackboneForm}
+                busyKey={busyKey}
+                handleBrandSave={handleBrandSave}
+                handleConnect={handleConnect}
+                handleDisconnect={handleDisconnect}
+                setBrandForm={setBrandForm}
+                setAiBackboneForm={setAiBackboneForm}
+                handleAiBackboneSave={handleAiBackboneSave}
+                handleLinkChatgptOAuth={handleLinkChatgptOAuth}
+                handleDisconnectChatgptOAuth={handleDisconnectChatgptOAuth}
+                aiBackbone={aiBackbone}
+                user={user}
+                systemSummary={systemSummary}
+              />
             )}
-
-             {activeTab === "create_video" && (
-               <CreateVideoTab personas={personas} />
-             )}
+            {activeTab === "create_video" && (
+              <CreateVideoTab personas={personas} />
+            )}
 
             {activeTab === "publishing" && (
               <PublishingTab content={content} />
@@ -1957,13 +1761,35 @@ function buildActivityItems({
   approvals,
   content,
   systemWorkflows,
+  reviewJobs,
 }: {
   campaigns: Campaign[];
   approvals: Campaign[];
   content: ContentItem[];
   systemWorkflows: SystemWorkflowData[];
+  reviewJobs: ReviewEngineJob[];
 }): ActivityItem[] {
   const items: ActivityItem[] = [];
+
+  (reviewJobs || []).slice(0, 6).forEach((job) => {
+    items.push({
+      id: `review-job-${job.job_id}`,
+      title:
+        job.content?.title ||
+        job.page_title ||
+        job.persona?.display_name ||
+        "App review",
+      detail: `${getReviewJobStatusLabel(job)} • ${job.progress}% complete`,
+      tone: getReviewJobTone(job),
+      progress: job.progress,
+      personaImage: getReviewJobPersonaImage(job),
+      timeLabel: job.updated_at || job.started_at || "",
+    });
+  });
+
+  if (items.length >= 8) {
+    return items.slice(0, 8);
+  }
 
   (systemWorkflows || []).slice(0, 3).forEach((workflow) => {
     items.push({

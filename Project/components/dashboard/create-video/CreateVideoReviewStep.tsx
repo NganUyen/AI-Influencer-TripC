@@ -1,22 +1,24 @@
 'use client';
 
 import { useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import type { PersonaPlanCardViewModel, PlanCardStatus } from '@/types/video-planning';
-
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
 
 interface CreateVideoReviewStepProps {
   planCards: PersonaPlanCardViewModel[];
-  onCardsChange: (cards: PersonaPlanCardViewModel[]) => void;
+  onCardsChange: Dispatch<SetStateAction<PersonaPlanCardViewModel[]>>;
   onContinue: () => void;
   onBack: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+const STATUS_META: Record<PlanCardStatus, { label: string; className: string }> = {
+  loading: { label: 'Loading', className: 'cv-badge cv-badge--loading' },
+  demo: { label: 'Draft plan', className: 'cv-badge cv-badge--demo' },
+  ready: { label: 'Ready', className: 'cv-badge cv-badge--ready' },
+  approved: { label: 'Approved', className: 'cv-badge cv-badge--approved' },
+  rejected: { label: 'Rejected', className: 'cv-badge cv-badge--rejected' },
+  pending_backend: { label: 'Pending backend', className: 'cv-badge cv-badge--pending' },
+};
 
 export function CreateVideoReviewStep({
   planCards,
@@ -24,18 +26,34 @@ export function CreateVideoReviewStep({
   onContinue,
   onBack,
 }: CreateVideoReviewStepProps) {
-  const hasApproved = planCards.some((c) => c.status === 'approved');
+  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
+  const approvedCount = planCards.filter((card) => card.status === 'approved').length;
+  const canContinue = approvedCount > 0;
 
-  const updateCard = (personaId: string, patch: Partial<PersonaPlanCardViewModel>) => {
-    onCardsChange(
-      planCards.map((c) => (c.personaId === personaId ? { ...c, ...patch } : c)),
+  const setCardStatus = (personaId: string, status: Extract<PlanCardStatus, 'approved' | 'rejected'>) => {
+    onCardsChange((currentCards) =>
+      currentCards.map((card) =>
+        card.personaId === personaId
+          ? {
+              ...card,
+              status,
+            }
+          : card,
+      ),
     );
+  };
+
+  const toggleExpanded = (personaId: string) => {
+    setExpandedCards((current) => ({
+      ...current,
+      [personaId]: !current[personaId],
+    }));
   };
 
   if (planCards.length === 0) {
     return (
       <div className="cv-empty-state">
-        <p>No personas selected. Go back to Step 1 to select personas.</p>
+        <p>No persona plans were generated. Go back and select at least one persona.</p>
         <button type="button" onClick={onBack} className="cv-back-btn">← Go back</button>
       </div>
     );
@@ -43,220 +61,127 @@ export function CreateVideoReviewStep({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      {/* Header */}
       <div className="cv-step-header">
         <button type="button" onClick={onBack} className="cv-back-btn">← Back</button>
         <div>
           <h2 className="cv-step-heading">Review Plan</h2>
           <p className="cv-step-sub">
-            Review the generated plan for each persona. Approve, edit, or reject each one.
+            Approve at least one persona plan before sending it to rendering.
           </p>
         </div>
       </div>
 
-      {/* Plan cards */}
       <div className="cv-plan-cards">
-        {planCards.map((card) => (
-          <PersonaPlanCard
-            key={card.personaId}
-            card={card}
-            onApprove={() => updateCard(card.personaId, { status: 'approved' })}
-            onReject={() => updateCard(card.personaId, { status: 'rejected' })}
-            onScriptEdit={(scriptPreview) => updateCard(card.personaId, { scriptPreview })}
-          />
-        ))}
-      </div>
+        {planCards.map((card) => {
+          const isExpanded = expandedCards[card.personaId] ?? false;
+          const isApproved = card.status === 'approved';
+          const isRejected = card.status === 'rejected';
+          const statusMeta = STATUS_META[card.status];
 
-      {/* Continue CTA */}
-      {hasApproved && (
-        <div className="cv-continue-bar">
-          <button
-            id="cv-start-render-btn"
-            type="button"
-            onClick={onContinue}
-            className="btn-primary"
-          >
-            Start Render →
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
+          return (
+            <article
+              key={card.personaId}
+              className={[
+                'cv-plan-card',
+                isApproved ? 'cv-plan-card--approved' : '',
+                isRejected ? 'cv-plan-card--rejected' : '',
+              ].filter(Boolean).join(' ')}
+            >
+              <div className="cv-card-header">
+                <PersonaAvatar name={card.personaName} avatarUrl={card.personaAvatarUrl} size={36} />
+                <span className="cv-card-persona-name">{card.personaName}</span>
+                <span className={statusMeta.className}>{statusMeta.label}</span>
+              </div>
 
-// ---------------------------------------------------------------------------
-// PersonaPlanCard
-// ---------------------------------------------------------------------------
-
-interface PersonaPlanCardProps {
-  card: PersonaPlanCardViewModel;
-  onApprove: () => void;
-  onReject: () => void;
-  onScriptEdit: (script: string) => void;
-}
-
-function PersonaPlanCard({ card, onApprove, onReject, onScriptEdit }: PersonaPlanCardProps) {
-  const [scriptExpanded, setScriptExpanded] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-  const [editDraft, setEditDraft] = useState(card.scriptPreview);
-
-  const isRejected = card.status === 'rejected';
-  const isApproved = card.status === 'approved';
-
-  const cardClass = [
-    'cv-plan-card',
-    isApproved ? 'cv-plan-card--approved' : '',
-    isRejected ? 'cv-plan-card--rejected' : '',
-  ].filter(Boolean).join(' ');
-
-  const handleEditSave = () => {
-    onScriptEdit(editDraft);
-    setEditMode(false);
-  };
-
-  const handleEditCancel = () => {
-    setEditDraft(card.scriptPreview);
-    setEditMode(false);
-  };
-
-  return (
-    <div className={cardClass}>
-      {/* Card header */}
-      <div className="cv-card-header">
-        <PersonaAvatar name={card.personaName} avatarUrl={card.personaAvatarUrl} size={36} />
-        <span className="cv-card-persona-name">{card.personaName}</span>
-        <StatusBadge status={card.status} />
-      </div>
-
-      {/* Collapsed body for rejected */}
-      {isRejected ? (
-        <div className="cv-card-rejected-hint">
-          Plan rejected. You can un-reject by clicking Approve below.
-        </div>
-      ) : (
-        <div className="cv-card-body">
-          {/* Script preview */}
-          <div>
-            <p className="cv-card-section-label">Script Preview</p>
-
-            {editMode ? (
-              <>
-                <textarea
-                  value={editDraft}
-                  onChange={(e) => setEditDraft(e.target.value)}
-                  rows={5}
-                  autoFocus
-                  className="cv-edit-textarea"
-                />
-                <div className="cv-edit-actions">
-                  <button
-                    type="button"
-                    onClick={handleEditSave}
-                    className="btn-primary btn-sm"
-                  >
-                    Save
-                  </button>
-                  <button type="button" onClick={handleEditCancel} className="btn-secondary btn-sm">
-                    Cancel
-                  </button>
+              <div className="cv-card-body">
+                <div>
+                  <p className="cv-card-section-label">Script Preview</p>
+                  <p className={`cv-script-text${isExpanded ? ' cv-script-text--expanded' : ''}`}>
+                    {card.scriptPreview}
+                  </p>
+                  {card.scriptPreview.length > 180 && (
+                    <button
+                      type="button"
+                      className="cv-script-toggle"
+                      onClick={() => toggleExpanded(card.personaId)}
+                    >
+                      {isExpanded ? 'Show less' : 'Show more'}
+                    </button>
+                  )}
                 </div>
-              </>
-            ) : (
-              <>
-                <p className={`cv-script-text${scriptExpanded ? ' cv-script-text--expanded' : ''}`}>
-                  {card.scriptPreview}
-                </p>
+
+                <div>
+                  <p className="cv-card-section-label">Scene Preview</p>
+                  <ol className="cv-scene-list">
+                    {card.scenes.map((scene) => (
+                      <li key={scene.index} className="cv-scene-item">
+                        <span>{scene.description}</span>
+                        {scene.durationSeconds !== undefined && (
+                          <span className="cv-scene-duration">{scene.durationSeconds}s</span>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              </div>
+
+              {isRejected && (
+                <div className="cv-card-rejected-hint">
+                  This plan will be excluded from the render queue until you approve it again.
+                </div>
+              )}
+
+              <div className="cv-card-action-row">
                 <button
                   type="button"
-                  onClick={() => setScriptExpanded((v) => !v)}
-                  className="cv-script-toggle"
+                  className={[
+                    'cv-action-btn',
+                    'cv-action-btn--reject',
+                    isRejected ? 'cv-action-btn--reject--done' : '',
+                  ].filter(Boolean).join(' ')}
+                  onClick={() => setCardStatus(card.personaId, 'rejected')}
+                  disabled={isRejected}
                 >
-                  {scriptExpanded ? 'Show less' : 'Show more'}
+                  Reject
                 </button>
-              </>
-            )}
-          </div>
+                <button
+                  type="button"
+                  className={[
+                    'cv-action-btn',
+                    'cv-action-btn--approve',
+                    isApproved ? 'cv-action-btn--approve--done' : '',
+                  ].filter(Boolean).join(' ')}
+                  onClick={() => setCardStatus(card.personaId, 'approved')}
+                  disabled={isApproved}
+                >
+                  {isApproved ? 'Approved' : 'Approve'}
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
 
-          {/* Scenes */}
-          <div>
-            <p className="cv-card-section-label">Scenes</p>
-            <ol className="cv-scene-list">
-              {card.scenes.map((scene) => (
-                <li key={scene.index} className="cv-scene-item">
-                  <span>{scene.description}</span>
-                  {scene.durationSeconds !== undefined && (
-                    <span className="cv-scene-duration">({scene.durationSeconds}s)</span>
-                  )}
-                </li>
-              ))}
-            </ol>
-          </div>
-        </div>
-      )}
-
-      {/* Action row */}
-      <div className="cv-card-action-row">
-        <button
-          type="button"
-          onClick={onReject}
-          disabled={isRejected}
-          className={`cv-action-btn cv-action-btn--reject${isRejected ? ' cv-action-btn--reject--done' : ''}`}
-        >
-          Reject
-        </button>
-
-        {!editMode && (
+      <div className="cv-continue-bar">
+        <div className="cv-cta-wrap">
           <button
             type="button"
-            onClick={() => { setEditDraft(card.scriptPreview); setEditMode(true); }}
-            className="cv-action-btn"
+            onClick={canContinue ? onContinue : undefined}
+            disabled={!canContinue}
+            className="btn-primary btn-wide"
           >
-            Edit
+            Render Approved Videos →
           </button>
-        )}
-
-        <button
-          type="button"
-          onClick={onApprove}
-          disabled={isApproved}
-          className={`cv-action-btn cv-action-btn--approve${isApproved ? ' cv-action-btn--approve--done' : ''}`}
-        >
-          {isApproved ? '✓ Approved' : 'Approve'}
-        </button>
+          {!canContinue && (
+            <p className="cv-cta-disabled-reason">
+              Approve at least one persona plan to continue.
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// StatusBadge
-// ---------------------------------------------------------------------------
-
-function StatusBadge({ status }: { status: PlanCardStatus }) {
-  const labelMap: Record<PlanCardStatus, string> = {
-    loading: 'Loading...',
-    demo: 'Demo',
-    ready: 'Ready to review',
-    approved: 'Approved',
-    rejected: 'Rejected',
-    pending_backend: 'Pending backend',
-  };
-
-  const classMap: Record<PlanCardStatus, string> = {
-    loading: 'cv-badge cv-badge--loading',
-    demo: 'cv-badge cv-badge--demo',
-    ready: 'cv-badge cv-badge--ready',
-    approved: 'cv-badge cv-badge--approved',
-    rejected: 'cv-badge cv-badge--rejected',
-    pending_backend: 'cv-badge cv-badge--pending',
-  };
-
-  return <span className={classMap[status]}>{labelMap[status]}</span>;
-}
-
-// ---------------------------------------------------------------------------
-// PersonaAvatar
-// ---------------------------------------------------------------------------
 
 function PersonaAvatar({ name, avatarUrl, size }: { name: string; avatarUrl?: string; size: number }) {
   if (avatarUrl) {
@@ -271,6 +196,7 @@ function PersonaAvatar({ name, avatarUrl, size }: { name: string; avatarUrl?: st
       />
     );
   }
+
   return (
     <div
       className="cv-avatar-fallback"

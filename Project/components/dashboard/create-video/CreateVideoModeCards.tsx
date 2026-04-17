@@ -10,14 +10,14 @@ import type { CreateVideoModeViewModel, VideoCreationMode } from '@/types/video-
 const MODES: CreateVideoModeViewModel[] = [
   {
     id: 'ai_auto',
-    title: 'AI tự quay',
+    title: 'AI Auto-Record',
     description: 'AI handles the full recording and assembly process automatically.',
     badge: 'Default',
     readiness: 'ready',
   },
   {
     id: 'ai_remote',
-    title: 'AI quay từ máy tính',
+    title: 'AI Remote Recording',
     description: 'AI operates a remote computer session to record content.',
     badge: 'Coming later',
     readiness: 'coming_later',
@@ -25,7 +25,7 @@ const MODES: CreateVideoModeViewModel[] = [
   },
   {
     id: 'human_phone',
-    title: 'Người quay từ điện thoại',
+    title: 'Human Phone Recording',
     description: 'Human captures footage on a phone, then AI assembles the final video.',
     badge: 'Coming later',
     readiness: 'coming_later',

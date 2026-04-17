@@ -1,6 +1,52 @@
 import { readPersistedCustomerSession } from "@/lib/customer-session";
 import { getSupabaseClient } from "@/lib/supabase";
 
+function formatApiDetail(detail: unknown): string | null {
+  if (!detail) {
+    return null;
+  }
+
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (typeof item === "string") {
+          return item;
+        }
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+
+        const error = item as { loc?: unknown; msg?: unknown };
+        const location = Array.isArray(error.loc)
+          ? error.loc.filter((part) => part !== "body").join(".")
+          : "";
+        const message = typeof error.msg === "string" ? error.msg : null;
+
+        if (location && message) {
+          return `${location}: ${message}`;
+        }
+        return message;
+      })
+      .filter((message): message is string => Boolean(message));
+
+    return messages.length > 0 ? messages.join("; ") : JSON.stringify(detail);
+  }
+
+  if (typeof detail === "object") {
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return "Customer API request failed.";
+    }
+  }
+
+  return String(detail);
+}
+
 function buildCustomerApiErrorMessage(
   response: Response,
   errorText: string,
@@ -11,9 +57,10 @@ function buildCustomerApiErrorMessage(
   }
 
   try {
-    const payload = JSON.parse(trimmed) as { detail?: string };
-    if (payload.detail) {
-      return payload.detail;
+    const payload = JSON.parse(trimmed) as { detail?: unknown };
+    const detailMessage = formatApiDetail(payload.detail);
+    if (detailMessage) {
+      return detailMessage;
     }
   } catch {}
 

@@ -36,6 +36,14 @@ export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelP
   const domainLabel = extractDomain(sourceUrl) || '—';
   const personaCount = selectedPersonaIds.length;
   const modeLabel = MODE_LABELS[selectedMode] ?? '—';
+  const isSourceReady = urlValidationStatus === 'valid';
+  const isPersonaReady = personaCount > 0;
+  const completedItems = [isSourceReady, isPersonaReady, Boolean(selectedMode)].filter(Boolean).length;
+  const readinessLabel = completedItems === 3 ? 'Ready to review' : `${completedItems}/3 complete`;
+  const readinessClass = completedItems === 3 ? 'cv-summary-status--ready' : 'cv-summary-status--pending';
+  const hintLabel = completedItems === 3
+    ? 'Review your plan when the setup feels right.'
+    : 'Complete the required source and persona choices.';
 
   const validationLabel =
     urlValidationStatus === 'idle'       ? '—' :
@@ -51,8 +59,20 @@ export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelP
 
   return (
     <aside className="cv-summary-panel">
-      {/* Header */}
-      <h3 className="cv-summary-heading">Summary</h3>
+      <div className="cv-summary-header">
+        <span className="cv-summary-eyebrow">Create Video</span>
+        <h3 className="cv-summary-heading">Setup Summary</h3>
+        <div className={`cv-summary-status ${readinessClass}`}>
+          <span className="cv-summary-status-dot" aria-hidden="true" />
+          <span>{readinessLabel}</span>
+        </div>
+      </div>
+
+      <div className="cv-summary-progress" aria-label={`${completedItems} of 3 setup items complete`}>
+        <span className={isSourceReady ? 'cv-summary-progress-step cv-summary-progress-step--done' : 'cv-summary-progress-step'} />
+        <span className={isPersonaReady ? 'cv-summary-progress-step cv-summary-progress-step--done' : 'cv-summary-progress-step'} />
+        <span className="cv-summary-progress-step cv-summary-progress-step--done" />
+      </div>
 
       {/* Fields */}
       <div className="cv-summary-rows">
@@ -82,7 +102,7 @@ export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelP
 
       <hr className="cv-summary-divider" />
 
-      <p className="cv-summary-hint">Next step: Review your plan</p>
+      <p className="cv-summary-hint">{hintLabel}</p>
     </aside>
   );
 }

@@ -43,6 +43,7 @@ import {
 import { OverviewTab } from "./dashboard/OverviewTab";
 import { PersonasTab } from "./dashboard/PersonasTab";
 import { LiveFeedTab } from "./dashboard/LiveFeedTab";
+import { CreateVideoTab } from "./dashboard/CreateVideoTab";
 import { PublishingTab } from "./dashboard/PublishingTab";
 
 
@@ -151,6 +152,7 @@ export type Persona = {
   selection_image_url?: string | null;
   status: string;
   video_count: number;
+  user_id?: string | null;
   language?: string | null;
   tts_voice?: string | null;
   appearance_prompt_or_photo?: string | null;

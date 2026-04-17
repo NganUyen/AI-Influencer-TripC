@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, memo } from "react";
 import {
   Download,
   ExternalLink,
@@ -9,10 +9,10 @@ import {
   Send,
   Upload,
   Wand2,
-  Check,
 } from "lucide-react";
 import { customerApiRequest } from "@/lib/customer-api";
 import { cn } from "@/lib/utils";
+import PersonaSelectionModal from "@/components/dashboard/PersonaSelectionModal";
 import {
   type ReviewEngineJob,
   type ReviewEnginePersonaOption,
@@ -31,7 +31,6 @@ interface LiveFeedTabProps {
   jobs: ReviewEngineJob[];
   reviewEngineError?: string | null;
   initialSourceUrl?: string;
-  initialPersonaIds?: string[];
   onRefresh?: () => Promise<void> | void;
   onNavigateToPersonas?: () => void;
   onNavigateToPublishing?: () => void;
@@ -67,13 +66,12 @@ function buildPersonaFallback(persona: any): ReviewEnginePersonaOption {
   };
 }
 
-export function LiveFeedTab({
+function LiveFeedTab({
   personas,
   setup,
   jobs,
   reviewEngineError,
   initialSourceUrl = "",
-  initialPersonaIds = [],
   onRefresh,
   onNavigateToPersonas,
   onNavigateToPublishing,
@@ -84,6 +82,9 @@ export function LiveFeedTab({
   const [publishToTiktok, setPublishToTiktok] = useState(false);
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
   const [validationResult, setValidationResult] = useState<any>(null);
+  const [validatedSourceUrl, setValidatedSourceUrl] = useState<string>("");
+  const [showPersonaModal, setShowPersonaModal] = useState(false);
+  const [modalPersonaIds, setModalPersonaIds] = useState<string[]>([]);
   const [isValidating, setIsValidating] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [publishingJobId, setPublishingJobId] = useState<string | null>(null);
@@ -112,15 +113,7 @@ export function LiveFeedTab({
     if (!sourceUrl && initialSourceUrl) {
       setSourceUrl(initialSourceUrl);
     }
-  }, [initialSourceUrl, sourceUrl]);
-
-  useEffect(() => {
-    setSelectedPersonas((current) => {
-      if (current.length > 0) return current;
-      if (initialPersonaIds.length > 0) return initialPersonaIds;
-      return personaOptions.slice(0, 8).map((persona) => persona.persona_id);
-    });
-  }, [initialPersonaIds, personaOptions]);
+  }, [initialSourceUrl]); // Removed sourceUrl from dependencies to prevent re-render loop
 
   useEffect(() => {
     setDrafts((current) => {
@@ -133,14 +126,6 @@ export function LiveFeedTab({
       return next;
     });
   }, [jobs]);
-
-  const handleTogglePersona = (personaId: string) => {
-    setSelectedPersonas((current) =>
-      current.includes(personaId)
-        ? current.filter((id) => id !== personaId)
-        : [...current, personaId],
-    );
-  };
 
   const handleValidate = async () => {
     if (!sourceUrl.trim()) return;
@@ -155,6 +140,9 @@ export function LiveFeedTab({
         },
       );
       setValidationResult(payload);
+      setValidatedSourceUrl(sourceUrl.trim());
+      setModalPersonaIds(selectedPersonas);
+      setShowPersonaModal(true);
     } catch (error) {
       setPageError(
         error instanceof Error ? error.message : "Failed to validate source URL",
@@ -167,6 +155,14 @@ export function LiveFeedTab({
   const handleGenerate = async () => {
     if (!sourceUrl.trim()) {
       setPageError("Enter an app URL first.");
+      return;
+    }
+    if (!validationResult) {
+      setPageError("Validate URL before generating output.");
+      return;
+    }
+    if (validatedSourceUrl !== sourceUrl.trim()) {
+      setPageError("URL changed. Validate URL again before generating output.");
       return;
     }
     if (selectedPersonas.length === 0) {
@@ -195,6 +191,12 @@ export function LiveFeedTab({
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const handlePersonaSelectionConfirm = (personaIds: string[]) => {
+    setSelectedPersonas(personaIds);
+    setShowPersonaModal(false);
+    setPageError(null);
   };
 
   const handleSaveJob = async (job: ReviewEngineJob) => {
@@ -298,11 +300,17 @@ export function LiveFeedTab({
                 <input
                   type="url"
                   value={sourceUrl}
-                  onChange={(event) => setSourceUrl(event.target.value)}
+                  onChange={(event) => {
+                    const nextUrl = event.target.value;
+                    setSourceUrl(nextUrl);
+                    if (nextUrl.trim() !== validatedSourceUrl) {
+                      setValidationResult(null);
+                    }
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
-                      void handleGenerate();
+                      void handleValidate();
                     }
                   }}
                   placeholder="Paste App Store, Play Store, or website URL"
@@ -390,7 +398,13 @@ export function LiveFeedTab({
             <button
               type="button"
               onClick={handleGenerate}
-              disabled={isGenerating || selectedPersonas.length === 0 || !sourceUrl.trim()}
+              disabled={
+                isGenerating ||
+                selectedPersonas.length === 0 ||
+                !sourceUrl.trim() ||
+                !validationResult ||
+                validatedSourceUrl !== sourceUrl.trim()
+              }
               className="btn-primary btn-lg flex items-center gap-2 disabled:opacity-50"
             >
               {isGenerating ? (
@@ -469,93 +483,34 @@ export function LiveFeedTab({
       </section>
 
       <section className="space-y-5">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h2 className="text-2xl font-black text-aura-on-surface font-headline">
-              Select Persona Options
-            </h2>
-            <p className="text-sm text-aura-on-surface-variant">
-              English, Chinese, Spanish, Arabic, plus custom personas from your workspace.
+        <div className="flex items-center justify-between flex-wrap gap-4 p-5 rounded-2xl bg-aura-surface-container/40 border border-aura-outline-variant/20">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <h2 className="text-xl font-black text-aura-on-surface font-headline">
+                Persona Selection
+              </h2>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-aura-primary/10 border border-aura-primary/30 text-xs font-bold text-aura-primary">
+                {selectedPersonas.length} selected
+              </span>
+            </div>
+            <p className="text-sm text-aura-on-surface-variant leading-relaxed">
+              Personas are now selected in a modal after URL validation.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (selectedPersonas.length === personaOptions.length) {
-                setSelectedPersonas([]);
-              } else {
-                setSelectedPersonas(personaOptions.map((persona) => persona.persona_id));
-              }
-            }}
-            className="btn-secondary btn-sm"
-          >
-            {selectedPersonas.length === personaOptions.length ? "Deselect All" : "Select All"}
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setModalPersonaIds(selectedPersonas);
+                setShowPersonaModal(true);
+              }}
+              disabled={!validationResult || personaOptions.length === 0}
+              className="btn-secondary btn-sm disabled:opacity-50"
+            >
+              Choose Personas
+            </button>
+          </div>
         </div>
-
-        {personaOptions.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
-            {personaOptions.map((persona) => {
-              const isSelected = selectedPersonas.includes(persona.persona_id);
-              const activeChannels = persona.tiktok_integration?.active_channels || 0;
-              return (
-                <button
-                  key={persona.persona_id}
-                  type="button"
-                  onClick={() => handleTogglePersona(persona.persona_id)}
-                  className={cn(
-                    "dashboard-panel p-4 text-left transition-all border-2",
-                    isSelected
-                      ? "border-aura-primary bg-aura-primary/5"
-                      : "border-transparent hover:border-aura-outline-variant/20",
-                  )}
-                >
-                  <img
-                    alt={persona.display_name}
-                    className="w-full aspect-[4/5] rounded-2xl object-cover mb-4"
-                    src={
-                      persona.selection_image_url ||
-                      persona.image_url ||
-                      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=800&auto=format&fit=crop"
-                    }
-                    onError={(e) => {
-                      const img = e.target as HTMLImageElement;
-                      if (!img.src?.includes("images.unsplash.com")) {
-                        img.src = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=800&auto=format&fit=crop";
-                      }
-                    }}
-                  />
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="font-black text-aura-on-surface truncate">
-                        {persona.display_name}
-                      </p>
-                      {isSelected && <Check className="w-4 h-4 text-aura-primary" />}
-                    </div>
-                    <p className="text-xs text-aura-on-surface-variant uppercase tracking-widest">
-                      {persona.region_label || persona.language || "Global"}
-                    </p>
-                    <p className="text-xs text-aura-on-surface-variant line-clamp-2">
-                      {persona.description || "Ready for regional app review production."}
-                    </p>
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className={cn("rounded-full border px-2.5 py-1 font-bold", statusPillClass(activeChannels > 0 ? "published" : "draft"))}>
-                        {activeChannels > 0 ? "TikTok active" : "TikTok inactive"}
-                      </span>
-                      {persona.demo?.available && (
-                        <span className="text-aura-primary font-bold">Demo</span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="dashboard-panel-soft p-10 text-center text-aura-on-surface-variant">
-            No personas found yet.
-          </div>
-        )}
       </section>
 
       <section className="space-y-5">
@@ -779,6 +734,17 @@ export function LiveFeedTab({
           </div>
         )}
       </section>
+      <PersonaSelectionModal
+        isOpen={showPersonaModal}
+        validationResult={validationResult}
+        personas={personaOptions}
+        selectedPersonaIds={modalPersonaIds}
+        onChangeSelectedPersonaIds={setModalPersonaIds}
+        onClose={() => setShowPersonaModal(false)}
+        onConfirm={handlePersonaSelectionConfirm}
+      />
     </div>
   );
 }
+
+export default memo(LiveFeedTab);

@@ -135,12 +135,12 @@ class ProxyLease:
         now = now or datetime.now(timezone.utc)
         return now < self.expires_at
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, *, include_credentials: bool = False) -> Dict[str, Any]:
         return {
             "lease_id": self.lease_id,
             "account_key": self.account_key,
             "platform": self.platform,
-            "proxy": self.proxy.proxy_payload(),
+            "proxy": self.proxy.proxy_payload(include_credentials=include_credentials),
             "proxy_details": self.proxy.to_dict(),
             "leased_at": self.leased_at.isoformat(),
             "expires_at": self.expires_at.isoformat(),
@@ -387,6 +387,7 @@ class ProxyManagerService:
         region_name: Optional[str] = None,
         sticky: bool = True,
         lease_minutes: int = DEFAULT_LEASE_MINUTES,
+        include_credentials: bool = False,
     ) -> Dict[str, Any]:
         if not account_key:
             raise ValueError("account_key is required")
@@ -397,7 +398,7 @@ class ProxyManagerService:
             now = datetime.now(timezone.utc)
             existing = cls._leases.get(account_key)
             if sticky and existing and existing.is_active(now):
-                return existing.to_dict()
+                return existing.to_dict(include_credentials=include_credentials)
 
             proxy = cls._select_proxy(
                 account_key=account_key,
@@ -416,7 +417,7 @@ class ProxyManagerService:
                 sticky=sticky,
             )
             cls._leases[account_key] = lease
-            return lease.to_dict()
+            return lease.to_dict(include_credentials=include_credentials)
 
     @classmethod
     async def release_proxy(cls, account_key: str) -> Dict[str, Any]:

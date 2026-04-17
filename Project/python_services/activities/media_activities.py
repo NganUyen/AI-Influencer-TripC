@@ -1494,7 +1494,9 @@ async def _capture_browser_video(
         if user_id:
             try:
                 lease = await ProxyManagerService.lease_proxy(
-                    account_key=str(user_id), platform="generic"
+                    account_key=str(user_id),
+                    platform="generic",
+                    include_credentials=True,
                 )
                 proxy_config = lease.get("proxy")
                 logger.info(

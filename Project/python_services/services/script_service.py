@@ -141,9 +141,13 @@ class ScriptService:
                 user_id="system",
                 context={"app_name": app_name, "topic": topic, "language": language},
             )
-            
+
             # Extract JSON from OpenClaw result
-            data = result if isinstance(result.get("script"), str) else result.get("result", result)
+            data = (
+                result
+                if isinstance(result.get("script"), str)
+                else result.get("result", result)
+            )
             if isinstance(data, str):
                 data = extract_json_from_llm_response(data)
         except Exception as e:
@@ -200,13 +204,17 @@ class ScriptService:
 
         beats = package["beat_sheet"]["beats"]
         concept_brief = package.get("concept_brief") or {}
-        default_source_ref = str(concept_brief.get("reference_url") or "").strip() or None
+        default_source_ref = (
+            str(concept_brief.get("reference_url") or "").strip() or None
+        )
 
         # Log the default source_ref for debugging
         logger.info(
             "Generating script from package | beats=%d | default_source_ref=%s",
             len(beats),
-            default_source_ref[:60] if default_source_ref else "NONE (no reference_url in concept_brief)",
+            default_source_ref[:60]
+            if default_source_ref
+            else "NONE (no reference_url in concept_brief)",
         )
 
         # Normalize beats: backfill missing source_ref from alternative field names
@@ -237,7 +245,7 @@ class ScriptService:
                     f"Invalid top_half_source_type {raw_source_type!r} for Beat {index}. "
                     f"Valid options are: {sorted(VALID_TOP_HALF_SOURCE_TYPES)}"
                 )
-            
+
             if raw_source_type not in VALID_TOP_HALF_SOURCE_TYPES:
                 raise ValueError(
                     f"Invalid top_half_source_type {raw_source_type!r} for Beat {index}. "
@@ -247,7 +255,7 @@ class ScriptService:
 
             top_half_target = beat.get("top_half_target", "")
             beat_duration = float(beat.get("duration_sec", 4))
-            
+
             # After normalization, source_ref should be present for URL-required types
             source_ref = beat.get("source_ref")
 
@@ -314,7 +322,9 @@ class ScriptService:
         persona_config: dict,
     ) -> tuple[ScriptContract, RecordingScriptContract]:
         plan = VideoReviewPlanContract.model_validate(review_plan)
-        page_review = plan.page_review.model_dump(mode="json") if plan.page_review else {}
+        page_review = (
+            plan.page_review.model_dump(mode="json") if plan.page_review else {}
+        )
 
         prompt = (
             "You are a product video planner for an autonomous browser recording agent.\n\n"
@@ -390,21 +400,42 @@ class ScriptService:
         try:
             raw_steps = data.get("steps") or data.get("scenes") or []
             if not raw_steps:
+                # Log detailed debug info for troubleshooting
+                import logging
+
+                logger = logging.getLogger(__name__)
+                logger.error(
+                    f"No recording steps in OpenClaw response. "
+                    f"App: {app_name}, "
+                    f"Persona: {plan.persona_id}, "
+                    f"Response keys: {list(data.keys())}, "
+                    f"Full response: {data}"
+                )
                 raise ValueError("No recording steps were returned")
             steps = [
                 RecordingScriptStepContract(
                     idx=int(item.get("idx") or item.get("id") or index),
                     purpose=str(item.get("purpose") or "feature_demo").strip(),
-                    screen_target=str(item.get("screen_target") or item.get("prompt") or "Product page").strip(),
-                    action=str(item.get("action") or item.get("prompt") or "Open the page and hold the main section").strip(),
-                    visual_success_criteria=str(
-                        item.get("visual_success_criteria") or "The intended UI section is clearly visible."
+                    screen_target=str(
+                        item.get("screen_target") or "Product page"
                     ).strip(),
-                    narration_intent=str(item.get("narration_intent") or item.get("caption") or "Explain what the viewer is seeing.").strip(),
+                    action=str(
+                        item.get("action") or "Open the page and hold the main section"
+                    ).strip(),
+                    visual_success_criteria=str(
+                        item.get("visual_success_criteria")
+                        or "The intended UI section is clearly visible."
+                    ).strip(),
+                    narration_intent=str(
+                        item.get("narration_intent")
+                        or "Explain what the viewer is seeing."
+                    ).strip(),
                     capture_hint=str(item.get("capture_hint") or "scroll").strip(),
                     requires_login=bool(item.get("requires_login")),
                     source_ref=plan.target_url,
-                    max_capture_seconds=max(8, min(60, int(item.get("max_capture_seconds") or 8))),
+                    max_capture_seconds=max(
+                        8, min(60, int(item.get("max_capture_seconds") or 8))
+                    ),
                 )
                 for index, item in enumerate(raw_steps, start=1)
                 if isinstance(item, dict)
@@ -416,7 +447,12 @@ class ScriptService:
             )
             scenes = []
             current_timestamp = 0.0
-            scene_duration = max(4.0, round((float(data.get("duration_estimate") or 40) / max(len(steps), 1)), 2))
+            scene_duration = max(
+                4.0,
+                round(
+                    (float(data.get("duration_estimate") or 40) / max(len(steps), 1)), 2
+                ),
+            )
             for step in steps:
                 scenes.append(
                     SceneContract(
@@ -440,14 +476,18 @@ class ScriptService:
                             else "orchestrated"
                         ),
                         top_half_follow_links=True,
-                        top_half_max_capture_seconds=max(8, min(60, step.max_capture_seconds)),
+                        top_half_max_capture_seconds=max(
+                            8, min(60, step.max_capture_seconds)
+                        ),
                         source_ref=plan.target_url,
                     )
                 )
                 current_timestamp += scene_duration
             script = ScriptContract(
                 script=str(data.get("script") or "").strip(),
-                duration_estimate=float(data.get("duration_estimate") or current_timestamp or 40.0),
+                duration_estimate=float(
+                    data.get("duration_estimate") or current_timestamp or 40.0
+                ),
                 scenes=scenes,
             )
         except Exception as exc:

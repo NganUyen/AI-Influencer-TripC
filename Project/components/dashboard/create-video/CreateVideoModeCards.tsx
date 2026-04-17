@@ -1,5 +1,6 @@
 'use client';
 
+import '@/app/create-video.css';
 import type { CreateVideoModeViewModel, VideoCreationMode } from '@/types/video-planning';
 
 // ---------------------------------------------------------------------------
@@ -47,17 +48,18 @@ interface CreateVideoModeCardsProps {
 
 export function CreateVideoModeCards({ selectedMode, onSelect }: CreateVideoModeCardsProps) {
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, 1fr)',
-        gap: '12px',
-      }}
-      className="create-video-mode-cards"
-    >
+    <div className="cv-mode-cards">
       {MODES.map((mode) => {
         const isSelected = selectedMode === mode.id;
         const isDisabled = mode.readiness === 'coming_later';
+
+        const cardClass = [
+          'cv-mode-card',
+          isSelected ? 'cv-mode-card--selected' : '',
+          isDisabled ? 'cv-mode-card--disabled' : '',
+        ]
+          .filter(Boolean)
+          .join(' ');
 
         return (
           <button
@@ -67,98 +69,30 @@ export function CreateVideoModeCards({ selectedMode, onSelect }: CreateVideoMode
             onClick={() => !isDisabled && onSelect(mode.id)}
             aria-pressed={isSelected}
             aria-disabled={isDisabled}
-            style={{
-              textAlign: 'left',
-              padding: '16px',
-              borderRadius: '12px',
-              border: isSelected
-                ? '2px solid var(--color-border-info, #3b82f6)'
-                : '1px solid var(--color-border-tertiary, rgba(255,255,255,0.12))',
-              background: isSelected
-                ? 'var(--color-surface-info-subtle, rgba(59,130,246,0.08))'
-                : 'var(--color-surface-secondary, rgba(255,255,255,0.04))',
-              opacity: isDisabled ? 0.6 : 1,
-              cursor: isDisabled ? 'not-allowed' : 'pointer',
-              transition: 'border-color 0.15s ease, background 0.15s ease, opacity 0.15s ease',
-              minHeight: '44px',
-              position: 'relative',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px',
-            }}
+            className={cardClass}
           >
             {/* Badge */}
             <span
-              style={{
-                display: 'inline-flex',
-                alignSelf: 'flex-start',
-                alignItems: 'center',
-                padding: '2px 8px',
-                borderRadius: '999px',
-                fontSize: '11px',
-                fontWeight: 600,
-                letterSpacing: '0.02em',
-                background:
-                  mode.readiness === 'ready'
-                    ? 'var(--color-badge-success-bg, rgba(34,197,94,0.15))'
-                    : 'var(--color-badge-warning-bg, rgba(234,179,8,0.15))',
-                color:
-                  mode.readiness === 'ready'
-                    ? 'var(--color-badge-success-text, #86efac)'
-                    : 'var(--color-badge-warning-text, #fde68a)',
-              }}
+              className={
+                mode.readiness === 'ready'
+                  ? 'cv-mode-badge cv-mode-badge--ready'
+                  : 'cv-mode-badge cv-mode-badge--coming'
+              }
             >
               {mode.badge}
             </span>
 
             {/* Title */}
-            <span
-              style={{
-                fontSize: '14px',
-                fontWeight: 500,
-                color: 'var(--color-on-surface, #f4f4f5)',
-                lineHeight: 1.3,
-              }}
-            >
-              {mode.title}
-            </span>
+            <span className="cv-mode-title">{mode.title}</span>
 
             {/* Description */}
-            <span
-              style={{
-                fontSize: '12px',
-                color: 'var(--color-on-surface-variant, rgba(244,244,245,0.6))',
-                lineHeight: 1.5,
-              }}
-            >
-              {mode.description}
-            </span>
+            <span className="cv-mode-desc">{mode.description}</span>
 
             {/* Note */}
-            {mode.note && (
-              <span
-                style={{
-                  fontSize: '11px',
-                  color: 'var(--color-on-surface-variant, rgba(244,244,245,0.45))',
-                  lineHeight: 1.5,
-                  marginTop: '2px',
-                }}
-              >
-                {mode.note}
-              </span>
-            )}
+            {mode.note && <span className="cv-mode-note">{mode.note}</span>}
           </button>
         );
       })}
-
-      {/* Responsive styles */}
-      <style>{`
-        @media (max-width: 640px) {
-          .create-video-mode-cards {
-            grid-template-columns: 1fr !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }

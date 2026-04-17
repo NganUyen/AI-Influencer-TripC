@@ -1635,6 +1635,10 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                 userPersonas={userPersonas}
                 telegramBotUrl={telegramBotUrl || undefined}
                 onNavigateToCreateVideo={() => navigateToTab("create_video")}
+                onRefreshPersonas={async () => {
+                  clearWorkspaceCache();
+                  await loadWorkspace();
+                }}
               />
             )}
 

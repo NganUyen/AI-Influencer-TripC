@@ -10,6 +10,10 @@ import {
   Upload,
   Wand2,
   Check,
+  Monitor,
+  User,
+  Cpu,
+  Tv,
 } from "lucide-react";
 import { customerApiRequest } from "@/lib/customer-api";
 import { cn } from "@/lib/utils";
@@ -29,6 +33,7 @@ interface LiveFeedTabProps {
   personas: any[];
   setup: ReviewEngineSetup | null;
   jobs: ReviewEngineJob[];
+  plans?: any[];
   reviewEngineError?: string | null;
   initialSourceUrl?: string;
   initialPersonaIds?: string[];
@@ -91,6 +96,8 @@ export function LiveFeedTab({
   const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [activeStep, setActiveStep] = useState<1 | 2 | 3 | 4>(1);
+  const [activePlanForReview, setActivePlanForReview] = useState<any | null>(null);
 
   const personaOptions = useMemo(() => {
     const map = new Map<string, ReviewEnginePersonaOption>();
@@ -118,7 +125,12 @@ export function LiveFeedTab({
     setSelectedPersonas((current) => {
       if (current.length > 0) return current;
       if (initialPersonaIds.length > 0) return initialPersonaIds;
-      return personaOptions.slice(0, 8).map((persona) => persona.persona_id);
+      
+      const defaultIds = personaOptions.slice(0, 8).map((persona) => persona.persona_id);
+      // Preventing infinite loop by ensuring we don't return a new empty array 
+      // if it's already empty and there are no default personas to select.
+      if (defaultIds.length === 0 && current.length === 0) return current;
+      return defaultIds;
     });
   }, [initialPersonaIds, personaOptions]);
 
@@ -155,6 +167,10 @@ export function LiveFeedTab({
         },
       );
       setValidationResult(payload);
+      if (payload.suggested_objective) {
+        setObjective(payload.suggested_objective);
+      }
+      setActiveStep(2);
     } catch (error) {
       setPageError(
         error instanceof Error ? error.message : "Failed to validate source URL",
@@ -177,7 +193,7 @@ export function LiveFeedTab({
     setPageError(null);
     setIsGenerating(true);
     try {
-      await customerApiRequest("/api/customer/review-engine/jobs", {
+      const result = await customerApiRequest<any>("/api/customer/review-engine/jobs", {
         method: "POST",
         body: JSON.stringify({
           source_url: sourceUrl.trim(),
@@ -187,7 +203,15 @@ export function LiveFeedTab({
           publish_to_tiktok: publishToTiktok,
         }),
       });
-      await onRefresh?.();
+      
+      // If result contains jobs/plans, pick the first one to show in Review step
+      if (result.jobs && result.jobs.length > 0) {
+        setActivePlanForReview(result.jobs[0]);
+        setActiveStep(3);
+      } else {
+        await onRefresh?.();
+        setActiveStep(4);
+      }
     } catch (error) {
       setPageError(
         error instanceof Error ? error.message : "Failed to create review jobs",
@@ -201,11 +225,15 @@ export function LiveFeedTab({
     setPageError(null);
     setSavingJobId(job.job_id);
     try {
-      await customerApiRequest(`/api/customer/review-engine/jobs/${job.job_id}`, {
+      const endpoint = job.plan_id ? `/api/customer/review-engine/plans/${job.plan_id}` : `/api/customer/review-engine/jobs/${job.job_id}`;
+      await customerApiRequest(endpoint, {
         method: "PATCH",
         body: JSON.stringify({
-          title: job.content?.title || job.page_title || "App Review",
-          content: drafts[job.job_id] || "",
+          script_text: drafts[job.job_id] || job.script?.script || "",
+          publish_settings: {
+             ...job.publish_settings,
+             caption_draft: drafts[job.job_id] || "",
+          }
         }),
       });
       await onRefresh?.();
@@ -218,14 +246,22 @@ export function LiveFeedTab({
     }
   };
 
-  const handlePublishJob = async (jobId: string) => {
+  const handlePublishJob = async (job: ReviewEngineJob) => {
     setPageError(null);
-    setPublishingJobId(jobId);
+    setPublishingJobId(job.job_id);
     try {
-      await customerApiRequest(`/api/customer/review-engine/jobs/${jobId}/publish`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
+      // For new schema, approve triggers the workflow
+      if (job.plan_id) {
+         await customerApiRequest(`/api/customer/review-engine/plans/${job.plan_id}/approve`, {
+           method: "POST",
+           body: JSON.stringify({ approved: true }),
+         });
+      } else {
+         await customerApiRequest(`/api/customer/review-engine/jobs/${job.job_id}/publish`, {
+           method: "POST",
+           body: JSON.stringify({}),
+         });
+      }
       await onRefresh?.();
       onNavigateToPublishing?.();
     } catch (error) {
@@ -286,8 +322,44 @@ export function LiveFeedTab({
         </div>
       )}
 
-      <section className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-        <div className="xl:col-span-7 dashboard-panel p-8 space-y-6">
+      <div className="flex items-center gap-4 mb-8">
+        {[
+          { step: 1, label: "Validate URL" },
+          { step: 2, label: "Review Design" },
+          { step: 3, label: "Approve Script" },
+          { step: 4, label: "Production Feed" },
+        ].map((s) => (
+          <button
+            key={s.step}
+            onClick={() => setActiveStep(s.step as any)}
+            className="flex items-center gap-3 group transition-all"
+            disabled={s.step > activeStep && !validationResult}
+          >
+            <div className={cn(
+              "w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all",
+              activeStep === s.step 
+                ? "bg-aura-primary text-aura-on-primary ring-4 ring-aura-primary/10 shadow-lg" 
+                : s.step < activeStep 
+                  ? "bg-emerald-500 text-white" 
+                  : "bg-aura-surface-container text-aura-on-surface-variant opacity-50"
+            )}>
+              {s.step < activeStep ? <Check className="w-4 h-4" /> : s.step}
+            </div>
+            <span className={cn(
+              "text-[10px] uppercase tracking-widest font-black transition-all",
+              activeStep === s.step ? "text-aura-on-surface" : "text-aura-on-surface-variant opacity-40 group-hover:opacity-60"
+            )}>
+              {s.label}
+            </span>
+            {s.step < 4 && <div className="w-8 h-[2px] bg-aura-outline/10" />}
+          </button>
+        ))}
+      </div>
+
+      {(activeStep === 1 || activeStep === 2) && (
+        <>
+        <section className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+          <div className="xl:col-span-7 dashboard-panel p-8 space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-4 items-end">
             <div className="space-y-2">
               <label className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant">
@@ -320,17 +392,20 @@ export function LiveFeedTab({
             </button>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant">
-              Content Objective
-            </label>
-            <textarea
-              value={objective}
-              onChange={(event) => setObjective(event.target.value)}
-              className="w-full rounded-3xl bg-aura-surface-container px-5 py-4 min-h-[120px] outline-none text-sm text-aura-on-surface"
-              placeholder="Describe what the content should focus on."
-            />
-          </div>
+          {/* Hide Content Objective in Step 1 as requested - it will appear for review in Step 3 */}
+          {activeStep === 3 && (
+            <div className="space-y-2">
+              <label className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant">
+                Content Objective
+              </label>
+              <textarea
+                value={objective}
+                onChange={(event) => setObjective(event.target.value)}
+                className="w-full rounded-3xl bg-aura-surface-container px-5 py-4 min-h-[120px] outline-none text-sm text-aura-on-surface"
+                placeholder="Describe what the content should focus on."
+              />
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <button
@@ -557,8 +632,117 @@ export function LiveFeedTab({
           </div>
         )}
       </section>
+      </>
+      )}
 
-      <section className="space-y-5">
+      {activeStep === 3 && activePlanForReview && (
+        <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+           <div className="dashboard-panel p-10 space-y-8">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-3xl font-black text-aura-on-surface font-headline">Review Content Plan</h2>
+                  <p className="text-sm text-aura-on-surface-variant mt-1">Review the AI-generated script and scene breakdown before rendering.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                   <button 
+                    onClick={() => setActiveStep(2)}
+                    className="btn-secondary btn-sm"
+                   >
+                     Back to Setup
+                   </button>
+                   <button 
+                    onClick={() => handlePublishJob(activePlanForReview)}
+                    disabled={publishingJobId === activePlanForReview.job_id}
+                    className="btn-primary btn-lg flex items-center gap-2"
+                   >
+                     {publishingJobId === activePlanForReview.job_id ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                     Send to Render
+                   </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+                 <div className="lg:col-span-7 space-y-6">
+                    <div className="space-y-4">
+                      <label className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant">Content Objective</label>
+                      <textarea 
+                        value={objective}
+                        onChange={(e) => setObjective(e.target.value)}
+                        className="w-full rounded-3xl bg-aura-surface-container-low px-8 py-4 min-h-[100px] outline-none text-base text-aura-on-surface border border-aura-outline/5 focus:border-aura-primary/30 transition-all font-body"
+                        placeholder="What should the AI focus on in this review?"
+                      />
+                    </div>
+                    <div className="space-y-4">
+                      <label className="text-[11px] font-black uppercase tracking-widest text-aura-on-surface-variant">Editable Script</label>
+                      <textarea 
+                        value={drafts[activePlanForReview.job_id] || activePlanForReview.script?.script || ""}
+                        onChange={(e) => setDrafts(prev => ({ ...prev, [activePlanForReview.job_id]: e.target.value }))}
+                        className="w-full rounded-3xl bg-aura-surface-container-low px-8 py-6 min-h-[400px] outline-none text-base leading-relaxed text-aura-on-surface border border-aura-outline/5 focus:border-aura-primary/30 transition-all font-body"
+                      />
+                      <div className="flex justify-end">
+                        <button 
+                          onClick={() => handleSaveJob(activePlanForReview)}
+                          disabled={savingJobId === activePlanForReview.job_id}
+                          className="btn-secondary btn-sm flex items-center gap-2"
+                        >
+                          {savingJobId === activePlanForReview.job_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                          Save Draft
+                        </button>
+                      </div>
+                    </div>
+                 </div>
+
+                 <div className="lg:col-span-5 space-y-8">
+                    <div className="rounded-3xl bg-aura-surface-container-low p-8 border border-aura-outline/5">
+                      <h3 className="text-sm font-black text-aura-on-surface uppercase tracking-widest mb-6">Scene Preview</h3>
+                      <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                        {(activePlanForReview.script?.scenes || []).map((scene: any, idx: number) => {
+                          const Icon = scene.top_half_source_type === "screen_recording" ? Monitor : 
+                                       scene.top_half_source_type === "talking_head" ? User : Tv;
+                          return (
+                            <div key={idx} className="p-5 rounded-2xl bg-aura-surface-container border border-aura-outline/5 space-y-3 group hover:border-aura-primary/20 transition-all">
+                               <div className="flex items-center justify-between">
+                                 <div className="flex items-center gap-2">
+                                   <div className="w-6 h-6 rounded-lg bg-aura-primary/10 flex items-center justify-center">
+                                      <Icon className="w-3.5 h-3.5 text-aura-primary" />
+                                   </div>
+                                   <span className="text-[10px] font-black text-aura-on-surface uppercase tracking-widest">Scene {idx + 1}</span>
+                                 </div>
+                                 <span className="text-[10px] text-aura-on-surface-variant opacity-60 font-mono bg-aura-surface-container-low px-2 py-0.5 rounded-md">
+                                   {scene.timestamp_start}s - {scene.timestamp_end}s
+                                 </span>
+                               </div>
+                               <p className="text-xs text-aura-on-surface font-medium leading-relaxed group-hover:text-aura-primary transition-colors">{scene.caption}</p>
+                               <div className="pt-1 flex flex-wrap gap-2">
+                                  <div className="px-2 py-0.5 rounded-md bg-aura-surface-container-high text-[9px] font-bold text-aura-on-surface-variant uppercase tracking-tighter border border-aura-outline/5">
+                                    {scene.top_half_source_type?.replace(/_/g, " ")}
+                                  </div>
+                                  {scene.audio_policy && (
+                                    <div className="px-2 py-0.5 rounded-md bg-aura-primary/5 text-[9px] font-bold text-aura-primary uppercase tracking-tighter">
+                                      VO Active
+                                    </div>
+                                  )}
+                               </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl bg-aura-primary/5 p-8 border border-aura-primary/10">
+                      <h3 className="text-sm font-black text-aura-primary uppercase tracking-widest mb-4">Production Note</h3>
+                      <p className="text-xs text-aura-on-surface-variant leading-relaxed italic">
+                        "Your selected persona ({activePlanForReview.persona?.display_name}) will deliver this script with a natural, engaging tone. Ensure the key features of the app are highlighted in the script for best conversion."
+                      </p>
+                    </div>
+                 </div>
+              </div>
+           </div>
+        </section>
+      )}
+
+      {activeStep === 4 && (
+      <section className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h2 className="text-2xl font-black text-aura-on-surface font-headline">
@@ -670,10 +854,23 @@ export function LiveFeedTab({
                       </div>
 
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                        <div className="rounded-3xl bg-aura-surface-container-low p-5 space-y-3">
-                          <p className="text-[10px] uppercase tracking-widest text-aura-on-surface-variant font-bold">
-                            Editable Content
-                          </p>
+                        <div className="rounded-3xl bg-aura-surface-container-low p-6 space-y-4 border border-aura-outline/5">
+                          <div className="flex items-center justify-between">
+                            <p className="text-[10px] uppercase tracking-widest text-aura-on-surface-variant font-bold">
+                              Captions & Script
+                            </p>
+                            {job.status === "generated" && (
+                              <button
+                                onClick={() => {
+                                  setActivePlanForReview(job);
+                                  setActiveStep(3);
+                                }}
+                                className="text-[10px] font-bold text-aura-primary uppercase hover:underline"
+                              >
+                                Full Editor
+                              </button>
+                            )}
+                          </div>
                           <textarea
                             value={drafts[job.job_id] || ""}
                             onChange={(event) =>
@@ -682,15 +879,17 @@ export function LiveFeedTab({
                                 [job.job_id]: event.target.value,
                               }))
                             }
-                            className="w-full min-h-[180px] rounded-2xl bg-white px-4 py-4 outline-none text-sm text-aura-on-surface"
+                            placeholder="Drafting your review script..."
+                            className="w-full min-h-[160px] rounded-2xl bg-aura-surface-container-high/50 border border-aura-outline/10 px-4 py-4 outline-none text-sm text-aura-on-surface focus:border-aura-primary/30 transition-all font-body"
                           />
                           <button
                             type="button"
                             onClick={() => void handleSaveJob(job)}
                             disabled={savingJobId === job.job_id}
-                            className="btn-secondary btn-sm disabled:opacity-50"
+                            className="btn-secondary btn-sm w-full py-2.5 flex items-center justify-center gap-2"
                           >
-                            {savingJobId === job.job_id ? "Saving..." : "Save Content"}
+                            {savingJobId === job.job_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                            {savingJobId === job.job_id ? "Saving..." : "Save Changes"}
                           </button>
                         </div>
 
@@ -750,11 +949,9 @@ export function LiveFeedTab({
                             <button
                               type="button"
                               disabled={
-                                !job.production?.ready ||
-                                job.publish?.status === "published" ||
-                                publishingJobId === job.job_id
+                                publishingJobId === job.job_id || (!job.plan_id && !job.production?.ready)
                               }
-                              onClick={() => void handlePublishJob(job.job_id)}
+                              onClick={() => void handlePublishJob(job)}
                               className="btn-primary btn-sm flex items-center gap-2 disabled:opacity-50"
                             >
                               {publishingJobId === job.job_id ? (
@@ -762,7 +959,7 @@ export function LiveFeedTab({
                               ) : (
                                 <Send className="w-4 h-4" />
                               )}
-                              {job.publish?.status === "published" ? "Published" : "Publish"}
+                              {statusLabel === "Generated" || job.status === "generated" || job.status === "edited" ? "Send to Render" : "Publish to TikTok"}
                             </button>
                           </div>
                         </div>
@@ -779,6 +976,7 @@ export function LiveFeedTab({
           </div>
         )}
       </section>
+      )}
     </div>
   );
 }

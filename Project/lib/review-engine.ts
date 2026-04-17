@@ -58,7 +58,9 @@ export type ReviewEngineSetup = {
 
 export type ReviewEngineJob = {
   job_id: string;
+  plan_id?: string | null;
   workflow_id: string;
+  run_id?: string | null;
   type?: string | null;
   status: string;
   current_step?: string | null;
@@ -97,18 +99,37 @@ export type ReviewEngineJob = {
     post_url?: string | null;
     publish_error?: string | null;
   };
+  publish_settings?: {
+    content_title?: string | null;
+    caption_draft?: string | null;
+    tiktok_channel_id?: string | null;
+  } | null;
   recording_script?: unknown;
   script?: {
     script?: string | null;
+    scenes?: any[] | null;
   } | null;
+  editable_content?: string | null;
   review_plan?: unknown;
   campaign_id?: string | null;
+  persona_id?: string | null;
+  target_platform?: string | null;
+  created_at?: string | null;
+  published_at?: string | null;
+  scheduled_at?: string | null;
   updated_at?: string | null;
   started_at?: string | null;
 };
 
 export type ReviewEngineJobResponse = {
   jobs: ReviewEngineJob[];
+};
+
+export type ReviewEngineSourceValidateResponse = {
+  normalized_url: string;
+  page_title: string;
+  suggested_objective?: string | null;
+  visible_features: any[];
 };
 
 export function getReviewJobTone(

@@ -245,19 +245,6 @@ def test_launch_campaign_returns_temporal_payload(monkeypatch):
 
 
 def test_create_review_engine_job_skips_campaign_creation_without_brand_profile(monkeypatch):
-    class _FakeReviewContract:
-        page_title = "Chrome Store Listing"
-        normalized_url = "https://play.google.com/store/apps/details?id=com.android.chrome"
-        login_required = False
-
-        def model_dump(self, mode: str = "python"):
-            assert mode == "json"
-            return {
-                "normalized_url": self.normalized_url,
-                "page_title": self.page_title,
-                "visible_features": [],
-            }
-
     class _FakeScriptContract:
         def model_dump(self):
             return {
@@ -270,10 +257,19 @@ def test_create_review_engine_job_skips_campaign_creation_without_brand_profile(
         return _session()
 
     async def fake_review_url(url, objective=None, user_id=None):
+        from services.contracts import WebPageReviewContract
+
         assert url == "https://play.google.com/store/apps/details?id=com.android.chrome"
         assert objective == "Review"
         assert user_id == _session().user_id
-        return _FakeReviewContract()
+        return WebPageReviewContract(
+            target_url=url,
+            normalized_url=url,
+            page_title="Chrome Store Listing",
+            product_summary="Chrome app listing",
+            access_level="unknown",
+            login_required=False,
+        )
 
     async def fake_get_persona(persona_id, user_id=None):
         assert persona_id == "persona-1"
@@ -302,11 +298,37 @@ def test_create_review_engine_job_skips_campaign_creation_without_brand_profile(
     async def fail_create_campaign(*args, **kwargs):
         raise AssertionError("campaign creation should be skipped when brand profile is missing")
 
+    async def fake_create_jobs(*, session, payload, temporal_client=None):
+        assert session.user_id == _session().user_id
+        assert payload["target_personas"] == ["persona-1"]
+        assert temporal_client is None
+        return {
+            "status": "success",
+            "jobs": [
+                {
+                    "persona_id": "persona-1",
+                    "campaign_id": None,
+                    "script": {
+                        "script": "Generated review script",
+                        "duration_estimate": 40,
+                        "scenes": [],
+                    },
+                }
+            ],
+            "warnings": [
+                {
+                    "code": "brand_onboarding_incomplete",
+                    "message": "Brand profile is missing.",
+                }
+            ],
+        }
+
     monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
     monkeypatch.setattr(customer.BrandProfileService, "get_for_user", fake_get_for_user)
     monkeypatch.setattr(customer.AccountConnectionService, "list_accounts", fake_list_accounts)
     monkeypatch.setattr(customer.TelegramLinkService, "get_link_for_user", fake_get_telegram_link)
     monkeypatch.setattr(customer.CustomerCampaignService, "create_campaign", fail_create_campaign)
+    monkeypatch.setattr(customer.AppReviewStudioService, "create_jobs", fake_create_jobs)
     monkeypatch.setattr(customer.PersonaRegistryService, "get_persona", fake_get_persona)
     monkeypatch.setattr(
         "services.website_review_service.WebsiteReviewService.review_url",
@@ -531,6 +553,133 @@ def test_get_customer_workspace_returns_aggregated_payload(monkeypatch):
     assert payload["brand"]["product_name"] == "TripC"
     assert payload["ai_backbone"]["access_mode"] == "platform_managed"
     assert payload["customer"]["email"] == "founder@example.com"
+
+
+def test_create_persona_studio_session_returns_state(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_start_session(*, app, user_id, session_id=None):
+        assert app is not None
+        assert user_id == _session().user_id
+        assert session_id is None
+        return {
+            "session_id": "studio-1",
+            "status": "collecting",
+            "step_key": "choose_creation_mode",
+            "messages": [
+                {"id": "msg-1", "role": "assistant", "content": "How would you like to build your persona?"}
+            ],
+            "composer": {"enabled": False, "kind": "action", "placeholder": "Choose an option below..."},
+            "actions": [{"id": "manual", "label": "Create Manually", "value": "manual", "kind": "action"}],
+            "preview": None,
+            "persona": None,
+            "readiness": None,
+            "can_finalize": False,
+        }
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.PersonaStudioService, "start_session", fake_start_session)
+
+    client = _build_client()
+    response = client.post(
+        "/api/customer/persona-studio/sessions",
+        headers={"Authorization": "Bearer customer-token"},
+        json={},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["session_id"] == "studio-1"
+    assert payload["step_key"] == "choose_creation_mode"
+    assert payload["messages"][0]["role"] == "assistant"
+
+
+def test_append_persona_studio_message_forwards_action(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_append_message(*, app, user_id, session_id, kind, content=None, action=None, value=None):
+        assert app is not None
+        assert user_id == _session().user_id
+        assert session_id == "studio-1"
+        assert kind == "action"
+        assert action == "manual"
+        assert value == "manual"
+        assert content is None
+        return {
+            "session_id": session_id,
+            "status": "collecting",
+            "step_key": "collect_persona_id",
+            "messages": [
+                {"id": "msg-1", "role": "user", "content": "Create Manually"}
+            ],
+            "composer": {"enabled": True, "kind": "text", "placeholder": "Send a unique ID for the new persona."},
+            "actions": [],
+            "preview": None,
+            "persona": None,
+            "readiness": None,
+            "can_finalize": False,
+        }
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.PersonaStudioService, "append_message", fake_append_message)
+
+    client = _build_client()
+    response = client.post(
+        "/api/customer/persona-studio/sessions/studio-1/messages",
+        headers={"Authorization": "Bearer customer-token"},
+        json={"kind": "action", "action": "manual", "value": "manual"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["session_id"] == "studio-1"
+    assert payload["step_key"] == "collect_persona_id"
+
+
+def test_commit_persona_studio_finalize_returns_saved_persona(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_commit(*, app, user_id, session_id, mode):
+        assert app is not None
+        assert user_id == _session().user_id
+        assert session_id == "studio-1"
+        assert mode == "finalize"
+        return {
+            "session_id": session_id,
+            "status": "done",
+            "step_key": "preview",
+            "messages": [
+                {"id": "msg-1", "role": "system", "content": "Persona finalized."}
+            ],
+            "composer": {"enabled": False, "kind": "action", "placeholder": "Choose an option below..."},
+            "actions": [],
+            "preview": {
+                "image_url": "https://cdn.example/avatar.png",
+                "persona": {"persona_id": "custom-zoe-founder", "display_name": "Zoe Founder"},
+                "readiness": {"ready": True},
+            },
+            "persona": {"persona_id": "custom-zoe-founder", "display_name": "Zoe Founder"},
+            "readiness": {"ready": True},
+            "can_finalize": True,
+        }
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.PersonaStudioService, "commit", fake_commit)
+
+    client = _build_client()
+    response = client.post(
+        "/api/customer/persona-studio/sessions/studio-1/commit",
+        headers={"Authorization": "Bearer customer-token"},
+        json={"mode": "finalize"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "done"
+    assert payload["persona"]["persona_id"] == "custom-zoe-founder"
 
 
 def test_inspect_video_capture_handoff_requires_matching_customer(monkeypatch):

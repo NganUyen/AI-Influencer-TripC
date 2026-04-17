@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
@@ -22,6 +23,7 @@ import {
 import { SocialIcon } from "@/components/ui/SocialIcon";
 
 import { customerApiRequest } from "@/lib/customer-api";
+import { getDashboardTabHref } from "@/lib/dashboard-tabs";
 import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 import { DashboardHeader } from "@/components/DashboardHeader";
@@ -38,13 +40,27 @@ import {
   getReviewJobStatusLabel,
   getReviewJobTone,
 } from "@/lib/review-engine";
-
-import { OverviewTab } from "./dashboard/OverviewTab";
-import { PersonasTab } from "./dashboard/PersonasTab";
-import { CreateVideoTab } from "./dashboard/CreateVideoTab";
-import { PublishingTab } from "./dashboard/PublishingTab";
 import { MemoryTab } from "./dashboard/MemoryTab";
+import { DashboardLoadingSkeleton } from "./dashboard/skeletons/DashboardLoadingSkeleton";
 
+const OverviewTab = dynamic(
+  () => import("./dashboard/OverviewTab").then((mod) => mod.OverviewTab),
+  { loading: () => <DashboardLoadingSkeleton /> },
+);
+const PersonasTab = dynamic(
+  () => import("./dashboard/PersonasTab").then((mod) => mod.PersonasTab),
+  { loading: () => <DashboardLoadingSkeleton /> },
+);
+const CreateVideoTab = dynamic(
+  () => import("./dashboard/CreateVideoTab").then((mod) => mod.CreateVideoTab),
+  { loading: () => <DashboardLoadingSkeleton /> },
+);
+const PublishingTab = dynamic(
+  () => import("./dashboard/PublishingTab").then((mod) => mod.PublishingTab),
+  { loading: () => <DashboardLoadingSkeleton /> },
+);
+
+const LIVE_SYSTEM_DATA_TABS = new Set<DashboardTabId>(["overview", "ops"]);
 
 
 export type BrandProfile = {
@@ -440,7 +456,6 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
   const [isPollingTelegramLink, setIsPollingTelegramLink] = useState(false);
   const [reviewEngineSetup, setReviewEngineSetup] = useState<ReviewEngineSetup | null>(null);
   const [reviewEngineJobs, setReviewEngineJobs] = useState<ReviewEngineJob[]>([]);
-
   const [campaignDraft, setCampaignDraft] = useState({
     name: "",
     description: "",
@@ -538,13 +553,18 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
   }, [isAuthenticated, logout, router]);
 
   useEffect(() => {
-    if (activeTab !== "memory") {
+    if (!LIVE_SYSTEM_DATA_TABS.has(activeTab)) {
       return;
     }
     void fetchSystemData();
     const interval = setInterval(fetchSystemData, 30000);
     return () => clearInterval(interval);
   }, [activeTab, fetchSystemData]);
+
+  // Prefetch the create_video route to reduce lag when navigating
+  useEffect(() => {
+    router.prefetch(getDashboardTabHref("create_video"));
+  }, [router]);
 
   useEffect(() => {
     const oauthStatus = searchParams.get("oauth_status");

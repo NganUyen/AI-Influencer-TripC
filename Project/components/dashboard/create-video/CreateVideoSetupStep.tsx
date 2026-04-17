@@ -1,7 +1,6 @@
 'use client';
 
-import '@/app/create-video.css';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { CreateVideoSetupState, VideoCreationMode } from '@/types/video-planning';
 import type { Persona } from '@/components/customer-dashboard';
 import { CreateVideoModeCards } from './CreateVideoModeCards';
@@ -40,8 +39,42 @@ export function CreateVideoSetupStep({
   } = setupState;
 
   const [isBriefExpanded, setIsBriefExpanded] = useState(false);
-  const [isPersonasExpanded, setIsPersonasExpanded] = useState(true);
   const validationAbortRef = useRef<AbortController | null>(null);
+
+  const selectedPersonaSet = useMemo(
+    () => new Set(selectedPersonaIds),
+    [selectedPersonaIds],
+  );
+
+  const systemPersonas = useMemo(
+    () => personas.filter((p) => !p.user_id || p.is_preset_catalog),
+    [personas],
+  );
+
+  const customPersonas = useMemo(
+    () => personas.filter((p) => p.user_id && !p.is_preset_catalog),
+    [personas],
+  );
+
+  const systemPersonaIds = useMemo(
+    () => systemPersonas.map((p) => p.persona_id),
+    [systemPersonas],
+  );
+
+  const customPersonaIds = useMemo(
+    () => customPersonas.map((p) => p.persona_id),
+    [customPersonas],
+  );
+
+  const areAllSystemPersonasSelected = useMemo(
+    () => systemPersonaIds.every((id) => selectedPersonaSet.has(id)),
+    [selectedPersonaSet, systemPersonaIds],
+  );
+
+  const areAllCustomPersonasSelected = useMemo(
+    () => customPersonaIds.every((id) => selectedPersonaSet.has(id)),
+    [customPersonaIds, selectedPersonaSet],
+  );
 
   // -------------------------------------------------------------------------
   // URL validation on blur
@@ -90,25 +123,12 @@ export function CreateVideoSetupStep({
   // Persona selection toggle
   // -------------------------------------------------------------------------
 
-  const togglePersona = (id: string) => {
-    const next = selectedPersonaIds.includes(id)
+  const togglePersona = useCallback((id: string) => {
+    const next = selectedPersonaSet.has(id)
       ? selectedPersonaIds.filter((p) => p !== id)
       : [...selectedPersonaIds, id];
     onChange({ selectedPersonaIds: next });
-  };
-
-  const selectAllPersonas = () => {
-    const allIds = personas.map((p) => p.persona_id);
-    onChange({ selectedPersonaIds: allIds });
-  };
-
-  const deselectAllPersonas = () => {
-    onChange({ selectedPersonaIds: [] });
-  };
-
-  // Split personas into system and custom
-  const systemPersonas = personas.filter((p) => !p.user_id || p.is_preset_catalog);
-  const customPersonas = personas.filter((p) => p.user_id && !p.is_preset_catalog);
+  }, [onChange, selectedPersonaIds, selectedPersonaSet]);
 
   // -------------------------------------------------------------------------
   // Continue guard
@@ -131,260 +151,338 @@ export function CreateVideoSetupStep({
   // -------------------------------------------------------------------------
 
   return (
-    <>
-      {/* Keyframes live in create-video.css */}
-      <div className="cv-setup-grid">
-        {/* ---------------------------------------------------------------- */}
-        {/* LEFT — Form                                                       */}
-        {/* ---------------------------------------------------------------- */}
-        <div className="cv-field-form">
+    <div className="cv-setup-grid">
+      {/* ===== LEFT COLUMN: Form Sections (Stacked Cards) ===== */}
+      <div className="cv-field-form">
 
-          {/* Recording Mode */}
-          <div className="cv-field-group">
-            <span className="cv-field-label">Recording Mode <span className="cv-required-star">*</span></span>
+        {/* ============== SECTION 1: Recording Mode ============== */}
+        <div className="cv-section-card">
+          <div className="cv-section-header">
+            <h3 className="cv-section-title">
+              Recording Mode
+              <span className="cv-section-badge cv-section-badge--required">Required</span>
+            </h3>
+          </div>
+          <div className="cv-section-content">
             <CreateVideoModeCards
               selectedMode={selectedMode}
               onSelect={(mode: VideoCreationMode) => onChange({ selectedMode: mode })}
             />
           </div>
+        </div>
 
-          {/* Personas — collapsible */}
-          <div className="cv-field-group">
-            <button
-              type="button"
-              className="cv-field-label--toggle"
-              onClick={() => setIsPersonasExpanded((v) => !v)}
-            >
-              Personas <span className="cv-required-star">*</span>
-              <span className={`cv-brief-chevron${isPersonasExpanded ? ' cv-brief-chevron--open' : ''}`}>▼</span>
-            </button>
-            {isPersonasExpanded && (
+        {/* ============== SECTION 2: Source & Objective ============== */}
+        <div className="cv-section-card">
+          <div className="cv-section-header">
+            <h3 className="cv-section-title">
+              Source & Objective
+              <span className="cv-section-badge cv-section-badge--required">Required</span>
+            </h3>
+          </div>
+          <div className="cv-section-content">
+            {/* Source URL */}
+            <div className="cv-field-group">
+              <label htmlFor="cv-source-url" className="cv-field-label">
+                Source URL
+              </label>
+              <div className="cv-input-wrap">
+                <input
+                  id="cv-source-url"
+                  type="url"
+                  placeholder="https://example.com/product"
+                  value={sourceUrl}
+                  onChange={(e) =>
+                    onChange({ sourceUrl: e.target.value, urlValidationStatus: 'idle', urlValidationMessage: undefined })
+                  }
+                  onBlur={handleUrlBlur}
+                  className="cv-input"
+                />
+                {urlValidationStatus === 'validating' && (
+                  <span className="cv-spinner" aria-label="Validating" />
+                )}
+              </div>
+              {urlValidationStatus === 'valid' && urlValidationMessage && (
+                <p className="cv-validation-msg cv-validation-msg--valid">✓ {urlValidationMessage}</p>
+              )}
+              {urlValidationStatus === 'invalid' && urlValidationMessage && (
+                <p className="cv-validation-msg cv-validation-msg--invalid">✗ {urlValidationMessage}</p>
+              )}
+              {urlValidationStatus === 'validating' && (
+                <p className="cv-validation-msg cv-validation-msg--loading">Validating source...</p>
+              )}
+            </div>
+
+            {/* Video Objective */}
+            <div className="cv-field-group">
+              <label htmlFor="cv-objective" className="cv-field-label">
+                Video Objective
+              </label>
+              <div className="cv-input-wrap">
+                <textarea
+                  id="cv-objective"
+                  placeholder="Describe the goal of this video (e.g. drive signups, showcase a feature…)"
+                  value={objective}
+                  onChange={(e) => onChange({ objective: e.target.value.slice(0, 200) })}
+                  rows={3}
+                  className="cv-input cv-textarea"
+                />
+                <span className={`cv-char-count${objective.length >= 160 ? ' cv-char-count--warn' : ''}`}>
+                  {objective.length}/200
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ============== SECTION 3: Personas ============== */}
+        <div className="cv-section-card">
+          <div className="cv-section-header">
+            <h3 className="cv-section-title">
+              Personas
+              <span className="cv-section-badge cv-section-badge--required">Required</span>
+            </h3>
+            <span className="cv-persona-count">
+              {selectedPersonaIds.length > 0 && `${selectedPersonaIds.length} selected`}
+            </span>
+          </div>
+          <div className="cv-section-content">
+            {personas.length === 0 ? (
+              <div className="cv-empty-box">
+                No personas available — create one in the <strong>Personas</strong> tab.
+              </div>
+            ) : (
               <>
-                {personas.length === 0 ? (
-                  <div className="cv-empty-box">
-                    No personas available — create one in the <strong>Personas</strong> tab.
+                {/* System Personas */}
+                {systemPersonas.length > 0 && (
+                  <div className="cv-persona-group">
+                    <div className="cv-persona-group-header">
+                      <h4 className="cv-persona-group-title">System Personas</h4>
+                      <button
+                        type="button"
+                        className="cv-persona-action-btn"
+                        onClick={() => {
+                          const systemIds = new Set(systemPersonaIds);
+                          const newSelected = areAllSystemPersonasSelected
+                            ? selectedPersonaIds.filter((id) => !systemIds.has(id))
+                            : [...new Set([...selectedPersonaIds, ...systemPersonaIds])];
+                          onChange({ selectedPersonaIds: newSelected });
+                        }}
+                      >
+                        {areAllSystemPersonasSelected ? 'Deselect All' : 'Select All'}
+                      </button>
+                    </div>
+                    <div className="cv-persona-list">
+                      {systemPersonas.map((p) => {
+                        const selected = selectedPersonaSet.has(p.persona_id);
+                        return (
+                          <button
+                            key={p.persona_id}
+                            type="button"
+                            onClick={() => togglePersona(p.persona_id)}
+                            aria-pressed={selected}
+                            className={`cv-persona-option${selected ? ' cv-persona-option--selected' : ''}`}
+                          >
+                            {p.avatar_image_url ? (
+                              <img
+                                src={p.avatar_image_url}
+                                alt={p.display_name}
+                                className="cv-persona-avatar"
+                                loading="lazy"
+                                decoding="async"
+                              />
+                            ) : (
+                              <div className="cv-persona-avatar-fallback">
+                                {p.display_name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            <span className={`cv-persona-name${selected ? ' cv-persona-name--selected' : ''}`}>
+                              {p.display_name}
+                            </span>
+                            {selected && (
+                              <span className="cv-persona-check" aria-hidden="true">✓</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                ) : (
-                  <>
-                    {/* System Personas */}
-                    {systemPersonas.length > 0 && (
-                      <div>
-                        <div className="cv-persona-group-header">
-                          <h4 className="cv-persona-group-title">System Personas</h4>
-                          <div className="cv-persona-group-actions">
-                            <button
-                              type="button"
-                              className="cv-persona-action-btn"
-                              onClick={() => {
-                                const systemIds = systemPersonas.map((p) => p.persona_id);
-                                const newSelected = systemIds.every((id) => selectedPersonaIds.includes(id))
-                                  ? selectedPersonaIds.filter((id) => !systemIds.includes(id))
-                                  : [...new Set([...selectedPersonaIds, ...systemIds])];
-                                onChange({ selectedPersonaIds: newSelected });
-                              }}
-                            >
-                              {systemPersonas.every((p) => selectedPersonaIds.includes(p.persona_id)) ? 'Deselect All' : 'Select All'}
-                            </button>
-                          </div>
-                        </div>
-                        <div className="cv-persona-list">
-                          {systemPersonas.map((p) => {
-                            const selected = selectedPersonaIds.includes(p.persona_id);
-                            return (
-                              <button
-                                key={p.persona_id}
-                                type="button"
-                                onClick={() => togglePersona(p.persona_id)}
-                                aria-pressed={selected}
-                                className={`cv-persona-option${selected ? ' cv-persona-option--selected' : ''}`}
-                              >
-                                {p.avatar_image_url ? (
-                                  <img
-                                    src={p.avatar_image_url}
-                                    alt={p.display_name}
-                                    className="cv-persona-avatar"
-                                  />
-                                ) : (
-                                  <div className="cv-persona-avatar-fallback">
-                                    {p.display_name.charAt(0).toUpperCase()}
-                                  </div>
-                                )}
-                                <span className={`cv-persona-name${selected ? ' cv-persona-name--selected' : ''}`}>
-                                  {p.display_name}
-                                </span>
-                                {selected && (
-                                  <span className="cv-persona-check" aria-hidden="true">✓</span>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
+                )}
 
-                    {/* Custom Personas */}
-                    {customPersonas.length > 0 && (
-                      <div>
-                        <div className="cv-persona-group-header">
-                          <h4 className="cv-persona-group-title">Custom Personas</h4>
-                          <div className="cv-persona-group-actions">
-                            <button
-                              type="button"
-                              className="cv-persona-action-btn"
-                              onClick={() => {
-                                const customIds = customPersonas.map((p) => p.persona_id);
-                                const newSelected = customIds.every((id) => selectedPersonaIds.includes(id))
-                                  ? selectedPersonaIds.filter((id) => !customIds.includes(id))
-                                  : [...new Set([...selectedPersonaIds, ...customIds])];
-                                onChange({ selectedPersonaIds: newSelected });
-                              }}
-                            >
-                              {customPersonas.every((p) => selectedPersonaIds.includes(p.persona_id)) ? 'Deselect All' : 'Select All'}
-                            </button>
-                          </div>
-                        </div>
-                        <div className="cv-persona-list">
-                          {customPersonas.map((p) => {
-                            const selected = selectedPersonaIds.includes(p.persona_id);
-                            return (
-                              <button
-                                key={p.persona_id}
-                                type="button"
-                                onClick={() => togglePersona(p.persona_id)}
-                                aria-pressed={selected}
-                                className={`cv-persona-option${selected ? ' cv-persona-option--selected' : ''}`}
-                              >
-                                {p.avatar_image_url ? (
-                                  <img
-                                    src={p.avatar_image_url}
-                                    alt={p.display_name}
-                                    className="cv-persona-avatar"
-                                  />
-                                ) : (
-                                  <div className="cv-persona-avatar-fallback">
-                                    {p.display_name.charAt(0).toUpperCase()}
-                                  </div>
-                                )}
-                                <span className={`cv-persona-name${selected ? ' cv-persona-name--selected' : ''}`}>
-                                  {p.display_name}
-                                </span>
-                                {selected && (
-                                  <span className="cv-persona-check" aria-hidden="true">✓</span>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </>
+                {/* Custom Personas */}
+                {customPersonas.length > 0 && (
+                  <div className="cv-persona-group">
+                    <div className="cv-persona-group-header">
+                      <h4 className="cv-persona-group-title">Custom Personas</h4>
+                      <button
+                        type="button"
+                        className="cv-persona-action-btn"
+                        onClick={() => {
+                          const customIds = new Set(customPersonaIds);
+                          const newSelected = areAllCustomPersonasSelected
+                            ? selectedPersonaIds.filter((id) => !customIds.has(id))
+                            : [...new Set([...selectedPersonaIds, ...customPersonaIds])];
+                          onChange({ selectedPersonaIds: newSelected });
+                        }}
+                      >
+                        {areAllCustomPersonasSelected ? 'Deselect All' : 'Select All'}
+                      </button>
+                    </div>
+                    <div className="cv-persona-list">
+                      {customPersonas.map((p) => {
+                        const selected = selectedPersonaSet.has(p.persona_id);
+                        return (
+                          <button
+                            key={p.persona_id}
+                            type="button"
+                            onClick={() => togglePersona(p.persona_id)}
+                            aria-pressed={selected}
+                            className={`cv-persona-option${selected ? ' cv-persona-option--selected' : ''}`}
+                          >
+                            {p.avatar_image_url ? (
+                              <img
+                                src={p.avatar_image_url}
+                                alt={p.display_name}
+                                className="cv-persona-avatar"
+                                loading="lazy"
+                                decoding="async"
+                              />
+                            ) : (
+                              <div className="cv-persona-avatar-fallback">
+                                {p.display_name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            <span className={`cv-persona-name${selected ? ' cv-persona-name--selected' : ''}`}>
+                              {p.display_name}
+                            </span>
+                            {selected && (
+                              <span className="cv-persona-check" aria-hidden="true">✓</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
               </>
             )}
           </div>
+        </div>
 
-          {/* Source URL */}
-          <div className="cv-field-group">
-            <label htmlFor="cv-source-url" className="cv-field-label">
-              Source URL <span className="cv-required-star">*</span>
-            </label>
-            <div className="cv-input-wrap">
-              <input
-                id="cv-source-url"
-                type="url"
-                placeholder="https://example.com/product"
-                value={sourceUrl}
-                onChange={(e) =>
-                  onChange({ sourceUrl: e.target.value, urlValidationStatus: 'idle', urlValidationMessage: undefined })
-                }
-                onBlur={handleUrlBlur}
-                className="cv-input"
-              />
-              {urlValidationStatus === 'validating' && (
-                <span className="cv-spinner" aria-label="Validating" />
-              )}
+        {/* ============== SECTION 4: Movement & Gesture (Optional) ============== */}
+        <div className="cv-section-card">
+          <div className="cv-section-header">
+            <h3 className="cv-section-title">
+              Movement & Gesture
+              <span className="cv-section-badge cv-section-badge--optional">Optional</span>
+            </h3>
+          </div>
+          <div className="cv-section-content">
+            <p className="cv-field-label" style={{ fontSize: '13px', color: '#5c5c58' }}>
+              Gesture Style
+            </p>
+            <div className="cv-gesture-chips">
+              {['Natural', 'Expressive', 'Minimal', 'Energetic', 'Professional', 'Casual', 'Storytelling', 'Calm'].map((style) => (
+                <button
+                  key={style}
+                  type="button"
+                  className="cv-gesture-chip"
+                  onClick={() => alert(`Selected: ${style}`)}
+                >
+                  {style}
+                </button>
+              ))}
             </div>
-            {urlValidationStatus === 'valid' && urlValidationMessage && (
-              <p className="cv-validation-msg cv-validation-msg--valid">✓ {urlValidationMessage}</p>
-            )}
-            {urlValidationStatus === 'invalid' && urlValidationMessage && (
-              <p className="cv-validation-msg cv-validation-msg--invalid">✗ {urlValidationMessage}</p>
-            )}
-            {urlValidationStatus === 'validating' && (
-              <p className="cv-validation-msg cv-validation-msg--loading">Validating source...</p>
-            )}
-          </div>
 
-          {/* Video Objective */}
-          <div className="cv-field-group">
-            <label htmlFor="cv-objective" className="cv-field-label">
-              Video Objective <span className="cv-required-star">*</span>
-            </label>
-            <div className="cv-input-wrap">
-              <textarea
-                id="cv-objective"
-                placeholder="Describe the goal of this video (e.g. drive signups, showcase a feature…)"
-                value={objective}
-                onChange={(e) => onChange({ objective: e.target.value.slice(0, 200) })}
-                rows={3}
-                className="cv-input cv-textarea"
-              />
-              <span className={`cv-char-count${objective.length >= 160 ? ' cv-char-count--warn' : ''}`}>
-                {objective.length}/200
-              </span>
-            </div>
-          </div>
-
-          {/* Brief — collapsible */}
-          <div className="cv-field-group">
-            <button
-              type="button"
-              className="cv-field-label--toggle"
-              onClick={() => setIsBriefExpanded((v) => !v)}
-            >
-              Brief
-              <span className={`cv-brief-chevron${isBriefExpanded ? ' cv-brief-chevron--open' : ''}`}>▼</span>
-              <span className="cv-field-optional">(optional)</span>
-            </button>
-            {isBriefExpanded && (
-              <div className="cv-input-wrap">
-                <textarea
-                  id="cv-brief"
-                  placeholder="Any additional context, brand guidelines, or tone requirements…"
-                  value={brief ?? ''}
-                  onChange={(e) => onChange({ brief: e.target.value.slice(0, 500) })}
-                  rows={4}
-                  className="cv-input cv-textarea"
-                />
-                <span className={`cv-char-count${(brief ?? '').length >= 400 ? ' cv-char-count--warn' : ''}`}>
-                  {(brief ?? '').length}/500
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* CTA */}
-          <div className="cv-cta-wrap">
-            <button
-              id="cv-continue-btn"
-              type="button"
-              onClick={canContinue ? onContinue : undefined}
-              disabled={!canContinue}
-              className="btn-primary btn-wide"
-            >
-              Review Plan →
-            </button>
-            {!canContinue && disabledReason && (
-              <p className="cv-cta-disabled-reason">{disabledReason}</p>
-            )}
+            <p className="cv-field-label" style={{ fontSize: '13px', color: '#5c5c58', marginTop: '12px' }}>
+              Gesture Intensity
+            </p>
+            <input type="range" min="0" max="100" defaultValue="50" className="cv-slider" />
           </div>
         </div>
 
-        {/* ---------------------------------------------------------------- */}
-        {/* RIGHT — Summary panel                                             */}
-        {/* ---------------------------------------------------------------- */}
-        <CreateVideoSummaryPanel setupState={setupState} />
+        {/* ============== SECTION 5: Background Music (Optional) ============== */}
+        <div className="cv-section-card">
+          <div className="cv-section-header">
+            <h3 className="cv-section-title">
+              Background Music
+              <span className="cv-section-badge cv-section-badge--optional">Optional</span>
+            </h3>
+          </div>
+          <div className="cv-section-content">
+            <div className="cv-bgm-mood-cards">
+              {['None', 'Upbeat', 'Corporate', 'Ambient', 'Cinematic', 'Lo-fi'].map((mood) => (
+                <button
+                  key={mood}
+                  type="button"
+                  className="cv-bgm-mood-card"
+                  onClick={() => alert(`Selected: ${mood}`)}
+                >
+                  <span className="cv-bgm-mood-icon">♪</span>
+                  <span className="cv-bgm-mood-label">{mood}</span>
+                </button>
+              ))}
+            </div>
+
+            <p className="cv-field-label" style={{ fontSize: '13px', color: '#5c5c58', marginTop: '12px' }}>
+              Volume
+            </p>
+            <input type="range" min="0" max="100" defaultValue="70" className="cv-slider" />
+          </div>
+        </div>
+
+        {/* ============== OPTIONAL: Brief ============== */}
+        <div className="cv-section-card">
+          <button
+            type="button"
+            className="cv-section-header cv-section-header--toggle"
+            onClick={() => setIsBriefExpanded((v) => !v)}
+          >
+            <h3 className="cv-section-title">
+              Brief
+              <span className="cv-section-badge cv-section-badge--optional">Optional</span>
+            </h3>
+            <span className={`cv-toggle-chevron${isBriefExpanded ? ' cv-toggle-chevron--open' : ''}`}>▼</span>
+          </button>
+          {isBriefExpanded && (
+            <div className="cv-section-content">
+              <div className="cv-field-group">
+                <div className="cv-input-wrap">
+                  <textarea
+                    id="cv-brief"
+                    placeholder="Any additional context, brand guidelines, or tone requirements…"
+                    value={brief ?? ''}
+                    onChange={(e) => onChange({ brief: e.target.value.slice(0, 500) })}
+                    rows={4}
+                    className="cv-input cv-textarea"
+                  />
+                  <span className={`cv-char-count${(brief ?? '').length >= 400 ? ' cv-char-count--warn' : ''}`}>
+                    {(brief ?? '').length}/500
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ============== CTA ============== */}
+        <div className="cv-cta-wrap">
+          <button
+            id="cv-continue-btn"
+            type="button"
+            onClick={canContinue ? onContinue : undefined}
+            disabled={!canContinue}
+            className="btn-primary btn-wide"
+          >
+            Review Plan →
+          </button>
+          {!canContinue && disabledReason && (
+            <p className="cv-cta-disabled-reason">{disabledReason}</p>
+          )}
+        </div>
       </div>
-    </>
+
+      {/* ===== RIGHT COLUMN: Summary Sidebar (Sticky) ===== */}
+      <CreateVideoSummaryPanel setupState={setupState} />
+    </div>
   );
 }

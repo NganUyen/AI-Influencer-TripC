@@ -9,7 +9,6 @@ import {
   Sparkles,
   Video,
   Share2,
-  Info,
   Loader2,
   X,
   Link,
@@ -29,6 +28,11 @@ import { customerApiRequest } from "@/lib/customer-api";
 import { cn } from "@/lib/utils";
 import { PersonaGroup } from "./personas/PersonaGroup";
 import { PersonaSkeleton } from "./personas/PersonaSkeleton";
+import { PersonaStudioPanel } from "./personas/PersonaStudioPanel";
+import type {
+  PersonaStudioAction,
+  PersonaStudioSessionState,
+} from "@/types/persona-studio";
 
 /* ── Types ────────────────────────────────────────────────────────────────── */
 
@@ -58,6 +62,7 @@ interface PersonasTabProps {
   userPersonas: Persona[];
   telegramBotUrl?: string | null;
   onNavigateToCreateVideo?: () => void;
+  onRefreshPersonas?: () => Promise<void>;
 }
 
 type TikTokConnectionState = "connected_demo" | "not_connected" | "needs_reconnect";
@@ -90,7 +95,12 @@ function toTikTokChannelStatus(persona: Persona): TikTokChannelStatus {
 
 /* ── Main Component ─────────────────────────────────────────────────────── */
 
-export function PersonasTab({ defaultPersonas, userPersonas, onNavigateToCreateVideo }: PersonasTabProps) {
+export function PersonasTab({
+  defaultPersonas,
+  userPersonas,
+  onNavigateToCreateVideo,
+  onRefreshPersonas,
+}: PersonasTabProps) {
   // Combine personas for backward compatibility with existing logic
   const personas = [...defaultPersonas, ...userPersonas];
 
@@ -117,6 +127,10 @@ export function PersonasTab({ defaultPersonas, userPersonas, onNavigateToCreateV
   const [isTiktokModalOpen, setIsTiktokModalOpen] = useState(false);
   const [tiktokUrlDraft, setTiktokUrlDraft] = useState("");
   const [composer, setComposer] = useState("");
+  const [studioState, setStudioState] = useState<PersonaStudioSessionState | null>(null);
+  const [studioError, setStudioError] = useState<string | null>(null);
+  const [isStudioBusy, setIsStudioBusy] = useState(false);
+  const [draftSaved, setDraftSaved] = useState(false);
 
   React.useEffect(() => {
     const selected = personas.find((p) => p.persona_id === selectedPersonaId);
@@ -132,6 +146,19 @@ export function PersonasTab({ defaultPersonas, userPersonas, onNavigateToCreateV
       setIsEditing(false);
     }
   }, [selectedPersonaId, personas]);
+
+  React.useEffect(() => {
+    if (!selectedPersonaId && personas[0]?.persona_id) {
+      setSelectedPersonaId(personas[0].persona_id);
+      return;
+    }
+    if (
+      selectedPersonaId &&
+      !personas.some((persona) => persona.persona_id === selectedPersonaId)
+    ) {
+      setSelectedPersonaId(personas[0]?.persona_id ?? null);
+    }
+  }, [personas, selectedPersonaId]);
 
   const handleSave = async () => {
     if (!selectedPersonaId) return;
@@ -150,7 +177,7 @@ export function PersonasTab({ defaultPersonas, userPersonas, onNavigateToCreateV
         body: JSON.stringify(payload),
       });
       setIsEditing(false);
-      window.location.reload();
+      await onRefreshPersonas?.();
     } catch (e: any) {
       alert("Error saving adjustments: " + e.message);
     } finally {
@@ -172,7 +199,7 @@ export function PersonasTab({ defaultPersonas, userPersonas, onNavigateToCreateV
         }
       );
       setIsEditing(false);
-      window.location.reload();
+      await onRefreshPersonas?.();
     } catch (e: any) {
       alert("Error rebuilding avatar: " + e.message);
     } finally {
@@ -212,6 +239,133 @@ export function PersonasTab({ defaultPersonas, userPersonas, onNavigateToCreateV
     setIsTiktokModalOpen(false);
   };
 
+  const runStudioMutation = async (
+    operation: () => Promise<PersonaStudioSessionState>,
+  ) => {
+    setIsStudioBusy(true);
+    setStudioError(null);
+    try {
+      const nextState = await operation();
+      setStudioState(nextState);
+      return nextState;
+    } catch (error) {
+      setStudioError(
+        error instanceof Error ? error.message : "Persona studio request failed",
+      );
+      throw error;
+    } finally {
+      setIsStudioBusy(false);
+    }
+  };
+
+  const handleOpenStudio = async () => {
+    setIsCreationOpen(true);
+    setDraftSaved(false);
+    if (studioState) {
+      return;
+    }
+    try {
+      await runStudioMutation(() =>
+        customerApiRequest<PersonaStudioSessionState>(
+          "/api/customer/persona-studio/sessions",
+          {
+            method: "POST",
+            body: JSON.stringify({}),
+          },
+        ),
+      );
+    } catch {}
+  };
+
+  const handleStudioText = async (content: string) => {
+    if (!studioState?.session_id) return;
+    setDraftSaved(false);
+    try {
+      await runStudioMutation(() =>
+        customerApiRequest<PersonaStudioSessionState>(
+          `/api/customer/persona-studio/sessions/${studioState.session_id}/messages`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              kind: "text",
+              content,
+            }),
+          },
+        ),
+      );
+    } catch {}
+  };
+
+  const handleStudioAction = async (action: PersonaStudioAction) => {
+    if (!studioState?.session_id) return;
+    setDraftSaved(false);
+    try {
+      await runStudioMutation(() =>
+        customerApiRequest<PersonaStudioSessionState>(
+          `/api/customer/persona-studio/sessions/${studioState.session_id}/messages`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              kind: "action",
+              action: action.value,
+              value: action.value,
+            }),
+          },
+        ),
+      );
+    } catch {}
+  };
+
+  const handleSaveDraft = async () => {
+    if (!studioState?.session_id) return;
+    try {
+      await runStudioMutation(() =>
+        customerApiRequest<PersonaStudioSessionState>(
+          `/api/customer/persona-studio/sessions/${studioState.session_id}/commit`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              mode: "save_draft",
+            }),
+          },
+        ),
+      );
+      setDraftSaved(true);
+    } catch {}
+  };
+
+  const handleFinalizeStudio = async () => {
+    if (!studioState?.session_id || !studioState.can_finalize) return;
+    let nextState: PersonaStudioSessionState | null = null;
+    try {
+      nextState = await runStudioMutation(() =>
+        customerApiRequest<PersonaStudioSessionState>(
+          `/api/customer/persona-studio/sessions/${studioState.session_id}/commit`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              mode: "finalize",
+            }),
+          },
+        ),
+      );
+    } catch {
+      return;
+    }
+    if (!nextState) return;
+    const personaId =
+      typeof nextState.persona?.persona_id === "string"
+        ? nextState.persona.persona_id
+        : null;
+    await onRefreshPersonas?.();
+    if (personaId) {
+      setSelectedPersonaId(personaId);
+    }
+    setStudioState(null);
+    setDraftSaved(false);
+    setIsCreationOpen(false);
+  };
+
   return (
     <div className="relative flex h-full max-h-[calc(100vh-120px)] flex-col gap-4 overflow-hidden animate-fade-in lg:flex-row">
       {/* ─── Left: Persona List ─────────────────────────────────────── */}
@@ -229,7 +383,7 @@ export function PersonasTab({ defaultPersonas, userPersonas, onNavigateToCreateV
             </div>
             <button
               type="button"
-              onClick={() => setIsCreationOpen(true)}
+              onClick={() => void handleOpenStudio()}
               aria-label="Create new persona"
               className="w-10 h-10 rounded-full bg-aura-primary text-white flex items-center justify-center shadow-lg hover:bg-aura-primary-hover transition-colors cursor-pointer min-h-[44px] min-w-[44px]"
             >
@@ -308,7 +462,7 @@ export function PersonasTab({ defaultPersonas, userPersonas, onNavigateToCreateV
                   </p>
                   <button
                     type="button"
-                    onClick={() => setIsCreationOpen(true)}
+                    onClick={() => void handleOpenStudio()}
                     className="text-xs text-aura-primary font-bold hover:underline cursor-pointer"
                   >
                     Create one
@@ -329,7 +483,7 @@ export function PersonasTab({ defaultPersonas, userPersonas, onNavigateToCreateV
             {/* Create new dashed button */}
             <button
               type="button"
-              onClick={() => setIsCreationOpen(true)}
+              onClick={() => void handleOpenStudio()}
               className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-aura-outline-variant/30 p-4 text-sm font-bold text-aura-on-surface-variant transition-all hover:border-aura-primary/40 hover:bg-aura-primary/5 cursor-pointer min-h-[44px] group mt-2"
             >
               <Plus className="w-4 h-4 text-aura-primary group-hover:scale-110 transition-transform" />
@@ -778,7 +932,7 @@ export function PersonasTab({ defaultPersonas, userPersonas, onNavigateToCreateV
       )}
 
       {/* ── Creation Studio Slide Drawer ────────────────────────────── */}
-      {isCreationOpen && (
+      {false && isCreationOpen && (
         <>
           {/* Backdrop */}
           <div
@@ -961,6 +1115,18 @@ export function PersonasTab({ defaultPersonas, userPersonas, onNavigateToCreateV
           </div>
         </>
       )}
+      <PersonaStudioPanel
+        isOpen={isCreationOpen}
+        state={studioState}
+        busy={isStudioBusy}
+        error={studioError}
+        draftSaved={draftSaved}
+        onClose={() => setIsCreationOpen(false)}
+        onSendText={handleStudioText}
+        onAction={handleStudioAction}
+        onSaveDraft={handleSaveDraft}
+        onFinalize={handleFinalizeStudio}
+      />
     </div>
   );
 }

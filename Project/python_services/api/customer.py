@@ -32,6 +32,7 @@ from services.customer_media_service import CustomerMediaService
 from services.app_review_studio_service import AppReviewStudioService
 from services.workspace_service import WorkspaceService
 from services.telegram_link_service import TelegramLinkService
+from services.persona_studio_service import PersonaStudioService
 from services.video_capture_handoff_service import (
     VideoCaptureHandoffError,
     VideoCaptureHandoffService,
@@ -142,17 +143,18 @@ class RecentMediaAssetResponse(BaseModel):
 
 
 class PersonaStudioSessionRequest(BaseModel):
-    title: Optional[str] = None
-    prompt: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 class PersonaStudioMessageRequest(BaseModel):
-    content: str
+    kind: Literal["text", "action"] = "text"
+    content: Optional[str] = None
+    action: Optional[str] = None
+    value: Optional[str] = None
 
 
 class PersonaStudioCommitRequest(BaseModel):
-    display_name: Optional[str] = None
-    notes: str = ""
+    mode: Literal["save_draft", "finalize"] = "finalize"
 
 
 class ReviewEngineSourceValidateRequest(BaseModel):
@@ -841,37 +843,61 @@ async def list_system_workflows(
 
 @router.post("/persona-studio/sessions")
 async def create_persona_studio_session(
-    _payload: PersonaStudioSessionRequest,
-    _session: CustomerSession = Depends(require_customer_session),
+    payload: PersonaStudioSessionRequest,
+    request: Request,
+    session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
-    raise HTTPException(
-        status_code=501,
-        detail="Persona Studio write APIs are reserved for Phase 2.",
-    )
+    try:
+        return await PersonaStudioService.start_session(
+            app=request.app,
+            user_id=session.user_id,
+            session_id=payload.session_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/persona-studio/sessions/{session_id}/messages")
 async def append_persona_studio_message(
     session_id: str,
-    _payload: PersonaStudioMessageRequest,
-    _session: CustomerSession = Depends(require_customer_session),
+    payload: PersonaStudioMessageRequest,
+    request: Request,
+    session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
-    raise HTTPException(
-        status_code=501,
-        detail=f"Persona Studio session '{session_id}' is reserved for Phase 2.",
-    )
+    try:
+        return await PersonaStudioService.append_message(
+            app=request.app,
+            user_id=session.user_id,
+            session_id=session_id,
+            kind=payload.kind,
+            content=payload.content,
+            action=payload.action,
+            value=payload.value,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
 @router.post("/persona-studio/sessions/{session_id}/commit")
 async def commit_persona_studio_session(
     session_id: str,
-    _payload: PersonaStudioCommitRequest,
-    _session: CustomerSession = Depends(require_customer_session),
+    payload: PersonaStudioCommitRequest,
+    request: Request,
+    session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
-    raise HTTPException(
-        status_code=501,
-        detail=f"Persona Studio session '{session_id}' commit is reserved for Phase 2.",
-    )
+    try:
+        return await PersonaStudioService.commit(
+            app=request.app,
+            user_id=session.user_id,
+            session_id=session_id,
+            mode=payload.mode,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
 @router.post("/review-engine/source/validate")

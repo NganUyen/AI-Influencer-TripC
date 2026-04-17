@@ -1166,6 +1166,58 @@
 .cv-pill--not-conn    { background: var(--surface-card-muted); color: #aeada9; border: 1px solid rgb(174 173 169 / 0.2); }
 .cv-pill--needs-recon { background: rgb(180 19 64 / 0.08); color: #b41340; }
 
+/* Persona group header */
+.cv-persona-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  margin-top: 12px;
+}
+
+.cv-persona-group-header:first-child {
+  margin-top: 0;
+}
+
+.cv-persona-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #5c5c58;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.cv-persona-group-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.cv-persona-action-btn {
+  background: none;
+  border: 1px solid rgb(174 173 169 / 0.22);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #5c5c58;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  font-family: inherit;
+  min-height: 32px;
+}
+
+.cv-persona-action-btn:hover {
+  background: var(--surface-card-muted);
+  border-color: rgb(174 173 169 / 0.35);
+}
+
+.cv-persona-action-btn:active {
+  background: rgb(160 57 41 / 0.05);
+  border-color: rgb(160 57 41 / 0.2);
+}
+
 /* --------------------------------------------------------------------------
    Skeleton loader
    -------------------------------------------------------------------------- */

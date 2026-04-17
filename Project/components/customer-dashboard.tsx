@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
@@ -22,6 +23,7 @@ import {
 import { SocialIcon } from "@/components/ui/SocialIcon";
 
 import { customerApiRequest } from "@/lib/customer-api";
+import { getDashboardTabHref } from "@/lib/dashboard-tabs";
 import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 import { DashboardHeader } from "@/components/DashboardHeader";
@@ -38,13 +40,28 @@ import {
   getReviewJobStatusLabel,
   getReviewJobTone,
 } from "@/lib/review-engine";
-
-import { OverviewTab } from "./dashboard/OverviewTab";
-import { PersonasTab } from "./dashboard/PersonasTab";
-import { CreateVideoTab } from "./dashboard/CreateVideoTab";
-import { PublishingTab } from "./dashboard/PublishingTab";
+import { toast } from "react-hot-toast";
 import { MemoryTab } from "./dashboard/MemoryTab";
+import { DashboardLoadingSkeleton } from "./dashboard/skeletons/DashboardLoadingSkeleton";
 
+const OverviewTab = dynamic(
+  () => import("./dashboard/OverviewTab").then((mod) => mod.OverviewTab),
+  { loading: () => <DashboardLoadingSkeleton /> },
+);
+const PersonasTab = dynamic(
+  () => import("./dashboard/PersonasTab").then((mod) => mod.PersonasTab),
+  { loading: () => <DashboardLoadingSkeleton /> },
+);
+const CreateVideoTab = dynamic(
+  () => import("./dashboard/CreateVideoTab").then((mod) => mod.CreateVideoTab),
+  { loading: () => <DashboardLoadingSkeleton /> },
+);
+const PublishingTab = dynamic(
+  () => import("./dashboard/PublishingTab").then((mod) => mod.PublishingTab),
+  { loading: () => <DashboardLoadingSkeleton /> },
+);
+
+const LIVE_SYSTEM_DATA_TABS = new Set<DashboardTabId>(["overview", "ops"]);
 
 
 export type BrandProfile = {
@@ -440,7 +457,6 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
   const [isPollingTelegramLink, setIsPollingTelegramLink] = useState(false);
   const [reviewEngineSetup, setReviewEngineSetup] = useState<ReviewEngineSetup | null>(null);
   const [reviewEngineJobs, setReviewEngineJobs] = useState<ReviewEngineJob[]>([]);
-
   const [campaignDraft, setCampaignDraft] = useState({
     name: "",
     description: "",
@@ -464,8 +480,6 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
   const [isVideoContextModalOpen, setIsVideoContextModalOpen] = useState(false);
 
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [pageError, setPageError] = useState<string | null>(null);
-  const [banner, setBanner] = useState<string | null>(null);
   const telegramBotUrl = systemSummary?.telegram_bot_url || getClientTelegramBotLaunchUrl();
   const telegramVerificationUrl = getClientTelegramBotLaunchUrl(linkToken?.start_token);
 
@@ -538,7 +552,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
   }, [isAuthenticated, logout, router]);
 
   useEffect(() => {
-    if (activeTab !== "memory") {
+    if (!LIVE_SYSTEM_DATA_TABS.has(activeTab)) {
       return;
     }
     void fetchSystemData();
@@ -546,15 +560,20 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
     return () => clearInterval(interval);
   }, [activeTab, fetchSystemData]);
 
+  // Prefetch the create_video route to reduce lag when navigating
+  useEffect(() => {
+    router.prefetch(getDashboardTabHref("create_video"));
+  }, [router]);
+
   useEffect(() => {
     const oauthStatus = searchParams.get("oauth_status");
     const platform = searchParams.get("platform");
     const reason = searchParams.get("reason");
     if (oauthStatus === "success" && platform) {
-      setBanner(`${platform} connected successfully.`);
+      toast.success(`${platform} connected successfully.`);
     }
     if (oauthStatus === "error") {
-      setBanner(reason || "OAuth connection failed.");
+      toast.error(reason || "OAuth connection failed.");
     }
   }, [searchParams]);
 
@@ -577,7 +596,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
   }, [initialized, initialize]);
 
   useEffect(() => {
-    if (!initialized || isLoading || pageError) {
+    if (!initialized || isLoading) {
       return;
     }
     if (!isAuthenticated) {
@@ -586,7 +605,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
     }
     void loadWorkspace();
     void loadReviewEngineData();
-  }, [initialized, isLoading, isAuthenticated, router, pageError, loadReviewEngineData]);
+  }, [initialized, isLoading, isAuthenticated, router, loadReviewEngineData]);
 
   useEffect(() => {
     if (selectedThreadId && isAuthenticated) {
@@ -612,7 +631,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
       if (Number.isFinite(expiresAt) && Date.now() >= expiresAt) {
         setLinkToken(null);
         setIsPollingTelegramLink(false);
-        setBanner("Telegram link expired. Start a fresh secure link to continue.");
+        toast.error("Telegram link expired. Start a fresh secure link to continue.");
         return;
       }
 
@@ -630,7 +649,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
         if (latestLink.linked) {
           setLinkToken(null);
           setIsPollingTelegramLink(false);
-          setBanner("Telegram connected successfully.");
+          toast.success("Telegram connected successfully.");
           return;
         }
 
@@ -642,7 +661,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
           return;
         }
         setIsPollingTelegramLink(false);
-        setPageError(
+        toast.error(
           error instanceof Error
             ? error.message
             : "Failed to refresh Telegram link status",
@@ -662,7 +681,6 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
 
   async function loadWorkspace() {
     try {
-      setPageError(null);
       const workspace = await customerApiRequest<CustomerWorkspaceResponse>(
         "/api/customer/workspace",
       );
@@ -705,7 +723,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
         router.replace("/auth");
         return;
       }
-      setPageError(msg);
+      toast.error(msg);
     }
   }
 
@@ -718,7 +736,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
       setMessages(payload.messages);
       setArtifacts(payload.artifacts);
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Failed to load thread");
+      toast.error(error instanceof Error ? error.message : "Failed to load thread");
     }
   }
 
@@ -734,10 +752,10 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
           asset_urls: brandForm.asset_urls || [],
         }),
       });
-      setBanner("Brand profile saved.");
+      toast.success("Brand profile saved.");
       await loadWorkspace();
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Failed to save brand profile");
+      toast.error(error instanceof Error ? error.message : "Failed to save brand profile");
     } finally {
       setBusyKey(null);
     }
@@ -752,7 +770,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
       );
       window.location.href = response.auth_url;
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : `Failed to connect ${platform}`);
+      toast.error(error instanceof Error ? error.message : `Failed to connect ${platform}`);
       setBusyKey(null);
     }
   }
@@ -765,7 +783,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
       });
       await loadWorkspace();
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Failed to disconnect account");
+      toast.error(error instanceof Error ? error.message : "Failed to disconnect account");
     } finally {
       setBusyKey(null);
     }
@@ -786,7 +804,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
       setMessages([]);
       setArtifacts([]);
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Failed to create thread");
+      toast.error(error instanceof Error ? error.message : "Failed to create thread");
     } finally {
       setBusyKey(null);
     }
@@ -811,7 +829,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
       setComposer("");
       await loadWorkspace();
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Assistant request failed");
+      toast.error(error instanceof Error ? error.message : "Assistant request failed");
     } finally {
       setBusyKey(null);
     }
@@ -848,9 +866,9 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
         chatgptDisplayName: current.chatgptDisplayName,
         chatgptSubscriptionTier: current.chatgptSubscriptionTier,
       }));
-      setBanner("AI backbone settings saved.");
+      toast.success("AI backbone settings saved.");
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Failed to save AI backbone settings");
+      toast.error(error instanceof Error ? error.message : "Failed to save AI backbone settings");
     } finally {
       setBusyKey(null);
     }
@@ -878,9 +896,9 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
           current.chatgptDisplayName || user?.name || user?.email || "",
         ),
       );
-      setBanner("GPT OAuth link connected for this customer.");
+      toast.success("GPT OAuth link connected for this customer.");
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Failed to link GPT OAuth");
+      toast.error(error instanceof Error ? error.message : "Failed to link GPT OAuth");
     } finally {
       setBusyKey(null);
     }
@@ -905,9 +923,9 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
         chatgptDisplayName: current.chatgptDisplayName,
         chatgptSubscriptionTier: current.chatgptSubscriptionTier,
       }));
-      setBanner("GPT OAuth link disconnected.");
+      toast.success("GPT OAuth link disconnected.");
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Failed to disconnect GPT OAuth");
+      toast.error(error instanceof Error ? error.message : "Failed to disconnect GPT OAuth");
     } finally {
       setBusyKey(null);
     }
@@ -944,9 +962,9 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
         description: "",
         targetPlatforms: "linkedin,facebook,twitter",
       });
-      setBanner("Campaign draft created.");
+      toast.success("Campaign draft created.");
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Failed to create campaign");
+      toast.error(error instanceof Error ? error.message : "Failed to create campaign");
     } finally {
       setBusyKey(null);
     }
@@ -955,7 +973,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
   function handleVideoContextSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusyKey("video-context");
-    setBanner("Video context saved locally. Ready for AI generation.");
+    toast.success("Video context saved locally. Ready for AI generation.");
     setBusyKey(null);
     console.log("videoContextDraft", videoContextDraft);
   }
@@ -974,7 +992,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
       });
       await loadWorkspace();
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Failed to update approval");
+      toast.error(error instanceof Error ? error.message : "Failed to update approval");
     } finally {
       setBusyKey(null);
     }
@@ -986,10 +1004,10 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
       await customerApiRequest(`/api/customer/campaigns/${campaignId}/launch`, {
         method: "POST",
       });
-      setBanner("Campaign launched into Temporal.");
+      toast.success("Campaign launched into Temporal.");
       await loadWorkspace();
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Failed to launch campaign");
+      toast.error(error instanceof Error ? error.message : "Failed to launch campaign");
     } finally {
       setBusyKey(null);
     }
@@ -997,7 +1015,6 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
 
   async function handleStartTelegramLink() {
     setBusyKey("telegram-link");
-    setPageError(null);
     try {
       const payload = await customerApiRequest<TelegramLinkToken>(
         "/api/customer/telegram/link/start",
@@ -1008,7 +1025,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
       );
       setLinkToken(payload);
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Failed to start Telegram link");
+      toast.error(error instanceof Error ? error.message : "Failed to start Telegram link");
     } finally {
       setBusyKey(null);
     }
@@ -1016,12 +1033,11 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
 
   async function handleLogout() {
     setBusyKey("signout");
-    setPageError(null);
     try {
       await logout();
       router.replace("/auth");
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Failed to sign out");
+      toast.error(error instanceof Error ? error.message : "Failed to sign out");
     } finally {
       setBusyKey(null);
     }
@@ -1111,27 +1127,6 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
           <div className="mx-auto max-w-7xl space-y-4 md:space-y-6">
 
 
-            {/* Success banner */}
-            {banner && (
-              <div className="dashboard-banner dashboard-banner-success text-sm font-medium" role="status" aria-live="polite">
-                <span>✓ {banner}</span>
-                <button onClick={() => setBanner(null)} className="ml-4 text-aura-tertiary/60 hover:text-aura-tertiary transition-colors">✕</button>
-              </div>
-            )}
-
-            {/* Error banner */}
-            {pageError && (
-              <div className="dashboard-banner dashboard-banner-error animate-pulse-slow text-sm font-semibold" role="alert" aria-live="polite">
-                <div className="flex items-center gap-3">
-                  <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                  <span>{pageError}</span>
-                </div>
-                <button type="button" onClick={() => setPageError(null)} className="ml-4 text-error/60 hover:text-error transition-colors" aria-label="Dismiss error message">
-                  <X className="w-4 h-4 stroke-[2]" />
-                </button>
-              </div>
-            )}
-
             {/* ─── Quota Warning Banner ─── */}
             {activeTab === "overview" && quotaWarnings.length > 0 && !quotaBannerDismissed && (
               <div className="dashboard-banner dashboard-banner-error animate-pulse-slow" role="status" aria-live="polite">
@@ -1175,11 +1170,11 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
                       method: "POST",
                       body: JSON.stringify({}),
                     });
-                    setBanner("Publish started.");
+                    toast.success("Publish started.");
                     await loadReviewEngineData();
                     await loadWorkspace();
                   } catch (error) {
-                    setPageError(
+                    toast.error(
                       error instanceof Error ? error.message : "Failed to publish review",
                     );
                   }
@@ -1724,7 +1719,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
             )}
 
             {activeTab === "publishing" && (
-              <PublishingTab content={content} />
+              <PublishingTab jobs={reviewEngineJobs} />
             )}
           </div>
 

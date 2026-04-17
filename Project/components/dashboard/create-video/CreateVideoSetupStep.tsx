@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { toast } from 'react-hot-toast';
 import type { CreateVideoSetupState, VideoCreationMode } from '@/types/video-planning';
 import type { Persona } from '@/components/customer-dashboard';
 import { CreateVideoModeCards } from './CreateVideoModeCards';
@@ -386,7 +387,7 @@ export function CreateVideoSetupStep({
                   key={style}
                   type="button"
                   className="cv-gesture-chip"
-                  onClick={() => alert(`Selected: ${style}`)}
+                  onClick={() => toast.success(`Gesture style: ${style}`)}
                 >
                   {style}
                 </button>
@@ -415,7 +416,7 @@ export function CreateVideoSetupStep({
                   key={mood}
                   type="button"
                   className="cv-bgm-mood-card"
-                  onClick={() => alert(`Selected: ${mood}`)}
+                  onClick={() => toast.success(`Background mood: ${mood}`)}
                 >
                   <span className="cv-bgm-mood-icon">♪</span>
                   <span className="cv-bgm-mood-label">{mood}</span>

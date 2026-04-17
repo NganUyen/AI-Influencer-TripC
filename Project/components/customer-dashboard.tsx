@@ -23,9 +23,7 @@ import {
 import { SocialIcon } from "@/components/ui/SocialIcon";
 
 import { customerApiRequest } from "@/lib/customer-api";
-import { getDashboardTabHref, type DashboardTabId } from "@/lib/dashboard-tabs";
 import { getClientTelegramBotLaunchUrl } from "@/lib/public-env";
-import { getWorkspaceCache, setWorkspaceCache, clearWorkspaceCache } from "@/lib/workspace-cache";
 import { useCustomerAuthStore } from "@/store/customer-auth-store";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
@@ -33,18 +31,19 @@ import openClawLogo from "@/app/dashboard/openclaw-logo.svg";
 import { FormField } from "@/components/ui/FormField";
 import { SelectField } from "@/components/ui/SelectField";
 import { TextAreaField } from "@/components/ui/TextAreaField";
+import {
+  type ReviewEngineJob,
+  type ReviewEngineJobResponse,
+  type ReviewEngineSetup,
+  getReviewJobPersonaImage,
+  getReviewJobStatusLabel,
+  getReviewJobTone,
+} from "@/lib/review-engine";
 
 import { OverviewTab } from "./dashboard/OverviewTab";
 import { PersonasTab } from "./dashboard/PersonasTab";
-// import LiveFeedTab from "./dashboard/LiveFeedTab"; // deprecated — replaced by CreateVideoTab
-import { CreateVideoTab } from "./dashboard/CreateVideoTab";
+import { LiveFeedTab } from "./dashboard/LiveFeedTab";
 import { PublishingTab } from "./dashboard/PublishingTab";
-import { DashboardLoadingSkeleton } from "./dashboard/skeletons/DashboardLoadingSkeleton";
-import {
-  type ReviewEngineSetup,
-  type ReviewEngineJob,
-  type ReviewEngineJobResponse,
-} from "@/lib/review-engine";
 
 
 export type BrandProfile = {
@@ -152,14 +151,13 @@ export type Persona = {
   selection_image_url?: string | null;
   status: string;
   video_count: number;
-  user_id?: string | null; // System personas have fixed ID, user personas have customer user_id
-  language?: string;
-  tts_voice?: string;
-  appearance_prompt_or_photo?: string;
+  language?: string | null;
+  tts_voice?: string | null;
+  appearance_prompt_or_photo?: string | null;
   region_label?: string | null;
   description?: string | null;
-  market_default?: string;
-  tone_default?: string;
+  market_default?: string | null;
+  tone_default?: string | null;
   is_preset_catalog?: boolean;
 };
 
@@ -224,6 +222,8 @@ type CustomerWorkspaceResponse = {
   };
 };
 
+export type DashboardTabId = "overview" | "ops" | "skills" | "memory" | "create_video" | "publishing";
+
 export type DashboardTab = {
   id: DashboardTabId;
   label: string;
@@ -237,6 +237,9 @@ export type ActivityItem = {
   title: string;
   detail: string;
   tone?: ActivityItemTone;
+  progress?: number;
+  personaImage?: string | null;
+  timeLabel?: string;
 };
 
 const EMPTY_BRAND: BrandProfile = {
@@ -327,24 +330,12 @@ function buildAiBackboneForm(
   };
 }
 
-type CustomerDashboardProps = {
-  activeTab: DashboardTabId;
-};
-
-export default function CustomerDashboard({ activeTab }: CustomerDashboardProps) {
+export default function CustomerDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, isAuthenticated, initialized, isLoading, logout, initialize } = useCustomerAuthStore(
-    (state) => ({
-      user: state.user,
-      isAuthenticated: state.isAuthenticated,
-      initialized: state.initialized,
-      isLoading: state.isLoading,
-      logout: state.logout,
-      initialize: state.initialize,
-    }),
-  );
+  const { user, isAuthenticated, initialized, isLoading, logout, initialize } = useCustomerAuthStore();
 
+  const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [systemSummary, setSystemSummary] = useState<SystemSummaryData | null>(null);
   const [systemWorkflows, setSystemWorkflows] = useState<SystemWorkflowData[]>([]);
@@ -378,15 +369,11 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
     ),
   );
   const [personas, setPersonas] = useState<Persona[]>([]);
-  const [defaultPersonas, setDefaultPersonas] = useState<Persona[]>([]);
-  const [userPersonas, setUserPersonas] = useState<Persona[]>([]);
   const [telegramLink, setTelegramLink] = useState<TelegramLinkStatus | null>(null);
   const [linkToken, setLinkToken] = useState<TelegramLinkToken | null>(null);
   const [isPollingTelegramLink, setIsPollingTelegramLink] = useState(false);
   const [reviewEngineSetup, setReviewEngineSetup] = useState<ReviewEngineSetup | null>(null);
   const [reviewEngineJobs, setReviewEngineJobs] = useState<ReviewEngineJob[]>([]);
-  const [reviewEnginePlans, setReviewEnginePlans] = useState<any[]>([]);
-  const [reviewEngineError, setReviewEngineError] = useState<string | null>(null);
 
   const [campaignDraft, setCampaignDraft] = useState({
     name: "",
@@ -449,90 +436,38 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
     }
   }, [isAuthenticated, logout, router]);
 
-  const fetchReviewEngineData = useCallback(async () => {
+  const loadReviewEngineData = useCallback(async () => {
     if (typeof window === "undefined" || !isAuthenticated) {
       return;
     }
 
     try {
-      setReviewEngineError(null);
-      const [setup, jobsResponse, plansResponse] = await Promise.all([
+      const [setupPayload, jobsPayload] = await Promise.all([
         customerApiRequest<ReviewEngineSetup>("/api/customer/review-engine/setup"),
         customerApiRequest<ReviewEngineJobResponse>("/api/customer/review-engine/jobs"),
-        customerApiRequest<any>("/api/customer/review-engine/plans")
-          .catch((e) => {
-            console.warn("Failed to fetch plans", e);
-            return { plans: [] };
-          }),
       ]);
-      const rawJobs = jobsResponse.jobs || [];
-      const plans = plansResponse?.plans || [];
-      
-      const jobsMap = new Map();
-      rawJobs.forEach((job: any) => {
-         jobsMap.set(job.job_id, job);
-         if (job.workflow_id) jobsMap.set(job.workflow_id, job);
-      });
-
-      const mergedJobs = [...rawJobs];
-      plans.forEach((plan: any) => {
-         if (plan.workflow_id && jobsMap.has(plan.workflow_id)) return;
-         if (jobsMap.has(plan.id)) return;
-         
-         const personaFind = setup?.persona_options?.find((p: any) => p.persona_id === plan.persona_id) || setup?.custom_personas?.find((p: any) => p.persona_id === plan.persona_id);
-         
-         mergedJobs.push({
-          job_id: plan.id,
-          plan_id: plan.id,
-          workflow_id: plan.workflow_id,
-          run_id: null,
-          persona_id: plan.persona_id,
-          persona: personaFind || {},
-          campaign_id: plan.campaign_id,
-          source_url: plan.source_url,
-          objective: plan.objective,
-          content: { title: plan.publish_settings?.content_title || "App Review" },
-          script: { 
-            script: plan.script_text, 
-            scenes: plan.scenes_data 
-          },
-          editable_content: plan.publish_settings?.caption_draft || plan.script_text || "",
-          status: plan.status,
-          current_step: plan.status,
-          progress: plan.status === 'generated' ? 0 : plan.status === 'in_progress' ? 50 : plan.status === 'completed' ? 100 : 0,
-          activity_feed: [],
-          production: { ready: plan.status === 'completed' },
-          publish: {
-             requested: plan.publish_settings?.publish_requested || false,
-             status: plan.publish_settings?.publish_requested ? "ready_to_publish" : "not_requested",
-          }
-         });
-      });
-
-      setReviewEngineSetup(setup);
-      setReviewEngineJobs(mergedJobs);
-      setReviewEnginePlans(plans);
+      setReviewEngineSetup(setupPayload);
+      setReviewEngineJobs(jobsPayload.jobs || []);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Failed to load review engine data";
-      setReviewEngineError(msg);
-      console.error("Failed to fetch review engine data:", error);
+      const msg = error instanceof Error ? error.message : "";
+      if (
+        msg.includes("401") ||
+        msg.includes("Unauthorized") ||
+        msg.toLowerCase().includes("invalid or expired")
+      ) {
+        void logout();
+        router.replace("/auth");
+        return;
+      }
+      console.warn("Failed to refresh review engine data:", error);
     }
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    void fetchReviewEngineData();
-  }, [fetchReviewEngineData]);
+  }, [isAuthenticated, logout, router]);
 
   useEffect(() => {
     void fetchSystemData();
     const interval = setInterval(fetchSystemData, 30000);
     return () => clearInterval(interval);
   }, [fetchSystemData]);
-
-  // Prefetch the create_video route to reduce lag when navigating
-  useEffect(() => {
-    router.prefetch(getDashboardTabHref("create_video"));
-  }, [router]);
 
   useEffect(() => {
     const oauthStatus = searchParams.get("oauth_status");
@@ -545,6 +480,15 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
       setBanner(reason || "OAuth connection failed.");
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    if (
+      dashboardTabParam &&
+      DASHBOARD_TABS.some((tab) => tab.id === dashboardTabParam)
+    ) {
+      setActiveTab(dashboardTabParam as DashboardTabId);
+    }
+  }, [dashboardTabParam]);
 
   useEffect(() => {
     if (!initialized && !isLoading) {
@@ -564,7 +508,8 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
       return;
     }
     void loadWorkspace();
-  }, [initialized, isLoading, isAuthenticated, router, pageError]);
+    void loadReviewEngineData();
+  }, [initialized, isLoading, isAuthenticated, router, pageError, loadReviewEngineData]);
 
   useEffect(() => {
     if (selectedThreadId && isAuthenticated) {
@@ -614,7 +559,7 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
 
         timeoutId = window.setTimeout(() => {
           void pollTelegramLink();
-        }, 5000);
+        }, 2500);
       } catch (error) {
         if (cancelled) {
           return;
@@ -638,30 +583,12 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
     };
   }, [isAuthenticated, linkToken, telegramLink?.linked]);
 
-  // Partition personas into default (system) and user personas
-  useEffect(() => {
-    const SYSTEM_PERSONA_USER_ID = "00000000-0000-0000-0000-000000000001";
-    const defaults = personas.filter(p => p.user_id === SYSTEM_PERSONA_USER_ID);
-    const users = personas.filter(p => p.user_id !== SYSTEM_PERSONA_USER_ID);
-    setDefaultPersonas(defaults);
-    setUserPersonas(users);
-  }, [personas]);
-
   async function loadWorkspace() {
     try {
       setPageError(null);
-
-      // Check cache first
-      let workspace = getWorkspaceCache() as CustomerWorkspaceResponse | null;
-
-      // If cache miss, fetch from API
-      if (!workspace) {
-        workspace = await customerApiRequest<CustomerWorkspaceResponse>(
-          "/api/customer/workspace",
-        );
-        // Cache the result
-        setWorkspaceCache(workspace);
-      }
+      const workspace = await customerApiRequest<CustomerWorkspaceResponse>(
+        "/api/customer/workspace",
+      );
 
       setBrandForm(workspace?.brand || EMPTY_BRAND);
       setAccounts(workspace?.social_accounts || []);
@@ -731,7 +658,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
         }),
       });
       setBanner("Brand profile saved.");
-      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to save brand profile");
@@ -760,7 +686,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
       await customerApiRequest(`/api/customer/social-accounts/${accountId}/disconnect`, {
         method: "POST",
       });
-      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to disconnect account");
@@ -807,7 +732,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
       setMessages(payload.messages);
       setArtifacts(payload.artifacts);
       setComposer("");
-      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Assistant request failed");
@@ -848,7 +772,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
         chatgptSubscriptionTier: current.chatgptSubscriptionTier,
       }));
       setBanner("AI backbone settings saved.");
-      clearWorkspaceCache();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to save AI backbone settings");
     } finally {
@@ -879,7 +802,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
         ),
       );
       setBanner("GPT OAuth link connected for this customer.");
-      clearWorkspaceCache();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to link GPT OAuth");
     } finally {
@@ -907,7 +829,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
         chatgptSubscriptionTier: current.chatgptSubscriptionTier,
       }));
       setBanner("GPT OAuth link disconnected.");
-      clearWorkspaceCache();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to disconnect GPT OAuth");
     } finally {
@@ -974,7 +895,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
             : "Rejected from customer dashboard",
         }),
       });
-      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to update approval");
@@ -990,7 +910,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
         method: "POST",
       });
       setBanner("Campaign launched into Temporal.");
-      clearWorkspaceCache();
       await loadWorkspace();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to launch campaign");
@@ -1038,8 +957,9 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
         approvals,
         content,
         systemWorkflows,
+        reviewJobs: reviewEngineJobs,
       }),
-    [campaigns, approvals, content, systemWorkflows],
+    [campaigns, approvals, content, systemWorkflows, reviewEngineJobs],
   );
 
   const quotaWarnings = useMemo(
@@ -1051,13 +971,12 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
   );
 
   const [quotaBannerDismissed, setQuotaBannerDismissed] = useState(false);
-
-  const navigateToTab = useCallback(
-    (tabId: DashboardTabId) => {
-      router.push(getDashboardTabHref(tabId));
-    },
-    [router],
-  );
+  const dashboardTabParam = searchParams.get("dashboard_tab");
+  const reviewSourceUrl = searchParams.get("review_source_url") || "";
+  const reviewPersonaIds = (searchParams.get("review_personas") || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 
   if (isLoading || !initialized) {
     return (
@@ -1079,9 +998,13 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
           <DashboardSidebar
             tabs={DASHBOARD_TABS}
             activeTab={activeTab}
+            onTabChange={setActiveTab}
           />
           <main id="dashboard-main" className="flex-1 min-w-0 px-4 py-6 sm:px-6 md:px-10 md:py-8">
-            <DashboardLoadingSkeleton />
+            <div className="mx-auto max-w-7xl h-[60vh] flex flex-col items-center justify-center space-y-4">
+              <div className="animate-spin h-10 w-10 border-2 border-aura-primary border-t-transparent rounded-full" />
+              <p className="text-sm text-aura-outline font-body">Loading workspace…</p>
+            </div>
           </main>
         </div>
       </div>
@@ -1109,6 +1032,7 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
         <DashboardSidebar
           tabs={DASHBOARD_TABS}
           activeTab={activeTab}
+          onTabChange={setActiveTab}
           telegramBotUrl={telegramBotUrl}
           isMobileOpen={isMobileMenuOpen}
           onMobileClose={() => setIsMobileMenuOpen(false)}
@@ -1172,9 +1096,25 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                 content={content}
                 personas={personas}
                 systemSummary={systemSummary}
-                onTabChange={navigateToTab}
+                onTabChange={setActiveTab}
                 activityItems={activityItems}
                 quotaWarnings={quotaWarnings}
+                reviewJobs={reviewEngineJobs}
+                onPublishJob={async (jobId) => {
+                  try {
+                    await customerApiRequest(`/api/customer/review-engine/jobs/${jobId}/publish`, {
+                      method: "POST",
+                      body: JSON.stringify({}),
+                    });
+                    setBanner("Publish started.");
+                    await loadReviewEngineData();
+                    await loadWorkspace();
+                  } catch (error) {
+                    setPageError(
+                      error instanceof Error ? error.message : "Failed to publish review",
+                    );
+                  }
+                }}
               />
             )}
 
@@ -1309,7 +1249,7 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                             </div>
                             <button
                               type="button"
-                              onClick={() => navigateToTab("memory")}
+                              onClick={() => setActiveTab("memory")}
                               className="text-[10px] min-h-[44px] font-bold px-4 py-2 bg-aura-error text-white rounded-lg hover:bg-aura-error/90 transition-all active:scale-95 flex-shrink-0 whitespace-nowrap cursor-pointer"
                             >
                               Configure
@@ -1329,7 +1269,7 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                     </div>
                     <button
                       type="button"
-                      onClick={() => navigateToTab("memory")}
+                      onClick={() => setActiveTab("memory")}
                       className="mt-6 w-full py-3 min-h-[44px] bg-aura-primary text-white rounded-xl text-sm font-body font-semibold hover:bg-aura-primary/90 transition-all active:scale-95 cursor-pointer"
                     >
                       Full Configuration
@@ -1413,12 +1353,14 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                           width={1280}
                           height={720}
                           className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                          onError={(e) => {
-                            const img = e.target as HTMLImageElement;
-                            img.style.display = "none";
-                          }}
                         />
-                      ) : null}
+                      ) : (
+                        <div className="absolute inset-0 bg-gradient-to-br from-aura-primary/20 to-aura-primary-container/30 flex items-center justify-center">
+                          <div className="text-6xl font-headline font-extrabold text-aura-primary/20">
+                            {personas[0]?.display_name?.charAt(0) || "A"}
+                          </div>
+                        </div>
+                      )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex items-end p-8">
                         <div className="backdrop-blur-sm bg-white/10 p-5 rounded-xl border border-white/20">
                           <h4 className="text-white text-xl font-bold font-headline mb-1">
@@ -1480,7 +1422,7 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                       </button>
                       <button
                         type="button"
-                        onClick={() => navigateToTab("create_video")}
+                        onClick={() => setActiveTab("create_video")}
                         className="bg-aura-secondary-container text-aura-on-secondary-container min-h-[44px] px-6 md:px-7 py-3 md:py-3.5 rounded-full font-body font-bold hover:scale-105 active:scale-95 transition-all cursor-pointer"
                       >
                         Production Console
@@ -1682,10 +1624,13 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
 
             {activeTab === "skills" && (
               <PersonasTab
-                defaultPersonas={defaultPersonas}
-                userPersonas={userPersonas}
-                telegramBotUrl={telegramBotUrl || undefined}
-                onNavigateToCreateVideo={() => navigateToTab("create_video")}
+                personas={personas}
+                setup={reviewEngineSetup}
+                onNavigateToCreateVideo={() => setActiveTab("create_video")}
+                onPersonasChanged={async () => {
+                  await loadWorkspace();
+                  await loadReviewEngineData();
+                }}
               />
             )}
 
@@ -1933,27 +1878,24 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                     {personas.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => navigateToTab("skills")}
+                        onClick={() => setActiveTab("skills")}
                         className="relative block w-full text-left group"
                       >
                         <div className="aspect-[4/5] rounded-2xl overflow-hidden shadow-aura-md transition-transform group-hover:scale-[1.02] duration-300 bg-aura-surface-container-high">
-                          <div className="w-full h-full bg-gradient-to-br from-aura-primary/20 to-aura-primary-container/30 flex items-center justify-center">
-                            <span className="text-8xl font-extrabold text-aura-primary/20 font-headline">
-                              {personas[0]?.display_name?.charAt(0) || "A"}
-                            </span>
-                          </div>
-                          {personas[0]?.avatar_image_url && (
+                          {personas[0]?.avatar_image_url ? (
                             <img
                               src={personas[0].avatar_image_url}
                               alt={personas[0].display_name}
                               width={800}
                               height={1000}
-                              className="absolute inset-0 w-full h-full object-cover"
-                              onError={(e) => {
-                                const img = e.target as HTMLImageElement;
-                                img.style.display = "none";
-                              }}
+                              className="w-full h-full object-cover"
                             />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-aura-primary/20 to-aura-primary-container/30 flex items-center justify-center">
+                              <span className="text-8xl font-extrabold text-aura-primary/20 font-headline">
+                                {personas[0]?.display_name?.charAt(0) || "A"}
+                              </span>
+                            </div>
                           )}
                           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                           <div className="absolute bottom-0 left-0 right-0 p-6" style={{ backdropFilter: "blur(12px)", background: "rgba(255,255,255,0.08)", borderTop: "1px solid rgba(255,255,255,0.15)" }}>
@@ -1976,27 +1918,27 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
               </div>
             )}
 
-             {activeTab === "create_video" && (
-              <>
-                <LiveFeedTab
-                  activityItems={[]}
-                  systemWorkflows={systemWorkflows}
-                  content={content}
-                  personas={userPersonas}
-                  setup={reviewEngineSetup}
-                  jobs={reviewEngineJobs}
-                  plans={reviewEnginePlans}
-                  reviewEngineError={reviewEngineError}
-                  onRefresh={fetchReviewEngineData}
-                  onNavigateToPersonas={() => navigateToTab("skills")}
-                  onNavigateToPublishing={() => navigateToTab("publishing")}
-                />
-                <CreateVideoTab personas={personas} />
-              </>
-             )}
+            {activeTab === "create_video" && (
+              <LiveFeedTab
+                activityItems={activityItems}
+                systemWorkflows={systemWorkflows}
+                content={content}
+                personas={personas}
+                setup={reviewEngineSetup}
+                jobs={reviewEngineJobs}
+                initialSourceUrl={reviewSourceUrl}
+                initialPersonaIds={reviewPersonaIds}
+                onRefresh={async () => {
+                  await loadReviewEngineData();
+                  await loadWorkspace();
+                }}
+                onNavigateToPersonas={() => setActiveTab("skills")}
+                onNavigateToPublishing={() => setActiveTab("publishing")}
+              />
+            )}
 
             {activeTab === "publishing" && (
-              <PublishingTab jobs={reviewEngineJobs} />
+              <PublishingTab content={content} />
             )}
           </div>
 
@@ -2033,13 +1975,35 @@ function buildActivityItems({
   approvals,
   content,
   systemWorkflows,
+  reviewJobs,
 }: {
   campaigns: Campaign[];
   approvals: Campaign[];
   content: ContentItem[];
   systemWorkflows: SystemWorkflowData[];
+  reviewJobs: ReviewEngineJob[];
 }): ActivityItem[] {
   const items: ActivityItem[] = [];
+
+  (reviewJobs || []).slice(0, 6).forEach((job) => {
+    items.push({
+      id: `review-job-${job.job_id}`,
+      title:
+        job.content?.title ||
+        job.page_title ||
+        job.persona?.display_name ||
+        "App review",
+      detail: `${getReviewJobStatusLabel(job)} • ${job.progress}% complete`,
+      tone: getReviewJobTone(job),
+      progress: job.progress,
+      personaImage: getReviewJobPersonaImage(job),
+      timeLabel: job.updated_at || job.started_at || "",
+    });
+  });
+
+  if (items.length >= 8) {
+    return items.slice(0, 8);
+  }
 
   (systemWorkflows || []).slice(0, 3).forEach((workflow) => {
     items.push({

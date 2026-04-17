@@ -854,6 +854,42 @@
   color: #5c5c58;
 }
 
+.cv-validation-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cv-validation-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.cv-validation-detail-grid span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px solid rgb(0 104 79 / 0.12);
+  border-radius: 8px;
+  background: rgb(0 104 79 / 0.05);
+  color: #2e2f2c;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  padding: 9px 10px;
+}
+
+.cv-validation-detail-grid strong {
+  color: #00684f;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
 .cv-spinner {
   position: absolute;
   right: 12px;

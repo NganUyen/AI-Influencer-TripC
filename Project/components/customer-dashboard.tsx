@@ -180,6 +180,16 @@ export type Persona = {
   is_preset_catalog?: boolean;
 };
 
+const SYSTEM_PERSONA_USER_ID = "00000000-0000-0000-0000-000000000001";
+
+function isSystemPersona(persona: Persona): boolean {
+  return (
+    !persona.user_id ||
+    persona.user_id === SYSTEM_PERSONA_USER_ID ||
+    Boolean(persona.is_preset_catalog)
+  );
+}
+
 export type TelegramLinkStatus = {
   linked: boolean;
   link?: {
@@ -1688,8 +1698,8 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
 
             {activeTab === "skills" && (
               <PersonasTab
-                defaultPersonas={personas.filter((p) => !p.user_id || p.is_preset_catalog)}
-                userPersonas={personas.filter((p) => p.user_id && !p.is_preset_catalog)}
+                defaultPersonas={personas.filter(isSystemPersona)}
+                userPersonas={personas.filter((persona) => !isSystemPersona(persona))}
                 telegramBotUrl={telegramBotUrl}
                 onNavigateToCreateVideo={() => setActiveTab("create_video")}
               />
@@ -1715,7 +1725,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
               />
             )}
             {activeTab === "create_video" && (
-              <CreateVideoTab personas={personas} />
+              <CreateVideoTab personas={personas} setup={reviewEngineSetup} />
             )}
 
             {activeTab === "publishing" && (

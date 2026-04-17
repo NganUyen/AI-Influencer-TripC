@@ -16,6 +16,8 @@ interface CreateVideoSetupStepProps {
   setupState: CreateVideoSetupState;
   onChange: (patch: Partial<CreateVideoSetupState>) => void;
   personas: Persona[];
+  systemPersonaOptions?: Persona[];
+  customPersonaOptions?: Persona[];
   onContinue: () => void;
 }
 
@@ -27,12 +29,15 @@ export function CreateVideoSetupStep({
   setupState,
   onChange,
   personas,
+  systemPersonaOptions,
+  customPersonaOptions,
   onContinue,
 }: CreateVideoSetupStepProps) {
   const {
     sourceUrl,
     urlValidationStatus,
     urlValidationMessage,
+    urlValidationDetails,
     selectedPersonaIds,
     objective,
     brief,
@@ -52,13 +57,13 @@ export function CreateVideoSetupStep({
   );
 
   const systemPersonas = useMemo(
-    () => personas.filter((p) => !p.user_id || p.is_preset_catalog),
-    [personas],
+    () => systemPersonaOptions ?? personas.filter(isSystemPersona),
+    [personas, systemPersonaOptions],
   );
 
   const customPersonas = useMemo(
-    () => personas.filter((p) => p.user_id && !p.is_preset_catalog),
-    [personas],
+    () => customPersonaOptions ?? personas.filter((p) => !isSystemPersona(p)),
+    [customPersonaOptions, personas],
   );
 
   const systemPersonaIds = useMemo(
@@ -98,7 +103,11 @@ export function CreateVideoSetupStep({
   const handleUrlBlur = useCallback(async () => {
     const url = sourceUrl.trim();
     if (!url) {
-      onChange({ urlValidationStatus: 'idle', urlValidationMessage: undefined });
+      onChange({
+        urlValidationStatus: 'idle',
+        urlValidationMessage: undefined,
+        urlValidationDetails: undefined,
+      });
       return;
     }
 
@@ -106,7 +115,11 @@ export function CreateVideoSetupStep({
     const controller = new AbortController();
     validationAbortRef.current = controller;
 
-    onChange({ urlValidationStatus: 'validating', urlValidationMessage: undefined });
+    onChange({
+      urlValidationStatus: 'validating',
+      urlValidationMessage: undefined,
+      urlValidationDetails: undefined,
+    });
 
     try {
       const result = await customerApiRequest<{
@@ -126,6 +139,7 @@ export function CreateVideoSetupStep({
         onChange({
           urlValidationStatus: 'invalid',
           urlValidationMessage: 'This URL could not be validated.',
+          urlValidationDetails: undefined,
         });
         return;
       }
@@ -135,11 +149,21 @@ export function CreateVideoSetupStep({
         urlValidationMessage: result.page_title
           ? `Source validated: ${result.page_title}`
           : `Source validated: ${validatedUrl}`,
+        urlValidationDetails: {
+          normalizedUrl: validatedUrl,
+          pageTitle: result.page_title,
+          suggestedObjective: result.suggested_objective,
+          visibleFeatureCount: result.visible_features?.length ?? 0,
+        },
       });
     } catch (err) {
       if (controller.signal.aborted) return;
       const msg = err instanceof Error ? err.message : 'Validation failed';
-      onChange({ urlValidationStatus: 'invalid', urlValidationMessage: msg });
+      onChange({
+        urlValidationStatus: 'invalid',
+        urlValidationMessage: msg,
+        urlValidationDetails: undefined,
+      });
     }
   }, [sourceUrl, onChange]);
 
@@ -279,7 +303,12 @@ export function CreateVideoSetupStep({
                   placeholder="https://example.com/product"
                   value={sourceUrl}
                   onChange={(e) =>
-                    onChange({ sourceUrl: e.target.value, urlValidationStatus: 'idle', urlValidationMessage: undefined })
+                    onChange({
+                      sourceUrl: e.target.value,
+                      urlValidationStatus: 'idle',
+                      urlValidationMessage: undefined,
+                      urlValidationDetails: undefined,
+                    })
                   }
                   onBlur={handleUrlBlur}
                   className="cv-input"
@@ -289,7 +318,26 @@ export function CreateVideoSetupStep({
                 )}
               </div>
               {urlValidationStatus === 'valid' && urlValidationMessage && (
-                <p className="cv-validation-msg cv-validation-msg--valid">✓ {urlValidationMessage}</p>
+                <div className="cv-validation-details">
+                  <p className="cv-validation-msg cv-validation-msg--valid">✓ {urlValidationMessage}</p>
+                  {urlValidationDetails && (
+                    <div className="cv-validation-detail-grid">
+                      {urlValidationDetails.normalizedUrl && (
+                        <span><strong>Normalized URL</strong>{urlValidationDetails.normalizedUrl}</span>
+                      )}
+                      {urlValidationDetails.pageTitle && (
+                        <span><strong>Page title</strong>{urlValidationDetails.pageTitle}</span>
+                      )}
+                      <span>
+                        <strong>Visible features</strong>
+                        {urlValidationDetails.visibleFeatureCount ?? 0} found
+                      </span>
+                      {urlValidationDetails.suggestedObjective && (
+                        <span><strong>Suggested objective</strong>{urlValidationDetails.suggestedObjective}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
               {urlValidationStatus === 'invalid' && urlValidationMessage && (
                 <p className="cv-validation-msg cv-validation-msg--invalid">✗ {urlValidationMessage}</p>
@@ -557,4 +605,14 @@ function formatMarketLabel(value?: string | null): string {
     .replace(/[_-]+/g, ' ')
     .replace(/\s+/g, ' ')
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+const SYSTEM_PERSONA_USER_ID = '00000000-0000-0000-0000-000000000001';
+
+function isSystemPersona(persona: Persona): boolean {
+  return (
+    !persona.user_id ||
+    persona.user_id === SYSTEM_PERSONA_USER_ID ||
+    Boolean(persona.is_preset_catalog)
+  );
 }

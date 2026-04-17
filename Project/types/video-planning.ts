@@ -30,6 +30,12 @@ export interface CreateVideoSetupState {
   sourceUrl: string;
   urlValidationStatus: 'idle' | 'validating' | 'valid' | 'invalid';
   urlValidationMessage?: string;
+  urlValidationDetails?: {
+    normalizedUrl?: string;
+    pageTitle?: string;
+    suggestedObjective?: string | null;
+    visibleFeatureCount?: number;
+  };
   selectedPersonaIds: string[];
   objective: string;
   brief?: string;
@@ -40,6 +46,7 @@ export const DEFAULT_SETUP_STATE: CreateVideoSetupState = {
   sourceUrl: '',
   urlValidationStatus: 'idle',
   urlValidationMessage: undefined,
+  urlValidationDetails: undefined,
   selectedPersonaIds: [],
   objective: '',
   brief: '',

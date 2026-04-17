@@ -133,11 +133,16 @@ class BrowserAutomationService:
         }
 
         if proxy_config:
-            launch_options["proxy"] = {
-                "server": proxy_config.get("server"),
-                "username": proxy_config.get("username"),
-                "password": proxy_config.get("password"),
-            }
+            server = proxy_config.get("server")
+            if isinstance(server, str) and server.strip():
+                proxy_payload: Dict[str, Any] = {"server": server.strip()}
+                username = proxy_config.get("username")
+                password = proxy_config.get("password")
+                if isinstance(username, str) and username:
+                    proxy_payload["username"] = username
+                if isinstance(password, str) and password:
+                    proxy_payload["password"] = password
+                launch_options["proxy"] = proxy_payload
 
         return launch_options
 

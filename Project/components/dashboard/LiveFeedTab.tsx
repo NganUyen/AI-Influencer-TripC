@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, memo, useCallback } from "react";
+import React, { useEffect, useMemo, useState, memo } from "react";
 import {
   Download,
   ExternalLink,
@@ -9,10 +9,10 @@ import {
   Send,
   Upload,
   Wand2,
-  Check,
 } from "lucide-react";
 import { customerApiRequest } from "@/lib/customer-api";
 import { cn } from "@/lib/utils";
+import PersonaSelectionModal from "@/components/dashboard/PersonaSelectionModal";
 import {
   type ReviewEngineJob,
   type ReviewEnginePersonaOption,
@@ -31,7 +31,6 @@ interface LiveFeedTabProps {
   jobs: ReviewEngineJob[];
   reviewEngineError?: string | null;
   initialSourceUrl?: string;
-  initialPersonaIds?: string[];
   onRefresh?: () => Promise<void> | void;
   onNavigateToPersonas?: () => void;
   onNavigateToPublishing?: () => void;
@@ -73,7 +72,6 @@ function LiveFeedTab({
   jobs,
   reviewEngineError,
   initialSourceUrl = "",
-  initialPersonaIds = [],
   onRefresh,
   onNavigateToPersonas,
   onNavigateToPublishing,
@@ -84,6 +82,9 @@ function LiveFeedTab({
   const [publishToTiktok, setPublishToTiktok] = useState(false);
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
   const [validationResult, setValidationResult] = useState<any>(null);
+  const [validatedSourceUrl, setValidatedSourceUrl] = useState<string>("");
+  const [showPersonaModal, setShowPersonaModal] = useState(false);
+  const [modalPersonaIds, setModalPersonaIds] = useState<string[]>([]);
   const [isValidating, setIsValidating] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [publishingJobId, setPublishingJobId] = useState<string | null>(null);
@@ -115,14 +116,6 @@ function LiveFeedTab({
   }, [initialSourceUrl]); // Removed sourceUrl from dependencies to prevent re-render loop
 
   useEffect(() => {
-    setSelectedPersonas((current) => {
-      if (current.length > 0) return current;
-      if (initialPersonaIds.length > 0) return initialPersonaIds;
-      return personaOptions.slice(0, 8).map((persona) => persona.persona_id);
-    });
-  }, [initialPersonaIds, personaOptions]);
-
-  useEffect(() => {
     setDrafts((current) => {
       const next = { ...current };
       jobs.forEach((job) => {
@@ -133,14 +126,6 @@ function LiveFeedTab({
       return next;
     });
   }, [jobs]);
-
-  const handleTogglePersona = (personaId: string) => {
-    setSelectedPersonas((current) =>
-      current.includes(personaId)
-        ? current.filter((id) => id !== personaId)
-        : [...current, personaId],
-    );
-  };
 
   const handleValidate = async () => {
     if (!sourceUrl.trim()) return;
@@ -155,6 +140,9 @@ function LiveFeedTab({
         },
       );
       setValidationResult(payload);
+      setValidatedSourceUrl(sourceUrl.trim());
+      setModalPersonaIds(selectedPersonas);
+      setShowPersonaModal(true);
     } catch (error) {
       setPageError(
         error instanceof Error ? error.message : "Failed to validate source URL",
@@ -167,6 +155,14 @@ function LiveFeedTab({
   const handleGenerate = async () => {
     if (!sourceUrl.trim()) {
       setPageError("Enter an app URL first.");
+      return;
+    }
+    if (!validationResult) {
+      setPageError("Validate URL before generating output.");
+      return;
+    }
+    if (validatedSourceUrl !== sourceUrl.trim()) {
+      setPageError("URL changed. Validate URL again before generating output.");
       return;
     }
     if (selectedPersonas.length === 0) {
@@ -195,6 +191,12 @@ function LiveFeedTab({
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const handlePersonaSelectionConfirm = (personaIds: string[]) => {
+    setSelectedPersonas(personaIds);
+    setShowPersonaModal(false);
+    setPageError(null);
   };
 
   const handleSaveJob = async (job: ReviewEngineJob) => {
@@ -298,11 +300,17 @@ function LiveFeedTab({
                 <input
                   type="url"
                   value={sourceUrl}
-                  onChange={(event) => setSourceUrl(event.target.value)}
+                  onChange={(event) => {
+                    const nextUrl = event.target.value;
+                    setSourceUrl(nextUrl);
+                    if (nextUrl.trim() !== validatedSourceUrl) {
+                      setValidationResult(null);
+                    }
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
-                      void handleGenerate();
+                      void handleValidate();
                     }
                   }}
                   placeholder="Paste App Store, Play Store, or website URL"
@@ -390,7 +398,13 @@ function LiveFeedTab({
             <button
               type="button"
               onClick={handleGenerate}
-              disabled={isGenerating || selectedPersonas.length === 0 || !sourceUrl.trim()}
+              disabled={
+                isGenerating ||
+                selectedPersonas.length === 0 ||
+                !sourceUrl.trim() ||
+                !validationResult ||
+                validatedSourceUrl !== sourceUrl.trim()
+              }
               className="btn-primary btn-lg flex items-center gap-2 disabled:opacity-50"
             >
               {isGenerating ? (
@@ -473,154 +487,30 @@ function LiveFeedTab({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <h2 className="text-xl font-black text-aura-on-surface font-headline">
-                Select Persona Options
+                Persona Selection
               </h2>
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-aura-primary/10 border border-aura-primary/30 text-xs font-bold text-aura-primary">
-                {selectedPersonas.length} of {personaOptions.length}
+                {selectedPersonas.length} selected
               </span>
             </div>
             <p className="text-sm text-aura-on-surface-variant leading-relaxed">
-              Choose one or more AI personas to generate app review content. Each persona brings unique regional, cultural, and linguistic perspectives.
+              Personas are now selected in a modal after URL validation.
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
               type="button"
               onClick={() => {
-                if (selectedPersonas.length === personaOptions.length) {
-                  setSelectedPersonas([]);
-                } else {
-                  setSelectedPersonas(personaOptions.map((persona) => persona.persona_id));
-                }
+                setModalPersonaIds(selectedPersonas);
+                setShowPersonaModal(true);
               }}
-              className={cn(
-                "btn-secondary btn-sm transition-all",
-                selectedPersonas.length === personaOptions.length 
-                  ? "bg-aura-error/10 text-aura-error border-aura-error/30 hover:bg-aura-error/20" 
-                  : ""
-              )}
+              disabled={!validationResult || personaOptions.length === 0}
+              className="btn-secondary btn-sm disabled:opacity-50"
             >
-              {selectedPersonas.length === personaOptions.length 
-                ? "Deselect All" 
-                : "Select All"}
+              Choose Personas
             </button>
           </div>
         </div>
-
-        {personaOptions.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
-            {personaOptions.map((persona) => {
-              const isSelected = selectedPersonas.includes(persona.persona_id);
-              const activeChannels = persona.tiktok_integration?.active_channels || 0;
-              
-              // Extract metadata for badges
-              const language = persona.language || "Unknown";
-              const region = persona.region_label || persona.market_default || "Global";
-              const tone = persona.tone_default || "neutral";
-              
-              return (
-                <button
-                  key={persona.persona_id}
-                  type="button"
-                  onClick={() => handleTogglePersona(persona.persona_id)}
-                  className={cn(
-                    "dashboard-panel p-4 text-left transition-all border-2 relative group overflow-hidden",
-                    isSelected
-                      ? "border-aura-primary bg-aura-primary/8 shadow-lg shadow-aura-primary/20 scale-[1.02]"
-                      : "border-aura-outline-variant/30 hover:border-aura-primary/50 hover:bg-aura-surface-container/50",
-                  )}
-                >
-                  {/* Selection indicator overlay */}
-                  {isSelected && (
-                    <div className="absolute inset-0 bg-aura-primary/5 pointer-events-none animate-pulse" />
-                  )}
-                  
-                  {/* Checkmark badge */}
-                  {isSelected && (
-                    <div className="absolute top-3 right-3 z-10 bg-aura-primary rounded-full p-1.5 shadow-lg animate-in fade-in zoom-in-50 duration-200">
-                      <Check className="w-4 h-4 text-white" />
-                    </div>
-                  )}
-                  
-                  <img
-                    alt={persona.display_name}
-                    className={cn(
-                      "w-full aspect-[4/5] rounded-2xl object-cover mb-4 transition-all",
-                      isSelected ? "ring-2 ring-aura-primary/50" : ""
-                    )}
-                    src={
-                      persona.selection_image_url ||
-                      persona.image_url ||
-                      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=800&auto=format&fit=crop"
-                    }
-                    onError={(e) => {
-                      const img = e.target as HTMLImageElement;
-                      if (!img.src?.includes("images.unsplash.com")) {
-                        img.src = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=800&auto=format&fit=crop";
-                      }
-                    }}
-                  />
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="font-black text-aura-on-surface truncate flex-1 text-sm">
-                        {persona.display_name}
-                      </p>
-                    </div>
-                    
-                    {/* Metadata badges */}
-                    <div className="flex flex-wrap gap-1.5">
-                      {/* Region badge */}
-                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-aura-surface-container border border-aura-outline-variant/40 text-[10px] font-semibold uppercase tracking-tight text-aura-on-surface-variant hover:border-aura-primary/30 transition-colors">
-                        <span>📍</span>
-                        <span>{region}</span>
-                      </span>
-                      
-                      {/* Language badge */}
-                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-aura-surface-container border border-aura-outline-variant/40 text-[10px] font-semibold uppercase tracking-tight text-aura-on-surface-variant hover:border-aura-primary/30 transition-colors">
-                        <span>🌐</span>
-                        <span>{language}</span>
-                      </span>
-                      
-                      {/* Tone badge */}
-                      {tone && (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-aura-surface-container border border-aura-outline-variant/40 text-[10px] font-semibold uppercase tracking-tight text-aura-on-surface-variant hover:border-aura-primary/30 transition-colors">
-                          <span>💬</span>
-                          <span>{tone}</span>
-                        </span>
-                      )}
-                    </div>
-                    
-                    <p className="text-xs text-aura-on-surface-variant line-clamp-2 leading-relaxed">
-                      {persona.description || "Ready for regional app review production."}
-                    </p>
-                    
-                    {/* Status badge */}
-                    <div className="flex items-center justify-between gap-2 pt-1">
-                      <span className={cn(
-                        "rounded-full border px-2 py-1.5 text-[10px] font-bold uppercase tracking-tight transition-all whitespace-nowrap",
-                        activeChannels > 0 
-                          ? "border-emerald-200/60 bg-emerald-50/80 text-emerald-700" 
-                          : "border-amber-200/60 bg-amber-50/80 text-amber-700"
-                      )}>
-                        <span className="inline-block mr-1">{activeChannels > 0 ? "✓" : "○"}</span>
-                        {activeChannels > 0 ? `TikTok (${activeChannels})` : "TikTok Inactive"}
-                      </span>
-                      {persona.demo?.available && (
-                        <span className="inline-flex items-center gap-1 px-2 py-1.5 rounded-full bg-blue-50/80 border border-blue-200/60 text-blue-700 text-[10px] font-bold uppercase tracking-tight">
-                          <span>✨</span> Demo
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="dashboard-panel-soft p-10 text-center text-aura-on-surface-variant">
-            No personas found yet.
-          </div>
-        )}
       </section>
 
       <section className="space-y-5">
@@ -844,6 +734,15 @@ function LiveFeedTab({
           </div>
         )}
       </section>
+      <PersonaSelectionModal
+        isOpen={showPersonaModal}
+        validationResult={validationResult}
+        personas={personaOptions}
+        selectedPersonaIds={modalPersonaIds}
+        onChangeSelectedPersonaIds={setModalPersonaIds}
+        onClose={() => setShowPersonaModal(false)}
+        onConfirm={handlePersonaSelectionConfirm}
+      />
     </div>
   );
 }

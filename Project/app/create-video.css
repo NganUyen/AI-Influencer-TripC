@@ -635,6 +635,13 @@
   transform: scale(0.98);
 }
 
+.cv-gesture-chip--selected {
+  border-color: #a03929;
+  background: rgb(160 57 41 / 0.12);
+  color: #a03929;
+  box-shadow: inset 0 0 0 1px rgb(160 57 41 / 0.25);
+}
+
 /* --------------------------------------------------------------------------
     Background Music Mood Cards
     -------------------------------------------------------------------------- */
@@ -669,6 +676,12 @@
   border-color: #705900;
   background: rgb(112 89 0 / 0.15);
   transform: scale(0.98);
+}
+
+.cv-bgm-mood-card--selected {
+  border-color: #705900;
+  background: rgb(112 89 0 / 0.14);
+  box-shadow: inset 0 0 0 1px rgb(112 89 0 / 0.25);
 }
 
 .cv-bgm-mood-icon {

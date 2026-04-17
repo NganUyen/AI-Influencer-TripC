@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { toast } from "react-hot-toast";
 import { 
   Send, 
   Clock, 
@@ -20,13 +21,167 @@ interface PublishingTabProps {
   jobs?: ReviewEngineJob[];
 }
 
+const MOCK_PUBLISHING_JOBS: ReviewEngineJob[] = [
+  {
+    job_id: "mock-job-1",
+    workflow_id: "mock-wf-1",
+    status: "completed",
+    progress: 100,
+    activity_feed: [],
+    page_title: "AI So Easy App Review",
+    target_platform: "tiktok",
+    persona: { persona_id: "p1", display_name: "Ethan Parker" },
+    content: { title: "AI So Easy - Review", body: "UGC short review" },
+    production: { ready: true, playable_video_url: "https://example.com/video-1.mp4" },
+    publish: {
+      requested: true,
+      status: "published",
+      published_at: "2026-04-17T10:00:00Z",
+      post_url: "https://www.tiktok.com/@demo/video/111",
+    },
+    published_at: "2026-04-17T10:00:00Z",
+    created_at: "2026-04-17T09:20:00Z",
+    updated_at: "2026-04-17T10:02:00Z",
+  },
+  {
+    job_id: "mock-job-2",
+    workflow_id: "mock-wf-2",
+    status: "completed",
+    progress: 100,
+    activity_feed: [],
+    page_title: "Travel Assistant Walkthrough",
+    target_platform: "tiktok",
+    persona: { persona_id: "p2", display_name: "Hoang Hio" },
+    content: { title: "Travel Assistant Demo", body: "Feature flow" },
+    production: { ready: true, playable_video_url: "https://example.com/video-2.mp4" },
+    publish: { requested: true, status: "scheduled" },
+    scheduled_at: "2026-04-18T08:00:00Z",
+    created_at: "2026-04-17T11:00:00Z",
+    updated_at: "2026-04-17T11:10:00Z",
+  },
+  {
+    job_id: "mock-job-3",
+    workflow_id: "mock-wf-3",
+    status: "completed",
+    progress: 100,
+    activity_feed: [],
+    page_title: "Finance App Feature Promo",
+    target_platform: "tiktok",
+    persona: { persona_id: "p3", display_name: "Honag" },
+    content: { title: "Finance Feature Promo", body: "Promo" },
+    production: { ready: true, playable_video_url: "https://example.com/video-3.mp4" },
+    publish: { requested: true, status: "failed", publish_error: "Rate limited" },
+    created_at: "2026-04-17T12:00:00Z",
+    updated_at: "2026-04-17T12:10:00Z",
+  },
+  {
+    job_id: "mock-job-4",
+    workflow_id: "mock-wf-4",
+    status: "completed",
+    progress: 100,
+    activity_feed: [],
+    page_title: "Language App Quick Review",
+    target_platform: "tiktok",
+    persona: { persona_id: "p4", display_name: "Hoang he" },
+    content: { title: "Language App UGC", body: "UGC" },
+    production: { ready: true, playable_video_url: "https://example.com/video-4.mp4" },
+    publish: {
+      requested: true,
+      status: "auth_required",
+      publish_error: "Reconnect TikTok account",
+    },
+    created_at: "2026-04-17T13:00:00Z",
+    updated_at: "2026-04-17T13:05:00Z",
+  },
+];
+
+function cloneJobs(items: ReviewEngineJob[]): ReviewEngineJob[] {
+  return JSON.parse(JSON.stringify(items));
+}
+
 export function PublishingTab({ jobs }: PublishingTabProps) {
   const [searchTerm, setSearchTerm] = React.useState("");
+  const [detailJob, setDetailJob] = React.useState<ReviewEngineJob | null>(null);
+  const [shareJob, setShareJob] = React.useState<ReviewEngineJob | null>(null);
   const safeJobs = Array.isArray(jobs) ? jobs : [];
+  const isMockMode = safeJobs.length === 0;
+  const [liveJobs, setLiveJobs] = React.useState<ReviewEngineJob[]>(
+    cloneJobs(isMockMode ? MOCK_PUBLISHING_JOBS : safeJobs),
+  );
 
-  const publishingJobs = safeJobs.filter(j => 
+  React.useEffect(() => {
+    setLiveJobs(cloneJobs(isMockMode ? MOCK_PUBLISHING_JOBS : safeJobs));
+  }, [isMockMode, safeJobs]);
+
+  const publishingJobs = liveJobs.filter(j => 
       j.publish?.requested || j.publish?.status === "published" || j.publish?.status === "failed" || j.publish?.status === "scheduled" || j.publish?.status === "auth_required"
   );
+
+  const updateJob = React.useCallback((jobId: string, updater: (job: ReviewEngineJob) => ReviewEngineJob) => {
+    setLiveJobs((current) => current.map((job) => (job.job_id === jobId ? updater(job) : job)));
+  }, []);
+
+  const handlePublishNow = (jobId: string) => {
+    updateJob(jobId, (job) => ({
+      ...job,
+      publish: {
+        ...(job.publish || {}),
+        requested: true,
+        status: "published",
+        published_at: new Date().toISOString(),
+        post_url: `https://www.tiktok.com/@demo/video/${jobId}`,
+      },
+      published_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+    toast.success("Mock publish completed.");
+  };
+
+  const handleRetry = (jobId: string) => {
+    updateJob(jobId, (job) => ({
+      ...job,
+      publish: {
+        ...(job.publish || {}),
+        requested: true,
+        status: "scheduled",
+        publish_error: null,
+      },
+      scheduled_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+    toast.success("Mock retry queued as scheduled.");
+  };
+
+  const handleReconnect = (jobId: string) => {
+    updateJob(jobId, (job) => ({
+      ...job,
+      publish: {
+        ...(job.publish || {}),
+        requested: true,
+        status: "scheduled",
+        publish_error: null,
+      },
+      scheduled_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+    toast.success("Mock account reconnected.");
+  };
+
+  const handleCopyShare = async (job: ReviewEngineJob) => {
+    const text = job.publish?.post_url || job.production?.playable_video_url || "No share link";
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      }
+      toast.success("Share link copied.");
+    } catch {
+      toast.success(`Share link: ${text}`);
+    }
+  };
+
+  const handleViewDetails = (job: ReviewEngineJob) => {
+    setDetailJob(job);
+  };
 
   const filteredContent = publishingJobs.filter(item => 
     (item.content?.title || item.page_title || "App Review").toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -72,6 +227,11 @@ export function PublishingTab({ jobs }: PublishingTabProps) {
           <p className="text-aura-on-surface-variant max-w-2xl text-lg font-body">
             Manage your global content distribution. Monitor scheduled posts, track published performance, and resolve delivery issues across all platforms.
           </p>
+          {isMockMode && (
+            <p className="text-xs font-semibold text-aura-primary uppercase tracking-wider">
+              Demo mode: using mock publishing data
+            </p>
+          )}
         </div>
         
         <div className="flex items-center gap-3">
@@ -179,11 +339,46 @@ export function PublishingTab({ jobs }: PublishingTabProps) {
                       </div>
                     </td>
                     <td className="px-8 py-6 text-right">
-                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button className="p-2 hover:bg-aura-primary/10 hover:text-aura-primary rounded-lg transition-all" title="View details">
+                      <div className="flex items-center justify-end gap-2 flex-wrap">
+                        {(item.publish?.status === "scheduled" || item.publish?.status === "ready_to_publish") && (
+                          <button
+                            className="px-3 py-1.5 text-xs font-semibold rounded-full border border-aura-primary/30 text-aura-primary hover:bg-aura-primary/10 transition-all"
+                            onClick={() => handlePublishNow(item.job_id)}
+                          >
+                            Publish Now
+                          </button>
+                        )}
+                        {item.publish?.status === "failed" && (
+                          <button
+                            className="px-3 py-1.5 text-xs font-semibold rounded-full border border-rose-300 text-rose-600 hover:bg-rose-50 transition-all"
+                            onClick={() => handleRetry(item.job_id)}
+                          >
+                            Retry
+                          </button>
+                        )}
+                        {item.publish?.status === "auth_required" && (
+                          <button
+                            className="px-3 py-1.5 text-xs font-semibold rounded-full border border-amber-300 text-amber-700 hover:bg-amber-50 transition-all"
+                            onClick={() => handleReconnect(item.job_id)}
+                          >
+                            Reconnect
+                          </button>
+                        )}
+
+                        <button
+                          className="p-2 hover:bg-aura-primary/10 hover:text-aura-primary rounded-lg transition-all"
+                          title="View details"
+                          onClick={() => handleViewDetails(item)}
+                        >
                           <ExternalLink className="w-4 h-4" />
                         </button>
-                        <button className="p-2 hover:bg-aura-primary/10 hover:text-aura-primary rounded-lg transition-all" title="Share">
+                        <button
+                          className="p-2 hover:bg-aura-primary/10 hover:text-aura-primary rounded-lg transition-all"
+                          title="Share"
+                          onClick={() => {
+                            setShareJob(item);
+                          }}
+                        >
                           <Share2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -209,6 +404,79 @@ export function PublishingTab({ jobs }: PublishingTabProps) {
           </table>
         </div>
       </div>
+
+      {detailJob && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
+          <div className="w-full max-w-2xl rounded-3xl bg-white shadow-xl border border-aura-outline-variant/15 overflow-hidden">
+            <div className="px-6 py-4 border-b border-aura-outline-variant/10 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-aura-on-surface">Publishing Details</h3>
+              <button className="text-sm font-semibold text-aura-on-surface-variant hover:text-aura-on-surface" onClick={() => setDetailJob(null)}>
+                Close
+              </button>
+            </div>
+            <div className="p-6 space-y-4 text-sm">
+              <div className="grid grid-cols-2 gap-4">
+                <DetailItem label="Job ID" value={detailJob.job_id} />
+                <DetailItem label="Workflow ID" value={detailJob.workflow_id} />
+                <DetailItem label="Title" value={detailJob.content?.title || detailJob.page_title || "App Review"} />
+                <DetailItem label="Platform" value={detailJob.target_platform || "tiktok"} />
+                <DetailItem label="Status" value={detailJob.publish?.status || "draft"} />
+                <DetailItem label="Persona" value={detailJob.persona?.display_name || "-"} />
+              </div>
+
+              <div className="rounded-2xl bg-aura-surface-container p-4 border border-aura-outline-variant/10">
+                <p className="text-xs uppercase tracking-wider font-bold text-aura-on-surface-variant mb-2">Mock Timeline</p>
+                <ul className="space-y-1 text-aura-on-surface">
+                  <li>• Plan created</li>
+                  <li>• Render completed</li>
+                  <li>• Publish status: {(detailJob.publish?.status || "draft").replace(/_/g, " ")}</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {shareJob && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
+          <div className="w-full max-w-xl rounded-3xl bg-white shadow-xl border border-aura-outline-variant/15 overflow-hidden">
+            <div className="px-6 py-4 border-b border-aura-outline-variant/10 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-aura-on-surface">Share Link</h3>
+              <button className="text-sm font-semibold text-aura-on-surface-variant hover:text-aura-on-surface" onClick={() => setShareJob(null)}>
+                Close
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-aura-on-surface-variant">Mock share link for previewing publish flow.</p>
+              <div className="rounded-xl border border-aura-outline-variant/15 bg-aura-surface-container p-3 break-all text-sm text-aura-on-surface">
+                {shareJob.publish?.post_url || shareJob.production?.playable_video_url || "No link available"}
+              </div>
+              <div className="flex justify-end gap-2">
+                <button className="px-4 py-2 rounded-xl border border-aura-outline-variant/20 text-aura-on-surface-variant" onClick={() => setShareJob(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="px-4 py-2 rounded-xl bg-aura-primary text-white font-semibold"
+                  onClick={() => {
+                    void handleCopyShare(shareJob);
+                  }}
+                >
+                  Copy Link
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetailItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-aura-outline-variant/10 p-3 bg-aura-surface-container-lowest">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-aura-on-surface-variant mb-1">{label}</p>
+      <p className="text-sm font-semibold text-aura-on-surface break-all">{value}</p>
     </div>
   );
 }

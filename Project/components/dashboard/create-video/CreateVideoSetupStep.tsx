@@ -37,7 +37,19 @@ export function CreateVideoSetupStep({
     objective,
     brief,
     selectedMode,
+    selectedBackground,
+    selectedMovementStyle,
+    selectedMusicMood,
   } = setupState;
+
+  const backgroundOptions = [
+    { id: 'studio-soft', label: 'Studio Soft Light' },
+    { id: 'office-modern', label: 'Modern Office' },
+    { id: 'minimal-white', label: 'Minimal White' },
+    { id: 'tech-gradient', label: 'Tech Gradient' },
+    { id: 'lifestyle-home', label: 'Lifestyle Home' },
+    { id: 'city-night', label: 'City Night' },
+  ];
 
   const [isBriefExpanded, setIsBriefExpanded] = useState(false);
   const validationAbortRef = useRef<AbortController | null>(null);
@@ -386,8 +398,11 @@ export function CreateVideoSetupStep({
                 <button
                   key={style}
                   type="button"
-                  className="cv-gesture-chip"
-                  onClick={() => toast.success(`Gesture style: ${style}`)}
+                  className={`cv-gesture-chip${selectedMovementStyle === style ? ' cv-gesture-chip--selected' : ''}`}
+                  onClick={() => {
+                    onChange({ selectedMovementStyle: style });
+                    toast.success(`Movement style: ${style}`);
+                  }}
                 >
                   {style}
                 </button>
@@ -415,8 +430,11 @@ export function CreateVideoSetupStep({
                 <button
                   key={mood}
                   type="button"
-                  className="cv-bgm-mood-card"
-                  onClick={() => toast.success(`Background mood: ${mood}`)}
+                  className={`cv-bgm-mood-card${selectedMusicMood === mood ? ' cv-bgm-mood-card--selected' : ''}`}
+                  onClick={() => {
+                    onChange({ selectedMusicMood: mood });
+                    toast.success(`Music mood: ${mood}`);
+                  }}
                 >
                   <span className="cv-bgm-mood-icon">♪</span>
                   <span className="cv-bgm-mood-label">{mood}</span>
@@ -428,6 +446,36 @@ export function CreateVideoSetupStep({
               Volume
             </p>
             <input type="range" min="0" max="100" defaultValue="70" className="cv-slider" />
+          </div>
+        </div>
+
+        {/* ============== SECTION 6: Persona Background (Optional) ============== */}
+        <div className="cv-section-card">
+          <div className="cv-section-header">
+            <h3 className="cv-section-title">
+              Persona Background
+              <span className="cv-section-badge cv-section-badge--optional">Optional</span>
+            </h3>
+          </div>
+          <div className="cv-section-content">
+            <p className="cv-field-label" style={{ fontSize: '13px', color: '#5c5c58', marginBottom: '8px' }}>
+              Choose background style behind persona
+            </p>
+            <div className="cv-gesture-chips">
+              {backgroundOptions.map((bg) => (
+                <button
+                  key={bg.id}
+                  type="button"
+                  className={`cv-gesture-chip${selectedBackground === bg.id ? ' cv-gesture-chip--selected' : ''}`}
+                  onClick={() => {
+                    onChange({ selectedBackground: bg.id });
+                    toast.success(`Persona background: ${bg.label}`);
+                  }}
+                >
+                  {bg.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 

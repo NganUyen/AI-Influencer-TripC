@@ -1,6 +1,5 @@
 'use client';
 
-import '@/app/create-video.css';
 import type { CreateVideoProgressViewModel, RenderStatus } from '@/types/video-planning';
 
 // ---------------------------------------------------------------------------
@@ -9,6 +8,7 @@ import type { CreateVideoProgressViewModel, RenderStatus } from '@/types/video-p
 
 interface CreateVideoRenderStepProps {
   progressItems: CreateVideoProgressViewModel[];
+  onContinue: () => void;
   onBack: () => void;
 }
 
@@ -16,7 +16,7 @@ interface CreateVideoRenderStepProps {
 // Component
 // ---------------------------------------------------------------------------
 
-export function CreateVideoRenderStep({ progressItems, onBack }: CreateVideoRenderStepProps) {
+export function CreateVideoRenderStep({ progressItems, onContinue, onBack }: CreateVideoRenderStepProps) {
   if (progressItems.length === 0) {
     return (
       <div className="cv-empty-state">
@@ -25,6 +25,10 @@ export function CreateVideoRenderStep({ progressItems, onBack }: CreateVideoRend
       </div>
     );
   }
+
+  const allDone = progressItems.every(
+    (item) => item.status === 'completed' || item.status === 'pending_backend',
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -45,6 +49,14 @@ export function CreateVideoRenderStep({ progressItems, onBack }: CreateVideoRend
           <RenderProgressCard key={item.personaId} item={item} />
         ))}
       </div>
+
+      {allDone && (
+        <div className="cv-continue-bar">
+          <button type="button" onClick={onContinue} className="btn-primary">
+            Continue to publish
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -118,6 +130,8 @@ function RenderProgressCard({ item }: { item: CreateVideoProgressViewModel }) {
               src={item.outputPreviewUrl}
               alt="Video preview"
               className="cv-output-preview-img"
+              loading="lazy"
+              decoding="async"
             />
           ) : (
             <div className="cv-output-placeholder">
@@ -174,6 +188,8 @@ function PersonaAvatar({ name, avatarUrl, size }: { name: string; avatarUrl?: st
         alt={name}
         className="cv-avatar"
         style={{ width: size, height: size }}
+        loading="lazy"
+        decoding="async"
       />
     );
   }

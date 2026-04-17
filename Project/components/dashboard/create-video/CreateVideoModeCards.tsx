@@ -1,6 +1,5 @@
 'use client';
 
-import '@/app/create-video.css';
 import type { CreateVideoModeViewModel, VideoCreationMode } from '@/types/video-planning';
 
 // ---------------------------------------------------------------------------

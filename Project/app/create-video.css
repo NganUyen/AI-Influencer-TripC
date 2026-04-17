@@ -113,14 +113,239 @@
 }
 
 /* --------------------------------------------------------------------------
-   Setup Step — Layout grid
-   -------------------------------------------------------------------------- */
+    Container & Step Content
+    -------------------------------------------------------------------------- */
+
+.cv-container {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.cv-step-content {
+  animation: cv-fade-in 0.3s ease-out;
+}
+
+.cv-step-content-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.cv-step-panel {
+  border: 1px solid rgb(174 173 169 / 0.2);
+  border-radius: 1rem;
+  padding: 48px 32px;
+  background: var(--surface-bright);
+}
+
+.cv-step-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #2e2f2c;
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  letter-spacing: -0.5px;
+}
+
+.cv-step-subtitle {
+  font-size: 15px;
+  color: #5c5c58;
+  line-height: 1.6;
+}
+
+.cv-step-actions {
+  display: flex;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+@keyframes cv-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes cv-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes cv-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* --------------------------------------------------------------------------
+    Progress Tracker (Enhanced 4-Step Pill Design)
+    -------------------------------------------------------------------------- */
+
+.cv-progress-tracker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 0;
+  border-bottom: 1px solid rgb(174 173 169 / 0.12);
+  margin-bottom: 8px;
+  background: var(--surface-bright);
+}
+
+.cv-progress-track {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: 100%;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  padding: 0 16px;
+}
+
+.cv-progress-step-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.cv-progress-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 1rem;
+  background: rgb(174 173 169 / 0.08);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cv-progress-step--active {
+  background: #a03929;
+  box-shadow: 0 4px 12px rgba(160, 57, 41, 0.15);
+  transform: scale(1.05);
+}
+
+.cv-progress-step--completed {
+  background: rgb(0 104 79 / 0.1);
+}
+
+.cv-progress-step-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  color: #5c5c58;
+  background: var(--surface-bright);
+  transition: all 0.2s ease;
+}
+
+.cv-progress-step--active .cv-progress-step-circle {
+  background: #ffefed;
+  color: #a03929;
+  box-shadow: 0 2px 8px rgba(160, 57, 41, 0.2);
+}
+
+.cv-progress-step--completed .cv-progress-step-circle {
+  background: rgb(0 104 79 / 0.15);
+  color: #00684f;
+}
+
+.cv-progress-step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cv-progress-step-checkmark {
+  width: 18px;
+  height: 18px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.cv-progress-step-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #5c5c58;
+  white-space: nowrap;
+  transition: color 0.2s ease;
+}
+
+.cv-progress-step--active .cv-progress-step-label {
+  color: #ffefed;
+  font-weight: 600;
+}
+
+.cv-progress-step--completed .cv-progress-step-label {
+  color: #00684f;
+  font-weight: 600;
+}
+
+.cv-progress-connector {
+  width: 32px;
+  height: 2px;
+  background: rgb(174 173 169 / 0.2);
+  transition: background 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+.cv-progress-connector--completed {
+  background: #00684f;
+}
+
+/* Responsive progress tracker */
+@media (max-width: 768px) {
+  .cv-progress-track {
+    gap: 12px;
+    padding: 0 8px;
+  }
+
+  .cv-progress-step-wrapper {
+    gap: 12px;
+  }
+
+  .cv-progress-step {
+    padding: 6px 12px;
+  }
+
+  .cv-progress-step-label {
+    font-size: 11px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+    Setup Step — Layout grid
+    -------------------------------------------------------------------------- */
 
 .cv-setup-grid {
   display: grid;
-  grid-template-columns: 1fr 300px;
+  grid-template-columns: 1fr 320px;
   gap: 32px;
   align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .cv-setup-grid {
+    grid-template-columns: 1fr 280px;
+    gap: 24px;
+  }
 }
 
 @media (max-width: 768px) {
@@ -130,8 +355,81 @@
 }
 
 /* --------------------------------------------------------------------------
-   Field Group
-   -------------------------------------------------------------------------- */
+    Section Cards (Stacked Setup Sections)
+    -------------------------------------------------------------------------- */
+
+.cv-section-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid rgb(174 173 169 / 0.15);
+  border-radius: 1rem;
+  background: var(--surface-bright);
+  box-shadow: 0 2px 8px rgba(46, 47, 44, 0.04);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: cv-fade-in 0.3s ease-out both;
+}
+
+/* Stagger animation for section cards */
+.cv-section-card:nth-child(1) { animation-delay: 0ms; }
+.cv-section-card:nth-child(2) { animation-delay: 60ms; }
+.cv-section-card:nth-child(3) { animation-delay: 120ms; }
+.cv-section-card:nth-child(4) { animation-delay: 180ms; }
+.cv-section-card:nth-child(5) { animation-delay: 240ms; }
+.cv-section-card:nth-child(6) { animation-delay: 300ms; }
+
+.cv-section-card:hover {
+  border-color: rgb(174 173 169 / 0.25);
+  box-shadow: 0 4px 12px rgba(46, 47, 44, 0.08);
+  transform: translateY(-1px);
+}
+
+.cv-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cv-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #2e2f2c;
+}
+
+.cv-section-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.cv-section-badge--required {
+  background: rgb(180 19 64 / 0.08);
+  color: #b41340;
+}
+
+.cv-section-badge--optional {
+  background: rgb(112 89 0 / 0.08);
+  color: #705900;
+}
+
+.cv-section-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* --------------------------------------------------------------------------
+    Field Group & Form
+    -------------------------------------------------------------------------- */
 
 .cv-field-group {
   display: flex;
@@ -142,7 +440,7 @@
 .cv-field-form {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 16px;
 }
 
 .cv-field-label {
@@ -191,8 +489,206 @@
 }
 
 /* --------------------------------------------------------------------------
-   Input / Textarea
-   -------------------------------------------------------------------------- */
+    Gesture Chips & Slider
+    -------------------------------------------------------------------------- */
+
+.cv-gesture-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.cv-gesture-chip {
+  padding: 10px 14px;
+  border: 1.5px solid rgb(174 173 169 / 0.2);
+  border-radius: 0.75rem;
+  background: var(--surface-container);
+  color: #5c5c58;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.cv-gesture-chip:hover {
+  border-color: #a03929;
+  background: rgb(160 57 41 / 0.08);
+  color: #a03929;
+}
+
+.cv-gesture-chip:active {
+  border-color: #a03929;
+  background: #a03929;
+  color: #ffefed;
+  transform: scale(0.98);
+}
+
+/* --------------------------------------------------------------------------
+    Background Music Mood Cards
+    -------------------------------------------------------------------------- */
+
+.cv-bgm-mood-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.cv-bgm-mood-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  border: 1.5px solid rgb(174 173 169 / 0.2);
+  border-radius: 1rem;
+  background: var(--surface-container);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  min-height: 90px;
+  justify-content: center;
+}
+
+.cv-bgm-mood-card:hover {
+  border-color: #705900;
+  background: rgb(112 89 0 / 0.08);
+}
+
+.cv-bgm-mood-card:active {
+  border-color: #705900;
+  background: rgb(112 89 0 / 0.15);
+  transform: scale(0.98);
+}
+
+.cv-bgm-mood-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.cv-bgm-mood-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #5c5c58;
+}
+
+@media (max-width: 768px) {
+  .cv-gesture-chips {
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  }
+
+  .cv-bgm-mood-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* --------------------------------------------------------------------------
+    Slider
+    -------------------------------------------------------------------------- */
+
+.cv-slider {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: rgb(174 173 169 / 0.2);
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: background 0.2s ease;
+}
+
+.cv-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #a03929;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(160, 57, 41, 0.3);
+  transition: all 0.2s ease;
+}
+
+.cv-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 4px 12px rgba(160, 57, 41, 0.4);
+}
+
+.cv-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #a03929;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 6px rgba(160, 57, 41, 0.3);
+  transition: all 0.2s ease;
+}
+
+.cv-slider::-moz-range-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 4px 12px rgba(160, 57, 41, 0.4);
+}
+
+.cv-slider::-moz-range-track {
+  background: transparent;
+  border: none;
+}
+
+/* --------------------------------------------------------------------------
+    Toggle Section Header
+    -------------------------------------------------------------------------- */
+
+.cv-section-header--toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 12px;
+  font-family: inherit;
+  transition: none;
+}
+
+.cv-section-header--toggle:hover {
+  background: none;
+}
+
+.cv-toggle-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #5c5c58;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cv-toggle-chevron--open {
+  transform: rotate(180deg);
+}
+
+/* --------------------------------------------------------------------------
+    Persona Count Badge
+    -------------------------------------------------------------------------- */
+
+.cv-persona-count {
+  font-size: 12px;
+  color: #a03929;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: rgb(160 57 41 / 0.08);
+  border-radius: 4px;
+}
+
+/* --------------------------------------------------------------------------
+    Input / Textarea
+    -------------------------------------------------------------------------- */
 
 .cv-input {
   width: 100%;
@@ -281,13 +777,28 @@
 }
 
 /* --------------------------------------------------------------------------
-   Persona Multi-select
-   -------------------------------------------------------------------------- */
+    Persona Groups
+    -------------------------------------------------------------------------- */
 
-.cv-persona-list {
+.cv-persona-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
+  padding: 12px 0;
+  animation: cv-fade-in 0.3s ease-out;
+}
+
+.cv-persona-group:not(:last-child) {
+  border-bottom: 1px solid rgb(174 173 169 / 0.1);
+  padding-bottom: 16px;
+  margin-bottom: 4px;
+}
+
+.cv-persona-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
 }
 
 .cv-persona-option {
@@ -471,20 +982,27 @@
 }
 
 /* --------------------------------------------------------------------------
-   Summary Panel
-   -------------------------------------------------------------------------- */
+    Summary Panel (Sticky Sidebar)
+    -------------------------------------------------------------------------- */
 
 .cv-summary-panel {
-  background: var(--surface-card);
-  border: 1px solid rgb(174 173 169 / 0.18);
-  border-radius: var(--radius-panel);
+  background: var(--surface-bright);
+  border: 1px solid rgb(174 173 169 / 0.15);
+  border-radius: 1rem;
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 20px;
   position: sticky;
   top: 24px;
-  box-shadow: 0 8px 24px rgba(46, 47, 44, 0.06);
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(46, 47, 44, 0.06);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cv-summary-panel:hover {
+  box-shadow: 0 8px 24px rgba(46, 47, 44, 0.1);
 }
 
 .cv-summary-heading {
@@ -507,6 +1025,7 @@
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
+  animation: cv-fade-in 0.3s ease-out;
 }
 
 .cv-summary-label {
@@ -514,6 +1033,7 @@
   color: #777773;
   flex-shrink: 0;
   min-width: 72px;
+  font-weight: 500;
 }
 
 .cv-summary-value {
@@ -521,30 +1041,39 @@
   font-weight: 600;
   color: #2e2f2c;
   text-align: right;
-  word-break: break-all;
+  word-break: break-word;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgb(174 173 169 / 0.05);
+  transition: all 0.2s ease;
 }
 
 .cv-summary-value--valid {
   color: #00684f;
+  background: rgb(0 104 79 / 0.08);
 }
 
 .cv-summary-value--invalid {
   color: #b41340;
+  background: rgb(180 19 64 / 0.08);
 }
 
 .cv-summary-value--loading {
   color: #705900;
+  background: rgb(112 89 0 / 0.08);
 }
 
 .cv-summary-value--empty {
   color: #aeada9;
   font-weight: 400;
+  background: transparent;
+  font-style: italic;
 }
 
 .cv-summary-divider {
   border: none;
-  border-top: 1px solid rgb(174 173 169 / 0.16);
-  margin: 0;
+  border-top: 1px solid rgb(174 173 169 / 0.12);
+  margin: 4px 0;
 }
 
 .cv-summary-hint {
@@ -554,14 +1083,35 @@
   line-height: 1.6;
 }
 
+/* Scrollbar styling for summary panel */
+.cv-summary-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.cv-summary-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cv-summary-panel::-webkit-scrollbar-thumb {
+  background: rgb(174 173 169 / 0.2);
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+
+.cv-summary-panel::-webkit-scrollbar-thumb:hover {
+  background: rgb(174 173 169 / 0.4);
+}
+
 /* --------------------------------------------------------------------------
-   CTA Buttons (Create Video specific)
-   -------------------------------------------------------------------------- */
+    CTA Buttons (Create Video specific)
+    -------------------------------------------------------------------------- */
 
 .cv-cta-wrap {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding-top: 8px;
+  animation: cv-fade-in 0.3s ease-out;
 }
 
 .cv-cta-disabled-reason {
@@ -569,6 +1119,43 @@
   color: #777773;
   margin: 0;
   line-height: 1.5;
+  animation: cv-fade-in 0.2s ease-out;
+}
+
+/* Primary Button Enhancements */
+.btn-primary {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(160, 57, 41, 0.25);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 4px 12px rgba(160, 57, 41, 0.2);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Secondary Button Enhancements */
+.btn-secondary {
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.btn-wide {
+  width: 100%;
 }
 
 .cv-back-btn {

@@ -40,6 +40,12 @@ async def test_lease_proxy_is_sticky_and_region_aware():
         platform="tiktok",
         region_code="VN",
     )
+    first_lease_with_creds = await ProxyManagerService.lease_proxy(
+        account_key="creator-a",
+        platform="tiktok",
+        region_code="VN",
+        include_credentials=True,
+    )
     second_lease = await ProxyManagerService.lease_proxy(
         account_key="creator-a",
         platform="tiktok",
@@ -55,6 +61,7 @@ async def test_lease_proxy_is_sticky_and_region_aware():
     assert first_lease["proxy_details"]["country_code"] == "VN"
     assert us_lease["proxy_details"]["country_code"] == "US"
     assert "password" not in first_lease["proxy"]
+    assert "password" in first_lease_with_creds["proxy"]
     assert "username" not in first_lease["proxy_details"]
 
 

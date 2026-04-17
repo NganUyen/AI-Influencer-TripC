@@ -36,7 +36,8 @@ import { TextAreaField } from "@/components/ui/TextAreaField";
 
 import { OverviewTab } from "./dashboard/OverviewTab";
 import { PersonasTab } from "./dashboard/PersonasTab";
-import { LiveFeedTab } from "./dashboard/LiveFeedTab";
+// import LiveFeedTab from "./dashboard/LiveFeedTab"; // deprecated — replaced by CreateVideoTab
+import { CreateVideoTab } from "./dashboard/CreateVideoTab";
 import { PublishingTab } from "./dashboard/PublishingTab";
 import { DashboardLoadingSkeleton } from "./dashboard/skeletons/DashboardLoadingSkeleton";
 import {
@@ -527,6 +528,11 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
     const interval = setInterval(fetchSystemData, 30000);
     return () => clearInterval(interval);
   }, [fetchSystemData]);
+
+  // Prefetch the create_video route to reduce lag when navigating
+  useEffect(() => {
+    router.prefetch(getDashboardTabHref("create_video"));
+  }, [router]);
 
   useEffect(() => {
     const oauthStatus = searchParams.get("oauth_status");
@@ -1984,6 +1990,7 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
                  onNavigateToPersonas={() => navigateToTab("skills")}
                  onNavigateToPublishing={() => navigateToTab("publishing")}
                />
+               <CreateVideoTab personas={personas} />
              )}
 
             {activeTab === "publishing" && (

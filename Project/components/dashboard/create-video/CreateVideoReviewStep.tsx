@@ -1,6 +1,5 @@
 'use client';
 
-import '@/app/create-video.css';
 import { useState } from 'react';
 import type { PersonaPlanCardViewModel, PlanCardStatus } from '@/types/video-planning';
 
@@ -267,6 +266,8 @@ function PersonaAvatar({ name, avatarUrl, size }: { name: string; avatarUrl?: st
         alt={name}
         className="cv-avatar"
         style={{ width: size, height: size }}
+        loading="lazy"
+        decoding="async"
       />
     );
   }

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
@@ -34,17 +35,26 @@ import { FormField } from "@/components/ui/FormField";
 import { SelectField } from "@/components/ui/SelectField";
 import { TextAreaField } from "@/components/ui/TextAreaField";
 
-import { OverviewTab } from "./dashboard/OverviewTab";
-import { PersonasTab } from "./dashboard/PersonasTab";
-// import LiveFeedTab from "./dashboard/LiveFeedTab"; // deprecated — replaced by CreateVideoTab
-import { CreateVideoTab } from "./dashboard/CreateVideoTab";
-import { PublishingTab } from "./dashboard/PublishingTab";
 import { DashboardLoadingSkeleton } from "./dashboard/skeletons/DashboardLoadingSkeleton";
-import {
-  type ReviewEngineSetup,
-  type ReviewEngineJob,
-  type ReviewEngineJobResponse,
-} from "@/lib/review-engine";
+
+const OverviewTab = dynamic(
+  () => import("./dashboard/OverviewTab").then((mod) => mod.OverviewTab),
+  { loading: () => <DashboardLoadingSkeleton /> },
+);
+const PersonasTab = dynamic(
+  () => import("./dashboard/PersonasTab").then((mod) => mod.PersonasTab),
+  { loading: () => <DashboardLoadingSkeleton /> },
+);
+const CreateVideoTab = dynamic(
+  () => import("./dashboard/CreateVideoTab").then((mod) => mod.CreateVideoTab),
+  { loading: () => <DashboardLoadingSkeleton /> },
+);
+const PublishingTab = dynamic(
+  () => import("./dashboard/PublishingTab").then((mod) => mod.PublishingTab),
+  { loading: () => <DashboardLoadingSkeleton /> },
+);
+
+const LIVE_SYSTEM_DATA_TABS = new Set<DashboardTabId>(["overview", "ops"]);
 
 
 export type BrandProfile = {
@@ -383,10 +393,6 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
   const [telegramLink, setTelegramLink] = useState<TelegramLinkStatus | null>(null);
   const [linkToken, setLinkToken] = useState<TelegramLinkToken | null>(null);
   const [isPollingTelegramLink, setIsPollingTelegramLink] = useState(false);
-  const [reviewEngineSetup, setReviewEngineSetup] = useState<ReviewEngineSetup | null>(null);
-  const [reviewEngineJobs, setReviewEngineJobs] = useState<ReviewEngineJob[]>([]);
-  const [reviewEngineError, setReviewEngineError] = useState<string | null>(null);
-
   const [campaignDraft, setCampaignDraft] = useState({
     name: "",
     description: "",
@@ -448,35 +454,15 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
     }
   }, [isAuthenticated, logout, router]);
 
-  const fetchReviewEngineData = useCallback(async () => {
-    if (typeof window === "undefined" || !isAuthenticated) {
+  useEffect(() => {
+    if (!LIVE_SYSTEM_DATA_TABS.has(activeTab)) {
       return;
     }
 
-    try {
-      setReviewEngineError(null);
-      const [setup, jobsResponse] = await Promise.all([
-        customerApiRequest<ReviewEngineSetup>("/api/customer/review-engine/setup"),
-        customerApiRequest<ReviewEngineJobResponse>("/api/customer/review-engine/jobs"),
-      ]);
-      setReviewEngineSetup(setup);
-      setReviewEngineJobs(jobsResponse.jobs || []);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Failed to load review engine data";
-      setReviewEngineError(msg);
-      console.error("Failed to fetch review engine data:", error);
-    }
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    void fetchReviewEngineData();
-  }, [fetchReviewEngineData]);
-
-  useEffect(() => {
     void fetchSystemData();
     const interval = setInterval(fetchSystemData, 30000);
     return () => clearInterval(interval);
-  }, [fetchSystemData]);
+  }, [activeTab, fetchSystemData]);
 
   // Prefetch the create_video route to reduce lag when navigating
   useEffect(() => {

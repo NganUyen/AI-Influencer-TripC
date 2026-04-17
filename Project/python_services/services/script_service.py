@@ -386,11 +386,19 @@ class ScriptService:
                 pass
 
         data = result if isinstance(result, dict) else {"result": result}
-        if isinstance(data.get("result"), str) and not data.get("steps"):
-            data = extract_json_from_llm_response(data["result"])
+        target_payload = data.get("result", data)
+        
+        if isinstance(target_payload, str):
+            data = extract_json_from_llm_response(target_payload)
+        elif isinstance(target_payload, dict):
+            if "steps" in target_payload or "scenes" in target_payload:
+                data = target_payload
+
+        if isinstance(data, str):
+            data = extract_json_from_llm_response(data)
 
         try:
-            raw_steps = data.get("steps") or []
+            raw_steps = data.get("steps") or data.get("scenes") or []
             if not raw_steps:
                 # Log detailed debug info for troubleshooting
                 import logging
@@ -406,7 +414,7 @@ class ScriptService:
                 raise ValueError("No recording steps were returned")
             steps = [
                 RecordingScriptStepContract(
-                    idx=int(item.get("idx") or index),
+                    idx=int(item.get("idx") or item.get("id") or index),
                     purpose=str(item.get("purpose") or "feature_demo").strip(),
                     screen_target=str(
                         item.get("screen_target") or "Product page"

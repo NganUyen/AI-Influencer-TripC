@@ -20,6 +20,9 @@ export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelP
     urlValidationDetails,
     selectedPersonaIds,
     selectedMode,
+    selectedBackground,
+    selectedMovementStyle,
+    selectedMusicMood,
   } = setupState;
 
   const domainLabel = extractDomain(sourceUrl) || '-';
@@ -97,6 +100,21 @@ export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelP
         <SummaryRow
           label="Mode"
           value={modeLabel}
+        />
+
+        <SummaryRow
+          label="Background"
+          value={selectedBackground || '—'}
+        />
+
+        <SummaryRow
+          label="Movement"
+          value={selectedMovementStyle || '—'}
+        />
+
+        <SummaryRow
+          label="Music"
+          value={selectedMusicMood || '—'}
         />
       </div>
 

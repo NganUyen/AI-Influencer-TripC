@@ -40,6 +40,9 @@ export interface CreateVideoSetupState {
   objective: string;
   brief?: string;
   selectedMode: VideoCreationMode;
+  selectedBackground: string;
+  selectedMovementStyle: string;
+  selectedMusicMood: string;
 }
 
 export const DEFAULT_SETUP_STATE: CreateVideoSetupState = {
@@ -51,6 +54,9 @@ export const DEFAULT_SETUP_STATE: CreateVideoSetupState = {
   objective: '',
   brief: '',
   selectedMode: 'ai_auto',
+  selectedBackground: 'studio-soft',
+  selectedMovementStyle: 'Natural',
+  selectedMusicMood: 'None',
 };
 
 // ---------------------------------------------------------------------------

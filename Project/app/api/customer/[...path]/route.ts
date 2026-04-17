@@ -213,12 +213,15 @@ async function proxyCustomerRequest(
 
   // ── Dev mock bypass ──────────────────────────────────────────────────────
   if (process.env.NODE_ENV === "development" && isDevMockToken(authHeader)) {
-    const mockData = getMockResponse(pathStr);
-    if (mockData !== null) {
-      return NextResponse.json(mockData, { status: 200 });
+    // Let plan management pass entirely through to the backend implementation
+    if (!pathStr.startsWith("review-engine/plans") && !pathStr.startsWith("review-engine/jobs")) {
+      const mockData = getMockResponse(pathStr);
+      if (mockData !== null) {
+        return NextResponse.json(mockData, { status: 200 });
+      }
+      // Unknown endpoint — return empty 200 so the UI doesn't crash
+      return NextResponse.json({}, { status: 200 });
     }
-    // Unknown endpoint — return empty 200 so the UI doesn't crash
-    return NextResponse.json({}, { status: 200 });
   }
 
   const body =

@@ -385,6 +385,7 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
   const [isPollingTelegramLink, setIsPollingTelegramLink] = useState(false);
   const [reviewEngineSetup, setReviewEngineSetup] = useState<ReviewEngineSetup | null>(null);
   const [reviewEngineJobs, setReviewEngineJobs] = useState<ReviewEngineJob[]>([]);
+  const [reviewEnginePlans, setReviewEnginePlans] = useState<any[]>([]);
   const [reviewEngineError, setReviewEngineError] = useState<string | null>(null);
 
   const [campaignDraft, setCampaignDraft] = useState({
@@ -455,12 +456,62 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
 
     try {
       setReviewEngineError(null);
-      const [setup, jobsResponse] = await Promise.all([
+      const [setup, jobsResponse, plansResponse] = await Promise.all([
         customerApiRequest<ReviewEngineSetup>("/api/customer/review-engine/setup"),
         customerApiRequest<ReviewEngineJobResponse>("/api/customer/review-engine/jobs"),
+        customerApiRequest<any>("/api/customer/review-engine/plans")
+          .catch((e) => {
+            console.warn("Failed to fetch plans", e);
+            return { plans: [] };
+          }),
       ]);
+      const rawJobs = jobsResponse.jobs || [];
+      const plans = plansResponse?.plans || [];
+      
+      const jobsMap = new Map();
+      rawJobs.forEach((job: any) => {
+         jobsMap.set(job.job_id, job);
+         if (job.workflow_id) jobsMap.set(job.workflow_id, job);
+      });
+
+      const mergedJobs = [...rawJobs];
+      plans.forEach((plan: any) => {
+         if (plan.workflow_id && jobsMap.has(plan.workflow_id)) return;
+         if (jobsMap.has(plan.id)) return;
+         
+         const personaFind = setup?.persona_options?.find((p: any) => p.persona_id === plan.persona_id) || setup?.custom_personas?.find((p: any) => p.persona_id === plan.persona_id);
+         
+         mergedJobs.push({
+          job_id: plan.id,
+          plan_id: plan.id,
+          workflow_id: plan.workflow_id,
+          run_id: null,
+          persona_id: plan.persona_id,
+          persona: personaFind || {},
+          campaign_id: plan.campaign_id,
+          source_url: plan.source_url,
+          objective: plan.objective,
+          content: { title: plan.publish_settings?.content_title || "App Review" },
+          script: { 
+            script: plan.script_text, 
+            scenes: plan.scenes_data 
+          },
+          editable_content: plan.publish_settings?.caption_draft || plan.script_text || "",
+          status: plan.status,
+          current_step: plan.status,
+          progress: plan.status === 'generated' ? 0 : plan.status === 'in_progress' ? 50 : plan.status === 'completed' ? 100 : 0,
+          activity_feed: [],
+          production: { ready: plan.status === 'completed' },
+          publish: {
+             requested: plan.publish_settings?.publish_requested || false,
+             status: plan.publish_settings?.publish_requested ? "ready_to_publish" : "not_requested",
+          }
+         });
+      });
+
       setReviewEngineSetup(setup);
-      setReviewEngineJobs(jobsResponse.jobs || []);
+      setReviewEngineJobs(mergedJobs);
+      setReviewEnginePlans(plans);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Failed to load review engine data";
       setReviewEngineError(msg);
@@ -1926,11 +1977,24 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
             )}
 
              {activeTab === "create_video" && (
+               <LiveFeedTab
+                 activityItems={[]}
+                 systemWorkflows={systemWorkflows}
+                 content={content}
+                 personas={userPersonas}
+                 setup={reviewEngineSetup}
+                 jobs={reviewEngineJobs}
+                 plans={reviewEnginePlans}
+                 reviewEngineError={reviewEngineError}
+                 onRefresh={fetchReviewEngineData}
+                 onNavigateToPersonas={() => navigateToTab("skills")}
+                 onNavigateToPublishing={() => navigateToTab("publishing")}
+               />
                <CreateVideoTab personas={personas} />
              )}
 
             {activeTab === "publishing" && (
-              <PublishingTab content={content} />
+              <PublishingTab jobs={reviewEngineJobs} />
             )}
           </div>
 

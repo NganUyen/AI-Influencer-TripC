@@ -14,48 +14,48 @@ import {
   Search
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-interface ContentItem {
-  id: string;
-  title: string;
-  platform: string[];
-  status: string;
-  scheduled_at: string | null;
-  published_at: string | null;
-}
+import { type ReviewEngineJob } from "@/lib/review-engine";
 
 interface PublishingTabProps {
-  content: ContentItem[];
+  jobs: ReviewEngineJob[];
 }
 
-export function PublishingTab({ content }: PublishingTabProps) {
+export function PublishingTab({ jobs }: PublishingTabProps) {
   const [searchTerm, setSearchTerm] = React.useState("");
 
-  const filteredContent = content.filter(item => 
-    item.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.platform.some(p => p.toLowerCase().includes(searchTerm.toLowerCase()))
+  const publishingJobs = jobs.filter(j => 
+      j.publish?.requested || j.publish?.status === "published" || j.publish?.status === "failed" || j.publish?.status === "scheduled" || j.publish?.status === "auth_required"
   );
 
-  const getStatusIcon = (status: string) => {
-    switch (status.toLowerCase()) {
+  const filteredContent = publishingJobs.filter(item => 
+    (item.content?.title || item.page_title || "App Review").toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (item.target_platform || "tiktok").toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const getStatusIcon = (status?: string | null) => {
+    switch (status?.toLowerCase()) {
       case "published":
         return <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
       case "scheduled":
+      case "ready_to_publish":
         return <Clock className="w-4 h-4 text-aura-primary" />;
       case "failed":
+      case "auth_required":
         return <AlertCircle className="w-4 h-4 text-rose-500" />;
       default:
         return <Send className="w-4 h-4 text-aura-on-surface-variant" />;
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
+  const getStatusColor = (status?: string | null) => {
+    switch (status?.toLowerCase()) {
       case "published":
         return "bg-emerald-50 text-emerald-700 border-emerald-100";
       case "scheduled":
+      case "ready_to_publish":
         return "bg-aura-primary/10 text-aura-primary border-aura-primary/10";
       case "failed":
+      case "auth_required":
         return "bg-rose-50 text-rose-700 border-rose-100";
       default:
         return "bg-aura-surface-container text-aura-on-surface-variant border-aura-outline/10";
@@ -98,7 +98,7 @@ export function PublishingTab({ content }: PublishingTabProps) {
           </div>
           <div>
             <p className="text-sm font-bold text-aura-on-surface-variant uppercase tracking-widest font-label">Published</p>
-            <p className="text-3xl font-black text-aura-on-surface font-headline">{content.filter(c => c.status === "published").length}</p>
+            <p className="text-3xl font-black text-aura-on-surface font-headline">{publishingJobs.filter(c => c.publish?.status === "published").length}</p>
           </div>
         </div>
         <div className="dashboard-panel p-6 flex items-center gap-5">
@@ -107,7 +107,7 @@ export function PublishingTab({ content }: PublishingTabProps) {
           </div>
           <div>
             <p className="text-sm font-bold text-aura-on-surface-variant uppercase tracking-widest font-label">Scheduled</p>
-            <p className="text-3xl font-black text-aura-on-surface font-headline">{content.filter(c => c.status === "scheduled").length}</p>
+            <p className="text-3xl font-black text-aura-on-surface font-headline">{publishingJobs.filter(c => c.publish?.status === "scheduled" || c.publish?.status === "ready_to_publish").length}</p>
           </div>
         </div>
         <div className="dashboard-panel p-6 flex items-center gap-5">
@@ -115,8 +115,8 @@ export function PublishingTab({ content }: PublishingTabProps) {
             <AlertCircle className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-sm font-bold text-aura-on-surface-variant uppercase tracking-widest font-label">Failed</p>
-            <p className="text-3xl font-black text-aura-on-surface font-headline">{content.filter(c => c.status === "failed").length}</p>
+            <p className="text-sm font-bold text-aura-on-surface-variant uppercase tracking-widest font-label">Failed / Auth</p>
+            <p className="text-3xl font-black text-aura-on-surface font-headline">{publishingJobs.filter(c => c.publish?.status === "failed" || c.publish?.status === "auth_required").length}</p>
           </div>
         </div>
       </div>
@@ -137,20 +137,20 @@ export function PublishingTab({ content }: PublishingTabProps) {
             <tbody className="divide-y divide-aura-outline-variant/5">
               {filteredContent.length > 0 ? (
                 filteredContent.map((item) => (
-                  <tr key={item.id} className="group hover:bg-aura-surface-container-lowest transition-colors">
+                  <tr key={item.job_id} className="group hover:bg-aura-surface-container-lowest transition-colors">
                     <td className="px-8 py-6">
                       <div className="flex items-center gap-4">
                         <div className="w-10 h-10 rounded-lg bg-aura-surface-container flex items-center justify-center shrink-0 border border-aura-outline-variant/10">
-                          < Globe className="w-5 h-5 text-aura-on-surface-variant" />
+                          <Globe className="w-5 h-5 text-aura-on-surface-variant" />
                         </div>
-                        <span className="font-bold text-aura-on-surface font-headline truncate max-w-[200px]" title={item.title}>
-                          {item.title}
+                        <span className="font-bold text-aura-on-surface font-headline truncate max-w-[200px]" title={item.content?.title || item.page_title || "App Review"}>
+                          {item.content?.title || item.page_title || "App Review"}
                         </span>
                       </div>
                     </td>
                     <td className="px-8 py-6">
                       <div className="flex gap-1.5 flex-wrap">
-                        {item.platform.map(p => (
+                        {[(item.target_platform || "tiktok")].map(p => (
                           <span key={p} className="px-2.5 py-1 bg-aura-surface-container rounded-full text-[10px] font-bold text-aura-on-surface-variant uppercase tracking-widest border border-aura-outline/5">
                             {p}
                           </span>
@@ -160,20 +160,20 @@ export function PublishingTab({ content }: PublishingTabProps) {
                     <td className="px-8 py-6 text-sm">
                       <div className={cn(
                         "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest border transition-all",
-                        getStatusColor(item.status)
+                        getStatusColor(item.publish?.status)
                       )}>
-                        {getStatusIcon(item.status)}
-                        {item.status}
+                        {getStatusIcon(item.publish?.status)}
+                        {(item.publish?.status || "Draft").replace(/_/g, " ")}
                       </div>
                     </td>
                     <td className="px-8 py-6">
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2 text-xs font-semibold text-aura-on-surface">
                           <Calendar className="w-3 h-3 text-aura-primary/60" />
-                          {item.published_at ? new Date(item.published_at).toLocaleDateString() : item.scheduled_at ? new Date(item.scheduled_at).toLocaleDateString() : "Not set"}
+                          {item.published_at ? new Date(item.published_at).toLocaleDateString() : item.scheduled_at ? new Date(item.scheduled_at).toLocaleDateString() : "Pending"}
                         </div>
                         <div className="text-[10px] text-aura-on-surface-variant font-medium font-body opacity-60">
-                          {item.published_at ? new Date(item.published_at).toLocaleTimeString() : item.scheduled_at ? new Date(item.scheduled_at).toLocaleTimeString() : "No time assigned"}
+                           {item.published_at ? new Date(item.published_at).toLocaleTimeString() : item.scheduled_at ? new Date(item.scheduled_at).toLocaleTimeString() : "Pending"}
                         </div>
                       </div>
                     </td>

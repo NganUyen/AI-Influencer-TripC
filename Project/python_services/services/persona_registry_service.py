@@ -183,7 +183,7 @@ class PersonaRegistryService:
             "tone_default": row.get("tone_default"),
             "market_default": row.get("market_default"),
             "thumbnail_url": row.get("thumbnail_url"),
-            "description": row.get("description"),
+            "description": row.get("description"), "gender": row.get("gender"), "channel_configs": __import__("json").loads(row.get("channel_configs") or "{}") if isinstance(row.get("channel_configs"), str) else (row.get("channel_configs") or {}),
             "avatar_storage_bucket": row.get("avatar_storage_bucket"),
             "avatar_storage_path": row.get("avatar_storage_path"),
             "created_at": created_at.isoformat()
@@ -230,7 +230,7 @@ class PersonaRegistryService:
                 p.tone_default,
                 p.market_default,
                 p.thumbnail_url,
-                p.description,
+                p.description, p.gender, p.channel_configs,
                 ma.bucket_name AS avatar_storage_bucket,
                 ma.storage_path AS avatar_storage_path,
                 p.created_at,
@@ -284,7 +284,7 @@ class PersonaRegistryService:
                 p.tone_default,
                 p.market_default,
                 p.thumbnail_url,
-                p.description,
+                p.description, p.gender, p.channel_configs,
                 ma.bucket_name AS avatar_storage_bucket,
                 ma.storage_path AS avatar_storage_path,
                 p.created_at,
@@ -340,7 +340,7 @@ class PersonaRegistryService:
                     p.tone_default,
                     p.market_default,
                     p.thumbnail_url,
-                    p.description,
+                    p.description, p.gender, p.channel_configs,
                     ma.bucket_name AS avatar_storage_bucket,
                     ma.storage_path AS avatar_storage_path,
                     p.created_at,
@@ -381,7 +381,7 @@ class PersonaRegistryService:
                     p.tone_default,
                     p.market_default,
                     p.thumbnail_url,
-                    p.description,
+                    p.description, p.gender, p.channel_configs,
                     ma.bucket_name AS avatar_storage_bucket,
                     ma.storage_path AS avatar_storage_path,
                     p.created_at,
@@ -421,7 +421,7 @@ class PersonaRegistryService:
                     p.tone_default,
                     p.market_default,
                     p.thumbnail_url,
-                    p.description,
+                    p.description, p.gender, p.channel_configs,
                     ma.bucket_name AS avatar_storage_bucket,
                     ma.storage_path AS avatar_storage_path,
                     p.created_at,
@@ -555,10 +555,12 @@ class PersonaRegistryService:
                     tone_default,
                     market_default,
                     thumbnail_url,
-                    description
+                    description,
+                    gender,
+                    channel_configs
                 )
                 VALUES (
-                    $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10::uuid, $11, $12, $13, $14, $15, $16
+                    $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10::uuid, $11, $12, $13, $14, $15, $16, $17, $18::jsonb
                 )
                 """,
                 payload["user_id"],
@@ -577,6 +579,8 @@ class PersonaRegistryService:
                 payload.get("market_default"),
                 payload.get("thumbnail_url"),
                 payload.get("description"),
+                payload.get("gender"),
+                __import__("json").dumps(payload.get("channel_configs", {}))
             )
         return await cls._get_from_db(payload["persona_id"], user_id=payload["user_id"])
 
@@ -608,14 +612,21 @@ class PersonaRegistryService:
             "market_default",
             "thumbnail_url",
             "description",
+            "gender",
+            "channel_configs",
         ]
         for field in allowed_fields:
             if field in fields:
-                args.append(fields[field])
-                if field == "avatar_media_asset_id" and fields[field] is not None:
-                    assignments.append(f"{field} = ${len(args)}::uuid")
+                if field == "channel_configs":
+                    val = fields[field]
+                    args.append(__import__("json").dumps(val) if isinstance(val, dict) else val)
+                    assignments.append(f"{field} = ${len(args)}::jsonb")
                 else:
-                    assignments.append(f"{field} = ${len(args)}")
+                    args.append(fields[field])
+                    if field == "avatar_media_asset_id" and fields[field] is not None:
+                        assignments.append(f"{field} = ${len(args)}::uuid")
+                    else:
+                        assignments.append(f"{field} = ${len(args)}")
 
         if not assignments:
             return await cls._get_from_db(persona_id, user_id=user_id)
@@ -906,8 +917,13 @@ class PersonaRegistryService:
                 ]
                 for field in allowed_fields:
                     if field in normalized_fields:
-                        args.append(normalized_fields[field])
-                        assignments.append(f"{field} = ${len(args)}")
+                        if field == "channel_configs":
+                            val = normalized_fields[field]
+                            args.append(__import__("json").dumps(val) if isinstance(val, dict) else val)
+                            assignments.append(f"{field} = ${len(args)}::jsonb")
+                        else:
+                            args.append(normalized_fields[field])
+                            assignments.append(f"{field} = ${len(args)}")
                 if assignments:
                     args.append(persona_id)
                     async with pool.acquire() as conn:

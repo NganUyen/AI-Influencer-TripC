@@ -17,13 +17,14 @@ import { cn } from "@/lib/utils";
 import { type ReviewEngineJob } from "@/lib/review-engine";
 
 interface PublishingTabProps {
-  jobs: ReviewEngineJob[];
+  jobs?: ReviewEngineJob[];
 }
 
 export function PublishingTab({ jobs }: PublishingTabProps) {
   const [searchTerm, setSearchTerm] = React.useState("");
+  const safeJobs = Array.isArray(jobs) ? jobs : [];
 
-  const publishingJobs = jobs.filter(j => 
+  const publishingJobs = safeJobs.filter(j => 
       j.publish?.requested || j.publish?.status === "published" || j.publish?.status === "failed" || j.publish?.status === "scheduled" || j.publish?.status === "auth_required"
   );
 

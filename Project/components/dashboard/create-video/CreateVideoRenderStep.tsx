@@ -114,9 +114,9 @@ function RenderProgressCard({ item }: { item: CreateVideoProgressViewModel }) {
 
         {/* Progress bar */}
         {item.progressPercent !== undefined && (
-          <div className="cv-progress-track">
+          <div className="cv-render-progress-track">
             <div
-              className={`cv-progress-fill${isDone ? ' cv-progress-fill--done' : ''}`}
+              className={`cv-render-progress-fill${isDone ? ' cv-render-progress-fill--done' : ''}`}
               style={{ width: `${item.progressPercent}%` }}
             />
           </div>

@@ -2,6 +2,8 @@
 
 import '@/app/create-video.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Clapperboard, FileCheck2, Play, Settings2, type LucideIcon } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import type { Persona } from '@/components/customer-dashboard';
 import type {
   CreateVideoSetupState,
@@ -144,45 +146,57 @@ export function CreateVideoTab({ personas }: CreateVideoTabProps) {
 // StepIndicator (Enhanced 4-Step Progress Tracker)
 // ---------------------------------------------------------------------------
 
-const STEP_LABELS = ['Setup', 'Review Plan', 'Render', 'Publish'];
+const STEP_CONFIG: Array<{
+  label: string;
+  detail: string;
+  icon: LucideIcon;
+}> = [
+  {
+    label: 'Setup',
+    detail: 'Configure source, objective, and persona inputs for generation.',
+    icon: Settings2,
+  },
+  {
+    label: 'Review Plan',
+    detail: 'Validate storyboard and approve persona-level draft directions.',
+    icon: FileCheck2,
+  },
+  {
+    label: 'Render',
+    detail: 'Track render progress and monitor timeline status in real time.',
+    icon: Clapperboard,
+  },
+  {
+    label: 'Publish',
+    detail: 'Finalize channel distribution and push content live.',
+    icon: Play,
+  },
+];
 
 function StepIndicator({ currentStep }: { currentStep: Step }) {
   return (
     <div className="cv-progress-tracker">
       <div className="cv-progress-track" role="progressbar" aria-valuenow={currentStep} aria-valuemin={1} aria-valuemax={4}>
-        {STEP_LABELS.map((label, idx) => {
+        {STEP_CONFIG.map((step, idx) => {
           const stepNum = (idx + 1) as Step;
           const isCompleted = currentStep > stepNum;
           const isActive = currentStep === stepNum;
+          const Icon = step.icon;
 
           return (
-            <div key={label} className="cv-progress-step-wrapper">
+            <div key={step.label} className="cv-progress-step-wrapper">
               {/* Step indicator pill */}
               <div
                 className={`cv-progress-step ${isActive ? 'cv-progress-step--active' : ''} ${
                   isCompleted ? 'cv-progress-step--completed' : ''
                 }`}
               >
-                <div className="cv-progress-step-circle">
-                  {isCompleted ? (
-                    <svg
-                      className="cv-progress-step-checkmark"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                    >
-                      <path d="M20 6L9 17l-5-5" />
-                    </svg>
-                  ) : (
-                    <span className="cv-progress-step-number">{stepNum}</span>
-                  )}
-                </div>
-                <span className="cv-progress-step-label">{label}</span>
+                <Icon className="cv-progress-step-icon" />
+                <span className="cv-progress-step-label">{stepNum}. {step.label}</span>
               </div>
 
               {/* Connector line between steps */}
-              {idx < STEP_LABELS.length - 1 && (
+              {idx < STEP_CONFIG.length - 1 && (
                 <div
                   className={`cv-progress-connector ${
                     isCompleted ? 'cv-progress-connector--completed' : ''
@@ -190,6 +204,26 @@ function StepIndicator({ currentStep }: { currentStep: Step }) {
                   aria-hidden="true"
                 />
               )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="cv-progress-detail-grid" aria-hidden="true">
+        {STEP_CONFIG.map((step, idx) => {
+          const stepNum = (idx + 1) as Step;
+          const isCurrent = currentStep === stepNum;
+          const isCompleted = currentStep > stepNum;
+          return (
+            <div key={`${step.label}-detail`} className="cv-progress-detail-item">
+              <p
+                className={`cv-progress-phase ${
+                  isCurrent ? 'cv-progress-phase--current' : isCompleted ? 'cv-progress-phase--done' : ''
+                }`}
+              >
+                {isCurrent ? 'Current phase' : isCompleted ? 'Completed' : 'Upcoming'}
+              </p>
+              <p className="cv-progress-detail-text">{step.detail}</p>
             </div>
           );
         })}
@@ -209,7 +243,10 @@ function PublishStep({ onBack }: { onBack: () => void }) {
         <h2 className="cv-step-title">Ready to Publish</h2>
         <p className="cv-step-subtitle">Your videos are ready to be published to your channels.</p>
         <div className="cv-step-actions">
-          <button className="btn-primary" onClick={() => alert('Publish functionality coming soon')}>
+          <button
+            className="btn-primary"
+            onClick={() => toast.success('Publish flow is coming soon.')}
+          >
             Publish Videos
           </button>
           <button className="btn-secondary" onClick={onBack}>

@@ -24,6 +24,7 @@ import {
   ExternalLink,
   CheckCircle2,
 } from "lucide-react";
+import { toast } from "react-hot-toast";
 import { customerApiRequest } from "@/lib/customer-api";
 import { cn } from "@/lib/utils";
 import { PersonaGroup } from "./personas/PersonaGroup";
@@ -102,7 +103,10 @@ export function PersonasTab({
   onRefreshPersonas,
 }: PersonasTabProps) {
   // Combine personas for backward compatibility with existing logic
-  const personas = [...defaultPersonas, ...userPersonas];
+  const personas = React.useMemo(
+    () => [...defaultPersonas, ...userPersonas],
+    [defaultPersonas, userPersonas],
+  );
 
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(
     personas[0]?.persona_id ?? null
@@ -135,13 +139,26 @@ export function PersonasTab({
   React.useEffect(() => {
     const selected = personas.find((p) => p.persona_id === selectedPersonaId);
     if (selected) {
-      setEditForm({
+      const nextForm = {
         display_name: selected.display_name || "",
         tts_voice: selected.tts_voice || "",
         appearance_prompt_or_photo: selected.appearance_prompt_or_photo || "",
         gender: selected.gender || "",
         tiktok_username: selected.channel_configs?.tiktok?.username || "",
         youtube_channel_id: selected.channel_configs?.youtube?.channel_id || "",
+      };
+      setEditForm((current) => {
+        if (
+          current.display_name === nextForm.display_name &&
+          current.tts_voice === nextForm.tts_voice &&
+          current.appearance_prompt_or_photo === nextForm.appearance_prompt_or_photo &&
+          current.gender === nextForm.gender &&
+          current.tiktok_username === nextForm.tiktok_username &&
+          current.youtube_channel_id === nextForm.youtube_channel_id
+        ) {
+          return current;
+        }
+        return nextForm;
       });
       setIsEditing(false);
     }
@@ -179,7 +196,7 @@ export function PersonasTab({
       setIsEditing(false);
       await onRefreshPersonas?.();
     } catch (e: any) {
-      alert("Error saving adjustments: " + e.message);
+      toast.error("Error saving adjustments: " + (e?.message || "Unknown error"));
     } finally {
       setIsSaving(false);
     }
@@ -201,7 +218,7 @@ export function PersonasTab({
       setIsEditing(false);
       await onRefreshPersonas?.();
     } catch (e: any) {
-      alert("Error rebuilding avatar: " + e.message);
+      toast.error("Error rebuilding avatar: " + (e?.message || "Unknown error"));
     } finally {
       setIsRebuilding(false);
     }

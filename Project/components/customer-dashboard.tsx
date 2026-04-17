@@ -36,7 +36,8 @@ import { TextAreaField } from "@/components/ui/TextAreaField";
 
 import { OverviewTab } from "./dashboard/OverviewTab";
 import { PersonasTab } from "./dashboard/PersonasTab";
-import LiveFeedTab from "./dashboard/LiveFeedTab";
+// import LiveFeedTab from "./dashboard/LiveFeedTab"; // deprecated — replaced by CreateVideoTab
+import { CreateVideoTab } from "./dashboard/CreateVideoTab";
 import { PublishingTab } from "./dashboard/PublishingTab";
 import { DashboardLoadingSkeleton } from "./dashboard/skeletons/DashboardLoadingSkeleton";
 import {
@@ -1925,17 +1926,7 @@ export default function CustomerDashboard({ activeTab }: CustomerDashboardProps)
             )}
 
              {activeTab === "create_video" && (
-               <LiveFeedTab
-                 activityItems={activityItems}
-                 systemWorkflows={systemWorkflows}
-                 content={content}
-                 personas={userPersonas}
-                 setup={reviewEngineSetup}
-                 jobs={reviewEngineJobs}
-                 reviewEngineError={reviewEngineError}
-                 onRefresh={fetchReviewEngineData}
-                 onNavigateToPublishing={() => navigateToTab("publishing")}
-               />
+               <CreateVideoTab personas={personas} />
              )}
 
             {activeTab === "publishing" && (

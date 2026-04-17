@@ -6,7 +6,6 @@ import {
   Bot,
   Database,
   LayoutDashboard,
-  Radio,
   Users,
   Check,
   Cpu,
@@ -153,9 +152,9 @@ export type Persona = {
   status: string;
   video_count: number;
   user_id?: string | null;
-  language?: string | null;
-  tts_voice?: string | null;
-  appearance_prompt_or_photo?: string | null;
+  language?: string;
+  tts_voice?: string;
+  appearance_prompt_or_photo?: string;
   region_label?: string | null;
   description?: string | null;
   market_default?: string | null;
@@ -332,12 +331,16 @@ function buildAiBackboneForm(
   };
 }
 
-export default function CustomerDashboard() {
+interface CustomerDashboardProps {
+  activeTab?: DashboardTabId;
+}
+
+export default function CustomerDashboard({ activeTab: initialTab }: CustomerDashboardProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isAuthenticated, initialized, isLoading, logout, initialize } = useCustomerAuthStore();
 
-  const [activeTab, setActiveTab] = useState<DashboardTabId>("overview");
+  const [activeTab, setActiveTab] = useState<DashboardTabId>(initialTab || "overview");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [systemSummary, setSystemSummary] = useState<SystemSummaryData | null>(null);
   const [systemWorkflows, setSystemWorkflows] = useState<SystemWorkflowData[]>([]);
@@ -437,6 +440,14 @@ export default function CustomerDashboard() {
       }
     }
   }, [isAuthenticated, logout, router]);
+
+  // Extract URL parameters
+  const dashboardTabParam = searchParams.get("dashboard_tab");
+  const reviewSourceUrl = searchParams.get("review_source_url") || "";
+  const reviewPersonaIds = (searchParams.get("review_personas") || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 
   const loadReviewEngineData = useCallback(async () => {
     if (typeof window === "undefined" || !isAuthenticated) {
@@ -973,12 +984,6 @@ export default function CustomerDashboard() {
   );
 
   const [quotaBannerDismissed, setQuotaBannerDismissed] = useState(false);
-  const dashboardTabParam = searchParams.get("dashboard_tab");
-  const reviewSourceUrl = searchParams.get("review_source_url") || "";
-  const reviewPersonaIds = (searchParams.get("review_personas") || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
 
   if (isLoading || !initialized) {
     return (
@@ -1000,7 +1005,6 @@ export default function CustomerDashboard() {
           <DashboardSidebar
             tabs={DASHBOARD_TABS}
             activeTab={activeTab}
-            onTabChange={setActiveTab}
           />
           <main id="dashboard-main" className="flex-1 min-w-0 px-4 py-6 sm:px-6 md:px-10 md:py-8">
             <div className="mx-auto max-w-7xl h-[60vh] flex flex-col items-center justify-center space-y-4">
@@ -1034,7 +1038,6 @@ export default function CustomerDashboard() {
         <DashboardSidebar
           tabs={DASHBOARD_TABS}
           activeTab={activeTab}
-          onTabChange={setActiveTab}
           telegramBotUrl={telegramBotUrl}
           isMobileOpen={isMobileMenuOpen}
           onMobileClose={() => setIsMobileMenuOpen(false)}
@@ -1626,13 +1629,10 @@ export default function CustomerDashboard() {
 
             {activeTab === "skills" && (
               <PersonasTab
-                personas={personas}
-                setup={reviewEngineSetup}
+                defaultPersonas={personas.filter((p) => !p.user_id || p.is_preset_catalog)}
+                userPersonas={personas.filter((p) => p.user_id && !p.is_preset_catalog)}
+                telegramBotUrl={telegramBotUrl}
                 onNavigateToCreateVideo={() => setActiveTab("create_video")}
-                onPersonasChanged={async () => {
-                  await loadWorkspace();
-                  await loadReviewEngineData();
-                }}
               />
             )}
 
@@ -1940,7 +1940,7 @@ export default function CustomerDashboard() {
             )}
 
             {activeTab === "publishing" && (
-              <PublishingTab content={content} />
+              <PublishingTab jobs={reviewEngineJobs} />
             )}
           </div>
 

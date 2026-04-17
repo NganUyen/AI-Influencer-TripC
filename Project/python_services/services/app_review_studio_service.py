@@ -264,6 +264,7 @@ class AppReviewStudioService:
                 accent_b=item["accent_b"],
                 badge=item["language"].upper()[:12],
             )
+            safe_avatar_url = "https://ui-avatars.com/api/?name=" + quote(item["display_name"]) + "&background=random"
             payload[item["persona_id"]] = {
                 "user_id": _SYSTEM_PERSONA_USER_ID,
                 "persona_id": item["persona_id"],
@@ -280,7 +281,7 @@ class AppReviewStudioService:
                 "demo_available": True,
                 "thumbnail_url": preview_url,
                 "selection_image_url": preview_url,
-                "avatar_image_url": preview_url,
+                "avatar_image_url": safe_avatar_url,
             }
         return payload
 

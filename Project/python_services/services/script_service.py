@@ -376,23 +376,31 @@ class ScriptService:
                 pass
 
         data = result if isinstance(result, dict) else {"result": result}
-        if isinstance(data.get("result"), str) and not data.get("steps"):
-            data = extract_json_from_llm_response(data["result"])
+        target_payload = data.get("result", data)
+        
+        if isinstance(target_payload, str):
+            data = extract_json_from_llm_response(target_payload)
+        elif isinstance(target_payload, dict):
+            if "steps" in target_payload or "scenes" in target_payload:
+                data = target_payload
+
+        if isinstance(data, str):
+            data = extract_json_from_llm_response(data)
 
         try:
-            raw_steps = data.get("steps") or []
+            raw_steps = data.get("steps") or data.get("scenes") or []
             if not raw_steps:
                 raise ValueError("No recording steps were returned")
             steps = [
                 RecordingScriptStepContract(
-                    idx=int(item.get("idx") or index),
+                    idx=int(item.get("idx") or item.get("id") or index),
                     purpose=str(item.get("purpose") or "feature_demo").strip(),
-                    screen_target=str(item.get("screen_target") or "Product page").strip(),
-                    action=str(item.get("action") or "Open the page and hold the main section").strip(),
+                    screen_target=str(item.get("screen_target") or item.get("prompt") or "Product page").strip(),
+                    action=str(item.get("action") or item.get("prompt") or "Open the page and hold the main section").strip(),
                     visual_success_criteria=str(
                         item.get("visual_success_criteria") or "The intended UI section is clearly visible."
                     ).strip(),
-                    narration_intent=str(item.get("narration_intent") or "Explain what the viewer is seeing.").strip(),
+                    narration_intent=str(item.get("narration_intent") or item.get("caption") or "Explain what the viewer is seeing.").strip(),
                     capture_hint=str(item.get("capture_hint") or "scroll").strip(),
                     requires_login=bool(item.get("requires_login")),
                     source_ref=plan.target_url,

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, memo, useCallback } from "react";
 import {
   Download,
   ExternalLink,
@@ -67,7 +67,7 @@ function buildPersonaFallback(persona: any): ReviewEnginePersonaOption {
   };
 }
 
-export function LiveFeedTab({
+function LiveFeedTab({
   personas,
   setup,
   jobs,
@@ -112,7 +112,7 @@ export function LiveFeedTab({
     if (!sourceUrl && initialSourceUrl) {
       setSourceUrl(initialSourceUrl);
     }
-  }, [initialSourceUrl, sourceUrl]);
+  }, [initialSourceUrl]); // Removed sourceUrl from dependencies to prevent re-render loop
 
   useEffect(() => {
     setSelectedPersonas((current) => {
@@ -469,28 +469,42 @@ export function LiveFeedTab({
       </section>
 
       <section className="space-y-5">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h2 className="text-2xl font-black text-aura-on-surface font-headline">
-              Select Persona Options
-            </h2>
-            <p className="text-sm text-aura-on-surface-variant">
-              English, Chinese, Spanish, Arabic, plus custom personas from your workspace.
+        <div className="flex items-center justify-between flex-wrap gap-4 p-5 rounded-2xl bg-aura-surface-container/40 border border-aura-outline-variant/20">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <h2 className="text-xl font-black text-aura-on-surface font-headline">
+                Select Persona Options
+              </h2>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-aura-primary/10 border border-aura-primary/30 text-xs font-bold text-aura-primary">
+                {selectedPersonas.length} of {personaOptions.length}
+              </span>
+            </div>
+            <p className="text-sm text-aura-on-surface-variant leading-relaxed">
+              Choose one or more AI personas to generate app review content. Each persona brings unique regional, cultural, and linguistic perspectives.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (selectedPersonas.length === personaOptions.length) {
-                setSelectedPersonas([]);
-              } else {
-                setSelectedPersonas(personaOptions.map((persona) => persona.persona_id));
-              }
-            }}
-            className="btn-secondary btn-sm"
-          >
-            {selectedPersonas.length === personaOptions.length ? "Deselect All" : "Select All"}
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedPersonas.length === personaOptions.length) {
+                  setSelectedPersonas([]);
+                } else {
+                  setSelectedPersonas(personaOptions.map((persona) => persona.persona_id));
+                }
+              }}
+              className={cn(
+                "btn-secondary btn-sm transition-all",
+                selectedPersonas.length === personaOptions.length 
+                  ? "bg-aura-error/10 text-aura-error border-aura-error/30 hover:bg-aura-error/20" 
+                  : ""
+              )}
+            >
+              {selectedPersonas.length === personaOptions.length 
+                ? "Deselect All" 
+                : "Select All"}
+            </button>
+          </div>
         </div>
 
         {personaOptions.length > 0 ? (
@@ -498,21 +512,42 @@ export function LiveFeedTab({
             {personaOptions.map((persona) => {
               const isSelected = selectedPersonas.includes(persona.persona_id);
               const activeChannels = persona.tiktok_integration?.active_channels || 0;
+              
+              // Extract metadata for badges
+              const language = persona.language || "Unknown";
+              const region = persona.region_label || persona.market_default || "Global";
+              const tone = persona.tone_default || "neutral";
+              
               return (
                 <button
                   key={persona.persona_id}
                   type="button"
                   onClick={() => handleTogglePersona(persona.persona_id)}
                   className={cn(
-                    "dashboard-panel p-4 text-left transition-all border-2",
+                    "dashboard-panel p-4 text-left transition-all border-2 relative group overflow-hidden",
                     isSelected
-                      ? "border-aura-primary bg-aura-primary/5"
-                      : "border-transparent hover:border-aura-outline-variant/20",
+                      ? "border-aura-primary bg-aura-primary/8 shadow-lg shadow-aura-primary/20 scale-[1.02]"
+                      : "border-aura-outline-variant/30 hover:border-aura-primary/50 hover:bg-aura-surface-container/50",
                   )}
                 >
+                  {/* Selection indicator overlay */}
+                  {isSelected && (
+                    <div className="absolute inset-0 bg-aura-primary/5 pointer-events-none animate-pulse" />
+                  )}
+                  
+                  {/* Checkmark badge */}
+                  {isSelected && (
+                    <div className="absolute top-3 right-3 z-10 bg-aura-primary rounded-full p-1.5 shadow-lg animate-in fade-in zoom-in-50 duration-200">
+                      <Check className="w-4 h-4 text-white" />
+                    </div>
+                  )}
+                  
                   <img
                     alt={persona.display_name}
-                    className="w-full aspect-[4/5] rounded-2xl object-cover mb-4"
+                    className={cn(
+                      "w-full aspect-[4/5] rounded-2xl object-cover mb-4 transition-all",
+                      isSelected ? "ring-2 ring-aura-primary/50" : ""
+                    )}
                     src={
                       persona.selection_image_url ||
                       persona.image_url ||
@@ -525,25 +560,55 @@ export function LiveFeedTab({
                       }
                     }}
                   />
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="font-black text-aura-on-surface truncate">
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-black text-aura-on-surface truncate flex-1 text-sm">
                         {persona.display_name}
                       </p>
-                      {isSelected && <Check className="w-4 h-4 text-aura-primary" />}
                     </div>
-                    <p className="text-xs text-aura-on-surface-variant uppercase tracking-widest">
-                      {persona.region_label || persona.language || "Global"}
-                    </p>
-                    <p className="text-xs text-aura-on-surface-variant line-clamp-2">
+                    
+                    {/* Metadata badges */}
+                    <div className="flex flex-wrap gap-1.5">
+                      {/* Region badge */}
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-aura-surface-container border border-aura-outline-variant/40 text-[10px] font-semibold uppercase tracking-tight text-aura-on-surface-variant hover:border-aura-primary/30 transition-colors">
+                        <span>📍</span>
+                        <span>{region}</span>
+                      </span>
+                      
+                      {/* Language badge */}
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-aura-surface-container border border-aura-outline-variant/40 text-[10px] font-semibold uppercase tracking-tight text-aura-on-surface-variant hover:border-aura-primary/30 transition-colors">
+                        <span>🌐</span>
+                        <span>{language}</span>
+                      </span>
+                      
+                      {/* Tone badge */}
+                      {tone && (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-aura-surface-container border border-aura-outline-variant/40 text-[10px] font-semibold uppercase tracking-tight text-aura-on-surface-variant hover:border-aura-primary/30 transition-colors">
+                          <span>💬</span>
+                          <span>{tone}</span>
+                        </span>
+                      )}
+                    </div>
+                    
+                    <p className="text-xs text-aura-on-surface-variant line-clamp-2 leading-relaxed">
                       {persona.description || "Ready for regional app review production."}
                     </p>
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className={cn("rounded-full border px-2.5 py-1 font-bold", statusPillClass(activeChannels > 0 ? "published" : "draft"))}>
-                        {activeChannels > 0 ? "TikTok active" : "TikTok inactive"}
+                    
+                    {/* Status badge */}
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <span className={cn(
+                        "rounded-full border px-2 py-1.5 text-[10px] font-bold uppercase tracking-tight transition-all whitespace-nowrap",
+                        activeChannels > 0 
+                          ? "border-emerald-200/60 bg-emerald-50/80 text-emerald-700" 
+                          : "border-amber-200/60 bg-amber-50/80 text-amber-700"
+                      )}>
+                        <span className="inline-block mr-1">{activeChannels > 0 ? "✓" : "○"}</span>
+                        {activeChannels > 0 ? `TikTok (${activeChannels})` : "TikTok Inactive"}
                       </span>
                       {persona.demo?.available && (
-                        <span className="text-aura-primary font-bold">Demo</span>
+                        <span className="inline-flex items-center gap-1 px-2 py-1.5 rounded-full bg-blue-50/80 border border-blue-200/60 text-blue-700 text-[10px] font-bold uppercase tracking-tight">
+                          <span>✨</span> Demo
+                        </span>
                       )}
                     </div>
                   </div>
@@ -782,3 +847,5 @@ export function LiveFeedTab({
     </div>
   );
 }
+
+export default memo(LiveFeedTab);

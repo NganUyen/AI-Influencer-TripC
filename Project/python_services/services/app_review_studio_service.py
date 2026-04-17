@@ -92,7 +92,9 @@ def _caption_from_script(
     if len(script_text) > 220:
         script_text = script_text[:217].rstrip() + "..."
     market = str(persona.get("market_default") or "global").replace("_", " ").title()
-    display_name = str(persona.get("display_name") or persona.get("persona_id") or "Host")
+    display_name = str(
+        persona.get("display_name") or persona.get("persona_id") or "Host"
+    )
     hashtags = [
         "#AppReview",
         "#TikTokReview",
@@ -130,7 +132,9 @@ def _job_progress(status: str, current_step: Optional[str], has_video: bool) -> 
     return step_map.get(normalized_step, 10 if normalized_status == "running" else 0)
 
 
-def _job_steps(status: str, current_step: Optional[str], has_video: bool) -> List[Dict[str, Any]]:
+def _job_steps(
+    status: str, current_step: Optional[str], has_video: bool
+) -> List[Dict[str, Any]]:
     progress = _job_progress(status, current_step, has_video)
     if has_video:
         final_status = "completed"
@@ -142,12 +146,22 @@ def _job_steps(status: str, current_step: Optional[str], has_video: bool) -> Lis
         final_status = "pending"
     return [
         {"key": "enter_url", "label": "Step 1: Enter URL", "status": "completed"},
-        {"key": "choose_persona", "label": "Step 2: Choose Persona", "status": "completed"},
-        {"key": "final_product", "label": "Step 3: Final Product", "status": final_status},
+        {
+            "key": "choose_persona",
+            "label": "Step 2: Choose Persona",
+            "status": "completed",
+        },
+        {
+            "key": "final_product",
+            "label": "Step 3: Final Product",
+            "status": final_status,
+        },
     ]
 
 
-def _merge_dict(base: Optional[Dict[str, Any]], extra: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _merge_dict(
+    base: Optional[Dict[str, Any]], extra: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
     merged = dict(base or {})
     merged.update(extra or {})
     return merged
@@ -330,7 +344,10 @@ class AppReviewStudioService:
             "description": persona.get("description"),
             "image_url": selection_image_url,
             "selection_image_url": selection_image_url,
-            "is_preset": bool(persona.get("is_preset_catalog") or persona.get("user_id") == _SYSTEM_PERSONA_USER_ID),
+            "is_preset": bool(
+                persona.get("is_preset_catalog")
+                or persona.get("user_id") == _SYSTEM_PERSONA_USER_ID
+            ),
             "demo": {
                 "available": bool(persona.get("demo_available", True)),
                 "label": f"{persona.get('display_name')} demo",
@@ -339,14 +356,18 @@ class AppReviewStudioService:
             "tiktok_integration": {
                 "status": "active" if active_channels else "inactive",
                 "active_channels": len(active_channels),
-                "inactive_channels": max(len(tiktok_accounts) - len(active_channels), 0),
+                "inactive_channels": max(
+                    len(tiktok_accounts) - len(active_channels), 0
+                ),
                 "channels": [
                     {
                         "id": item.get("id"),
-                        "display_name": item.get("display_name") or item.get("account_name"),
+                        "display_name": item.get("display_name")
+                        or item.get("account_name"),
                         "handle": item.get("account_handle"),
                         "status": "active"
-                        if item.get("connection_status") == "connected" and item.get("is_active")
+                        if item.get("connection_status") == "connected"
+                        and item.get("is_active")
                         else "inactive",
                     }
                     for item in tiktok_accounts[:10]
@@ -372,7 +393,10 @@ class AppReviewStudioService:
         return {
             "steps": [
                 {"key": "enter_url", "label": "Step 1: Enter URL"},
-                {"key": "choose_persona", "label": "Step 2: Choose an available persona"},
+                {
+                    "key": "choose_persona",
+                    "label": "Step 2: Choose an available persona",
+                },
                 {"key": "final_product", "label": "Step 3: Final product"},
             ],
             "supported_languages": ["English", "Chinese", "Spanish", "Arabic"],
@@ -385,7 +409,8 @@ class AppReviewStudioService:
             "publishing_requirements": {
                 "telegram_linked": telegram_link is not None,
                 "tiktok_channels_active": any(
-                    item.get("connection_status") == "connected" and item.get("is_active")
+                    item.get("connection_status") == "connected"
+                    and item.get("is_active")
                     for item in tiktok_accounts
                 ),
                 "tiktok_channels_total": len(tiktok_accounts),
@@ -452,7 +477,9 @@ class AppReviewStudioService:
             update_fields.append("completed_at = NOW()")
         update_fields.append("updated_at = NOW()")
         if not update_fields:
-            return await cls.get_job(user_id=user_id, job_id=workflow_id, temporal_client=None)
+            return await cls.get_job(
+                user_id=user_id, job_id=workflow_id, temporal_client=None
+            )
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 f"""
@@ -488,7 +515,9 @@ class AppReviewStudioService:
             language=str(persona.get("language") or "English"),
             persona_id=str(persona.get("persona_id")),
             execution_mode="autonomous_screen_recording",
-            access_level=str(getattr(page_review, "access_level", "unknown") or "unknown"),
+            access_level=str(
+                getattr(page_review, "access_level", "unknown") or "unknown"
+            ),
             page_review=page_review,
             audio_policy=VideoAudioPolicyContract(),
             assumptions=list(getattr(page_review, "assumptions", []) or []),
@@ -501,7 +530,9 @@ class AppReviewStudioService:
             topic=topic,
             tone=str(persona.get("tone_default") or "natural"),
             platform="tiktok",
-            telegram_chat_id=str(telegram_link.get("chat_id")) if telegram_link else None,
+            telegram_chat_id=str(telegram_link.get("chat_id"))
+            if telegram_link
+            else None,
             user_id=session.user_id,
             owner_key=None,
             talking_head_optional=True,
@@ -510,7 +541,9 @@ class AppReviewStudioService:
             audio_policy=VideoAudioPolicyContract(),
             persona_snapshot=VideoWorkflowPersonaSnapshotContract(
                 persona_id=str(persona.get("persona_id")),
-                display_name=str(persona.get("display_name") or persona.get("persona_id")),
+                display_name=str(
+                    persona.get("display_name") or persona.get("persona_id")
+                ),
                 language=str(persona.get("language") or "English"),
                 tts_voice=str(persona.get("tts_voice") or "en-US-Standard-F"),
                 heygen_avatar_id=persona.get("heygen_avatar_id"),
@@ -642,43 +675,55 @@ class AppReviewStudioService:
                 "page_review": page_review.model_dump(mode="json"),
                 "status": "confirmed",
             }
-            script_contract, recording_script = await script_service.generate_script_from_review_plan(
-                app_name=getattr(page_review, "page_title", None) or page_review.normalized_url,
-                review_plan=review_plan_payload,
-                persona_config=persona,
-            )
-            script_payload = script_contract.model_dump()
-            caption_draft = _caption_from_script(
-                objective=objective,
-                page_title=getattr(page_review, "page_title", None) or page_review.normalized_url,
-                persona=persona,
-                script_payload=script_payload,
-            )
-            content_title = (
-                f"{getattr(page_review, 'page_title', None) or 'App Review'} · {persona.get('display_name')}"
-            )
-            selected_mode = (
-                "user_upload"
-                if input_mode == "user_upload" or getattr(page_review, "login_required", False)
-                else "ai_autonomous"
-            )
-            if (
-                selected_mode == "ai_autonomous"
-                and (
-                    str(persona.get("status") or "").strip().lower() != "ready"
-                    or not str(persona.get("tts_voice") or "").strip()
+
+            try:
+                (
+                    script_contract,
+                    recording_script,
+                ) = await script_service.generate_script_from_review_plan(
+                    app_name=getattr(page_review, "page_title", None)
+                    or page_review.normalized_url,
+                    review_plan=review_plan_payload,
+                    persona_config=persona,
                 )
-            ):
-                selected_mode = "user_upload"
+                script_payload = script_contract.model_dump()
+                caption_draft = _caption_from_script(
+                    objective=objective,
+                    page_title=getattr(page_review, "page_title", None)
+                    or page_review.normalized_url,
+                    persona=persona,
+                    script_payload=script_payload,
+                )
+            except Exception as script_err:
+                # Log and add warning, then fall back to user_upload
+                import logging
+
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    f"Script generation failed for persona {persona_id}: {script_err}. "
+                    f"Falling back to user_upload mode."
+                )
                 warnings.append(
                     {
-                        "code": "persona_not_ready_for_autonomous_generation",
-                        "message": (
-                            f"Persona '{persona_id}' is not fully ready for AI autonomous generation. "
-                            "A user-upload job was created instead."
-                        ),
+                        "code": "script_generation_failed",
+                        "message": f"AI script generation failed for persona '{persona_id}'. Please try uploading a video manually or try again later.",
                     }
                 )
+                # Fall back to user_upload mode
+                script_payload = None
+                recording_script = None
+                caption_draft = ""
+
+            content_title = f"{getattr(page_review, 'page_title', None) or 'App Review'} · {persona.get('display_name')}"
+            selected_mode = (
+                "user_upload"
+                if input_mode == "user_upload"
+                or getattr(page_review, "login_required", False)
+                else "ai_autonomous"
+            )
+            if selected_mode == "ai_autonomous" and script_payload is None:
+                # If script generation failed, fallback to user_upload
+                selected_mode = "user_upload"
             campaign_id = None
             if brand_profile is not None:
                 campaign_payload = {
@@ -788,7 +833,9 @@ class AppReviewStudioService:
                     "publish": {
                         "requested": publish_to_tiktok,
                         "status": "ready_to_publish"
-                        if publish_to_tiktok and telegram_link and active_tiktok_accounts
+                        if publish_to_tiktok
+                        and telegram_link
+                        and active_tiktok_accounts
                         else "auth_required"
                         if publish_to_tiktok
                         else "not_requested",
@@ -805,7 +852,9 @@ class AppReviewStudioService:
         }
 
     @classmethod
-    async def _list_job_rows(cls, *, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    async def _list_job_rows(
+        cls, *, user_id: str, limit: int = 50
+    ) -> List[Dict[str, Any]]:
         pool = await DatabaseService.get_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
@@ -908,7 +957,9 @@ class AppReviewStudioService:
     ) -> Dict[str, Any]:
         def _normalize_execution_status(status_value: Any) -> Optional[str]:
             try:
-                raw_name = str(getattr(status_value, "name", status_value) or "").strip()
+                raw_name = str(
+                    getattr(status_value, "name", status_value) or ""
+                ).strip()
             except Exception:
                 raw_name = ""
             if not raw_name:
@@ -950,7 +1001,9 @@ class AppReviewStudioService:
 
             if execution_status in {"running"}:
                 job_row["status"] = execution_status
-                job_row["current_step"] = job_row.get("current_step") or execution_status
+                job_row["current_step"] = (
+                    job_row.get("current_step") or execution_status
+                )
                 return job_row
 
             try:
@@ -964,7 +1017,11 @@ class AppReviewStudioService:
                     or execution_status
                     or job_row.get("status")
                 )
-                if terminal_result.get("status") in {"completed", "discarded", "expired"}:
+                if terminal_result.get("status") in {
+                    "completed",
+                    "discarded",
+                    "expired",
+                }:
                     job_row["current_step"] = terminal_result.get("status")
                 job_row["_temporal_result"] = terminal_result
         return job_row
@@ -1022,14 +1079,16 @@ class AppReviewStudioService:
             "tiktok_integration": {
                 "status": "active"
                 if any(
-                    item.get("connection_status") == "connected" and item.get("is_active")
+                    item.get("connection_status") == "connected"
+                    and item.get("is_active")
                     for item in tiktok_accounts
                 )
                 else "inactive",
                 "channels": [
                     {
                         "id": item.get("id"),
-                        "display_name": item.get("display_name") or item.get("account_name"),
+                        "display_name": item.get("display_name")
+                        or item.get("account_name"),
                         "handle": item.get("account_handle"),
                     }
                     for item in tiktok_accounts[:10]
@@ -1048,7 +1107,8 @@ class AppReviewStudioService:
                 job_row.get("current_step"),
                 has_video=has_video,
             ),
-            "source_url": input_data.get("normalized_url") or input_data.get("source_url"),
+            "source_url": input_data.get("normalized_url")
+            or input_data.get("source_url"),
             "objective": input_data.get("objective"),
             "page_title": input_data.get("page_title"),
             "persona": persona_payload,
@@ -1168,7 +1228,9 @@ class AppReviewStudioService:
             output_payload["editable_content"] = content
             output_payload["caption_draft"] = content
         if not output_payload:
-            job = await cls.get_job(user_id=user_id, job_id=job_id, temporal_client=None)
+            job = await cls.get_job(
+                user_id=user_id, job_id=job_id, temporal_client=None
+            )
             if not job:
                 raise ValueError("App review job not found")
             return job
@@ -1243,7 +1305,8 @@ class AppReviewStudioService:
             raise ValueError("App review job not found")
         if (
             updated.get("publish", {}).get("requested")
-            and updated.get("publish", {}).get("status") in {"ready_to_publish", "not_requested"}
+            and updated.get("publish", {}).get("status")
+            in {"ready_to_publish", "not_requested"}
             and updated.get("production", {}).get("ready")
         ):
             try:
@@ -1283,7 +1346,9 @@ class AppReviewStudioService:
             if item.get("connection_status") == "connected" and item.get("is_active")
         ]
         if not active_tiktok_accounts:
-            raise ValueError("Connect at least one active TikTok channel before publishing")
+            raise ValueError(
+                "Connect at least one active TikTok channel before publishing"
+            )
 
         post_config = {
             "id": job_id,

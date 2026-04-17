@@ -1,6 +1,7 @@
 "use client";
 
 import { Bell, Search, Menu } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { SocialIcon } from "@/components/ui/SocialIcon";
 import tripCLogo from "@/app/dashboard/tripc-logo.png";
 
@@ -21,6 +22,7 @@ export function DashboardHeader({
   isSigningOut,
   onMobileMenuToggle,
 }: DashboardHeaderProps) {
+  const router = useRouter();
   const displayName = userName || userEmail || "User";
   const initials = displayName
     .split(" ")
@@ -29,11 +31,24 @@ export function DashboardHeader({
     .toUpperCase()
     .slice(0, 2);
 
+  const handleLogoClick = () => {
+    // Navigate to dashboard home
+    router.push("/dashboard");
+    
+    // Smooth scroll to top
+    setTimeout(() => {
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
+    }, 0);
+  };
+
   return (
     <header className="fixed top-0 z-50 w-full border-b border-brand-outline-variant/20 brand-glass shadow-brand-sm">
       <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-3 sm:px-6 md:px-8">
         <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2.5 select-none">
+          <div className="flex items-center gap-2.5 select-none cursor-pointer" onClick={handleLogoClick} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && handleLogoClick()} aria-label="Go to dashboard overview">
             {onMobileMenuToggle && (
               <button
                 onClick={onMobileMenuToggle}
@@ -43,7 +58,7 @@ export function DashboardHeader({
                 <Menu className="w-5 h-5 stroke-[1.75]" />
               </button>
             )}
-            <div className="dashboard-card flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden p-0 shadow-brand-sm">
+            <div className="dashboard-card flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden p-0 shadow-brand-sm hover:scale-105 transition-transform">
               <img
                 src={tripCLogo.src}
                 alt="TripC"
@@ -52,7 +67,7 @@ export function DashboardHeader({
                 className="h-full w-full object-cover"
               />
             </div>
-            <div className="leading-none">
+            <div className="leading-none hover:text-brand-primary transition-colors">
               <span className="block font-headline text-base font-extrabold tracking-tight text-brand-primary">
                 AI-Influencer
               </span>

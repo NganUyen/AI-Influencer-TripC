@@ -1,7 +1,7 @@
 'use client';
 
 import '@/app/create-video.css';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Persona } from '@/components/customer-dashboard';
 import type {
   CreateVideoSetupState,
@@ -37,6 +37,7 @@ export function CreateVideoTab({ personas }: CreateVideoTabProps) {
   const [setupState, setSetupState] = useState<CreateVideoSetupState>(DEFAULT_SETUP_STATE);
   const [planCards, setPlanCards] = useState<PersonaPlanCardViewModel[]>([]);
   const [progressItems, setProgressItems] = useState<CreateVideoProgressViewModel[]>([]);
+  const renderCleanupRef = useRef<(() => void) | null>(null);
 
   // Build a persona lookup map for the adapter
   const personaMap = personas.reduce<Record<string, { name: string; avatarUrl?: string }>>(
@@ -62,14 +63,25 @@ export function CreateVideoTab({ personas }: CreateVideoTabProps) {
 
   const goToStep3 = () => {
     const approved = planCards.filter((c) => c.status === 'approved');
+    renderCleanupRef.current?.();
     setProgressItems([]);
     setCurrentStep(3);
-    simulateRenderProgress(approved, (items) => {
+    renderCleanupRef.current = simulateRenderProgress(approved, (items) => {
       setProgressItems(items);
     });
   };
 
-  const goBack = (toStep: Step) => setCurrentStep(toStep);
+  const goBack = (toStep: Step) => {
+    renderCleanupRef.current?.();
+    renderCleanupRef.current = null;
+    setCurrentStep(toStep);
+  };
+
+  useEffect(() => {
+    return () => {
+      renderCleanupRef.current?.();
+    };
+  }, []);
 
   // -------------------------------------------------------------------------
   // Render

@@ -147,8 +147,18 @@ class WorkspaceService:
                 user_id,
                 normalized_limit,
             )
+        import json
         items = []
         for row in rows:
+            raw_metadata = row["metadata"]
+            if isinstance(raw_metadata, str):
+                try:
+                    metadata = json.loads(raw_metadata)
+                except Exception:
+                    metadata = {}
+            else:
+                metadata = raw_metadata or {}
+
             items.append(
                 {
                     "id": str(row["id"]),
@@ -162,7 +172,7 @@ class WorkspaceService:
                     "published_at": row["published_at"].isoformat()
                     if row["published_at"]
                     else None,
-                    "metadata": row["metadata"] or {},
+                    "metadata": metadata,
                     "created_at": row["created_at"].isoformat()
                     if row["created_at"]
                     else None,

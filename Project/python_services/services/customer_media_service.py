@@ -52,8 +52,17 @@ class CustomerMediaService:
             rows = await conn.fetch(query, *args)
 
         assets: List[Dict[str, Any]] = []
+        import json
         for row in rows:
-            metadata = row.get("metadata") or {}
+            raw_metadata = row.get("metadata")
+            if isinstance(raw_metadata, str):
+                try:
+                    metadata = json.loads(raw_metadata)
+                except Exception:
+                    metadata = {}
+            else:
+                metadata = raw_metadata or {}
+
             access = await CustomerMediaService.build_access_url(
                 bucket_name=row.get("bucket_name"),
                 storage_path=row.get("storage_path"),

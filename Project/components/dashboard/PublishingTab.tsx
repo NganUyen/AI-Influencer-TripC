@@ -417,7 +417,7 @@ export function PublishingTab({ jobs }: PublishingTabProps) {
             <div className="p-6 space-y-4 text-sm">
               <div className="grid grid-cols-2 gap-4">
                 <DetailItem label="Job ID" value={detailJob.job_id} />
-                <DetailItem label="Workflow ID" value={detailJob.workflow_id} />
+                <DetailItem label="Workflow ID" value={detailJob.workflow_id || "-"} />
                 <DetailItem label="Title" value={detailJob.content?.title || detailJob.page_title || "App Review"} />
                 <DetailItem label="Platform" value={detailJob.target_platform || "tiktok"} />
                 <DetailItem label="Status" value={detailJob.publish?.status || "draft"} />

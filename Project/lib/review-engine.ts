@@ -59,12 +59,13 @@ export type ReviewEngineSetup = {
 export type ReviewEngineJob = {
   job_id: string;
   plan_id?: string | null;
-  workflow_id: string;
+  workflow_id?: string | null;
   run_id?: string | null;
   type?: string | null;
   status: string;
   current_step?: string | null;
   progress: number;
+  input_mode?: string | null;
   activity_feed: ReviewEngineStep[];
   source_url?: string | null;
   objective?: string | null;
@@ -103,7 +104,10 @@ export type ReviewEngineJob = {
     content_title?: string | null;
     caption_draft?: string | null;
     tiktok_channel_id?: string | null;
+    input_mode?: string | null;
+    uploaded_media_asset_id?: string | null;
   } | null;
+  creative_preferences?: Record<string, unknown> | null;
   recording_script?: unknown;
   script?: {
     script?: string | null;
@@ -115,6 +119,7 @@ export type ReviewEngineJob = {
   persona_id?: string | null;
   target_platform?: string | null;
   created_at?: string | null;
+  approved_at?: string | null;
   published_at?: string | null;
   scheduled_at?: string | null;
   updated_at?: string | null;
@@ -123,6 +128,26 @@ export type ReviewEngineJob = {
 
 export type ReviewEngineJobResponse = {
   jobs: ReviewEngineJob[];
+};
+
+export type ReviewEnginePlan = {
+  plan_id: string;
+  persona_id?: string | null;
+  source_url?: string | null;
+  objective?: string | null;
+  script_text?: string | null;
+  scenes_data?: any[] | null;
+  status?: string | null;
+  publish_settings?: Record<string, unknown> | null;
+  creative_preferences?: Record<string, unknown> | null;
+  workflow_id?: string | null;
+  approved_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type ReviewEnginePlanListResponse = {
+  plans: ReviewEnginePlan[];
 };
 
 export type ReviewEngineSourceValidateResponse = {

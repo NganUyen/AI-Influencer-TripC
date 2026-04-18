@@ -1,47 +1,213 @@
 'use client';
 
 import '@/app/create-video.css';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Clapperboard, FileCheck2, Play, Settings2, type LucideIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import type { Persona } from '@/components/customer-dashboard';
-import type { ReviewEnginePersonaOption, ReviewEngineSetup } from '@/lib/review-engine';
 import type {
+  ReviewEngineJob,
+  ReviewEngineJobResponse,
+  ReviewEngineSetup,
+} from '@/lib/review-engine';
+import { customerApiRequest } from '@/lib/customer-api';
+import type {
+  CreateVideoProgressViewModel,
   CreateVideoSetupState,
   PersonaPlanCardViewModel,
-  CreateVideoProgressViewModel,
 } from '@/types/video-planning';
 import { DEFAULT_SETUP_STATE } from '@/types/video-planning';
-import { toPersonaPlanCards, simulateRenderProgress } from '@/adapters/create-video-adapter';
+import {
+  buildCreateJobPayload,
+  buildCreativePreferences,
+  isCreateVideoModeSupportedForSubmit,
+  toPersonaPlanCards,
+  toRenderProgressItems,
+} from '@/adapters/create-video-adapter';
 import { CreateVideoSetupStep } from './create-video/CreateVideoSetupStep';
 import { CreateVideoReviewStep } from './create-video/CreateVideoReviewStep';
 import { CreateVideoRenderStep } from './create-video/CreateVideoRenderStep';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 type Step = 1 | 2 | 3 | 4;
-
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
 
 interface CreateVideoTabProps {
   personas: Persona[];
   setup?: ReviewEngineSetup | null;
+  initialJobs?: ReviewEngineJob[];
+  onRefresh?: () => Promise<void> | void;
+  initialSourceUrl?: string;
+  initialPersonaIds?: string[];
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+const ACTIVE_FLOW_STORAGE_KEY = 'create-video-active-flow';
 
-export function CreateVideoTab({ personas, setup }: CreateVideoTabProps) {
+function jobKey(job: ReviewEngineJob): string {
+  return String(job.plan_id || job.job_id);
+}
+
+function sortJobs(jobs: ReviewEngineJob[]): ReviewEngineJob[] {
+  return [...jobs].sort((left, right) => {
+    const leftStamp =
+      left.updated_at || left.started_at || left.created_at || '';
+    const rightStamp =
+      right.updated_at || right.started_at || right.created_at || '';
+    return rightStamp.localeCompare(leftStamp);
+  });
+}
+
+function mergeJobs(
+  existing: ReviewEngineJob[],
+  incoming: ReviewEngineJob[],
+): ReviewEngineJob[] {
+  const merged = new Map<string, ReviewEngineJob>();
+  existing.forEach((job) => merged.set(jobKey(job), job));
+  incoming.forEach((job) => merged.set(jobKey(job), job));
+  return sortJobs(Array.from(merged.values()));
+}
+
+function deriveStepFromJobs(jobs: ReviewEngineJob[]): Step {
+  if (jobs.length === 0) {
+    return 1;
+  }
+  const hasWorkflowOrApprovedState = jobs.some((job) => {
+    const status = String(job.status || '').trim().toLowerCase();
+    return (
+      Boolean(job.workflow_id) ||
+      status === 'approved' ||
+      status === 'in_progress' ||
+      status === 'running' ||
+      status === 'completed' ||
+      status === 'failed'
+    );
+  });
+  if (!hasWorkflowOrApprovedState) {
+    return 2;
+  }
+  const allSettled = jobs.every((job) => {
+    const status = String(job.status || '').trim().toLowerCase();
+    return (
+      Boolean(job.production?.ready) ||
+      status === 'completed' ||
+      status === 'failed' ||
+      job.publish?.status === 'published'
+    );
+  });
+  return allSettled ? 4 : 3;
+}
+
+function PublishStep({
+  jobs,
+  publishingJobId,
+  onPublish,
+  onBack,
+}: {
+  jobs: ReviewEngineJob[];
+  publishingJobId: string | null;
+  onPublish: (jobId: string) => void;
+  onBack: () => void;
+}) {
+  const publishableJobs = jobs.filter(
+    (job) => job.production?.ready && job.production?.publish_enabled,
+  );
+
+  return (
+    <div className="cv-step-panel">
+      <div className="cv-step-content-inner" style={{ display: 'grid', gap: 18 }}>
+        <div>
+          <h2 className="cv-step-title">Publish</h2>
+          <p className="cv-step-subtitle">
+            Only backend-supported publish actions are shown here.
+          </p>
+        </div>
+
+        {publishableJobs.length === 0 ? (
+          <div className="cv-empty-box">
+            No backend publish actions are available for the current flow yet.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gap: 12 }}>
+            {publishableJobs.map((job) => {
+              const alreadyPublished = job.publish?.status === 'published';
+              return (
+                <div
+                  key={job.plan_id || job.job_id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 12,
+                    border: '1px solid rgb(174 173 169 / 0.2)',
+                    borderRadius: 12,
+                    padding: '12px 14px',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div style={{ display: 'grid', gap: 4 }}>
+                    <strong>{job.persona?.display_name || job.persona_id || 'Persona'}</strong>
+                    <span className="cv-cta-disabled-reason">
+                      {job.page_title || job.objective || 'Ready for publish'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    {job.production?.playable_video_url && (
+                      <a
+                        className="btn-secondary"
+                        href={job.production.playable_video_url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Preview
+                      </a>
+                    )}
+                    <button
+                      className="btn-primary"
+                      type="button"
+                      disabled={alreadyPublished || publishingJobId === job.job_id}
+                      onClick={() => onPublish(job.job_id)}
+                    >
+                      {alreadyPublished
+                        ? 'Published'
+                        : publishingJobId === job.job_id
+                          ? 'Publishing…'
+                          : 'Publish to TikTok'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="cv-step-actions">
+          <button className="btn-secondary" onClick={onBack}>
+            Back
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function CreateVideoTab({
+  personas,
+  setup,
+  initialJobs = [],
+  onRefresh,
+  initialSourceUrl = '',
+  initialPersonaIds = [],
+}: CreateVideoTabProps) {
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [setupState, setSetupState] = useState<CreateVideoSetupState>(DEFAULT_SETUP_STATE);
+  const [jobs, setJobs] = useState<ReviewEngineJob[]>(initialJobs);
   const [planCards, setPlanCards] = useState<PersonaPlanCardViewModel[]>([]);
   const [progressItems, setProgressItems] = useState<CreateVideoProgressViewModel[]>([]);
-  const renderProgressCleanupRef = useRef<(() => void) | null>(null);
+  const [activePlanIds, setActivePlanIds] = useState<string[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isSavingPlans, setIsSavingPlans] = useState(false);
+  const [isSubmittingPlans, setIsSubmittingPlans] = useState(false);
+  const [uploadingPlanIds, setUploadingPlanIds] = useState<string[]>([]);
+  const [publishingJobId, setPublishingJobId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const setupPersonaLists = useMemo(() => {
     if (setup) {
@@ -68,72 +234,330 @@ export function CreateVideoTab({ personas, setup }: CreateVideoTabProps) {
     };
   }, [personas, setup]);
 
-  const personaMap = useMemo(
-    () => setupPersonaLists.allPersonas.reduce<Record<string, { name: string; avatarUrl?: string }>>((acc, p) => {
-      acc[p.persona_id] = {
-        name: p.display_name,
-        avatarUrl: p.avatar_image_url ?? p.selection_image_url ?? undefined,
-      };
-      return acc;
-    }, {}),
-    [setupPersonaLists.allPersonas],
-  );
+  const persistActiveFlow = useCallback((planIds: string[], step: Step) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    if (planIds.length === 0) {
+      window.localStorage.removeItem(ACTIVE_FLOW_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(
+      ACTIVE_FLOW_STORAGE_KEY,
+      JSON.stringify({ planIds, step }),
+    );
+  }, []);
+
+  const refreshJobs = useCallback(async (silent = false): Promise<ReviewEngineJob[]> => {
+    try {
+      const payload = await customerApiRequest<ReviewEngineJobResponse>(
+        '/api/customer/review-engine/jobs',
+      );
+      const nextJobs = payload.jobs || [];
+      setJobs(nextJobs);
+      return nextJobs;
+    } catch (error) {
+      if (!silent) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to refresh review-engine jobs';
+        setErrorMessage(message);
+      }
+      throw error;
+    }
+  }, []);
+
+  const persistPlanCards = useCallback(async (cards: PersonaPlanCardViewModel[]) => {
+    const creativePreferences = buildCreativePreferences(setupState);
+    const editableCards = cards.filter((card) => card.planId);
+    if (editableCards.length === 0) {
+      return;
+    }
+    await Promise.all(
+      editableCards.map((card) =>
+        customerApiRequest(`/api/customer/review-engine/plans/${card.planId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            script_text: card.scriptPreview,
+            scenes_data: card.scenes,
+            creative_preferences: creativePreferences,
+          }),
+        }),
+      ),
+    );
+  }, [setupState]);
+
+  useEffect(() => {
+    setJobs(initialJobs);
+  }, [initialJobs]);
+
+  useEffect(() => {
+    setSetupState((current) => ({
+      ...current,
+      sourceUrl: current.sourceUrl || initialSourceUrl,
+      selectedPersonaIds:
+        current.selectedPersonaIds.length > 0
+          ? current.selectedPersonaIds
+          : initialPersonaIds,
+    }));
+  }, [initialPersonaIds, initialSourceUrl]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const raw = window.localStorage.getItem(ACTIVE_FLOW_STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+    try {
+      const payload = JSON.parse(raw) as { planIds?: string[]; step?: Step };
+      const nextPlanIds = Array.isArray(payload.planIds)
+        ? payload.planIds.filter(Boolean)
+        : [];
+      if (nextPlanIds.length > 0) {
+        setActivePlanIds(nextPlanIds);
+        if (payload.step && payload.step >= 1 && payload.step <= 4) {
+          setCurrentStep(payload.step);
+        }
+      }
+    } catch {
+      window.localStorage.removeItem(ACTIVE_FLOW_STORAGE_KEY);
+    }
+  }, []);
+
+  const activeJobs = useMemo(() => {
+    if (activePlanIds.length === 0) {
+      return [];
+    }
+    const activeIds = new Set(activePlanIds);
+    return jobs.filter((job) => {
+      const planId = String(job.plan_id || '').trim();
+      return planId && activeIds.has(planId);
+    });
+  }, [activePlanIds, jobs]);
+
+  useEffect(() => {
+    if (activeJobs.length === 0) {
+      return;
+    }
+    setPlanCards((current) => {
+      const currentByPlanId = new Map(
+        current.map((card) => [card.planId || card.jobId, card]),
+      );
+      return toPersonaPlanCards(activeJobs).map((card) => {
+        const existing = currentByPlanId.get(card.planId || card.jobId);
+        return existing
+          ? {
+              ...card,
+              reviewDecision: existing.reviewDecision,
+              scriptPreview: existing.scriptPreview,
+              scenes: existing.scenes,
+            }
+          : card;
+      });
+    });
+    setProgressItems(toRenderProgressItems(activeJobs));
+
+    const derivedStep = deriveStepFromJobs(activeJobs);
+    setCurrentStep((current) => {
+      if (derivedStep > current) {
+        return derivedStep;
+      }
+      return current;
+    });
+  }, [activeJobs]);
+
+  useEffect(() => {
+    persistActiveFlow(activePlanIds, currentStep);
+  }, [activePlanIds, currentStep, persistActiveFlow]);
+
+  useEffect(() => {
+    if (activePlanIds.length === 0 || currentStep < 3) {
+      return;
+    }
+    void refreshJobs(true).catch(() => undefined);
+    const interval = window.setInterval(() => {
+      void refreshJobs(true).catch(() => undefined);
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [activePlanIds, currentStep, refreshJobs]);
 
   const handleSetupChange = useCallback((patch: Partial<CreateVideoSetupState>) => {
     setSetupState((current) => ({ ...current, ...patch }));
   }, []);
 
-  useEffect(() => {
-    return () => {
-      renderProgressCleanupRef.current?.();
-    };
-  }, []);
+  const goToStep2 = useCallback(async () => {
+    if (!isCreateVideoModeSupportedForSubmit(setupState.selectedMode)) {
+      const message = 'Selected mode is not supported yet.';
+      setErrorMessage(message);
+      toast.error(message);
+      return;
+    }
 
-  const stopRenderProgress = useCallback(() => {
-    renderProgressCleanupRef.current?.();
-    renderProgressCleanupRef.current = null;
-  }, []);
+    setErrorMessage(null);
+    setIsGenerating(true);
+    try {
+      const payload = buildCreateJobPayload(setupState);
+      const result = await customerApiRequest<{
+        jobs: ReviewEngineJob[];
+        warnings?: Array<{ message?: string }>;
+      }>('/api/customer/review-engine/jobs', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
 
-  // -------------------------------------------------------------------------
-  // Step transitions
-  // -------------------------------------------------------------------------
+      const nextJobs = result.jobs || [];
+      const nextPlanIds = nextJobs
+        .map((job) => String(job.plan_id || '').trim())
+        .filter(Boolean);
+      setJobs((current) => mergeJobs(current, nextJobs));
+      setActivePlanIds(nextPlanIds);
+      setPlanCards(toPersonaPlanCards(nextJobs));
+      setProgressItems([]);
+      setCurrentStep(2);
+      if (result.warnings?.[0]?.message) {
+        toast(result.warnings[0].message);
+      }
+      await Promise.resolve(onRefresh?.());
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to create review jobs';
+      setErrorMessage(message);
+      toast.error(message);
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [onRefresh, setupState]);
 
-  const goToStep2 = useCallback(() => {
-    const cards = toPersonaPlanCards(setupState.selectedPersonaIds, personaMap);
-    setPlanCards(cards);
-    setCurrentStep(2);
-  }, [personaMap, setupState.selectedPersonaIds]);
+  const savePlanEdits = useCallback(async () => {
+    setErrorMessage(null);
+    setIsSavingPlans(true);
+    try {
+      await persistPlanCards(planCards);
+      await refreshJobs();
+      await Promise.resolve(onRefresh?.());
+      toast.success('Plan edits saved.');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to save plan edits';
+      setErrorMessage(message);
+      toast.error(message);
+    } finally {
+      setIsSavingPlans(false);
+    }
+  }, [onRefresh, persistPlanCards, planCards, refreshJobs]);
 
-  const goToStep3 = useCallback(() => {
-    const approved = planCards.filter((c) => c.status === 'approved');
-    stopRenderProgress();
-    setProgressItems([]);
-    setCurrentStep(3);
-    renderProgressCleanupRef.current = simulateRenderProgress(approved, (items) => {
-      setProgressItems(items);
-    });
-  }, [planCards, stopRenderProgress]);
+  const goToStep3 = useCallback(async () => {
+    const approvedCards = planCards.filter(
+      (card) => card.reviewDecision === 'approved' && card.planId,
+    );
+    if (approvedCards.length === 0) {
+      return;
+    }
 
-  const goToStep4 = useCallback(() => {
-    stopRenderProgress();
-    setCurrentStep(4);
-  }, [stopRenderProgress]);
+    setErrorMessage(null);
+    setIsSubmittingPlans(true);
+    try {
+      await persistPlanCards(planCards);
+      await Promise.all(
+        approvedCards.map((card) =>
+          customerApiRequest(`/api/customer/review-engine/plans/${card.planId}/approve`, {
+            method: 'POST',
+            body: JSON.stringify({}),
+          }),
+        ),
+      );
+      const nextPlanIds = approvedCards
+        .map((card) => String(card.planId || '').trim())
+        .filter(Boolean);
+      setActivePlanIds(nextPlanIds);
+      const nextJobs = await refreshJobs();
+      const refreshedActiveJobs = nextJobs.filter((job) =>
+        nextPlanIds.includes(String(job.plan_id || '').trim()),
+      );
+      setPlanCards(toPersonaPlanCards(refreshedActiveJobs));
+      setProgressItems(toRenderProgressItems(refreshedActiveJobs));
+      setCurrentStep(3);
+      await Promise.resolve(onRefresh?.());
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to approve plans';
+      setErrorMessage(message);
+      toast.error(message);
+    } finally {
+      setIsSubmittingPlans(false);
+    }
+  }, [onRefresh, persistPlanCards, planCards, refreshJobs]);
+
+  const handleUploadPlanVideo = useCallback(async (planId: string, file: File | null) => {
+    if (!file) {
+      return;
+    }
+    setErrorMessage(null);
+    setUploadingPlanIds((current) => [...current, planId]);
+    try {
+      const updatedJob = await customerApiRequest<ReviewEngineJob>(
+        `/api/customer/review-engine/jobs/${planId}/upload`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': file.type || 'video/mp4',
+            'x-filename': file.name,
+          },
+          body: file,
+        },
+      );
+      setJobs((current) => mergeJobs(current, [updatedJob]));
+      await Promise.resolve(onRefresh?.());
+      toast.success('Video uploaded.');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to upload video';
+      setErrorMessage(message);
+      toast.error(message);
+    } finally {
+      setUploadingPlanIds((current) => current.filter((item) => item !== planId));
+    }
+  }, [onRefresh]);
+
+  const handlePublishJob = useCallback(async (jobId: string) => {
+    setErrorMessage(null);
+    setPublishingJobId(jobId);
+    try {
+      const updatedJob = await customerApiRequest<ReviewEngineJob>(
+        `/api/customer/review-engine/jobs/${jobId}/publish`,
+        {
+          method: 'POST',
+          body: JSON.stringify({}),
+        },
+      );
+      setJobs((current) => mergeJobs(current, [updatedJob]));
+      await Promise.resolve(onRefresh?.());
+      toast.success('Publish request sent.');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to publish review job';
+      setErrorMessage(message);
+      toast.error(message);
+    } finally {
+      setPublishingJobId(null);
+    }
+  }, [onRefresh]);
 
   const goBack = useCallback((toStep: Step) => {
-    stopRenderProgress();
     setCurrentStep(toStep);
-  }, [stopRenderProgress]);
-
-  // -------------------------------------------------------------------------
-  // Render
-  // -------------------------------------------------------------------------
+  }, []);
 
   return (
     <div className="cv-container">
-      {/* Step indicator with new 4-step design */}
       <StepIndicator currentStep={currentStep} />
 
-      {/* Step content with fade-in animation */}
+      {errorMessage && (
+        <div className="cv-empty-box" style={{ marginBottom: 20 }}>
+          {errorMessage}
+        </div>
+      )}
+
       <div className="cv-step-content">
         {currentStep === 1 && (
           <CreateVideoSetupStep
@@ -142,6 +566,7 @@ export function CreateVideoTab({ personas, setup }: CreateVideoTabProps) {
             personas={setupPersonaLists.allPersonas}
             systemPersonaOptions={setupPersonaLists.systemPersonas}
             customPersonaOptions={setupPersonaLists.customPersonas}
+            isSubmitting={isGenerating}
             onContinue={goToStep2}
           />
         )}
@@ -150,7 +575,12 @@ export function CreateVideoTab({ personas, setup }: CreateVideoTabProps) {
           <CreateVideoReviewStep
             planCards={planCards}
             onCardsChange={setPlanCards}
+            onSaveEdits={savePlanEdits}
+            isSaving={isSavingPlans}
+            onUploadPlanVideo={handleUploadPlanVideo}
+            uploadingPlanIds={uploadingPlanIds}
             onContinue={goToStep3}
+            isContinuing={isSubmittingPlans}
             onBack={() => goBack(1)}
           />
         )}
@@ -158,22 +588,29 @@ export function CreateVideoTab({ personas, setup }: CreateVideoTabProps) {
         {currentStep === 3 && (
           <CreateVideoRenderStep
             progressItems={progressItems}
-            onContinue={goToStep4}
+            onContinue={() => goBack(4)}
             onBack={() => goBack(2)}
           />
         )}
 
         {currentStep === 4 && (
-          <PublishStep onBack={() => goBack(3)} />
+          <PublishStep
+            jobs={activeJobs}
+            publishingJobId={publishingJobId}
+            onPublish={handlePublishJob}
+            onBack={() => goBack(3)}
+          />
         )}
       </div>
+
+      {isGenerating && (
+        <div className="cv-cta-disabled-reason" style={{ marginTop: 16 }}>
+          Creating backend plans…
+        </div>
+      )}
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// StepIndicator (Enhanced 4-Step Progress Tracker)
-// ---------------------------------------------------------------------------
 
 const STEP_CONFIG: Array<{
   label: string;
@@ -214,7 +651,6 @@ function StepIndicator({ currentStep }: { currentStep: Step }) {
 
           return (
             <div key={step.label} className="cv-progress-step-wrapper">
-              {/* Step indicator pill */}
               <div
                 className={`cv-progress-step ${isActive ? 'cv-progress-step--active' : ''} ${
                   isCompleted ? 'cv-progress-step--completed' : ''
@@ -224,7 +660,6 @@ function StepIndicator({ currentStep }: { currentStep: Step }) {
                 <span className="cv-progress-step-label">{stepNum}. {step.label}</span>
               </div>
 
-              {/* Connector line between steps */}
               {idx < STEP_CONFIG.length - 1 && (
                 <div
                   className={`cv-progress-connector ${
@@ -261,32 +696,6 @@ function StepIndicator({ currentStep }: { currentStep: Step }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// PublishStep (Placeholder for step 4)
-// ---------------------------------------------------------------------------
-
-function PublishStep({ onBack }: { onBack: () => void }) {
-  return (
-    <div className="cv-step-panel">
-      <div className="cv-step-content-inner">
-        <h2 className="cv-step-title">Ready to Publish</h2>
-        <p className="cv-step-subtitle">Your videos are ready to be published to your channels.</p>
-        <div className="cv-step-actions">
-          <button
-            className="btn-primary"
-            onClick={() => toast.success('Publish flow is coming soon.')}
-          >
-            Publish Videos
-          </button>
-          <button className="btn-secondary" onClick={onBack}>
-            Back
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 const SYSTEM_PERSONA_USER_ID = '00000000-0000-0000-0000-000000000001';
 
 function isSystemPersona(persona: Persona): boolean {
@@ -297,7 +706,7 @@ function isSystemPersona(persona: Persona): boolean {
   );
 }
 
-function reviewPersonaToPersona(persona: ReviewEnginePersonaOption): Persona {
+function reviewPersonaToPersona(persona: ReviewEngineSetup['persona_options'][number]): Persona {
   return {
     persona_id: persona.persona_id,
     display_name: persona.display_name,

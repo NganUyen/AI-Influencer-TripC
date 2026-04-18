@@ -634,6 +634,42 @@ CREATE TABLE public.workflows (
   CONSTRAINT workflows_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES public.users(id)
 );
 
+CREATE TABLE IF NOT EXISTS public.video_render_plans (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  campaign_id uuid,
+  persona_id text NOT NULL,
+  source_url text NOT NULL,
+  objective text,
+  script_text text NOT NULL,
+  scenes_data jsonb NOT NULL DEFAULT '[]'::jsonb,
+  duration_estimate double precision,
+  status text DEFAULT 'generated'::text,
+  workflow_id text,
+  video_url text,
+  publish_settings jsonb NOT NULL DEFAULT '{}'::jsonb,
+  creative_preferences jsonb NOT NULL DEFAULT '{}'::jsonb,
+  page_review_data jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  approved_at timestamp with time zone,
+  CONSTRAINT video_render_plans_pkey PRIMARY KEY (id),
+  CONSTRAINT video_render_plans_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE,
+  CONSTRAINT video_render_plans_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES public.campaigns(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_render_plans_user_id
+  ON public.video_render_plans(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_video_render_plans_campaign_id
+  ON public.video_render_plans(campaign_id);
+
+CREATE INDEX IF NOT EXISTS idx_video_render_plans_workflow_id
+  ON public.video_render_plans(workflow_id);
+
+CREATE INDEX IF NOT EXISTS idx_video_render_plans_user_persona_id
+  ON public.video_render_plans(user_id, persona_id);
+
 -- Supabase-hosted environments also install an auth.users -> public.users sync
 -- trigger via 20260329_supabase_auth_user_sync.sql so customer auth stays
 -- aligned with the relational ownership anchor used by the app tables.

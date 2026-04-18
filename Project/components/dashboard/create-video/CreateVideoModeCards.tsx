@@ -26,8 +26,8 @@ const MODES: CreateVideoModeViewModel[] = [
     id: 'human_phone',
     title: 'Human Phone Recording',
     description: 'Human captures footage on a phone, then AI assembles the final video.',
-    badge: 'Coming later',
-    readiness: 'coming_later',
+    badge: 'Ready',
+    readiness: 'ready',
     note: 'Human-captured footage from phone, then AI assembles the final video.',
   },
 ];

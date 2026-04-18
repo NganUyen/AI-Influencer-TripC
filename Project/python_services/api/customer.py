@@ -11,7 +11,7 @@ from urllib.parse import quote
 import httpx
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from config.settings import settings
 from services.account_connection_service import (
@@ -167,6 +167,7 @@ class ReviewEngineJobRequest(BaseModel):
     target_personas: List[str]
     input_mode: Literal["ai_autonomous", "user_upload"] = "ai_autonomous"
     publish_to_tiktok: bool = False
+    creative_preferences: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ReviewEngineJobUpdateRequest(BaseModel):
@@ -184,9 +185,12 @@ class VideoPlanCreateRequest(BaseModel):
     source_url: str
     objective: Optional[str] = None
     script_text: str
-    scenes_data: List[Dict[str, Any]] = []
+    scenes_data: List[Dict[str, Any]] = Field(default_factory=list)
     duration_estimate: Optional[float] = None
     status: str = "generated"
+    publish_settings: Dict[str, Any] = Field(default_factory=dict)
+    creative_preferences: Dict[str, Any] = Field(default_factory=dict)
+    page_review_data: Dict[str, Any] = Field(default_factory=dict)
 
 
 class VideoPlanUpdateRequest(BaseModel):
@@ -195,6 +199,9 @@ class VideoPlanUpdateRequest(BaseModel):
     duration_estimate: Optional[float] = None
     status: Optional[str] = None
     publish_settings: Optional[Dict[str, Any]] = None
+    creative_preferences: Optional[Dict[str, Any]] = None
+    page_review_data: Optional[Dict[str, Any]] = None
+    approved_at: Optional[str] = None
 
 
 class CreateCustomerPersonaRequest(BaseModel):
@@ -240,6 +247,33 @@ def _default_tts_voice_for_language(language: str) -> str:
         "hindi": "en-IN-Standard-D",
     }
     return voice_map.get(normalized, "en-US-Standard-F")
+
+
+def _merge_patch_dict(
+    existing: Optional[Dict[str, Any]],
+    patch: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    merged = dict(existing or {})
+    merged.update(patch or {})
+    return merged
+
+
+def _public_review_engine_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "plan_id": str(plan.get("plan_id") or plan.get("id") or ""),
+        "persona_id": plan.get("persona_id"),
+        "source_url": plan.get("source_url"),
+        "objective": plan.get("objective"),
+        "script_text": plan.get("script_text"),
+        "scenes_data": plan.get("scenes_data") or [],
+        "status": plan.get("status"),
+        "publish_settings": plan.get("publish_settings") or {},
+        "creative_preferences": plan.get("creative_preferences") or {},
+        "workflow_id": plan.get("workflow_id"),
+        "approved_at": plan.get("approved_at"),
+        "created_at": plan.get("created_at"),
+        "updated_at": plan.get("updated_at"),
+    }
 
 
 @router.get("/brand")
@@ -1066,7 +1100,7 @@ async def list_review_engine_plans(
     limit: int = 50,
 ) -> Dict[str, Any]:
     plans = await VideoPlanningService.list_plans(session.user_id, limit=limit)
-    return {"plans": plans}
+    return {"plans": [_public_review_engine_plan(plan) for plan in plans]}
 
 @router.post("/review-engine/plans")
 async def create_review_engine_plan(
@@ -1079,7 +1113,7 @@ async def create_review_engine_plan(
             **payload.model_dump()
         }
     )
-    return plan
+    return _public_review_engine_plan(plan)
 
 
 @router.get("/review-engine/plans/{plan_id}")
@@ -1090,7 +1124,7 @@ async def get_review_engine_plan(
     plan = await VideoPlanningService.get_plan(plan_id, session.user_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
-    return plan
+    return _public_review_engine_plan(plan)
 
 
 @router.patch("/review-engine/plans/{plan_id}")
@@ -1099,11 +1133,29 @@ async def update_review_engine_plan(
     payload: VideoPlanUpdateRequest,
     session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
+    existing_plan = await VideoPlanningService.get_plan(plan_id, session.user_id)
+    if not existing_plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
     updates = payload.model_dump(exclude_unset=True)
+    if "publish_settings" in updates:
+        updates["publish_settings"] = _merge_patch_dict(
+            existing_plan.get("publish_settings"),
+            updates.get("publish_settings"),
+        )
+    if "creative_preferences" in updates:
+        updates["creative_preferences"] = _merge_patch_dict(
+            existing_plan.get("creative_preferences"),
+            updates.get("creative_preferences"),
+        )
+    if "page_review_data" in updates:
+        updates["page_review_data"] = _merge_patch_dict(
+            existing_plan.get("page_review_data"),
+            updates.get("page_review_data"),
+        )
     plan = await VideoPlanningService.update_plan(plan_id, session.user_id, updates)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
-    return plan
+    return _public_review_engine_plan(plan)
 
 
 @router.post("/review-engine/plans/{plan_id}/approve")
@@ -1112,10 +1164,22 @@ async def approve_review_engine_plan(
     request: Request,
     session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
+    existing_plan = await VideoPlanningService.get_plan(plan_id, session.user_id)
+    if not existing_plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if (
+        str(existing_plan.get("status") or "").strip().lower() == "upload_required"
+        and not existing_plan.get("video_url")
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Upload final video before approving this plan.",
+        )
+
     plan = await VideoPlanningService.approve_plan(plan_id, session.user_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
-        
+
     try:
         from services.app_review_studio_service import AppReviewStudioService
         result = await AppReviewStudioService.start_workflow_from_plan(
@@ -1123,11 +1187,18 @@ async def approve_review_engine_plan(
             plan_id=plan_id,
             temporal_client=request.app.state.temporal_client,
         )
-        return {"status": "approved", "workflow": result}
-    except Exception as e:
+        return {
+            "status": "approved",
+            "plan": _public_review_engine_plan(plan),
+            "workflow": result,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
         import traceback
+
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 

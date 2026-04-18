@@ -1725,7 +1725,14 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
               />
             )}
             {activeTab === "create_video" && (
-              <CreateVideoTab personas={personas} setup={reviewEngineSetup} />
+              <CreateVideoTab
+                personas={personas}
+                setup={reviewEngineSetup}
+                initialJobs={reviewEngineJobs}
+                onRefresh={loadReviewEngineData}
+                initialSourceUrl={reviewSourceUrl}
+                initialPersonaIds={reviewPersonaIds}
+              />
             )}
 
             {activeTab === "publishing" && (

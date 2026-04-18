@@ -4,6 +4,7 @@ Aggregated customer workspace read model.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Dict, List, Optional
 
 from config.settings import settings
@@ -22,6 +23,96 @@ from services.workflow_state_service import WorkflowStateService
 
 
 class WorkspaceService:
+    @staticmethod
+    def _coerce_float(value: Any, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @classmethod
+    def _normalize_quota_items(cls, raw_quota: Any) -> List[Dict[str, Any]]:
+        if isinstance(raw_quota, Mapping):
+            raw_items: List[Any] = [
+                {"provider": provider, **item}
+                if isinstance(item, Mapping)
+                else {"provider": provider, "label": provider, "name": provider, "raw_value": item}
+                for provider, item in raw_quota.items()
+            ]
+        elif isinstance(raw_quota, list):
+            raw_items = raw_quota
+        else:
+            raw_items = []
+
+        quota_list: List[Dict[str, Any]] = []
+        for item in raw_items:
+            if isinstance(item, Mapping):
+                usage = item.get("usage") if isinstance(item.get("usage"), Mapping) else {}
+                unit = str(item.get("usage_unit") or item.get("unit") or "units")
+                name = str(
+                    item.get("label")
+                    or item.get("name")
+                    or item.get("provider")
+                    or "Unknown"
+                )
+                used = cls._coerce_float(
+                    item.get("usage_value")
+                    if item.get("usage_value") is not None
+                    else usage.get(unit),
+                    cls._coerce_float(item.get("used"), 0.0),
+                )
+                total = cls._coerce_float(
+                    item.get("remaining_limit")
+                    or item.get("monthly_limit")
+                    or item.get("limit")
+                    or item.get("total"),
+                    100.0,
+                )
+                quota_list.append(
+                    {
+                        "provider": item.get("provider"),
+                        "name": name,
+                        "used": used,
+                        "total": total,
+                        "unit": unit,
+                        "status": item.get("status"),
+                        "usage_percent": item.get("usage_percent"),
+                        "remaining": item.get("remaining_value"),
+                        "remaining_unit": item.get("remaining_unit"),
+                        "remaining_exact": item.get("remaining_exact"),
+                        "remaining_source": item.get("remaining_source"),
+                        "remaining_message": item.get("remaining_message"),
+                        "reset_at": item.get("remaining_reset_at") or item.get("reset_at"),
+                        "observed_at": item.get("remaining_observed_at") or item.get("observed_at"),
+                        "billing_type": item.get("billing_type"),
+                        "warn_at_percent": item.get("warn_at_percent"),
+                        "snapshot_count": item.get("snapshot_count"),
+                        "cost_usd": item.get("cost_usd"),
+                        "requests_remaining": item.get("remaining_requests"),
+                        "requests_limit": item.get("remaining_requests_limit"),
+                        "requests_reset_at": item.get("remaining_requests_reset_at"),
+                        "last_error": item.get("last_error"),
+                        "last_error_type": item.get("last_error_type"),
+                        "telemetry_scope": item.get("telemetry_scope"),
+                    }
+                )
+                continue
+
+            name = str(item or "").strip()
+            if not name:
+                continue
+            quota_list.append(
+                {
+                    "provider": None,
+                    "name": name,
+                    "used": 0.0,
+                    "total": 100.0,
+                    "unit": "units",
+                }
+            )
+
+        return quota_list
+
     @staticmethod
     def _workflow_display_payload(item: Dict[str, Any]) -> Dict[str, Any]:
         progress = int(item.get("progress") or 0)
@@ -99,21 +190,7 @@ class WorkspaceService:
             except Exception:
                 raw_quota = []
 
-            quota_list = []
-            for item in raw_quota:
-                quota_list.append(
-                    {
-                        "name": str(item.get("label", item.get("name", "Unknown"))),
-                        "used": float(item.get("usage_value") or item.get("used") or 0),
-                        "total": float(
-                            item.get("remaining_limit")
-                            or item.get("monthly_limit")
-                            or item.get("total")
-                            or 100
-                        ),
-                        "unit": str(item.get("usage_unit") or item.get("unit") or "units"),
-                    }
-                )
+            quota_list = cls._normalize_quota_items(raw_quota)
 
             services = [
                 {

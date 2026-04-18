@@ -1,8 +1,6 @@
 /**
  * video-planning.ts
- * Frontend view model types for the Create Video workflow.
- * These are presentation-layer types ONLY — not assumed backend contracts.
- * In Phase 3, replace adapter internals to map real API shapes to these types.
+ * Create-video view models for canonical web flow.
  */
 
 // ---------------------------------------------------------------------------
@@ -10,6 +8,7 @@
 // ---------------------------------------------------------------------------
 
 export type VideoCreationMode = 'ai_auto' | 'ai_remote' | 'human_phone';
+export type BackendInputMode = 'ai_autonomous' | 'user_upload';
 
 export type ModeReadiness = 'ready' | 'coming_later';
 
@@ -42,7 +41,9 @@ export interface CreateVideoSetupState {
   selectedMode: VideoCreationMode;
   selectedBackground: string;
   selectedMovementStyle: string;
+  gestureIntensity: number;
   selectedMusicMood: string;
+  musicVolume: number;
 }
 
 export const DEFAULT_SETUP_STATE: CreateVideoSetupState = {
@@ -56,20 +57,17 @@ export const DEFAULT_SETUP_STATE: CreateVideoSetupState = {
   selectedMode: 'ai_auto',
   selectedBackground: 'studio-soft',
   selectedMovementStyle: 'Natural',
+  gestureIntensity: 50,
   selectedMusicMood: 'None',
+  musicVolume: 70,
 };
 
 // ---------------------------------------------------------------------------
 // Step 2 — Persona plan review cards
 // ---------------------------------------------------------------------------
 
-export type PlanCardStatus =
-  | 'loading'
-  | 'demo'
-  | 'ready'
-  | 'approved'
-  | 'rejected'
-  | 'pending_backend';
+export type PlanReviewDecision = 'pending' | 'approved' | 'rejected';
+export type ViewTone = 'default' | 'success' | 'warning';
 
 export interface ScenePreviewItem {
   index: number;
@@ -78,12 +76,24 @@ export interface ScenePreviewItem {
 }
 
 export interface PersonaPlanCardViewModel {
+  jobId: string;
+  planId?: string | null;
+  workflowId?: string | null;
   personaId: string;
   personaName: string;
   personaAvatarUrl?: string;
+  sourceUrl?: string | null;
+  objective?: string | null;
+  inputMode?: BackendInputMode | null;
+  inputModeLabel: string;
+  backendStatus: string;
+  backendStatusLabel: string;
+  statusTone: ViewTone;
+  reviewDecision: PlanReviewDecision;
+  requiresUpload: boolean;
+  outputReady: boolean;
   scriptPreview: string;
   scenes: ScenePreviewItem[];
-  status: PlanCardStatus;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,7 +105,7 @@ export type RenderStatus =
   | 'in_progress'
   | 'completed'
   | 'failed'
-  | 'pending_backend';
+  | 'upload_required';
 
 export interface RenderTimelineEvent {
   label: string;
@@ -104,12 +114,19 @@ export interface RenderTimelineEvent {
 }
 
 export interface CreateVideoProgressViewModel {
+  jobId: string;
+  planId?: string | null;
+  workflowId?: string | null;
   personaId: string;
   personaName: string;
   personaAvatarUrl?: string;
   status: RenderStatus;
+  statusLabel: string;
+  statusTone: ViewTone;
   progressPercent?: number;
-  outputPreviewUrl?: string;
+  playableVideoUrl?: string | null;
+  downloadUrl?: string | null;
+  readyToPublish: boolean;
   timelineEvents: RenderTimelineEvent[];
 }
 

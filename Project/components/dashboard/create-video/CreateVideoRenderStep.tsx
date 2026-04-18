@@ -1,10 +1,6 @@
 'use client';
 
-import type { CreateVideoProgressViewModel, RenderStatus } from '@/types/video-planning';
-
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
+import type { CreateVideoProgressViewModel, RenderStatus, ViewTone } from '@/types/video-planning';
 
 interface CreateVideoRenderStepProps {
   progressItems: CreateVideoProgressViewModel[];
@@ -12,9 +8,15 @@ interface CreateVideoRenderStepProps {
   onBack: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+function toneBadgeClass(tone: ViewTone): string {
+  if (tone === 'success') {
+    return 'cv-badge cv-badge--approved';
+  }
+  if (tone === 'warning') {
+    return 'cv-badge cv-badge--rejected';
+  }
+  return 'cv-badge cv-badge--ready';
+}
 
 export function CreateVideoRenderStep({ progressItems, onContinue, onBack }: CreateVideoRenderStepProps) {
   if (progressItems.length === 0) {
@@ -26,27 +28,25 @@ export function CreateVideoRenderStep({ progressItems, onContinue, onBack }: Cre
     );
   }
 
-  const allDone = progressItems.every(
-    (item) => item.status === 'completed' || item.status === 'pending_backend',
+  const allDone = progressItems.every((item) =>
+    item.status === 'completed' || item.status === 'failed' || item.status === 'upload_required',
   );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      {/* Header */}
       <div className="cv-step-header">
         <button type="button" onClick={onBack} className="cv-back-btn">← Back</button>
         <div>
           <h2 className="cv-step-heading">Rendering</h2>
           <p className="cv-step-sub">
-            Video production is being simulated. Real render progress will appear here in Phase 3.
+            Live backend status from review-engine jobs. Refresh is automatic while work is running.
           </p>
         </div>
       </div>
 
-      {/* Progress cards */}
       <div className="cv-render-cards">
         {progressItems.map((item) => (
-          <RenderProgressCard key={item.personaId} item={item} />
+          <RenderProgressCard key={item.planId || item.jobId} item={item} />
         ))}
       </div>
 
@@ -61,40 +61,38 @@ export function CreateVideoRenderStep({ progressItems, onContinue, onBack }: Cre
   );
 }
 
-// ---------------------------------------------------------------------------
-// RenderProgressCard
-// ---------------------------------------------------------------------------
-
 function RenderProgressCard({ item }: { item: CreateVideoProgressViewModel }) {
-  const isDone = item.status === 'completed' || item.status === 'pending_backend';
+  const isDone = item.status === 'completed';
 
   return (
     <div className="cv-progress-card">
-      {/* Card header */}
       <div className="cv-card-header">
         <PersonaAvatar name={item.personaName} avatarUrl={item.personaAvatarUrl} size={36} />
         <span className="cv-card-persona-name">{item.personaName}</span>
-        <RenderStatusBadge status={item.status} />
+        <span className={toneBadgeClass(item.statusTone)}>{item.statusLabel}</span>
       </div>
 
-      {/* Card body */}
       <div className="cv-progress-body">
-        {/* Timeline */}
         <div>
           <p className="cv-card-section-label">Timeline</p>
           <div className="cv-timeline">
             {item.timelineEvents.map((event, idx) => {
               const dotClass = [
                 'cv-timeline-dot',
-                event.status === 'done'    ? 'cv-timeline-dot--done' :
-                event.status === 'active'  ? 'cv-timeline-dot--active' :
-                                             'cv-timeline-dot--pending',
+                event.status === 'done'
+                  ? 'cv-timeline-dot--done'
+                  : event.status === 'active'
+                    ? 'cv-timeline-dot--active'
+                    : 'cv-timeline-dot--pending',
               ].join(' ');
 
               const labelClass = [
                 'cv-timeline-label',
-                event.status === 'done'   ? 'cv-timeline-label--done' :
-                event.status === 'active' ? 'cv-timeline-label--active' : '',
+                event.status === 'done'
+                  ? 'cv-timeline-label--done'
+                  : event.status === 'active'
+                    ? 'cv-timeline-label--active'
+                    : '',
               ].filter(Boolean).join(' ');
 
               return (
@@ -112,7 +110,6 @@ function RenderProgressCard({ item }: { item: CreateVideoProgressViewModel }) {
           </div>
         </div>
 
-        {/* Progress bar */}
         {item.progressPercent !== undefined && (
           <div className="cv-render-progress-track">
             <div
@@ -122,63 +119,51 @@ function RenderProgressCard({ item }: { item: CreateVideoProgressViewModel }) {
           </div>
         )}
 
-        {/* Output preview */}
         <div>
           <p className="cv-card-section-label">Output</p>
-          {item.outputPreviewUrl ? (
-            <img
-              src={item.outputPreviewUrl}
-              alt="Video preview"
-              className="cv-output-preview-img"
-              loading="lazy"
-              decoding="async"
-            />
+          {item.playableVideoUrl ? (
+            <div style={{ display: 'grid', gap: 10 }}>
+              <video
+                src={item.playableVideoUrl}
+                className="cv-output-preview-img"
+                controls
+                preload="metadata"
+              />
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <a className="btn-secondary" href={item.playableVideoUrl} target="_blank" rel="noreferrer">
+                  Open preview
+                </a>
+                {item.downloadUrl && (
+                  <a className="btn-secondary" href={item.downloadUrl} target="_blank" rel="noreferrer">
+                    Download
+                  </a>
+                )}
+              </div>
+            </div>
           ) : (
             <div className="cv-output-placeholder">
-              Preview available after render
+              Waiting for backend output
             </div>
           )}
         </div>
 
-        {/* Final state label */}
-        {isDone && (
+        {item.status === 'upload_required' && (
           <div className="cv-ready-banner">
-            <strong>Ready for backend integration.</strong>
-            Real render progress and output will be available once the Phase 3 backend is connected.
+            <strong>Upload required.</strong>
+            Final phone-recorded footage must be uploaded before backend approval can continue.
+          </div>
+        )}
+
+        {item.readyToPublish && (
+          <div className="cv-ready-banner">
+            <strong>Ready for publish.</strong>
+            Final video is available and backend publish action can run in next step.
           </div>
         )}
       </div>
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// RenderStatusBadge
-// ---------------------------------------------------------------------------
-
-function RenderStatusBadge({ status }: { status: RenderStatus }) {
-  const labelMap: Record<RenderStatus, string> = {
-    queued:          'Queued',
-    in_progress:     'Processing...',
-    completed:       'Completed',
-    failed:          'Failed',
-    pending_backend: 'Ready (demo)',
-  };
-
-  const classMap: Record<RenderStatus, string> = {
-    queued:          'cv-badge cv-badge--queued',
-    in_progress:     'cv-badge cv-badge--in_progress',
-    completed:       'cv-badge cv-badge--completed',
-    failed:          'cv-badge cv-badge--failed',
-    pending_backend: 'cv-badge cv-badge--pending_backend',
-  };
-
-  return <span className={classMap[status]}>{labelMap[status]}</span>;
-}
-
-// ---------------------------------------------------------------------------
-// PersonaAvatar (shared utility)
-// ---------------------------------------------------------------------------
 
 function PersonaAvatar({ name, avatarUrl, size }: { name: string; avatarUrl?: string; size: number }) {
   if (avatarUrl) {
@@ -201,4 +186,15 @@ function PersonaAvatar({ name, avatarUrl, size }: { name: string; avatarUrl?: st
       {name.charAt(0).toUpperCase()}
     </div>
   );
+}
+
+export function getRenderStatusLabel(status: RenderStatus): string {
+  const labelMap: Record<RenderStatus, string> = {
+    queued: 'Queued',
+    in_progress: 'Processing',
+    completed: 'Completed',
+    failed: 'Failed',
+    upload_required: 'Upload required',
+  };
+  return labelMap[status];
 }

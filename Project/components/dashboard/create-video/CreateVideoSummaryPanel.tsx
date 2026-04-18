@@ -22,7 +22,10 @@ export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelP
     selectedMode,
     selectedBackground,
     selectedMovementStyle,
+    gestureIntensity,
     selectedMusicMood,
+    musicVolume,
+    brief,
   } = setupState;
 
   const domainLabel = extractDomain(sourceUrl) || '-';
@@ -113,9 +116,26 @@ export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelP
         />
 
         <SummaryRow
+          label="Gesture"
+          value={`${gestureIntensity}%`}
+        />
+
+        <SummaryRow
           label="Music"
           value={selectedMusicMood || '—'}
         />
+
+        <SummaryRow
+          label="Volume"
+          value={`${musicVolume}%`}
+        />
+
+        {brief?.trim() && (
+          <SummaryRow
+            label="Brief"
+            value={brief.trim()}
+          />
+        )}
       </div>
 
       <hr className="cv-summary-divider" />

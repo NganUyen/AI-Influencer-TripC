@@ -1,6 +1,6 @@
 # Start Here
 
-Last verified: 2026-03-24 (UTC)
+Last verified: 2026-04-18 (UTC)
 
 This is the fastest way to get the repo running locally without digging through old design docs.
 
@@ -58,10 +58,11 @@ pip install -r requirements.txt
 
 The repo currently uses:
 
-- direct PostgreSQL for application data
+- Supabase Postgres as the long-lived application database
 - Supabase Auth for customer sign-in and session validation
+- local Postgres containers only for disposable local bootstrap and service databases
 
-A fresh local Postgres volume bootstraps `Project/supabase/schema.sql` automatically through Docker Compose. For manual bootstrap, seeding, or using the same SQL against Supabase-hosted Postgres, use [../Project/supabase/README.md](../Project/supabase/README.md).
+A fresh local Postgres volume can still bootstrap `Project/supabase/schema.sql` through Docker Compose for disposable development. For the canonical database model and migration rules, use [db.md](./db.md) and [../Project/supabase/README.md](../Project/supabase/README.md).
 
 ## Fastest Path A: Frontend Only
 
@@ -192,7 +193,7 @@ curl -fsS http://localhost:8081/healthz
 - [FRONTEND.md](./FRONTEND.md)
 - [BACKEND_API.md](./BACKEND_API.md)
 - [WORKFLOWS_AND_AUTOMATION.md](./WORKFLOWS_AND_AUTOMATION.md)
-- [PREPRODUCTION_VIDEO_V1.md](./PREPRODUCTION_VIDEO_V1.md)
+- [VIDEO_CREATION_CURRENT_STATE.md](./VIDEO_CREATION_CURRENT_STATE.md)
 - [INTEGRATIONS.md](./INTEGRATIONS.md)
 - [db.md](./db.md)
 - [ENVIRONMENT_REFERENCE.md](./ENVIRONMENT_REFERENCE.md)

@@ -1,6 +1,6 @@
 # Backend And API
 
-Last verified: 2026-03-24 (UTC)
+Last verified: 2026-04-18 (UTC)
 
 The backend is a FastAPI application plus a separate ChatGPT-facing connector, backed by PostgreSQL and a Temporal worker.
 
@@ -89,6 +89,15 @@ Routes in `api/customer.py`:
 - `GET/POST /api/customer/campaigns`
 - `POST /api/customer/campaigns/{campaign_id}/approve`
 - `POST /api/customer/campaigns/{campaign_id}/launch`
+- `POST /api/customer/review-engine/source/validate`
+- `GET /api/customer/review-engine/setup`
+- `GET/POST /api/customer/review-engine/jobs`
+- `GET/PATCH /api/customer/review-engine/jobs/{job_id}`
+- `POST /api/customer/review-engine/jobs/{job_id}/upload`
+- `POST /api/customer/review-engine/jobs/{job_id}/publish`
+- `GET/POST /api/customer/review-engine/plans`
+- `GET/PATCH/DELETE /api/customer/review-engine/plans/{plan_id}`
+- `POST /api/customer/review-engine/plans/{plan_id}/approve`
 - `GET /api/customer/content`
 - `GET /api/customer/approvals`
 
@@ -106,6 +115,7 @@ This is the main product API used by the customer dashboard.
 
 - accounts: proxy inventory, lease/refresh, onboarding plan and execute, stealth account helpers, direct platform connection helpers
 - personas: CRUD plus readiness checks for persona-driven video flows
+- persona listings currently merge customer-owned personas with system/global personas so the dashboard can show both sets in one selection surface
 
 ## Service Layer Map
 

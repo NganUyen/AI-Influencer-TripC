@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 from datetime import timedelta
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
@@ -32,6 +33,7 @@ from services.contracts import (
     VideoReviewPlanContract,
     VideoWorkflowPersonaSnapshotContract,
     VideoWorkflowStartPayloadContract,
+    WebPageReviewContract,
 )
 from services.website_review_service import WebsiteReviewService
 from services.video_planning_service import VideoPlanningService
@@ -39,6 +41,7 @@ from services.video_planning_service import VideoPlanningService
 
 _SYSTEM_PERSONA_USER_ID = "00000000-0000-0000-0000-000000000001"
 _APP_REVIEW_JOB_TYPES = {"app_review_video", "app_review_upload"}
+logger = logging.getLogger(__name__)
 
 
 def _slugify(value: str) -> str:
@@ -166,6 +169,55 @@ def _merge_dict(
     merged = dict(base or {})
     merged.update(extra or {})
     return merged
+
+
+def _coerce_json_dict(value: Any) -> Dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except Exception:
+            return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _coerce_json_list(value: Any) -> List[Any]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except Exception:
+            return []
+    return value if isinstance(value, list) else []
+
+
+def _plan_input_mode(plan: Dict[str, Any]) -> str:
+    publish_settings = _coerce_json_dict(plan.get("publish_settings"))
+    input_mode = str(publish_settings.get("input_mode") or "").strip().lower()
+    if input_mode in {"ai_autonomous", "user_upload"}:
+        return input_mode
+    if str(plan.get("status") or "").strip().lower() == "upload_required":
+        return "user_upload"
+    return "ai_autonomous"
+
+
+def _execution_mode_for_page_review(
+    *,
+    page_review_data: Dict[str, Any],
+    input_mode: str,
+) -> str:
+    normalized_mode = str(input_mode or "ai_autonomous").strip().lower()
+    if normalized_mode == "user_upload":
+        return "manual_mobile_recording"
+    access_level = str(page_review_data.get("access_level") or "unknown").strip()
+    if bool(page_review_data.get("login_required")) or access_level in {
+        "has_logged_in_access",
+        "login_required_but_not_available",
+    }:
+        return "authenticated_pc_recording"
+    return "autonomous_screen_recording"
 
 
 class AppReviewStudioService:
@@ -420,6 +472,313 @@ class AppReviewStudioService:
         }
 
     @classmethod
+    async def _resolve_persona(
+        cls,
+        *,
+        persona_id: str,
+        user_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        persona = await PersonaRegistryService.get_persona(persona_id, user_id=user_id)
+        if persona:
+            return persona
+        return cls.preset_persona_map().get(persona_id)
+
+    @classmethod
+    def _build_page_review_contract(
+        cls,
+        *,
+        plan: Dict[str, Any],
+    ) -> WebPageReviewContract:
+        page_review_data = _coerce_json_dict(plan.get("page_review_data"))
+        normalized_url = str(
+            page_review_data.get("normalized_url")
+            or page_review_data.get("target_url")
+            or plan.get("source_url")
+            or ""
+        ).strip()
+        target_url = str(
+            page_review_data.get("target_url")
+            or normalized_url
+            or plan.get("source_url")
+            or ""
+        ).strip()
+        payload = {
+            "target_url": target_url,
+            "normalized_url": normalized_url,
+            "page_title": page_review_data.get("page_title")
+            or _coerce_json_dict(plan.get("publish_settings")).get("page_title"),
+            "product_summary": page_review_data.get("product_summary") or "",
+            "page_fetch_method": page_review_data.get("page_fetch_method")
+            or "manual_summary",
+            "access_level": page_review_data.get("access_level") or "unknown",
+            "login_required": bool(page_review_data.get("login_required")),
+            "visible_features": _coerce_json_list(
+                page_review_data.get("visible_features")
+            ),
+            "visible_flows": _coerce_json_list(page_review_data.get("visible_flows")),
+            "recording_candidates": _coerce_json_list(
+                page_review_data.get("recording_candidates")
+            ),
+            "risks": _coerce_json_list(page_review_data.get("risks")),
+            "assumptions": _coerce_json_list(page_review_data.get("assumptions")),
+            "suggested_objective": page_review_data.get("suggested_objective"),
+        }
+        return WebPageReviewContract.model_validate(payload)
+
+    @classmethod
+    def _build_review_plan(
+        cls,
+        *,
+        plan: Dict[str, Any],
+        persona: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        page_review = cls._build_page_review_contract(plan=plan)
+        input_mode = _plan_input_mode(plan)
+        execution_mode = _execution_mode_for_page_review(
+            page_review_data=page_review.model_dump(mode="json"),
+            input_mode=input_mode,
+        )
+        review_plan = VideoReviewPlanContract(
+            plan_id=str(plan.get("id")),
+            objective=str(plan.get("objective") or "App review").strip() or "App review",
+            target_url=page_review.normalized_url,
+            language=str(persona.get("language") if persona else "English") or "English",
+            persona_id=str(plan.get("persona_id") or ""),
+            execution_mode=execution_mode,
+            access_level=page_review.access_level,
+            page_review=page_review,
+            assumptions=list(page_review.assumptions or []),
+            risks=list(page_review.risks or []),
+            status="confirmed",
+        )
+        return review_plan.model_dump(mode="json")
+
+    @classmethod
+    def _build_plan_job_input(
+        cls,
+        *,
+        plan: Dict[str, Any],
+        persona: Optional[Dict[str, Any]],
+        publish_settings: Dict[str, Any],
+        review_plan: Dict[str, Any],
+        active_tiktok_accounts: List[Dict[str, Any]],
+        telegram_link: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        page_review_data = _coerce_json_dict(plan.get("page_review_data"))
+        return {
+            "job_kind": "app_review",
+            "source_url": plan.get("source_url"),
+            "normalized_url": page_review_data.get("normalized_url")
+            or plan.get("source_url"),
+            "page_title": page_review_data.get("page_title")
+            or publish_settings.get("page_title")
+            or publish_settings.get("content_title"),
+            "objective": plan.get("objective"),
+            "persona_id": str(plan.get("persona_id") or ""),
+            "persona_display_name": persona.get("display_name") if persona else None,
+            "persona_language": persona.get("language") if persona else "English",
+            "persona_region": (
+                persona.get("region_label") or persona.get("market_default")
+            )
+            if persona
+            else None,
+            "persona_image_url": (
+                persona.get("selection_image_url")
+                or persona.get("thumbnail_url")
+                or persona.get("avatar_image_url")
+            )
+            if persona
+            else None,
+            "input_mode": _plan_input_mode(plan),
+            "target_platform": "tiktok",
+            "publish_requested": bool(publish_settings.get("publish_requested")),
+            "telegram_linked": telegram_link is not None,
+            "active_tiktok_channels": len(active_tiktok_accounts),
+            "content_title": publish_settings.get("content_title"),
+            "editable_content": publish_settings.get("caption_draft")
+            or plan.get("script_text"),
+            "caption_draft": publish_settings.get("caption_draft")
+            or plan.get("script_text"),
+            "review_plan": review_plan,
+            "script": {
+                "script": plan.get("script_text"),
+                "scenes": plan.get("scenes_data") or [],
+            },
+            "campaign_id": plan.get("campaign_id"),
+            "plan_id": str(plan.get("id") or ""),
+            "publish_settings": publish_settings,
+            "creative_preferences": _coerce_json_dict(
+                plan.get("creative_preferences")
+            ),
+        }
+
+    @classmethod
+    def _serialize_plan_job(
+        cls,
+        plan: Dict[str, Any],
+        *,
+        persona: Optional[Dict[str, Any]],
+        tiktok_accounts: List[Dict[str, Any]],
+        workflow_row: Optional[Dict[str, Any]] = None,
+        media_lookup: Optional[Dict[str, Dict[str, Any]]] = None,
+        content_lookup: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        publish_settings = _coerce_json_dict(plan.get("publish_settings"))
+        creative_preferences = _coerce_json_dict(plan.get("creative_preferences"))
+        review_plan = cls._build_review_plan(plan=plan, persona=persona)
+        input_mode = _plan_input_mode(plan)
+        job_type = (
+            "app_review_upload" if input_mode == "user_upload" else "app_review_video"
+        )
+        page_review_data = _coerce_json_dict(plan.get("page_review_data"))
+        page_title = (
+            page_review_data.get("page_title")
+            or publish_settings.get("page_title")
+            or publish_settings.get("content_title")
+            or "App Review"
+        )
+        caption_draft = str(
+            publish_settings.get("caption_draft") or plan.get("script_text") or ""
+        )
+
+        if workflow_row:
+            payload = cls._serialize_job(
+                workflow_row,
+                media_lookup=media_lookup or {},
+                content_lookup=content_lookup or {},
+                tiktok_accounts=tiktok_accounts,
+            )
+            payload["job_id"] = str(plan.get("id"))
+            payload["plan_id"] = str(plan.get("id"))
+            payload["workflow_id"] = workflow_row.get("workflow_id") or plan.get(
+                "workflow_id"
+            )
+            payload["type"] = workflow_row.get("type") or job_type
+            payload["source_url"] = (
+                payload.get("source_url")
+                or page_review_data.get("normalized_url")
+                or plan.get("source_url")
+            )
+            payload["objective"] = payload.get("objective") or plan.get("objective")
+            payload["page_title"] = payload.get("page_title") or page_title
+            payload["input_mode"] = input_mode
+            payload["script"] = payload.get("script") or {
+                "script": plan.get("script_text"),
+                "scenes": plan.get("scenes_data") or [],
+            }
+            payload["review_plan"] = payload.get("review_plan") or review_plan
+            payload["campaign_id"] = payload.get("campaign_id") or plan.get(
+                "campaign_id"
+            )
+            payload["persona_id"] = str(plan.get("persona_id") or "")
+            payload["publish_settings"] = _merge_dict(
+                publish_settings, payload.get("publish_settings")
+            )
+            payload["creative_preferences"] = creative_preferences
+            payload["created_at"] = plan.get("created_at")
+            payload["updated_at"] = payload.get("updated_at") or plan.get("updated_at")
+            if plan.get("approved_at") and not payload.get("approved_at"):
+                payload["approved_at"] = plan.get("approved_at")
+            if plan.get("video_url") and not payload.get("production", {}).get(
+                "playable_video_url"
+            ):
+                payload["production"] = {
+                    **payload.get("production", {}),
+                    "ready": True,
+                    "playable_video_url": plan.get("video_url"),
+                    "download_url": plan.get("video_url"),
+                }
+            return payload
+
+        has_video = bool(plan.get("video_url"))
+        status = str(plan.get("status") or "generated").strip().lower() or "generated"
+        current_step = (
+            "awaiting_upload"
+            if status == "upload_required"
+            else "final_product_ready"
+            if has_video
+            else status
+        )
+        progress = _job_progress(status, current_step, has_video)
+        persona_payload = (
+            cls._persona_option_payload(persona, tiktok_accounts=tiktok_accounts)
+            if persona
+            else {
+                "persona_id": plan.get("persona_id"),
+                "display_name": plan.get("persona_id"),
+                "language": "English",
+                "region_label": "Global",
+                "selection_image_url": None,
+                "image_url": None,
+            }
+        )
+        publish_requested = bool(publish_settings.get("publish_requested"))
+        publish_status = (
+            "ready_to_publish" if publish_requested and has_video else "not_requested"
+        )
+        return {
+            "job_id": str(plan.get("id")),
+            "plan_id": str(plan.get("id")),
+            "workflow_id": plan.get("workflow_id"),
+            "type": job_type,
+            "status": status,
+            "current_step": current_step,
+            "progress": progress,
+            "input_mode": input_mode,
+            "activity_feed": _job_steps(status, current_step, has_video=has_video),
+            "source_url": page_review_data.get("normalized_url") or plan.get("source_url"),
+            "objective": plan.get("objective"),
+            "page_title": page_title,
+            "persona": {
+                "persona_id": persona_payload.get("persona_id"),
+                "display_name": persona_payload.get("display_name"),
+                "language": persona_payload.get("language"),
+                "region_label": persona_payload.get("region_label"),
+                "image_url": persona_payload.get("selection_image_url")
+                or persona_payload.get("image_url"),
+                "selection_image_url": persona_payload.get("selection_image_url")
+                or persona_payload.get("image_url"),
+                "tiktok_integration": persona_payload.get("tiktok_integration"),
+            },
+            "content": {
+                "title": publish_settings.get("content_title") or page_title,
+                "body": caption_draft,
+                "content_id": None,
+                "status": publish_status,
+                "published": False,
+            },
+            "production": {
+                "ready": has_video,
+                "playable_video_url": plan.get("video_url"),
+                "download_url": plan.get("video_url"),
+                "media_asset_id": publish_settings.get("uploaded_media_asset_id"),
+                "publish_enabled": bool(has_video),
+            },
+            "publish": {
+                "requested": publish_requested,
+                "status": publish_status,
+                "published_at": None,
+                "post_url": None,
+                "publish_error": None,
+            },
+            "recording_script": None,
+            "script": {
+                "script": plan.get("script_text"),
+                "scenes": plan.get("scenes_data") or [],
+            },
+            "editable_content": caption_draft,
+            "review_plan": review_plan,
+            "campaign_id": plan.get("campaign_id"),
+            "persona_id": str(plan.get("persona_id") or ""),
+            "target_platform": "tiktok",
+            "publish_settings": publish_settings,
+            "creative_preferences": creative_preferences,
+            "created_at": plan.get("created_at"),
+            "updated_at": plan.get("updated_at"),
+            "approved_at": plan.get("approved_at"),
+        }
+
+    @classmethod
     async def _record_job_state(
         cls,
         *,
@@ -501,8 +860,9 @@ class AppReviewStudioService:
         *,
         session: CustomerSession,
         persona: Dict[str, Any],
-        page_review: Any,
+        page_review: WebPageReviewContract,
         objective: str,
+        execution_mode: str,
         publish_to_tiktok: bool,
         auto_publish_enabled: bool,
         content_title: str,
@@ -516,17 +876,15 @@ class AppReviewStudioService:
             target_url=page_review.normalized_url,
             language=str(persona.get("language") or "English"),
             persona_id=str(persona.get("persona_id")),
-            execution_mode="autonomous_screen_recording",
-            access_level=str(
-                getattr(page_review, "access_level", "unknown") or "unknown"
-            ),
+            execution_mode=execution_mode,
+            access_level=str(page_review.access_level or "unknown"),
             page_review=page_review,
             audio_policy=VideoAudioPolicyContract(),
-            assumptions=list(getattr(page_review, "assumptions", []) or []),
-            risks=list(getattr(page_review, "risks", []) or []),
+            assumptions=list(page_review.assumptions or []),
+            risks=list(page_review.risks or []),
             status="confirmed",
         )
-        topic = f"{getattr(page_review, 'page_title', None) or 'App review'} - {objective}".strip()
+        topic = f"{page_review.page_title or 'App review'} - {objective}".strip()
         start_payload = VideoWorkflowStartPayloadContract(
             persona_id=str(persona.get("persona_id")),
             topic=topic,
@@ -539,7 +897,7 @@ class AppReviewStudioService:
             owner_key=None,
             talking_head_optional=True,
             review_plan=review_plan,
-            execution_mode="autonomous_screen_recording",
+            execution_mode=execution_mode,
             audio_policy=VideoAudioPolicyContract(),
             persona_snapshot=VideoWorkflowPersonaSnapshotContract(
                 persona_id=str(persona.get("persona_id")),
@@ -593,6 +951,7 @@ class AppReviewStudioService:
     ) -> Dict[str, Any]:
         source_url = str(payload.get("source_url") or "").strip()
         objective = str(payload.get("objective") or "").strip() or "Product review"
+        creative_preferences = _coerce_json_dict(payload.get("creative_preferences"))
         target_personas = [
             str(item).strip()
             for item in (payload.get("target_personas") or [])
@@ -620,13 +979,16 @@ class AppReviewStudioService:
             objective=objective,
             user_id=session.user_id,
         )
-        
-        # If the user didn't provide an objective, use the AI suggested one
-        if (not str(payload.get("objective") or "").strip()) and getattr(page_review, "suggested_objective", None):
+
+        if (not str(payload.get("objective") or "").strip()) and getattr(
+            page_review, "suggested_objective", None
+        ):
             objective = page_review.suggested_objective
-            # Also update the review_plan_payload later with this better objective
+
+        page_review_payload = page_review.model_dump(mode="json")
         script_service = ScriptService()
         warnings: List[Dict[str, Any]] = []
+        errors: List[Dict[str, Any]] = []
         if brand_profile is None:
             warnings.append(
                 {
@@ -658,12 +1020,10 @@ class AppReviewStudioService:
 
         jobs: List[Dict[str, Any]] = []
         for persona_id in target_personas:
-            persona = await PersonaRegistryService.get_persona(
-                persona_id,
+            persona = await cls._resolve_persona(
+                persona_id=persona_id,
                 user_id=session.user_id,
             )
-            if not persona:
-                persona = cls.preset_persona_map().get(persona_id)
             if not persona:
                 warnings.append(
                     {
@@ -673,65 +1033,73 @@ class AppReviewStudioService:
                 )
                 continue
 
+            execution_mode = _execution_mode_for_page_review(
+                page_review_data=page_review_payload,
+                input_mode=input_mode,
+            )
             review_plan_payload = {
                 "objective": objective,
                 "target_url": page_review.normalized_url,
                 "language": str(persona.get("language") or "English"),
                 "persona_id": persona_id,
-                "execution_mode": "autonomous_screen_recording",
-                "page_review": page_review.model_dump(mode="json"),
+                "execution_mode": execution_mode,
+                "access_level": page_review.access_level,
+                "page_review": page_review_payload,
+                "assumptions": list(page_review.assumptions or []),
+                "risks": list(page_review.risks or []),
                 "status": "confirmed",
                 "suggested_objective": getattr(page_review, "suggested_objective", None),
             }
+            script_payload: Optional[Dict[str, Any]] = None
+            recording_script_payload: Optional[Dict[str, Any]] = None
+            caption_draft = ""
+            selected_mode = input_mode
 
-            try:
-                (
-                    script_contract,
-                    recording_script,
-                ) = await script_service.generate_script_from_review_plan(
-                    app_name=getattr(page_review, "page_title", None)
-                    or page_review.normalized_url,
-                    review_plan=review_plan_payload,
-                    persona_config=persona,
-                )
-                script_payload = script_contract.model_dump()
-                caption_draft = _caption_from_script(
-                    objective=objective,
-                    page_title=getattr(page_review, "page_title", None)
-                    or page_review.normalized_url,
-                    persona=persona,
-                    script_payload=script_payload,
-                )
-            except Exception as script_err:
-                # Log and add warning, then fall back to user_upload
-                import logging
-
-                logger = logging.getLogger(__name__)
-                logger.warning(
-                    f"Script generation failed for persona {persona_id}: {script_err}. "
-                    f"Falling back to user_upload mode."
-                )
-                warnings.append(
-                    {
+            if input_mode == "ai_autonomous":
+                try:
+                    (
+                        script_contract,
+                        recording_script,
+                    ) = await script_service.generate_script_from_review_plan(
+                        app_name=getattr(page_review, "page_title", None)
+                        or page_review.normalized_url,
+                        review_plan=review_plan_payload,
+                        persona_config=persona,
+                    )
+                    script_payload = script_contract.model_dump()
+                    recording_script_payload = (
+                        recording_script.model_dump(mode="json")
+                        if recording_script
+                        else None
+                    )
+                    caption_draft = _caption_from_script(
+                        objective=objective,
+                        page_title=getattr(page_review, "page_title", None)
+                        or page_review.normalized_url,
+                        persona=persona,
+                        script_payload=script_payload,
+                    )
+                except Exception as script_err:
+                    logger.warning(
+                        "Script generation failed for persona %s",
+                        persona_id,
+                        exc_info=True,
+                    )
+                    failure = {
                         "code": "script_generation_failed",
-                        "message": f"AI script generation failed for persona '{persona_id}'. Please try uploading a video manually or try again later.",
+                        "persona_id": persona_id,
+                        "message": (
+                            f"AI script generation failed for persona '{persona_id}'. "
+                            "No plan was created for this persona."
+                        ),
                     }
-                )
-                # Fall back to user_upload mode
-                script_payload = None
-                recording_script = None
-                caption_draft = ""
+                    errors.append(failure)
+                    continue
 
-            content_title = f"{getattr(page_review, 'page_title', None) or 'App Review'} · {persona.get('display_name')}"
-            selected_mode = (
-                "user_upload"
-                if input_mode == "user_upload"
-                or getattr(page_review, "login_required", False)
-                else "ai_autonomous"
+            content_title = (
+                f"{getattr(page_review, 'page_title', None) or 'App Review'}"
+                f" · {persona.get('display_name')}"
             )
-            if selected_mode == "ai_autonomous" and script_payload is None:
-                # If script generation failed, fallback to user_upload
-                selected_mode = "user_upload"
             campaign_id = None
             if brand_profile is not None:
                 campaign_payload = {
@@ -746,7 +1114,6 @@ class AppReviewStudioService:
                 )
                 campaign_id = created_campaign["id"]
 
-            # ALWAYS CREATE A PLAN in the new architecture
             plan = await VideoPlanningService.create_plan(
                 {
                     "user_id": session.user_id,
@@ -754,90 +1121,46 @@ class AppReviewStudioService:
                     "persona_id": persona_id,
                     "source_url": source_url,
                     "objective": objective,
-                    "script_text": script_payload.get("script", ""),
-                    "scenes_data": script_payload.get("scenes", []),
-                    "duration_estimate": 0,
-                    "status": "generated",
+                    "script_text": (script_payload or {}).get("script", ""),
+                    "scenes_data": (script_payload or {}).get("scenes", []),
+                    "duration_estimate": (script_payload or {}).get(
+                        "duration_estimate", 0
+                    ),
+                    "status": "upload_required"
+                    if selected_mode == "user_upload"
+                    else "generated",
                     "publish_settings": {
                         "caption_draft": caption_draft,
                         "publish_requested": publish_to_tiktok,
-                        "content_title": content_title
-                    }
-                }
-            )
-
-            job_input = {
-                "job_kind": "app_review",
-                "source_url": source_url,
-                "normalized_url": page_review.normalized_url,
-                "page_title": getattr(page_review, "page_title", None),
-                "objective": objective,
-                "persona_id": persona_id,
-                "persona_display_name": persona.get("display_name"),
-                "persona_language": persona.get("language"),
-                "persona_region": persona.get("region_label")
-                or persona.get("market_default"),
-                "persona_image_url": persona.get("selection_image_url")
-                or persona.get("thumbnail_url")
-                or persona.get("avatar_image_url"),
-                "input_mode": selected_mode,
-                "target_platform": "tiktok",
-                "publish_requested": publish_to_tiktok,
-                "telegram_linked": telegram_link is not None,
-                "active_tiktok_channels": len(active_tiktok_accounts),
-                "content_title": content_title,
-                "editable_content": caption_draft,
-                "caption_draft": caption_draft,
-                "review_plan": review_plan_payload,
-                "recording_script": recording_script.model_dump(mode="json")
-                if recording_script
-                else None,
-                "script": script_payload,
-                "campaign_id": campaign_id,
-                "plan_id": plan["id"]
-            }
-
-            jobs.append(
-                {
-                    "job_id": plan["id"], # UI expects job_id, so we return plan id temporarily to let UI work
-                    "plan_id": plan["id"],
-                    "workflow_id": None,
-                    "run_id": None,
-                    "persona_id": persona_id,
-                    "persona": cls._persona_option_payload(
-                        persona, tiktok_accounts=tiktok_accounts
-                    ),
-                    "campaign_id": campaign_id,
-                    "script": script_payload,
-                    "recording_script": recording_script.model_dump(mode="json")
-                    if recording_script
-                    else None,
-                    "review_plan": review_plan_payload,
-                    "caption_draft": caption_draft,
-                    "editable_content": caption_draft,
-                    "status": "generated", # Tell UI it's generated, not running
-                    "current_step": "generated",
-                    "progress": 0,
-                    "publish": {
-                        "requested": publish_to_tiktok,
-                        "status": "ready_to_publish"
-                        if publish_to_tiktok
-                        and telegram_link
-                        and active_tiktok_accounts
-                        else "auth_required"
-                        if publish_to_tiktok
-                        else "not_requested",
-                        "requires_tiktok_auth": not bool(active_tiktok_accounts),
-                        "requires_telegram_auth": telegram_link is None,
+                        "content_title": content_title,
+                        "page_title": getattr(page_review, "page_title", None),
+                        "input_mode": selected_mode,
                     },
+                    "creative_preferences": creative_preferences,
+                    "page_review_data": page_review_payload,
                 }
             )
 
-        return {
+            job_payload = cls._serialize_plan_job(
+                plan,
+                persona=persona,
+                tiktok_accounts=tiktok_accounts,
+            )
+            job_payload["recording_script"] = recording_script_payload
+            job_payload["review_plan"] = review_plan_payload
+            jobs.append(job_payload)
+
+        if not jobs and errors:
+            raise ValueError(errors[0]["message"])
+
+        response = {
             "status": "success",
             "jobs": jobs,
             "warnings": warnings,
         }
+        if errors:
+            response["errors"] = errors
+        return response
 
     @classmethod
     async def start_workflow_from_plan(
@@ -847,51 +1170,92 @@ class AppReviewStudioService:
         plan_id: str,
         temporal_client: Any | None,
     ) -> Dict[str, Any]:
-        pool = await DatabaseService.get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM public.video_render_plans WHERE id = $1::uuid AND user_id = $2::uuid",
-                plan_id, session.user_id
-            )
-            if not row:
-                raise ValueError("Plan not found")
-            plan = dict(row)
-            
-            if plan.get("workflow_id"):
-                return {"status": "already_started", "workflow_id": plan["workflow_id"]}
+        plan = await VideoPlanningService.get_plan(plan_id, session.user_id)
+        if not plan:
+            raise ValueError("Plan not found")
+        if plan.get("workflow_id"):
+            return {"status": "already_started", "workflow_id": plan["workflow_id"]}
 
-        from services.persona_registry_service import PersonaRegistryService
-        persona = await PersonaRegistryService.get_persona(str(plan["persona_id"]), user_id=session.user_id)
+        persona = await cls._resolve_persona(
+            persona_id=str(plan.get("persona_id") or ""),
+            user_id=session.user_id,
+        )
         if not persona:
-            persona = cls.preset_persona_map().get(str(plan["persona_id"]))
+            raise ValueError("Persona not found for plan")
 
-        from services.telegram_link_service import TelegramLinkService
         telegram_link = await TelegramLinkService.get_link_for_user(session.user_id)
         tiktok_accounts = await cls._list_tiktok_accounts(session.user_id)
-        active_tiktok_accounts = [item for item in tiktok_accounts if item.get("connection_status") == "connected" and item.get("is_active")]
+        active_tiktok_accounts = [
+            item
+            for item in tiktok_accounts
+            if item.get("connection_status") == "connected" and item.get("is_active")
+        ]
 
-        publish_settings = plan.get("publish_settings") or {}
-        if isinstance(publish_settings, str):
-            import json
-            try:
-                publish_settings = json.loads(publish_settings)
-            except Exception:
-                publish_settings = {}
+        publish_settings = _coerce_json_dict(plan.get("publish_settings"))
         publish_to_tiktok = bool(publish_settings.get("publish_requested"))
         content_title = str(publish_settings.get("content_title") or "App Review")
-        caption_draft = str(publish_settings.get("caption_draft") or plan.get("script_text"))
-        
-        class DummyPageReview:
-            normalized_url = plan.get("source_url")
-            page_title = content_title
-            
+        caption_draft = str(
+            publish_settings.get("caption_draft") or plan.get("script_text") or ""
+        )
+        review_plan = cls._build_review_plan(plan=plan, persona=persona)
+        execution_mode = str(review_plan.get("execution_mode") or "").strip()
+        job_input = cls._build_plan_job_input(
+            plan=plan,
+            persona=persona,
+            publish_settings=publish_settings,
+            review_plan=review_plan,
+            active_tiktok_accounts=active_tiktok_accounts,
+            telegram_link=telegram_link,
+        )
+
+        if execution_mode == "manual_mobile_recording":
+            if not plan.get("video_url"):
+                raise ValueError("Upload final video before approving this plan")
+            workflow_id = f"review-upload-{plan_id[:8]}-{uuid4().hex[:6]}"
+            await cls._record_job_state(
+                workflow_id=workflow_id,
+                user_id=session.user_id,
+                workflow_type="app_review_upload",
+                status="completed",
+                current_step="final_product_ready",
+                progress=100,
+                input_data=job_input,
+            )
+            await cls._update_job_output(
+                workflow_id=workflow_id,
+                user_id=session.user_id,
+                status="completed",
+                current_step="final_product_ready",
+                progress=100,
+                output_data={
+                    "video_url": plan.get("video_url"),
+                    "final_video_url": plan.get("video_url"),
+                    "download_url": plan.get("video_url"),
+                    "media_asset_id": publish_settings.get("uploaded_media_asset_id"),
+                },
+            )
+            await VideoPlanningService.update_plan(
+                plan_id,
+                session.user_id,
+                {"workflow_id": workflow_id},
+            )
+            return {
+                "status": "started",
+                "workflow_id": workflow_id,
+                "review_plan": review_plan,
+            }
+
+        page_review = cls._build_page_review_contract(plan=plan)
         workflow_result = await cls._start_video_workflow(
             session=session,
             persona=persona,
-            page_review=DummyPageReview(),
+            page_review=page_review,
             objective=plan.get("objective") or "App Review",
+            execution_mode=execution_mode or "autonomous_screen_recording",
             publish_to_tiktok=publish_to_tiktok,
-            auto_publish_enabled=bool(publish_to_tiktok and telegram_link and active_tiktok_accounts),
+            auto_publish_enabled=bool(
+                publish_to_tiktok and telegram_link and active_tiktok_accounts
+            ),
             content_title=content_title,
             caption_draft=caption_draft,
             campaign_id=plan.get("campaign_id") and str(plan.get("campaign_id")),
@@ -899,38 +1263,12 @@ class AppReviewStudioService:
             telegram_link=telegram_link,
         )
         workflow_id = workflow_result["workflow_id"]
-        
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE public.video_render_plans SET workflow_id = $1, status = 'in_progress', updated_at = NOW() WHERE id = $2::uuid",
-                workflow_id, plan_id
-            )
-            
-        job_input = {
-            "job_kind": "app_review",
-            "source_url": plan.get("source_url"),
-            "normalized_url": plan.get("source_url"),
-            "page_title": content_title,
-            "objective": plan.get("objective"),
-            "persona_id": str(plan.get("persona_id")),
-            "persona_display_name": persona.get("display_name") if persona else None,
-            "persona_language": persona.get("language") if persona else "en",
-            "persona_region": (persona.get("region_label") or persona.get("market_default")) if persona else "Global",
-            "persona_image_url": (persona.get("selection_image_url") or persona.get("thumbnail_url")) if persona else None,
-            "input_mode": "ai_autonomous",
-            "target_platform": "tiktok",
-            "publish_requested": publish_to_tiktok,
-            "telegram_linked": telegram_link is not None,
-            "active_tiktok_channels": len(active_tiktok_accounts),
-            "content_title": content_title,
-            "editable_content": caption_draft,
-            "caption_draft": caption_draft,
-            "review_plan": workflow_result["review_plan"],
-            "script": {"script": plan.get("script_text"), "scenes": plan.get("scenes_data")},
-            "recording_script": None,
-            "campaign_id": plan.get("campaign_id") and str(plan.get("campaign_id")),
-            "plan_id": plan_id
-        }
+        await VideoPlanningService.update_plan(
+            plan_id,
+            session.user_id,
+            {"workflow_id": workflow_id},
+        )
+        job_input["review_plan"] = workflow_result["review_plan"]
         await cls._record_job_state(
             workflow_id=workflow_id,
             user_id=session.user_id,
@@ -940,7 +1278,11 @@ class AppReviewStudioService:
             progress=15,
             input_data=job_input,
         )
-        return {"status": "started", "workflow_id": workflow_id}
+        return {
+            "status": "started",
+            "workflow_id": workflow_id,
+            "review_plan": workflow_result["review_plan"],
+        }
 
     @classmethod
     async def _list_job_rows(cls, *, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
@@ -1127,6 +1469,7 @@ class AppReviewStudioService:
         workflow_id = str(job_row.get("workflow_id") or "")
         input_data = job_row.get("input_data") or {}
         output_data = job_row.get("output_data") or {}
+        publish_settings = _coerce_json_dict(input_data.get("publish_settings"))
         temporal_result = job_row.get("_temporal_result") or {}
         temporal_metadata = temporal_result.get("metadata") or {}
         temporal_publish = temporal_metadata.get("publish_result") or {}
@@ -1185,12 +1528,15 @@ class AppReviewStudioService:
             },
         }
         return {
-            "job_id": workflow_id,
+            "job_id": input_data.get("plan_id") or workflow_id,
+            "plan_id": input_data.get("plan_id"),
             "workflow_id": workflow_id,
             "type": job_row.get("type"),
             "status": job_row.get("status"),
             "current_step": job_row.get("current_step"),
             "progress": progress,
+            "input_mode": input_data.get("input_mode")
+            or publish_settings.get("input_mode"),
             "activity_feed": _job_steps(
                 str(job_row.get("status") or "running"),
                 job_row.get("current_step"),
@@ -1238,6 +1584,22 @@ class AppReviewStudioService:
             "script": input_data.get("script"),
             "review_plan": input_data.get("review_plan"),
             "campaign_id": input_data.get("campaign_id"),
+            "persona_id": input_data.get("persona_id"),
+            "target_platform": input_data.get("target_platform"),
+            "publish_settings": _merge_dict(
+                publish_settings,
+                {
+                    "caption_draft": output_data.get("caption_draft")
+                    or output_data.get("editable_content")
+                    or publish_settings.get("caption_draft"),
+                    "content_title": output_data.get("content_title")
+                    or publish_settings.get("content_title")
+                    or input_data.get("content_title"),
+                },
+            ),
+            "creative_preferences": _coerce_json_dict(
+                input_data.get("creative_preferences")
+            ),
             "updated_at": job_row.get("updated_at").isoformat()
             if getattr(job_row.get("updated_at"), "isoformat", None)
             else job_row.get("updated_at"),
@@ -1254,15 +1616,16 @@ class AppReviewStudioService:
         temporal_client: Any | None,
         limit: int = 50,
     ) -> Dict[str, Any]:
-        rows = await cls._list_job_rows(user_id=user_id, limit=limit)
-        rows = [
+        workflow_rows = await cls._list_job_rows(user_id=user_id, limit=limit)
+        workflow_rows = [
             await cls._refresh_live_status(
                 temporal_client=temporal_client,
                 job_row=row,
             )
-            for row in rows
+            for row in workflow_rows
         ]
-        workflow_ids = [str(row.get("workflow_id") or "") for row in rows]
+        plans = await VideoPlanningService.list_plans(user_id, limit=limit)
+        workflow_ids = [str(row.get("workflow_id") or "") for row in workflow_rows]
         media_lookup = await cls._load_media_by_workflow(
             workflow_ids=workflow_ids,
             user_id=user_id,
@@ -1272,16 +1635,63 @@ class AppReviewStudioService:
             user_id=user_id,
         )
         tiktok_accounts = await cls._list_tiktok_accounts(user_id)
-        jobs = [
-            cls._serialize_job(
-                row,
-                media_lookup=media_lookup,
-                content_lookup=content_lookup,
-                tiktok_accounts=tiktok_accounts,
+        workflow_by_plan_id: Dict[str, Dict[str, Any]] = {}
+        workflow_by_id: Dict[str, Dict[str, Any]] = {}
+        for row in workflow_rows:
+            workflow_id = str(row.get("workflow_id") or "").strip()
+            if workflow_id:
+                workflow_by_id[workflow_id] = row
+            plan_ref = str((row.get("input_data") or {}).get("plan_id") or "").strip()
+            if plan_ref and plan_ref not in workflow_by_plan_id:
+                workflow_by_plan_id[plan_ref] = row
+
+        merged_workflow_ids: set[str] = set()
+        jobs: List[Dict[str, Any]] = []
+        for plan in plans:
+            plan_id = str(plan.get("id") or "").strip()
+            workflow_row = workflow_by_plan_id.get(plan_id)
+            if workflow_row is None and plan.get("workflow_id"):
+                workflow_row = workflow_by_id.get(str(plan.get("workflow_id")))
+            if workflow_row and workflow_row.get("workflow_id"):
+                merged_workflow_ids.add(str(workflow_row["workflow_id"]))
+            persona = await cls._resolve_persona(
+                persona_id=str(plan.get("persona_id") or ""),
+                user_id=user_id,
             )
-            for row in rows
-        ]
-        return {"jobs": jobs}
+            jobs.append(
+                cls._serialize_plan_job(
+                    plan,
+                    persona=persona,
+                    tiktok_accounts=tiktok_accounts,
+                    workflow_row=workflow_row,
+                    media_lookup=media_lookup,
+                    content_lookup=content_lookup,
+                )
+            )
+
+        for row in workflow_rows:
+            workflow_id = str(row.get("workflow_id") or "").strip()
+            if workflow_id in merged_workflow_ids:
+                continue
+            jobs.append(
+                cls._serialize_job(
+                    row,
+                    media_lookup=media_lookup,
+                    content_lookup=content_lookup,
+                    tiktok_accounts=tiktok_accounts,
+                )
+            )
+
+        jobs.sort(
+            key=lambda item: (
+                item.get("updated_at")
+                or item.get("started_at")
+                or item.get("created_at")
+                or ""
+            ),
+            reverse=True,
+        )
+        return {"jobs": jobs[: max(1, min(int(limit or 50), 100))]}
 
     @classmethod
     async def get_job(
@@ -1323,13 +1733,37 @@ class AppReviewStudioService:
             if not job:
                 raise ValueError("App review job not found")
             return job
-        updated = await cls._update_job_output(
-            workflow_id=job_id,
-            user_id=user_id,
-            output_data=output_payload,
-        )
-        if updated is None:
-            raise ValueError("App review job not found")
+        plan = await VideoPlanningService.find_plan_for_job(job_id, user_id)
+        if plan:
+            publish_settings = _coerce_json_dict(plan.get("publish_settings"))
+            if title is not None:
+                publish_settings["content_title"] = title
+            if content is not None:
+                publish_settings["caption_draft"] = content
+            updated_plan = await VideoPlanningService.update_plan(
+                str(plan.get("id")),
+                user_id,
+                {
+                    "publish_settings": publish_settings,
+                    "script_text": content
+                    if content is not None and plan.get("workflow_id") is None
+                    else plan.get("script_text"),
+                },
+            )
+            if updated_plan and plan.get("workflow_id"):
+                await cls._update_job_output(
+                    workflow_id=str(plan.get("workflow_id")),
+                    user_id=user_id,
+                    output_data=output_payload,
+                )
+        else:
+            updated = await cls._update_job_output(
+                workflow_id=job_id,
+                user_id=user_id,
+                output_data=output_payload,
+            )
+            if updated is None:
+                raise ValueError("App review job not found")
         job = await cls.get_job(user_id=user_id, job_id=job_id, temporal_client=None)
         if not job:
             raise ValueError("App review job not found")
@@ -1345,14 +1779,10 @@ class AppReviewStudioService:
         content_type: str,
         data: bytes,
     ) -> Dict[str, Any]:
-        job = await cls.get_job(
-            user_id=session.user_id,
-            job_id=job_id,
-            temporal_client=None,
-        )
-        if not job:
+        plan = await VideoPlanningService.find_plan_for_job(job_id, session.user_id)
+        if not plan:
             raise ValueError("App review job not found")
-        if job["type"] != "app_review_upload":
+        if _plan_input_mode(plan) != "user_upload":
             raise ValueError("Only user-upload jobs accept manual video uploads")
         upload = await MediaStorageService().upload_bytes(
             data=data,
@@ -1360,51 +1790,38 @@ class AppReviewStudioService:
             asset_type="VIDEO",
             asset_kind="video",
             asset_origin="uploaded",
-            generation_prompt=job.get("objective") or "Manual upload",
+            generation_prompt=plan.get("objective") or "Manual upload",
             user_id=session.user_id,
-            persona_id=job.get("persona", {}).get("persona_id"),
+            persona_id=plan.get("persona_id"),
             metadata={
-                "workflow_id": job_id,
+                "plan_id": str(plan.get("id")),
                 "job_kind": "app_review",
-                "source_url": job.get("source_url"),
+                "source_url": plan.get("source_url"),
             },
             file_name_hint=file_name,
         )
         if not upload or not upload.get("access_url"):
             raise ValueError("Failed to upload review video")
-        await cls._update_job_output(
-            workflow_id=job_id,
-            user_id=session.user_id,
-            status="completed",
-            current_step="final_product_ready",
-            progress=100,
-            output_data={
+        publish_settings = _coerce_json_dict(plan.get("publish_settings"))
+        publish_settings["uploaded_media_asset_id"] = upload.get("media_asset_id")
+        publish_settings["uploaded_file_name"] = file_name
+        publish_settings["uploaded_content_type"] = content_type
+        await VideoPlanningService.update_plan(
+            str(plan.get("id")),
+            session.user_id,
+            {
+                "status": "generated",
                 "video_url": upload["access_url"],
-                "final_video_url": upload["access_url"],
-                "download_url": upload["access_url"],
-                "media_asset_id": upload.get("media_asset_id"),
+                "publish_settings": publish_settings,
             },
         )
         updated = await cls.get_job(
             user_id=session.user_id,
-            job_id=job_id,
+            job_id=str(plan.get("id")),
             temporal_client=None,
         )
         if not updated:
             raise ValueError("App review job not found")
-        if (
-            updated.get("publish", {}).get("requested")
-            and updated.get("publish", {}).get("status")
-            in {"ready_to_publish", "not_requested"}
-            and updated.get("production", {}).get("ready")
-        ):
-            try:
-                return await cls.publish_job_to_tiktok(
-                    session=session,
-                    job_id=job_id,
-                )
-            except ValueError:
-                return updated
         return updated
 
     @classmethod
@@ -1438,9 +1855,10 @@ class AppReviewStudioService:
             raise ValueError(
                 "Connect at least one active TikTok channel before publishing"
             )
+        workflow_link_id = job.get("workflow_id") or job.get("plan_id") or job_id
 
         post_config = {
-            "id": job_id,
+            "id": workflow_link_id,
             "user_id": session.user_id,
             "content": job["content"]["body"] or job["objective"] or "App review",
             "platform": "tiktok",
@@ -1450,43 +1868,45 @@ class AppReviewStudioService:
             "hashtags": ["AppReview", "TikTokReview"],
         }
         persisted = await ContentPersistenceService.persist_scheduled_post(
-            workflow_id=job_id,
+            workflow_id=workflow_link_id,
             post_config=post_config,
         )
         publisher = PublisherService()
         try:
             publish_result = await publisher.publish(post_config)
         except Exception as exc:
-            await cls._update_job_output(
-                workflow_id=job_id,
-                user_id=session.user_id,
-                output_data={
-                    "content_record_id": persisted["content_record_id"],
-                    "publish_status": "failed",
-                    "publish_error": str(exc),
-                },
-            )
+            if job.get("workflow_id"):
+                await cls._update_job_output(
+                    workflow_id=str(job["workflow_id"]),
+                    user_id=session.user_id,
+                    output_data={
+                        "content_record_id": persisted["content_record_id"],
+                        "publish_status": "failed",
+                        "publish_error": str(exc),
+                    },
+                )
             raise
         finally:
             await publisher.close()
         post_config["content_record_id"] = persisted["content_record_id"]
         await ContentPersistenceService.update_publish_result(
-            workflow_id=job_id,
+            workflow_id=workflow_link_id,
             post_config=post_config,
             publish_result=publish_result,
         )
-        await cls._update_job_output(
-            workflow_id=job_id,
-            user_id=session.user_id,
-            output_data={
-                "content_record_id": persisted["content_record_id"],
-                "publish_status": publish_result.get("status"),
-                "published_at": publish_result.get("published_at"),
-                "post_url": publish_result.get("post_url"),
-                "publish_error": publish_result.get("error"),
-                "publish_method": publish_result.get("method"),
-            },
-        )
+        if job.get("workflow_id"):
+            await cls._update_job_output(
+                workflow_id=str(job["workflow_id"]),
+                user_id=session.user_id,
+                output_data={
+                    "content_record_id": persisted["content_record_id"],
+                    "publish_status": publish_result.get("status"),
+                    "published_at": publish_result.get("published_at"),
+                    "post_url": publish_result.get("post_url"),
+                    "publish_error": publish_result.get("error"),
+                    "publish_method": publish_result.get("method"),
+                },
+            )
         updated = await cls.get_job(
             user_id=session.user_id,
             job_id=job_id,

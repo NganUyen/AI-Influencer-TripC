@@ -2,36 +2,72 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { PersonaPlanCardViewModel, PlanCardStatus } from '@/types/video-planning';
+import type {
+  PersonaPlanCardViewModel,
+  PlanReviewDecision,
+  ViewTone,
+} from '@/types/video-planning';
 
 interface CreateVideoReviewStepProps {
   planCards: PersonaPlanCardViewModel[];
   onCardsChange: Dispatch<SetStateAction<PersonaPlanCardViewModel[]>>;
+  onSaveEdits: () => void | Promise<void>;
+  isSaving?: boolean;
+  onUploadPlanVideo: (planId: string, file: File | null) => void;
+  uploadingPlanIds?: string[];
   onContinue: () => void;
+  isContinuing?: boolean;
   onBack: () => void;
 }
 
-const STATUS_META: Record<PlanCardStatus, { label: string; className: string }> = {
-  loading: { label: 'Loading', className: 'cv-badge cv-badge--loading' },
-  demo: { label: 'Draft plan', className: 'cv-badge cv-badge--demo' },
-  ready: { label: 'Ready', className: 'cv-badge cv-badge--ready' },
-  approved: { label: 'Approved', className: 'cv-badge cv-badge--approved' },
-  rejected: { label: 'Rejected', className: 'cv-badge cv-badge--rejected' },
-  pending_backend: { label: 'Pending backend', className: 'cv-badge cv-badge--pending' },
-};
+function toneBadgeClass(tone: ViewTone): string {
+  if (tone === 'success') {
+    return 'cv-badge cv-badge--approved';
+  }
+  if (tone === 'warning') {
+    return 'cv-badge cv-badge--rejected';
+  }
+  return 'cv-badge cv-badge--ready';
+}
+
+function decisionButtonClass(
+  current: PlanReviewDecision,
+  target: Extract<PlanReviewDecision, 'approved' | 'rejected'>,
+): string {
+  const active =
+    current === target
+      ? target === 'approved'
+        ? ' cv-action-btn--approve'
+        : ' cv-action-btn--reject'
+      : '';
+  return `cv-action-btn${active}`;
+}
 
 export function CreateVideoReviewStep({
   planCards,
   onCardsChange,
+  onSaveEdits,
+  isSaving = false,
+  onUploadPlanVideo,
+  uploadingPlanIds = [],
   onContinue,
+  isContinuing = false,
   onBack,
 }: CreateVideoReviewStepProps) {
   const [isEditingContract, setIsEditingContract] = useState(false);
   const [globalScript, setGlobalScript] = useState('');
   const [globalScenes, setGlobalScenes] = useState('');
 
-  const approvedCount = planCards.filter((card) => card.status === 'approved').length;
-  const canContinue = approvedCount > 0;
+  const approvedCount = planCards.filter(
+    (card) => card.reviewDecision === 'approved',
+  ).length;
+  const approvedCards = planCards.filter(
+    (card) => card.reviewDecision === 'approved',
+  );
+  const missingUploadCount = approvedCards.filter(
+    (card) => card.requiresUpload && !card.outputReady,
+  ).length;
+  const canContinue = approvedCount > 0 && missingUploadCount === 0;
 
   const parseScenes = (input: string) => {
     const rows = input
@@ -41,7 +77,9 @@ export function CreateVideoReviewStep({
 
     return rows.map((row, idx) => {
       const [descPart, durationPart] = row.split('|').map((part) => part.trim());
-      const duration = durationPart ? Number(durationPart.replace(/[^\d.]/g, '')) : NaN;
+      const duration = durationPart
+        ? Number(durationPart.replace(/[^\d.]/g, ''))
+        : NaN;
       return {
         index: idx + 1,
         description: descPart || `Scene ${idx + 1}`,
@@ -49,15 +87,6 @@ export function CreateVideoReviewStep({
       };
     });
   };
-
-  const contractStatus: PlanCardStatus =
-    approvedCount === planCards.length
-      ? 'approved'
-      : approvedCount === 0
-        ? 'rejected'
-        : 'ready';
-
-  const contractStatusMeta = STATUS_META[contractStatus];
 
   useEffect(() => {
     if (planCards.length === 0) {
@@ -89,8 +118,23 @@ export function CreateVideoReviewStep({
     );
   };
 
-  const setContractStatus = (status: Extract<PlanCardStatus, 'approved' | 'rejected'>) => {
-    onCardsChange((cards) => cards.map((card) => ({ ...card, status })));
+  const setContractDecision = (
+    decision: Extract<PlanReviewDecision, 'approved' | 'rejected'>,
+  ) => {
+    onCardsChange((cards) =>
+      cards.map((card) => ({ ...card, reviewDecision: decision })),
+    );
+  };
+
+  const setPersonaDecision = (
+    planId: string | null | undefined,
+    decision: Extract<PlanReviewDecision, 'approved' | 'rejected'>,
+  ) => {
+    onCardsChange((cards) =>
+      cards.map((card) =>
+        card.planId === planId ? { ...card, reviewDecision: decision } : card,
+      ),
+    );
   };
 
   const timelineRows = useMemo(() => {
@@ -103,7 +147,8 @@ export function CreateVideoReviewStep({
       currentSecond = endSecond;
       return {
         index: scene.index,
-        secondLabel: duration > 0 ? `${startSecond}s - ${endSecond}s` : `${startSecond}s`,
+        secondLabel:
+          duration > 0 ? `${startSecond}s - ${endSecond}s` : `${startSecond}s`,
         description: scene.description,
       };
     });
@@ -125,7 +170,7 @@ export function CreateVideoReviewStep({
         <div>
           <h2 className="cv-step-heading">Review Plan</h2>
           <p className="cv-step-sub">
-            Contract is auto-generated by AI after setup summary. You can review and adjust before render.
+            Review real backend plans, save edits, approve selected personas, then start production.
           </p>
         </div>
       </div>
@@ -134,28 +179,30 @@ export function CreateVideoReviewStep({
         <div className="cv-section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <h3 className="cv-section-title" style={{ margin: 0 }}>
             Contract Overview
-            <span className="cv-section-badge cv-section-badge--optional">AI generated</span>
+            <span className="cv-section-badge cv-section-badge--optional">Backend backed</span>
           </h3>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className={contractStatusMeta.className}>{contractStatusMeta.label}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span className="cv-badge cv-badge--ready">
+              {approvedCount}/{planCards.length} approved
+            </span>
             <button
               type="button"
               className="cv-action-btn cv-action-btn--reject"
-              onClick={() => setContractStatus('rejected')}
+              onClick={() => setContractDecision('rejected')}
             >
-              Reject
+              Reject all
             </button>
             <button
               type="button"
               className="cv-action-btn cv-action-btn--approve"
-              onClick={() => setContractStatus('approved')}
+              onClick={() => setContractDecision('approved')}
             >
-              Approve
+              Approve all
             </button>
             <button
               type="button"
               className="cv-persona-action-btn"
-              onClick={() => setIsEditingContract((v) => !v)}
+              onClick={() => setIsEditingContract((value) => !value)}
             >
               {isEditingContract ? 'Done' : 'Edit'}
             </button>
@@ -171,11 +218,11 @@ export function CreateVideoReviewStep({
                 rows={6}
                 value={globalScript}
                 onChange={(event) => setGlobalScript(event.target.value)}
-                placeholder="AI will generate script contract here..."
+                placeholder="Generated script appears here..."
               />
             ) : (
               <p className="cv-script-text cv-script-text--expanded">
-                {globalScript.trim() || 'No contract script generated yet.'}
+                {globalScript.trim() || 'No script generated yet.'}
               </p>
             )}
           </div>
@@ -205,9 +252,17 @@ export function CreateVideoReviewStep({
           </div>
 
           {isEditingContract && (
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button type="button" className="btn-primary" onClick={applyContractToAll}>
-                Apply edits to selected personas
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+              <button type="button" className="btn-secondary" onClick={applyContractToAll}>
+                Apply locally
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={onSaveEdits}
+                disabled={isSaving}
+              >
+                {isSaving ? 'Saving…' : 'Save plan edits'}
               </button>
             </div>
           )}
@@ -221,23 +276,95 @@ export function CreateVideoReviewStep({
             <span className="cv-section-badge cv-section-badge--optional">{planCards.length} selected</span>
           </h3>
         </div>
-        <div className="cv-section-content" style={{ display: 'grid', gap: 8 }}>
-          {planCards.map((card) => (
-            <div
-              key={card.personaId}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                border: '1px solid rgb(174 173 169 / 0.2)',
-                borderRadius: 12,
-                padding: '8px 10px',
-              }}
-            >
-              <PersonaAvatar name={card.personaName} avatarUrl={card.personaAvatarUrl} size={30} />
-              <span className="cv-card-persona-name">{card.personaName}</span>
-            </div>
-          ))}
+        <div className="cv-section-content" style={{ display: 'grid', gap: 12 }}>
+          {planCards.map((card) => {
+            const isUploading =
+              Boolean(card.planId) && uploadingPlanIds.includes(card.planId || '');
+            return (
+              <div
+                key={card.planId || card.jobId}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                  border: '1px solid rgb(174 173 169 / 0.2)',
+                  borderRadius: 12,
+                  padding: '12px 14px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <PersonaAvatar name={card.personaName} avatarUrl={card.personaAvatarUrl} size={30} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span className="cv-card-persona-name">{card.personaName}</span>
+                      <span className="cv-cta-disabled-reason">
+                        {card.inputModeLabel} · {card.sourceUrl || 'No source URL'}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span className={toneBadgeClass(card.statusTone)}>
+                      {card.backendStatusLabel}
+                    </span>
+                    <button
+                      type="button"
+                      className={decisionButtonClass(card.reviewDecision, 'rejected')}
+                      onClick={() => setPersonaDecision(card.planId, 'rejected')}
+                    >
+                      Reject
+                    </button>
+                    <button
+                      type="button"
+                      className={decisionButtonClass(card.reviewDecision, 'approved')}
+                      onClick={() => setPersonaDecision(card.planId, 'approved')}
+                    >
+                      Approve
+                    </button>
+                  </div>
+                </div>
+
+                {card.requiresUpload && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 10,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <p className="cv-cta-disabled-reason" style={{ margin: 0 }}>
+                      Human phone mode needs final video upload before approval.
+                    </p>
+                    {card.planId && (
+                      <label className="btn-secondary" style={{ cursor: isUploading ? 'wait' : 'pointer' }}>
+                        {isUploading ? 'Uploading…' : 'Upload final video'}
+                        <input
+                          type="file"
+                          accept="video/*"
+                          hidden
+                          disabled={isUploading}
+                          onChange={(event) => {
+                            onUploadPlanVideo(
+                              card.planId || '',
+                              event.target.files?.[0] || null,
+                            );
+                            event.currentTarget.value = '';
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                )}
+
+                {card.outputReady && (
+                  <p className="cv-cta-disabled-reason" style={{ margin: 0 }}>
+                    Output uploaded or rendered. Ready for approval.
+                  </p>
+                )}
+              </div>
+            );
+          })}
         </div>
       </section>
 
@@ -246,14 +373,16 @@ export function CreateVideoReviewStep({
           <button
             type="button"
             onClick={canContinue ? onContinue : undefined}
-            disabled={!canContinue}
+            disabled={!canContinue || isContinuing}
             className="btn-primary btn-wide"
           >
-            Render Approved Videos →
+            {isContinuing ? 'Starting…' : 'Approve and Continue →'}
           </button>
           {!canContinue && (
             <p className="cv-cta-disabled-reason">
-              Approve contract to continue.
+              {approvedCount === 0
+                ? 'Approve at least one persona to continue.'
+                : 'Upload final video for approved human phone jobs before continuing.'}
             </p>
           )}
         </div>

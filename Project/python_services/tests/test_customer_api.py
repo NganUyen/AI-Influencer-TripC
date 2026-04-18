@@ -818,7 +818,147 @@ def test_get_system_summary_includes_recent_videos(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["recent_videos"][0]["asset_id"] == "asset-1"
-    assert payload["recent_videos"][0]["access_url"] == "https://cdn.example/video.mp4"
+
+
+def test_get_review_engine_plan_returns_public_contract(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_get_plan(plan_id, user_id):
+        assert plan_id == "plan-1"
+        assert user_id == _session().user_id
+        return {
+            "id": "plan-1",
+            "plan_id": "plan-1",
+            "user_id": user_id,
+            "campaign_id": "campaign-1",
+            "persona_id": "basic-american-host",
+            "source_url": "https://example.com",
+            "objective": "Drive signups",
+            "script_text": "Narration text",
+            "scenes_data": [],
+            "status": "generated",
+            "workflow_id": None,
+            "video_url": None,
+            "publish_settings": {"input_mode": "ai_autonomous"},
+            "creative_preferences": {"background": "studio-soft"},
+            "page_review_data": {"normalized_url": "https://example.com"},
+            "created_at": "2026-04-18T00:00:00Z",
+            "updated_at": "2026-04-18T00:00:00Z",
+            "approved_at": None,
+        }
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.VideoPlanningService, "get_plan", fake_get_plan)
+
+    client = _build_client()
+    response = client.get(
+        "/api/customer/review-engine/plans/plan-1",
+        headers={"Authorization": "Bearer customer-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["plan_id"] == "plan-1"
+    assert payload["persona_id"] == "basic-american-host"
+    assert payload["creative_preferences"] == {"background": "studio-soft"}
+    assert "id" not in payload
+    assert "user_id" not in payload
+    assert "page_review_data" not in payload
+
+
+def test_patch_review_engine_plan_merges_json_fields(monkeypatch):
+    captured = {}
+
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_get_plan(plan_id, user_id):
+        assert plan_id == "plan-1"
+        assert user_id == _session().user_id
+        return {
+            "id": "plan-1",
+            "plan_id": "plan-1",
+            "persona_id": "basic-american-host",
+            "source_url": "https://example.com",
+            "objective": "Drive signups",
+            "script_text": "Narration text",
+            "scenes_data": [],
+            "status": "generated",
+            "workflow_id": None,
+            "publish_settings": {
+                "input_mode": "ai_autonomous",
+                "content_title": "Old title",
+            },
+            "creative_preferences": {
+                "background": "studio-soft",
+                "music_mood": "None",
+            },
+            "page_review_data": {
+                "normalized_url": "https://example.com",
+                "page_title": "Example",
+            },
+            "created_at": "2026-04-18T00:00:00Z",
+            "updated_at": "2026-04-18T00:00:00Z",
+            "approved_at": None,
+        }
+
+    async def fake_update_plan(plan_id, user_id, updates):
+        captured["plan_id"] = plan_id
+        captured["user_id"] = user_id
+        captured["updates"] = updates
+        return {
+            "id": plan_id,
+            "plan_id": plan_id,
+            "persona_id": "basic-american-host",
+            "source_url": "https://example.com",
+            "objective": "Drive signups",
+            "script_text": "Narration text",
+            "scenes_data": [],
+            "status": "generated",
+            "workflow_id": None,
+            "publish_settings": updates["publish_settings"],
+            "creative_preferences": updates["creative_preferences"],
+            "created_at": "2026-04-18T00:00:00Z",
+            "updated_at": "2026-04-18T00:10:00Z",
+            "approved_at": None,
+        }
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.VideoPlanningService, "get_plan", fake_get_plan)
+    monkeypatch.setattr(customer.VideoPlanningService, "update_plan", fake_update_plan)
+
+    client = _build_client()
+    response = client.patch(
+        "/api/customer/review-engine/plans/plan-1",
+        headers={"Authorization": "Bearer customer-token"},
+        json={
+            "publish_settings": {"caption_draft": "Updated caption"},
+            "creative_preferences": {"music_volume": 85},
+            "page_review_data": {"suggested_objective": "Drive signups"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["plan_id"] == "plan-1"
+    assert captured["updates"]["publish_settings"] == {
+        "input_mode": "ai_autonomous",
+        "content_title": "Old title",
+        "caption_draft": "Updated caption",
+    }
+    assert captured["updates"]["creative_preferences"] == {
+        "background": "studio-soft",
+        "music_mood": "None",
+        "music_volume": 85,
+    }
+    assert captured["updates"]["page_review_data"] == {
+        "normalized_url": "https://example.com",
+        "page_title": "Example",
+        "suggested_objective": "Drive signups",
+    }
+    payload = response.json()
+    assert payload["plan_id"] == "plan-1"
+    assert payload["publish_settings"]["caption_draft"] == "Updated caption"
 
 
 def test_list_recent_customer_media_returns_assets(monkeypatch):

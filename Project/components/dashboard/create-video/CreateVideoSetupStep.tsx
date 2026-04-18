@@ -18,6 +18,7 @@ interface CreateVideoSetupStepProps {
   personas: Persona[];
   systemPersonaOptions?: Persona[];
   customPersonaOptions?: Persona[];
+  isSubmitting?: boolean;
   onContinue: () => void;
 }
 
@@ -31,6 +32,7 @@ export function CreateVideoSetupStep({
   personas,
   systemPersonaOptions,
   customPersonaOptions,
+  isSubmitting = false,
   onContinue,
 }: CreateVideoSetupStepProps) {
   const {
@@ -44,7 +46,9 @@ export function CreateVideoSetupStep({
     selectedMode,
     selectedBackground,
     selectedMovementStyle,
+    gestureIntensity,
     selectedMusicMood,
+    musicVolume,
   } = setupState;
 
   const backgroundOptions = [
@@ -167,6 +171,10 @@ export function CreateVideoSetupStep({
           suggestedObjective: result.suggested_objective,
           visibleFeatureCount: result.visible_features?.length ?? 0,
         },
+        objective:
+          objective.trim().length > 0
+            ? objective
+            : result.suggested_objective || objective,
       });
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -177,7 +185,7 @@ export function CreateVideoSetupStep({
         urlValidationDetails: undefined,
       });
     }
-  }, [sourceUrl, onChange]);
+  }, [objective, onChange, sourceUrl]);
 
   // -------------------------------------------------------------------------
   // Persona selection toggle
@@ -522,7 +530,19 @@ export function CreateVideoSetupStep({
             <p className="cv-field-label" style={{ fontSize: '13px', color: '#5c5c58', marginTop: '12px' }}>
               Gesture Intensity
             </p>
-            <input type="range" min="0" max="100" defaultValue="50" className="cv-slider" />
+            <div className="cv-input-wrap">
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={gestureIntensity}
+                onChange={(event) =>
+                  onChange({ gestureIntensity: Number(event.target.value) })
+                }
+                className="cv-slider"
+              />
+              <span className="cv-char-count">{gestureIntensity}%</span>
+            </div>
           </div>
         </div>
 
@@ -555,7 +575,19 @@ export function CreateVideoSetupStep({
             <p className="cv-field-label" style={{ fontSize: '13px', color: '#5c5c58', marginTop: '12px' }}>
               Volume
             </p>
-            <input type="range" min="0" max="100" defaultValue="70" className="cv-slider" />
+            <div className="cv-input-wrap">
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={musicVolume}
+                onChange={(event) =>
+                  onChange({ musicVolume: Number(event.target.value) })
+                }
+                className="cv-slider"
+              />
+              <span className="cv-char-count">{musicVolume}%</span>
+            </div>
           </div>
         </div>
 
@@ -629,10 +661,10 @@ export function CreateVideoSetupStep({
             id="cv-continue-btn"
             type="button"
             onClick={canContinue ? onContinue : undefined}
-            disabled={!canContinue}
+            disabled={!canContinue || isSubmitting}
             className="btn-primary btn-wide"
           >
-            Review Plan →
+            {isSubmitting ? 'Creating Plans…' : 'Review Plan →'}
           </button>
           {!canContinue && disabledReason && (
             <p className="cv-cta-disabled-reason">{disabledReason}</p>

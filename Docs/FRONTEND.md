@@ -1,6 +1,6 @@
 # Frontend
 
-Last verified: 2026-03-24 (UTC)
+Last verified: 2026-04-18 (UTC)
 
 The frontend is a Next.js App Router application that serves both the customer workspace and the internal operator console.
 
@@ -33,6 +33,7 @@ Implemented panels and actions:
 - social account list plus OAuth start/callback scaffolding
 - assistant thread creation and message exchange
 - AI backbone configuration, including ChatGPT connector link state
+- create-video setup and review-engine dashboard scaffolding
 - campaign creation
 - campaign approval or rejection
 - campaign launch
@@ -48,6 +49,16 @@ Core backend calls made by the dashboard:
 - `/api/customer/approvals`
 - `/api/customer/content`
 - `/api/customer/ai-backbone`
+- `/api/customer/review-engine/setup`
+- `/api/customer/review-engine/jobs`
+
+### Create Video Current State
+
+- `components/dashboard/CreateVideoTab.tsx` is the new dashboard shell shown under `Create Video`
+- `components/dashboard/create-video/CreateVideoSetupStep.tsx` currently makes the real URL-validation call to `/api/customer/review-engine/source/validate`
+- step 2 review, render progress, and publish in the new dashboard tab are still frontend-side placeholder state
+- `components/dashboard/LiveFeedTab.tsx` still contains the fully wired review-engine client for job creation, plan patching, approval, upload, and publish actions
+- `components/customer-dashboard.tsx` preloads `review-engine/setup` and `review-engine/jobs`, but only passes `setup` and persona data into the new `CreateVideoTab`
 
 ## Internal Ops Surface
 

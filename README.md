@@ -1,5 +1,7 @@
 # AI Influencer Factory
 
+Last verified: 2026-04-18 (UTC)
+
 AI Influencer Factory is a full-stack automation repo for customer-facing campaign planning and operator-managed workflow execution. The current codebase combines a Next.js app, a FastAPI backend, Temporal workflows, and a self-hosted support stack built around OpenClaw, Postiz, GrowChief, PostgreSQL, Redis, Docker Compose, and Supabase for auth/storage.
 
 ## Current Stage
@@ -100,13 +102,25 @@ Canonical docs now live in `Docs/`:
 - [Docs/FRONTEND.md](./Docs/FRONTEND.md)
 - [Docs/BACKEND_API.md](./Docs/BACKEND_API.md)
 - [Docs/WORKFLOWS_AND_AUTOMATION.md](./Docs/WORKFLOWS_AND_AUTOMATION.md)
-- [Docs/PREPRODUCTION_VIDEO_V1.md](./Docs/PREPRODUCTION_VIDEO_V1.md)
+- [Docs/VIDEO_CREATION_CURRENT_STATE.md](./Docs/VIDEO_CREATION_CURRENT_STATE.md)
+- [Docs/CREATE_VIDEO_WEB_INTEGRATION_PLAN.md](./Docs/CREATE_VIDEO_WEB_INTEGRATION_PLAN.md)
+- [Docs/CREATE_VIDEO_CONTRACT_SYNC_PLAN.md](./Docs/CREATE_VIDEO_CONTRACT_SYNC_PLAN.md)
+- [Docs/CREATE_VIDEO_BACKEND_RELIABILITY_PLAN.md](./Docs/CREATE_VIDEO_BACKEND_RELIABILITY_PLAN.md)
 - [Docs/INTEGRATIONS.md](./Docs/INTEGRATIONS.md)
 - [Docs/db.md](./Docs/db.md)
 - [Docs/ENVIRONMENT_REFERENCE.md](./Docs/ENVIRONMENT_REFERENCE.md)
 - [Docs/OPERATIONS_RUNBOOK.md](./Docs/OPERATIONS_RUNBOOK.md)
 - [Project/README.md](./Project/README.md)
 - [Project/python_services/README.md](./Project/python_services/README.md)
+
+Historical design notes, refactor plans, QA writeups, and one-off analysis docs are archived in [Docs/archive/](./Docs/archive/README.md).
+
+Rule:
+
+- keep only this `README.md` as repo-root documentation
+- keep current documentation in `Docs/`
+- keep active implementation plans in `Docs/`
+- move temporary or historical notes into `Docs/archive/`
 
 ## Testing
 

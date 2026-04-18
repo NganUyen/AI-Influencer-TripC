@@ -1,6 +1,6 @@
 # Database Model
 
-Last verified: 2026-03-30 (UTC)
+Last verified: 2026-04-18 (UTC)
 
 This repo now uses a Supabase-centered application database model.
 
@@ -84,6 +84,7 @@ The core ownership rule is:
 - `public.content`
 - `public.approvals`
 - `public.postiz_schedules`
+- `public.video_render_plans`
 
 ### Assistant Experience
 

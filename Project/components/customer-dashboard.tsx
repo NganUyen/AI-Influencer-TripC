@@ -1736,7 +1736,7 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
             )}
 
             {activeTab === "publishing" && (
-              <PublishingTab jobs={reviewEngineJobs} />
+              <PublishingTab jobs={reviewEngineJobs} onRefresh={loadReviewEngineData} />
             )}
           </div>
 

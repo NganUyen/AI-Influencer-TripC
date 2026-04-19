@@ -831,6 +831,16 @@ async def create_persona_studio_session(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception(
+            "Persona studio start failed | user_id=%s | resume_session_id=%s",
+            session.user_id,
+            payload.session_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Persona studio start failed: {type(exc).__name__}: {exc}",
+        ) from exc
 
 
 @router.post("/persona-studio/sessions/{session_id}/messages")
@@ -854,6 +864,18 @@ async def append_persona_studio_message(
         detail = str(exc)
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
+    except Exception as exc:
+        logger.exception(
+            "Persona studio message failed | user_id=%s | session_id=%s | kind=%s | action=%s",
+            session.user_id,
+            session_id,
+            payload.kind,
+            payload.action or payload.value,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Persona studio message failed: {type(exc).__name__}: {exc}",
+        ) from exc
 
 
 @router.post("/persona-studio/sessions/{session_id}/commit")
@@ -874,6 +896,17 @@ async def commit_persona_studio_session(
         detail = str(exc)
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
+    except Exception as exc:
+        logger.exception(
+            "Persona studio commit failed | user_id=%s | session_id=%s | mode=%s",
+            session.user_id,
+            session_id,
+            payload.mode,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Persona studio commit failed: {type(exc).__name__}: {exc}",
+        ) from exc
 
 
 @router.post("/review-engine/source/validate")

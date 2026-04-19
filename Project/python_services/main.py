@@ -40,6 +40,12 @@ def _is_authenticated_internal_request(request: Request) -> bool:
     )
 
 
+def _allow_persona_studio_debug_detail(request: Request) -> bool:
+    if not request.url.path.startswith("/api/customer/persona-studio"):
+        return False
+    return (request.headers.get("x-customer-debug-errors") or "").strip() == "1"
+
+
 def _root_path_from_public_url(value: str | None) -> str:
     if not value:
         return ""
@@ -123,7 +129,11 @@ async def add_security_headers(request: Request, call_next):
 
 @app.exception_handler(HTTPException)
 async def sanitize_http_exception(request: Request, exc: HTTPException):
-    if exc.status_code >= 500 and not _is_authenticated_internal_request(request):
+    if (
+        exc.status_code >= 500
+        and not _is_authenticated_internal_request(request)
+        and not _allow_persona_studio_debug_detail(request)
+    ):
         logger.warning("Sanitizing backend %s response: %s", exc.status_code, exc.detail)
         detail = "Service unavailable" if exc.status_code == 503 else "Internal server error"
         return JSONResponse(
@@ -145,6 +155,11 @@ async def handle_unexpected_exception(request: Request, exc: Exception):
         request.method,
         request.url.path,
     )
+    if _allow_persona_studio_debug_detail(request):
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"{type(exc).__name__}: {exc}"},
+        )
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error"},

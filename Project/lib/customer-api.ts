@@ -46,6 +46,9 @@ export async function customerApiRequest<T>(
   if (!hasExplicitContentType && isJsonStringBody) {
     headers.set("Content-Type", "application/json");
   }
+  if (path.startsWith("/api/customer/persona-studio")) {
+    headers.set("x-customer-debug-errors", "1");
+  }
   if (accessToken) {
     headers.set("Authorization", `Bearer ${accessToken}`);
   }

@@ -98,6 +98,24 @@ class PersonaStudioService:
         return prompt.strip()
 
     @classmethod
+    def _coerce_json_dict(cls, value: Any) -> Dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, (bytes, bytearray)):
+            try:
+                value = value.decode("utf-8")
+            except Exception as exc:
+                raise ValueError("Persona studio session is invalid.") from exc
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except Exception as exc:
+                raise ValueError("Persona studio session is invalid.") from exc
+            if isinstance(parsed, dict):
+                return parsed
+        raise ValueError("Persona studio session is invalid.")
+
+    @classmethod
     def _message_history(cls, session: SkillSession) -> List[Dict[str, Any]]:
         history = session.artifacts.get("web_messages")
         if isinstance(history, list):
@@ -511,10 +529,8 @@ class PersonaStudioService:
                 raise
         if row is None:
             raise ValueError("Persona studio session not found.")
-        payload = row.get("input_data") or {}
-        studio_session = payload.get("studio_session")
-        if not isinstance(studio_session, dict):
-            raise ValueError("Persona studio session is invalid.")
+        payload = cls._coerce_json_dict(row.get("input_data") or {})
+        studio_session = cls._coerce_json_dict(payload.get("studio_session") or {})
         return SkillSession.model_validate(studio_session)
 
     @classmethod

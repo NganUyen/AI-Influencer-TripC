@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock
 
 import pytest
+import json
 
 from services.persona_studio_service import PersonaStudioService
 from skills.base import SkillControl, SkillSession, SkillStatus
@@ -110,3 +111,35 @@ async def test_load_session_uses_workflow_id_lookup(monkeypatch):
     query, args = conn.fetchrow_calls[0]
     assert "workflow_id = $3" in query.lower()
     assert args[2] == "persona-studio-studio-1"
+
+
+@pytest.mark.asyncio
+async def test_load_session_accepts_stringified_json_payload(monkeypatch):
+    session = SkillSession(
+        skill_name="persona-creator",
+        step_key="preview",
+        collected={"persona_id": "zoe-founder"},
+        artifacts={"web_messages": []},
+        control=SkillControl(status=SkillStatus.preview_ready),
+    )
+    conn = _LoadConn(
+        {
+            "input_data": json.dumps(
+                {
+                    "studio_session": json.dumps(session.model_dump(mode="json")),
+                }
+            )
+        }
+    )
+    monkeypatch.setattr(
+        "services.persona_studio_service.DatabaseService.get_pool",
+        AsyncMock(return_value=_StubPool(conn)),
+    )
+
+    loaded = await PersonaStudioService._load_session(
+        session_id="studio-1",
+        user_id="11111111-1111-1111-1111-111111111111",
+    )
+
+    assert loaded.step_key == "preview"
+    assert loaded.collected["persona_id"] == "zoe-founder"

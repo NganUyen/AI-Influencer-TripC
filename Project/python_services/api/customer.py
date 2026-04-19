@@ -1242,10 +1242,18 @@ async def approve_review_engine_plan(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        import traceback
+        import logging
 
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger = logging.getLogger(__name__)
+        logger.exception(
+            "Review-engine approval workflow failed | plan_id=%s | user_id=%s",
+            plan_id,
+            session.user_id,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=f"Plan approved, but workflow start failed: {type(exc).__name__}: {exc}",
+        )
 
 
 

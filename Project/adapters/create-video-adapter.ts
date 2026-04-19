@@ -225,6 +225,7 @@ export function toPersonaPlanCards(
       personaName: String(
         job.persona?.display_name || job.persona?.persona_id || job.persona_id || 'Persona',
       ),
+      personaLanguage: job.persona?.language || null,
       personaAvatarUrl:
         job.persona?.selection_image_url || job.persona?.image_url || undefined,
       sourceUrl: job.source_url,

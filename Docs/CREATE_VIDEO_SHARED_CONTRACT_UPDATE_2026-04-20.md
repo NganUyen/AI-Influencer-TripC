@@ -1,0 +1,203 @@
+# Create Video Shared Contract Update
+
+Last verified: 2026-04-20 (UTC)
+
+This document summarizes the recent Step 2 refactor in the dashboard `Create Video` flow.
+
+## Goal
+
+The previous Step 2 UI mixed two different ideas:
+
+- backend plans are created per persona
+- the review UI exposed a pseudo-global contract seeded from only the first persona card
+
+That created a mismatch between actual backend behavior and what users saw in the editor.
+
+The updated goal is:
+
+- one shared contract editor for users
+- approval still remains per persona
+- shared contract is authored in English
+- selected persona lanes stay aligned to that shared contract while preserving persona-specific language metadata and execution path
+
+## What Changed
+
+### 1. Shared contract became the Step 2 source of truth
+
+Step 2 no longer derives its editable contract from the first card only.
+
+Instead:
+
+- `CreateVideoTab.tsx` owns a dedicated `sharedContractDraft`
+- the shared draft contains `scriptText` and `scenesText`
+- save operations patch the same shared payload into every editable backend plan
+
+Files:
+
+- `Project/components/dashboard/CreateVideoTab.tsx`
+- `Project/types/video-planning.ts`
+
+### 2. Review UI is now explicitly split into two layers
+
+Step 2 now has:
+
+- `Shared Video Contract`
+- `Persona Targets`
+
+`Shared Video Contract` is the master English draft that users edit once.
+
+`Persona Targets` shows the selected persona lanes and keeps these controls per persona:
+
+- approve
+- reject
+- upload final video for human-phone lanes
+
+This keeps the UX simple without pretending the backend stores only one plan record.
+
+Files:
+
+- `Project/components/dashboard/create-video/CreateVideoReviewStep.tsx`
+- `Project/app/create-video.css`
+
+### 3. Persona metadata is surfaced more clearly
+
+Each persona target now exposes language metadata in the review UI.
+
+This makes the shared-contract rule explicit:
+
+- one English master contract
+- multiple persona lanes
+- each lane still carries persona-specific language identity
+
+File:
+
+- `Project/adapters/create-video-adapter.ts`
+
+### 4. Divergent backend drafts are called out
+
+If backend jobs arrive with different contract payloads across personas, Step 2 now detects that mismatch and shows a warning that the editor is becoming the single shared contract source.
+
+This avoids silently masking a backend divergence.
+
+## UX Improvements Added
+
+The review screen now includes:
+
+- a stronger shared-contract title and subtitle
+- an explicit note that the contract is shared across all selected personas
+- language summary text for selected persona lanes
+- summary pills for persona count, language lanes, ready outputs, and upload-required lanes
+- saved vs unsaved shared contract status
+- a `Revert to backend draft` action
+- a `Save shared edits` action that disables when there are no pending changes
+
+## Logic Cleanup
+
+The refactor also removed a few hidden risks in the Step 2 state model.
+
+### Removed stale local override behavior
+
+Previously, local card state could keep overriding refreshed backend values.
+
+Now the shared draft is the intended contract authority for Step 2 editing, and persona cards stay synced to that shared draft.
+
+### Safer persona action targeting
+
+Approve/reject actions now target cards by `planId || jobId` instead of relying only on `planId`.
+
+This reduces the risk of incorrect updates when `planId` is missing or duplicated in intermediate UI states.
+
+### Cleaner save semantics
+
+Saving no longer depends on whichever card happened to carry the latest local script preview.
+
+All Step 2 save operations now serialize the shared contract draft directly.
+
+## Session Fixes Added
+
+The recent session also cleaned up the Step 2 control flow and made the development experience easier to debug.
+
+### Dev-friendly toaster feedback
+
+The create-video flow now uses more explicit toast messages for the main Step 2 actions:
+
+- source validation / review-job creation warnings are shown with context
+- shared-contract saves confirm that the draft was synced to editable persona plans
+- approval success says how many persona plans moved forward
+- partial approval failures call out which persona lanes stayed behind
+- delete failures surface the plan IDs that could not be removed
+
+### Reject now opens a confirmation modal
+
+Reject is no longer a silent local state change.
+
+Instead, the UI now asks the user whether they want to:
+
+- keep editing the shared contract
+- delete the selected plan(s) and return to Setup
+
+This is intentionally softer than a hard delete flow, but still makes the destructive choice explicit.
+
+### Deletion returns to Setup
+
+When the user confirms delete, the frontend now calls the existing backend delete route for the selected plan IDs, clears Step 2 state, and returns the flow to Setup.
+
+This gives users a fast recovery path if they do not want to keep a rejected plan.
+
+### Approval failures are less opaque
+
+The review-engine approve endpoint no longer collapses all downstream failures into a generic 500.
+
+If workflow startup fails after the plan is approved, the API now logs the failure with plan/user context and returns a clearer 503 response that includes the exception type and message.
+
+### Small UI polish for the confirm modal
+
+The reject/delete modal was softened visually and in copy so it feels like a guided decision rather than a hard-stop error screen.
+
+## Files Touched
+
+- `Project/components/dashboard/CreateVideoTab.tsx`
+- `Project/components/dashboard/create-video/CreateVideoReviewStep.tsx`
+- `Project/adapters/create-video-adapter.ts`
+- `Project/types/video-planning.ts`
+- `Project/app/create-video.css`
+- `Project/python_services/api/customer.py`
+
+## Verification
+
+Commands run:
+
+- `npm run build`
+- `npm run type-check`
+
+Results:
+
+- `npm run build`: passed
+- `npm run type-check`: still fails, but only from pre-existing test/type issues outside this Step 2 refactor
+
+Existing unrelated failures:
+
+- `app/api/routes.test.ts`
+- `app/auth/page.test.tsx`
+- `app/dashboard/page.test.tsx`
+
+## Remaining Known Gaps
+
+This update only addressed the shared-contract review experience.
+
+It does not yet fix:
+
+- create-video polling errors being silent during interval refresh
+- backend debug detail not being exposed through create-video routes
+- deeper backend architectural mismatch where persistence is still per persona instead of a true single stored contract record
+
+## Current Product Meaning
+
+After this update, the intended user-facing model is:
+
+- user edits one shared contract in English
+- selected personas inherit that contract direction
+- user approves persona lanes individually
+- approved lanes continue into the existing backend workflow model
+
+This is a UI and state-model alignment fix, not a backend data-model unification.

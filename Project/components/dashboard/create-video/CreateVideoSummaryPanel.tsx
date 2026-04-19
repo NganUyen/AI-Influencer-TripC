@@ -87,10 +87,28 @@ export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelP
             {urlValidationDetails.pageTitle && (
               <SummaryRow label="Page" value={urlValidationDetails.pageTitle} />
             )}
-            <SummaryRow
-              label="Features"
-              value={`${urlValidationDetails.visibleFeatureCount ?? 0} found`}
-            />
+            <div className="cv-summary-feature-block">
+              <span className="cv-summary-label">Features</span>
+              {urlValidationDetails.visibleFeatures && urlValidationDetails.visibleFeatures.length > 0 ? (
+                <div className="cv-summary-feature-list">
+                  {urlValidationDetails.visibleFeatures.slice(0, 4).map((feature) => (
+                    <div className="cv-summary-feature-item" key={`${feature.label}-${feature.sourceUrl ?? feature.summary ?? ''}`}>
+                      <span className="cv-summary-feature-name">{feature.label}</span>
+                      {feature.summary && (
+                        <span className="cv-summary-feature-summary">{feature.summary}</span>
+                      )}
+                    </div>
+                  ))}
+                  {urlValidationDetails.visibleFeatures.length > 4 && (
+                    <span className="cv-summary-feature-more">
+                      +{urlValidationDetails.visibleFeatures.length - 4} more
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <span className="cv-summary-value cv-summary-value--empty">No visible features extracted.</span>
+              )}
+            </div>
           </>
         )}
 

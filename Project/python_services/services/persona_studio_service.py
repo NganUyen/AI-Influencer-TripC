@@ -26,6 +26,17 @@ class PersonaStudioService:
     _WORKFLOW_CHANNEL = "workspace"
 
     @classmethod
+    def _is_legacy_workflows_schema_error(cls, exc: Exception) -> bool:
+        message = str(exc).lower()
+        if 'relation "workflows"' not in message:
+            return False
+        legacy_columns = ("channel", "request_key", "current_step", "progress")
+        return any(
+            f'column "{column}"' in message and "does not exist" in message
+            for column in legacy_columns
+        )
+
+    @classmethod
     def _transport_client(cls, app: Any) -> httpx.AsyncClient:
         transport = httpx.ASGITransport(app=app)
         return httpx.AsyncClient(transport=transport, base_url="http://backend")
@@ -272,63 +283,113 @@ class PersonaStudioService:
         studio_state: Dict[str, Any],
     ) -> None:
         workflow_id = cls._workflow_id(session_id)
+        input_data = json.dumps(
+            {"studio_session": cls._dump_session(session)},
+            sort_keys=True,
+        )
+        output_data = json.dumps(studio_state, sort_keys=True)
         pool = await DatabaseService.get_pool()
         async with pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO public.workflows (
+            try:
+                await conn.execute(
+                    """
+                    INSERT INTO public.workflows (
+                        workflow_id,
+                        user_id,
+                        type,
+                        status,
+                        channel,
+                        current_step,
+                        progress,
+                        request_key,
+                        input_data,
+                        output_data,
+                        updated_at,
+                        completed_at
+                    )
+                    VALUES (
+                        $1,
+                        $2::uuid,
+                        $3,
+                        $4,
+                        $5,
+                        $6,
+                        $7,
+                        $8,
+                        $9::jsonb,
+                        $10::jsonb,
+                        NOW(),
+                        CASE WHEN $4 IN ('completed', 'failed', 'canceled', 'cancelled') THEN NOW() ELSE NULL END
+                    )
+                    ON CONFLICT (workflow_id) DO UPDATE
+                    SET status = EXCLUDED.status,
+                        channel = EXCLUDED.channel,
+                        current_step = EXCLUDED.current_step,
+                        progress = EXCLUDED.progress,
+                        request_key = EXCLUDED.request_key,
+                        input_data = EXCLUDED.input_data,
+                        output_data = EXCLUDED.output_data,
+                        updated_at = NOW(),
+                        completed_at = CASE
+                            WHEN EXCLUDED.status IN ('completed', 'failed', 'canceled', 'cancelled') THEN NOW()
+                            ELSE public.workflows.completed_at
+                        END
+                    """,
                     workflow_id,
                     user_id,
-                    type,
-                    status,
-                    channel,
-                    current_step,
-                    progress,
-                    request_key,
+                    cls._WORKFLOW_TYPE,
+                    cls._workflow_status(session.control.status),
+                    cls._WORKFLOW_CHANNEL,
+                    session.step_key,
+                    cls._progress_for_step(session.step_key, session.control.status),
+                    session_id,
                     input_data,
                     output_data,
-                    updated_at,
-                    completed_at
                 )
-                VALUES (
-                    $1,
-                    $2::uuid,
-                    $3,
-                    $4,
-                    $5,
-                    $6,
-                    $7,
-                    $8,
-                    $9::jsonb,
-                    $10::jsonb,
-                    NOW(),
-                    CASE WHEN $4 IN ('completed', 'failed', 'canceled', 'cancelled') THEN NOW() ELSE NULL END
+            except Exception as exc:
+                if not cls._is_legacy_workflows_schema_error(exc):
+                    raise
+                # Backward compatibility for environments missing the 2026-04-15
+                # workflow metadata columns. `workflow_id` is enough to resume.
+                await conn.execute(
+                    """
+                    INSERT INTO public.workflows (
+                        workflow_id,
+                        user_id,
+                        type,
+                        status,
+                        input_data,
+                        output_data,
+                        updated_at,
+                        completed_at
+                    )
+                    VALUES (
+                        $1,
+                        $2::uuid,
+                        $3,
+                        $4,
+                        $5::jsonb,
+                        $6::jsonb,
+                        NOW(),
+                        CASE WHEN $4 IN ('completed', 'failed', 'canceled', 'cancelled') THEN NOW() ELSE NULL END
+                    )
+                    ON CONFLICT (workflow_id) DO UPDATE
+                    SET status = EXCLUDED.status,
+                        input_data = EXCLUDED.input_data,
+                        output_data = EXCLUDED.output_data,
+                        updated_at = NOW(),
+                        completed_at = CASE
+                            WHEN EXCLUDED.status IN ('completed', 'failed', 'canceled', 'cancelled') THEN NOW()
+                            ELSE public.workflows.completed_at
+                        END
+                    """,
+                    workflow_id,
+                    user_id,
+                    cls._WORKFLOW_TYPE,
+                    cls._workflow_status(session.control.status),
+                    input_data,
+                    output_data,
                 )
-                ON CONFLICT (workflow_id) DO UPDATE
-                SET status = EXCLUDED.status,
-                    channel = EXCLUDED.channel,
-                    current_step = EXCLUDED.current_step,
-                    progress = EXCLUDED.progress,
-                    request_key = EXCLUDED.request_key,
-                    input_data = EXCLUDED.input_data,
-                    output_data = EXCLUDED.output_data,
-                    updated_at = NOW(),
-                    completed_at = CASE
-                        WHEN EXCLUDED.status IN ('completed', 'failed', 'canceled', 'cancelled') THEN NOW()
-                        ELSE public.workflows.completed_at
-                    END
-                """,
-                workflow_id,
-                user_id,
-                cls._WORKFLOW_TYPE,
-                cls._workflow_status(session.control.status),
-                cls._WORKFLOW_CHANNEL,
-                session.step_key,
-                cls._progress_for_step(session.step_key, session.control.status),
-                session_id,
-                json.dumps({"studio_session": cls._dump_session(session)}, sort_keys=True),
-                json.dumps(studio_state, sort_keys=True),
-            )
 
     @classmethod
     async def _load_session(
@@ -337,6 +398,7 @@ class PersonaStudioService:
         session_id: str,
         user_id: str,
     ) -> SkillSession:
+        workflow_id = cls._workflow_id(session_id)
         pool = await DatabaseService.get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -345,12 +407,12 @@ class PersonaStudioService:
                 FROM public.workflows
                 WHERE user_id = $1::uuid
                   AND type = $2
-                  AND request_key = $3
+                  AND workflow_id = $3
                 LIMIT 1
                 """,
                 user_id,
                 cls._WORKFLOW_TYPE,
-                session_id,
+                workflow_id,
             )
         if row is None:
             raise ValueError("Persona studio session not found.")

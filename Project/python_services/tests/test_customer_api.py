@@ -418,8 +418,12 @@ def test_list_customer_personas_includes_preset_selection_image(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
-    monkeypatch.setattr(customer.PersonaRegistryService, "list_personas", fake_list_personas)
+    monkeypatch.setattr(
+        customer.CustomerAuthService, "resolve_session", fake_resolve_session
+    )
+    monkeypatch.setattr(
+        customer.PersonaRegistryService, "list_personas", fake_list_personas
+    )
     monkeypatch.setattr(
         customer.AppReviewStudioService,
         "preset_persona_map",
@@ -445,10 +449,64 @@ def test_list_customer_personas_includes_preset_selection_image(monkeypatch):
 
     assert response.status_code == 200
     personas = response.json()["personas"]
-    preset = next(item for item in personas if item["persona_id"] == "basic-american-host")
+    preset = next(
+        item for item in personas if item["persona_id"] == "basic-american-host"
+    )
     assert preset["selection_image_url"].startswith("data:image/svg+xml")
     assert preset["region_label"] == "American"
     assert preset["is_preset_catalog"] is True
+
+
+def test_list_customer_personas_does_not_append_legacy_presets_when_system_personas_exist(
+    monkeypatch,
+):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_list_personas(*, user_id):
+        assert user_id == _session().user_id
+        return [
+            {
+                "user_id": _session().user_id,
+                "persona_id": "persona-1",
+                "display_name": "Custom Host",
+                "language": "English",
+                "status": "ready",
+                "video_count": 3,
+            },
+            {
+                "user_id": customer.AppReviewStudioService.SYSTEM_PERSONA_USER_ID,
+                "persona_id": "global-cn-wei",
+                "display_name": "Wei Chen",
+                "language": "Mandarin",
+                "status": "draft",
+                "video_count": 0,
+            },
+        ]
+
+    monkeypatch.setattr(
+        customer.CustomerAuthService, "resolve_session", fake_resolve_session
+    )
+    monkeypatch.setattr(
+        customer.PersonaRegistryService, "list_personas", fake_list_personas
+    )
+
+    client = _build_client()
+    response = client.get(
+        "/api/customer/personas",
+        headers={"Authorization": "Bearer customer-token"},
+    )
+
+    assert response.status_code == 200
+    personas = response.json()["personas"]
+    assert [item["persona_id"] for item in personas] == [
+        "persona-1",
+        "global-cn-wei",
+    ]
+    assert personas[1]["is_preset_catalog"] is True
+    assert (
+        personas[1]["user_id"] == customer.AppReviewStudioService.SYSTEM_PERSONA_USER_ID
+    )
 
 
 def test_create_customer_persona_uses_default_voice(monkeypatch):

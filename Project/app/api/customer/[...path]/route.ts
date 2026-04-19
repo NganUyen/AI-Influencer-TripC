@@ -28,18 +28,25 @@ const DEV_MOCK_DATA: Record<string, unknown> = {
     content: [],
     personas: [
       {
-        persona_id: "persona-001",
-        display_name: "Linh Anh",
+        user_id: "00000000-0000-0000-0000-000000000001",
+        persona_id: "global-us-alex",
+        display_name: "Alex Rivera",
         status: "active",
-        video_count: 24,
+        video_count: 0,
         avatar_image_url: null,
+        language: "English (US)",
+        region_label: "United States",
+        is_preset_catalog: true,
       },
       {
-        persona_id: "persona-002",
-        display_name: "Minh Tú",
+        user_id: "11111111-1111-1111-1111-111111111111",
+        persona_id: "custom-linh-anh",
+        display_name: "Linh Anh",
         status: "draft",
         video_count: 7,
         avatar_image_url: null,
+        language: "Vietnamese",
+        region_label: "Vietnam",
       },
     ],
     telegram_link: { linked: false, link: null },
@@ -107,10 +114,12 @@ const DEV_MOCK_DATA: Record<string, unknown> = {
     supported_languages: ["English", "Chinese", "Spanish", "Arabic"],
     persona_options: [
       {
-        persona_id: "basic-american-host",
-        display_name: "Ava Brooks",
-        language: "English",
-        region_label: "American",
+        persona_id: "global-us-alex",
+        display_name: "Alex Rivera",
+        language: "English (US)",
+        region_label: "United States",
+        is_preset: true,
+        is_preset_catalog: true,
         selection_image_url:
           "https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=800&auto=format&fit=crop",
         tiktok_integration: {
@@ -121,12 +130,22 @@ const DEV_MOCK_DATA: Record<string, unknown> = {
         },
         demo: {
           available: true,
-          label: "Ava demo",
+          label: "Alex demo",
           summary: "AI-generated English product review demo.",
         },
       },
     ],
-    custom_personas: [],
+    custom_personas: [
+      {
+        persona_id: "custom-linh-anh",
+        display_name: "Linh Anh",
+        language: "Vietnamese",
+        region_label: "Vietnam",
+        is_preset: false,
+        is_preset_catalog: false,
+        selection_image_url: null,
+      },
+    ],
     create_your_own: {
       available: true,
       label: "Create your own Persona",
@@ -140,8 +159,8 @@ const DEV_MOCK_DATA: Record<string, unknown> = {
   "review-engine/jobs": {
     jobs: [
       {
-        job_id: "video-basic-american-host-demo",
-        workflow_id: "video-basic-american-host-demo",
+        job_id: "video-global-us-alex-demo",
+        workflow_id: "video-global-us-alex-demo",
         type: "app_review_video",
         status: "running",
         current_step: "generating_talking_head",
@@ -155,15 +174,15 @@ const DEV_MOCK_DATA: Record<string, unknown> = {
         objective: "Generate a short English app review.",
         page_title: "Example App",
         persona: {
-          persona_id: "basic-american-host",
-          display_name: "Ava Brooks",
-          language: "English",
-          region_label: "American",
+          persona_id: "global-us-alex",
+          display_name: "Alex Rivera",
+          language: "English (US)",
+          region_label: "United States",
           image_url:
             "https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=800&auto=format&fit=crop",
         },
         content: {
-          title: "Example App · Ava Brooks",
+          title: "Example App · Alex Rivera",
           body: "A quick English-first review ready for TikTok.",
           status: "draft",
           published: false,

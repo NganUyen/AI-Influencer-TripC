@@ -684,14 +684,23 @@ async def list_customer_personas(
     session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
     personas = await PersonaRegistryService.list_personas(user_id=session.user_id)
-    preset_map = AppReviewStudioService.preset_persona_map()
-    seen_ids = {item.get("persona_id") for item in personas if item.get("persona_id")}
-    for preset_persona_id, preset_persona in preset_map.items():
-        if preset_persona_id not in seen_ids:
-            personas.append(preset_persona)
+    has_system_personas = any(
+        item.get("is_preset_catalog")
+        or item.get("user_id") == AppReviewStudioService.SYSTEM_PERSONA_USER_ID
+        for item in personas
+    )
+    if not has_system_personas:
+        preset_map = AppReviewStudioService.preset_persona_map()
+        seen_ids = {
+            item.get("persona_id") for item in personas if item.get("persona_id")
+        }
+        for preset_persona_id, preset_persona in preset_map.items():
+            if preset_persona_id not in seen_ids:
+                personas.append(preset_persona)
     return {
         "personas": [
             {
+                "user_id": item.get("user_id"),
                 "persona_id": item.get("persona_id"),
                 "display_name": item.get("display_name"),
                 "language": item.get("language"),
@@ -702,8 +711,13 @@ async def list_customer_personas(
                 or item.get("thumbnail_url")
                 or item.get("avatar_image_url"),
                 "region_label": item.get("region_label")
-                or str(item.get("market_default") or "global").replace("_", " ").title(),
-                "is_preset_catalog": bool(item.get("is_preset_catalog")),
+                or str(item.get("market_default") or "global")
+                .replace("_", " ")
+                .title(),
+                "is_preset_catalog": bool(
+                    item.get("is_preset_catalog")
+                    or item.get("user_id") == AppReviewStudioService.SYSTEM_PERSONA_USER_ID
+                ),
                 "status": item.get("status"),
                 "video_count": int(item.get("video_count") or 0),
                 "description": item.get("description"),

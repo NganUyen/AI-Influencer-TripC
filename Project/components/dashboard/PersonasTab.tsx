@@ -135,6 +135,7 @@ export function PersonasTab({
   const [studioError, setStudioError] = useState<string | null>(null);
   const [isStudioBusy, setIsStudioBusy] = useState(false);
   const [draftSaved, setDraftSaved] = useState(false);
+  const studioRequestLockRef = React.useRef(false);
 
   React.useEffect(() => {
     const selected = personas.find((p) => p.persona_id === selectedPersonaId);
@@ -259,6 +260,7 @@ export function PersonasTab({
   const runStudioMutation = async (
     operation: () => Promise<PersonaStudioSessionState>,
   ) => {
+    studioRequestLockRef.current = true;
     setIsStudioBusy(true);
     setStudioError(null);
     try {
@@ -271,11 +273,13 @@ export function PersonasTab({
       );
       throw error;
     } finally {
+      studioRequestLockRef.current = false;
       setIsStudioBusy(false);
     }
   };
 
   const handleOpenStudio = async () => {
+    if (studioRequestLockRef.current) return;
     setIsCreationOpen(true);
     setDraftSaved(false);
     if (studioState) {
@@ -295,7 +299,7 @@ export function PersonasTab({
   };
 
   const handleStudioText = async (content: string) => {
-    if (!studioState?.session_id) return;
+    if (!studioState?.session_id || studioRequestLockRef.current) return;
     setDraftSaved(false);
     try {
       await runStudioMutation(() =>
@@ -314,7 +318,7 @@ export function PersonasTab({
   };
 
   const handleStudioAction = async (action: PersonaStudioAction) => {
-    if (!studioState?.session_id) return;
+    if (!studioState?.session_id || studioRequestLockRef.current) return;
     setDraftSaved(false);
     try {
       await runStudioMutation(() =>
@@ -334,7 +338,7 @@ export function PersonasTab({
   };
 
   const handleSaveDraft = async () => {
-    if (!studioState?.session_id) return;
+    if (!studioState?.session_id || studioRequestLockRef.current) return;
     try {
       await runStudioMutation(() =>
         customerApiRequest<PersonaStudioSessionState>(
@@ -352,7 +356,13 @@ export function PersonasTab({
   };
 
   const handleFinalizeStudio = async () => {
-    if (!studioState?.session_id || !studioState.can_finalize) return;
+    if (
+      !studioState?.session_id ||
+      !studioState.can_finalize ||
+      studioRequestLockRef.current
+    ) {
+      return;
+    }
     let nextState: PersonaStudioSessionState | null = null;
     try {
       nextState = await runStudioMutation(() =>

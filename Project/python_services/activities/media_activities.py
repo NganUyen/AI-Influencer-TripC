@@ -2022,6 +2022,10 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
     except ValueError:
         max_parallel = 2
     semaphore = asyncio.Semaphore(max_parallel)
+    strict_browser_fallback_enabled = (
+        str(os.getenv("TOP_HALF_STRICT_ALLOW_AI_FALLBACK", "true")).strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
 
     async def gen_one(scene: dict) -> dict:
         async with semaphore:
@@ -2113,15 +2117,34 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
 
                 elif top_half_type in _STRICT_BROWSER_CAPTURE_TYPES:
                     # public_page_capture / authenticated_capture_later:
-                    # Browser capture REQUIRED, NO fallback (error on fail)
+                    # Browser capture required by default; optional AI fallback can be enabled
+                    # via TOP_HALF_STRICT_ALLOW_AI_FALLBACK for resilience in unstable environments.
                     if not source_ref:
                         raise ApplicationError(
                             f"Scene {scene_id} requires source_ref for browser capture (type={top_half_type})",
                             non_retryable=True,
                         )
-                    result = await _capture_browser_video(
-                        normalized_scene, scene_metadata, source_ref
-                    )
+                    try:
+                        result = await _capture_browser_video(
+                            normalized_scene, scene_metadata, source_ref
+                        )
+                    except Exception as capture_err:
+                        if not strict_browser_fallback_enabled:
+                            raise
+                        browser_error = str(capture_err)[:300]
+                        fallback_triggered = True
+                        logger.warning(
+                            "strict browser capture failed, falling back to AI visual | scene=%s | type=%s | error=%s",
+                            scene_id,
+                            top_half_type,
+                            browser_error,
+                        )
+                        if _METRICS_AVAILABLE and capture_metrics is not None:
+                            capture_metrics.fallback_used += 1
+                        result = await _generate_ai_visual(normalized_scene, scene_metadata)
+                        result["fallback_triggered"] = True
+                        result["browser_error"] = browser_error
+                        result["fallback_from_type"] = top_half_type
 
                 else:
                     # Unknown type - log error and fail

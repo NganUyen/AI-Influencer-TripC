@@ -55,13 +55,15 @@ async def get_temporal_client(request: Request) -> Client:
     client = getattr(request.app.state, "temporal_client", None)
     if client:
         return client
+    temporal_address = settings.temporal_connection_address
     try:
         return await Client.connect(
-            settings.TEMPORAL_ADDRESS, namespace=settings.TEMPORAL_NAMESPACE
+            temporal_address,
+            namespace=settings.TEMPORAL_NAMESPACE,
         )
     except Exception as exc:
         raise TemporalUnavailableError(
-            f"Temporal unavailable at {settings.TEMPORAL_ADDRESS}: {exc}"
+            f"Temporal unavailable at {settings.temporal_connection_description}: {exc}"
         ) from exc
 
 

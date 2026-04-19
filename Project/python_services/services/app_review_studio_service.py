@@ -357,7 +357,7 @@ class AppReviewStudioService:
         if existing_client:
             return existing_client
         return await Client.connect(
-            settings.TEMPORAL_ADDRESS,
+            settings.temporal_connection_address,
             namespace=settings.TEMPORAL_NAMESPACE,
         )
 

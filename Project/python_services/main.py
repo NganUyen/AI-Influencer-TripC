@@ -51,6 +51,7 @@ def _root_path_from_public_url(value: str | None) -> str:
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events"""
     global temporal_client
+    temporal_address = settings.temporal_connection_address
 
     # Startup
     logger.info("Starting AI Influencer Factory Backend...")
@@ -58,18 +59,24 @@ async def lifespan(app: FastAPI):
     app.state.temporal_client = None
 
     try:
-        # Initialize Temporal client
-        logger.info(f"Connecting to Temporal at {settings.TEMPORAL_ADDRESS}")
+        if settings.temporal_connection_rewritten:
+            logger.info(
+                "Temporal host fallback active: %s -> %s",
+                settings.TEMPORAL_ADDRESS,
+                temporal_address,
+            )
+        logger.info("Connecting to Temporal at %s", temporal_address)
         temporal_client = await Client.connect(
-            settings.TEMPORAL_ADDRESS, namespace=settings.TEMPORAL_NAMESPACE
+            temporal_address, namespace=settings.TEMPORAL_NAMESPACE
         )
         app.state.temporal_client = temporal_client
         logger.info("Temporal client connected successfully")
 
     except Exception as e:
         logger.warning(
-            "Temporal unavailable during startup, continuing in degraded mode: %s",
-            str(e),
+            "Temporal unavailable during startup, continuing in degraded mode | target=%s | error=%s",
+            settings.temporal_connection_description,
+            e,
         )
 
     yield
@@ -166,6 +173,8 @@ async def root():
             if settings.GROWCHIEF_API_URL
             else "unavailable",
         },
+        "temporal_address_configured": settings.TEMPORAL_ADDRESS,
+        "temporal_address_effective": settings.temporal_connection_address,
     }
 
 
@@ -173,8 +182,10 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     return {
-        "status": "healthy",
+        "status": "healthy" if temporal_client else "degraded",
         "temporal": "connected" if temporal_client else "disconnected",
+        "temporal_address_configured": settings.TEMPORAL_ADDRESS,
+        "temporal_address_effective": settings.temporal_connection_address,
     }
 
 

@@ -232,7 +232,7 @@ class CustomerCampaignService:
 
         workflow_id = f"weekly-marketing-{session.user_id}-{campaign_id[:8]}-{uuid4().hex[:6]}"
         client = await Client.connect(
-            settings.TEMPORAL_ADDRESS,
+            settings.temporal_connection_address,
             namespace=settings.TEMPORAL_NAMESPACE,
         )
         brand_config = {

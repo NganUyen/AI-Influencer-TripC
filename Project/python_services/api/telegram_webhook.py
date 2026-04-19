@@ -960,7 +960,7 @@ async def _handle_story_callback(
     if TemporalClient is not None and workflow_id:
         try:
             client = await TemporalClient.connect(
-                settings.TEMPORAL_ADDRESS,
+                settings.temporal_connection_address,
                 namespace=settings.TEMPORAL_NAMESPACE,
             )
             handle = client.get_workflow_handle(workflow_id)

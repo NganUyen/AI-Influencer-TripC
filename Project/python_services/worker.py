@@ -91,11 +91,18 @@ async def main():
     """
     Start Temporal worker
     """
-    logger.info("Connecting to Temporal server...")
+    temporal_address = settings.temporal_connection_address
+    if settings.temporal_connection_rewritten:
+        logger.info(
+            "Temporal host fallback active: %s -> %s",
+            settings.TEMPORAL_ADDRESS,
+            temporal_address,
+        )
+    logger.info("Connecting to Temporal server at %s...", temporal_address)
 
     # Connect to Temporal server
     client = await Client.connect(
-        settings.TEMPORAL_ADDRESS, namespace=settings.TEMPORAL_NAMESPACE
+        temporal_address, namespace=settings.TEMPORAL_NAMESPACE
     )
 
     logger.info("Starting Temporal worker...")

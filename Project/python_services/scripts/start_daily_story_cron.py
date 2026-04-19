@@ -50,8 +50,9 @@ DEFAULT_CONFIG = {
 
 
 async def start_cron(config: dict, cancel: bool = False) -> None:
+    print(f"Connecting to Temporal at {settings.temporal_connection_description}")
     client = await Client.connect(
-        settings.TEMPORAL_ADDRESS,
+        settings.temporal_connection_address,
         namespace=settings.TEMPORAL_NAMESPACE,
     )
 

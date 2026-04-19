@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Optional
 from urllib.parse import quote, urlparse
 
@@ -18,6 +19,8 @@ PLACEHOLDER_SECRET_VALUES = {
     "dev-connector-secret",
 }
 
+_TEMPORAL_DOCKER_SERVICE_HOSTS = {"temporal"}
+
 
 def _normalize_optional_string(value: object) -> Optional[str]:
     if value is None:
@@ -35,6 +38,38 @@ def _normalize_optional_int(value: object) -> Optional[int]:
             return None
         return int(normalized)
     return value
+
+
+def _is_running_inside_docker() -> bool:
+    return os.path.exists("/.dockerenv")
+
+
+def resolve_temporal_address_for_runtime(
+    address: str,
+    *,
+    running_in_container: Optional[bool] = None,
+) -> str:
+    normalized = str(address or "").strip()
+    if not normalized:
+        return normalized
+
+    if running_in_container is None:
+        running_in_container = _is_running_inside_docker()
+
+    parsed = urlparse(f"temporal://{normalized}")
+    host = (parsed.hostname or "").lower()
+    if host in _TEMPORAL_DOCKER_SERVICE_HOSTS and not running_in_container:
+        return f"localhost:{parsed.port}" if parsed.port else "localhost"
+    return normalized
+
+
+def describe_temporal_connection(
+    configured_address: str,
+    effective_address: str,
+) -> str:
+    if configured_address == effective_address:
+        return effective_address
+    return f"{effective_address} (configured {configured_address})"
 
 
 def _is_local_url(value: Optional[str]) -> bool:
@@ -306,6 +341,21 @@ class Settings(BaseSettings):
         return [
             origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()
         ]
+
+    @property
+    def temporal_connection_address(self) -> str:
+        return resolve_temporal_address_for_runtime(self.TEMPORAL_ADDRESS)
+
+    @property
+    def temporal_connection_description(self) -> str:
+        return describe_temporal_connection(
+            self.TEMPORAL_ADDRESS,
+            self.temporal_connection_address,
+        )
+
+    @property
+    def temporal_connection_rewritten(self) -> bool:
+        return self.temporal_connection_address != self.TEMPORAL_ADDRESS
 
     @property
     def is_production_like(self) -> bool:

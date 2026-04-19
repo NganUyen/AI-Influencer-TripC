@@ -595,6 +595,30 @@ def test_create_persona_studio_session_returns_state(monkeypatch):
     assert payload["messages"][0]["role"] == "assistant"
 
 
+def test_create_persona_studio_session_returns_debug_detail_on_internal_error(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_start_session(*, app, user_id, session_id=None):
+        raise RuntimeError("request_key column missing from workflows")
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.PersonaStudioService, "start_session", fake_start_session)
+
+    client = _build_client()
+    response = client.post(
+        "/api/customer/persona-studio/sessions",
+        headers={"Authorization": "Bearer customer-token"},
+        json={},
+    )
+
+    assert response.status_code == 500
+    payload = response.json()
+    assert payload["detail"] == (
+        "Persona studio start failed: RuntimeError: request_key column missing from workflows"
+    )
+
+
 def test_append_persona_studio_message_forwards_action(monkeypatch):
     async def fake_resolve_session(_authorization):
         return _session()

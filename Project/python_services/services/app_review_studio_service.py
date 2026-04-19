@@ -221,6 +221,8 @@ def _execution_mode_for_page_review(
 
 
 class AppReviewStudioService:
+    SYSTEM_PERSONA_USER_ID = _SYSTEM_PERSONA_USER_ID
+
     PREMADE_PERSONAS: List[Dict[str, Any]] = [
         {
             "persona_id": "basic-american-host",
@@ -387,21 +389,25 @@ class AppReviewStudioService:
             or persona.get("thumbnail_url")
             or persona.get("avatar_image_url")
         )
+        is_preset_catalog = bool(
+            persona.get("is_preset_catalog")
+            or persona.get("user_id") == _SYSTEM_PERSONA_USER_ID
+        )
         return {
             "persona_id": persona.get("persona_id"),
             "display_name": persona.get("display_name"),
             "language": persona.get("language") or "English",
             "region_label": persona.get("region_label")
-            or str(persona.get("market_default") or "global").replace("_", " ").title(),
+            or str(persona.get("market_default") or "global")
+            .replace("_", " ")
+            .title(),
             "market_default": persona.get("market_default"),
             "tone_default": persona.get("tone_default"),
             "description": persona.get("description"),
             "image_url": selection_image_url,
             "selection_image_url": selection_image_url,
-            "is_preset": bool(
-                persona.get("is_preset_catalog")
-                or persona.get("user_id") == _SYSTEM_PERSONA_USER_ID
-            ),
+            "is_preset": is_preset_catalog,
+            "is_preset_catalog": is_preset_catalog,
             "demo": {
                 "available": bool(persona.get("demo_available", True)),
                 "label": f"{persona.get('display_name')} demo",
@@ -434,15 +440,24 @@ class AppReviewStudioService:
         personas = await PersonaRegistryService.list_personas(user_id=user_id)
         tiktok_accounts = await cls._list_tiktok_accounts(user_id)
         telegram_link = await TelegramLinkService.get_link_for_user(user_id)
+        system_source_personas = [
+            persona
+            for persona in personas
+            if persona.get("user_id") == _SYSTEM_PERSONA_USER_ID
+            or persona.get("is_preset_catalog")
+        ]
+        if not system_source_personas:
+            system_source_personas = list(cls.preset_persona_map().values())
+
         preset_personas = [
             cls._persona_option_payload(persona, tiktok_accounts=tiktok_accounts)
-            for persona in cls.preset_persona_map().values()
+            for persona in system_source_personas
         ]
-        preset_ids = {item["persona_id"] for item in preset_personas}
         custom_personas = [
             cls._persona_option_payload(persona, tiktok_accounts=tiktok_accounts)
             for persona in personas
-            if persona.get("persona_id") not in preset_ids
+            if persona.get("user_id") != _SYSTEM_PERSONA_USER_ID
+            and not persona.get("is_preset_catalog")
         ]
         return {
             "steps": [

@@ -30,7 +30,7 @@ class VideoPlanningService:
         return value
 
     @classmethod
-    def _record_from_row(row: Any) -> Dict[str, Any]:
+    def _record_from_row(cls, row: Any) -> Dict[str, Any]:
         if not row:
             return {}
 

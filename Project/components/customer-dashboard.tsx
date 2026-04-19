@@ -1702,6 +1702,10 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
                 userPersonas={personas.filter((persona) => !isSystemPersona(persona))}
                 telegramBotUrl={telegramBotUrl}
                 onNavigateToCreateVideo={() => setActiveTab("create_video")}
+                onRefreshPersonas={async () => {
+                  await loadWorkspace();
+                  await loadReviewEngineData();
+                }}
               />
             )}
 

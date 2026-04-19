@@ -5,6 +5,7 @@ Workspace-native persona studio session orchestration.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
@@ -16,6 +17,7 @@ from services.step_config import get_step_definition
 from skills.base import SkillResult, SkillSession, SkillStatus
 from skills.persona_creator import PersonaCreatorSkill
 
+logger = logging.getLogger(__name__)
 
 PersonaStudioMessageKind = Literal["text", "action"]
 PersonaStudioCommitMode = Literal["save_draft", "finalize"]
@@ -24,6 +26,23 @@ PersonaStudioCommitMode = Literal["save_draft", "finalize"]
 class PersonaStudioService:
     _WORKFLOW_TYPE = "persona_studio"
     _WORKFLOW_CHANNEL = "workspace"
+
+    @classmethod
+    def _is_missing_column_error(cls, exc: Exception, column_name: str) -> bool:
+        message = str(exc).lower()
+        return (
+            "column" in message
+            and column_name.lower() in message
+            and "does not exist" in message
+        )
+
+    @classmethod
+    def _is_legacy_workflows_schema_error(cls, exc: Exception) -> bool:
+        message = str(exc).lower()
+        if 'relation "workflows"' not in message:
+            return False
+        legacy_columns = ("channel", "request_key", "current_step", "progress")
+        return any(cls._is_missing_column_error(exc, column) for column in legacy_columns)
 
     @classmethod
     def _transport_client(cls, app: Any) -> httpx.AsyncClient:
@@ -272,8 +291,153 @@ class PersonaStudioService:
         studio_state: Dict[str, Any],
     ) -> None:
         workflow_id = cls._workflow_id(session_id)
+        workflow_status = cls._workflow_status(session.control.status)
+        workflow_progress = cls._progress_for_step(session.step_key, session.control.status)
+        serialized_session = json.dumps(
+            {"studio_session": cls._dump_session(session)},
+            sort_keys=True,
+        )
+        serialized_state = json.dumps(studio_state, sort_keys=True)
         pool = await DatabaseService.get_pool()
         async with pool.acquire() as conn:
+            try:
+                await conn.execute(
+                    """
+                    INSERT INTO public.workflows (
+                        workflow_id,
+                        user_id,
+                        type,
+                        status,
+                        channel,
+                        current_step,
+                        progress,
+                        request_key,
+                        input_data,
+                        output_data,
+                        updated_at,
+                        completed_at
+                    )
+                    VALUES (
+                        $1,
+                        $2::uuid,
+                        $3,
+                        $4,
+                        $5,
+                        $6,
+                        $7,
+                        $8,
+                        $9::jsonb,
+                        $10::jsonb,
+                        NOW(),
+                        CASE WHEN $4 IN ('completed', 'failed', 'canceled', 'cancelled') THEN NOW() ELSE NULL END
+                    )
+                    ON CONFLICT (workflow_id) DO UPDATE
+                    SET status = EXCLUDED.status,
+                        channel = EXCLUDED.channel,
+                        current_step = EXCLUDED.current_step,
+                        progress = EXCLUDED.progress,
+                        request_key = EXCLUDED.request_key,
+                        input_data = EXCLUDED.input_data,
+                        output_data = EXCLUDED.output_data,
+                        updated_at = NOW(),
+                        completed_at = CASE
+                            WHEN EXCLUDED.status IN ('completed', 'failed', 'canceled', 'cancelled') THEN NOW()
+                            ELSE public.workflows.completed_at
+                        END
+                    """,
+                    workflow_id,
+                    user_id,
+                    cls._WORKFLOW_TYPE,
+                    workflow_status,
+                    cls._WORKFLOW_CHANNEL,
+                    session.step_key,
+                    workflow_progress,
+                    session_id,
+                    serialized_session,
+                    serialized_state,
+                )
+                return
+            except Exception as exc:
+                if not cls._is_legacy_workflows_schema_error(exc):
+                    logger.exception(
+                        "Persona studio persist failed | session_id=%s | workflow_id=%s",
+                        session_id,
+                        workflow_id,
+                    )
+                    raise
+
+                request_key_only_missing = cls._is_missing_column_error(
+                    exc,
+                    "request_key",
+                ) and not any(
+                    cls._is_missing_column_error(exc, column)
+                    for column in ("channel", "current_step", "progress")
+                )
+                if request_key_only_missing:
+                    logger.warning(
+                        "Persona studio falling back to workflows schema without request_key | session_id=%s",
+                        session_id,
+                    )
+                    await conn.execute(
+                        """
+                        INSERT INTO public.workflows (
+                            workflow_id,
+                            user_id,
+                            type,
+                            status,
+                            channel,
+                            current_step,
+                            progress,
+                            input_data,
+                            output_data,
+                            updated_at,
+                            completed_at
+                        )
+                        VALUES (
+                            $1,
+                            $2::uuid,
+                            $3,
+                            $4,
+                            $5,
+                            $6,
+                            $7,
+                            $8::jsonb,
+                            $9::jsonb,
+                            NOW(),
+                            CASE WHEN $4 IN ('completed', 'failed', 'canceled', 'cancelled') THEN NOW() ELSE NULL END
+                        )
+                        ON CONFLICT (workflow_id) DO UPDATE
+                        SET status = EXCLUDED.status,
+                            channel = EXCLUDED.channel,
+                            current_step = EXCLUDED.current_step,
+                            progress = EXCLUDED.progress,
+                            input_data = EXCLUDED.input_data,
+                            output_data = EXCLUDED.output_data,
+                            updated_at = NOW(),
+                            completed_at = CASE
+                                WHEN EXCLUDED.status IN ('completed', 'failed', 'canceled', 'cancelled') THEN NOW()
+                                ELSE public.workflows.completed_at
+                            END
+                        """,
+                        workflow_id,
+                        user_id,
+                        cls._WORKFLOW_TYPE,
+                        workflow_status,
+                        cls._WORKFLOW_CHANNEL,
+                        session.step_key,
+                        workflow_progress,
+                        serialized_session,
+                        serialized_state,
+                    )
+                    return
+
+                logger.warning(
+                    "Persona studio falling back to legacy workflows schema without metadata columns | session_id=%s",
+                    session_id,
+                )
+
+            # Old environments may not yet have workflow metadata columns.
+            # `workflow_id` is enough to resume the session safely.
             await conn.execute(
                 """
                 INSERT INTO public.workflows (
@@ -281,10 +445,6 @@ class PersonaStudioService:
                     user_id,
                     type,
                     status,
-                    channel,
-                    current_step,
-                    progress,
-                    request_key,
                     input_data,
                     output_data,
                     updated_at,
@@ -295,21 +455,13 @@ class PersonaStudioService:
                     $2::uuid,
                     $3,
                     $4,
-                    $5,
-                    $6,
-                    $7,
-                    $8,
-                    $9::jsonb,
-                    $10::jsonb,
+                    $5::jsonb,
+                    $6::jsonb,
                     NOW(),
                     CASE WHEN $4 IN ('completed', 'failed', 'canceled', 'cancelled') THEN NOW() ELSE NULL END
                 )
                 ON CONFLICT (workflow_id) DO UPDATE
                 SET status = EXCLUDED.status,
-                    channel = EXCLUDED.channel,
-                    current_step = EXCLUDED.current_step,
-                    progress = EXCLUDED.progress,
-                    request_key = EXCLUDED.request_key,
                     input_data = EXCLUDED.input_data,
                     output_data = EXCLUDED.output_data,
                     updated_at = NOW(),
@@ -321,13 +473,9 @@ class PersonaStudioService:
                 workflow_id,
                 user_id,
                 cls._WORKFLOW_TYPE,
-                cls._workflow_status(session.control.status),
-                cls._WORKFLOW_CHANNEL,
-                session.step_key,
-                cls._progress_for_step(session.step_key, session.control.status),
-                session_id,
-                json.dumps({"studio_session": cls._dump_session(session)}, sort_keys=True),
-                json.dumps(studio_state, sort_keys=True),
+                workflow_status,
+                serialized_session,
+                serialized_state,
             )
 
     @classmethod
@@ -337,21 +485,30 @@ class PersonaStudioService:
         session_id: str,
         user_id: str,
     ) -> SkillSession:
+        workflow_id = cls._workflow_id(session_id)
         pool = await DatabaseService.get_pool()
         async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                SELECT input_data
-                FROM public.workflows
-                WHERE user_id = $1::uuid
-                  AND type = $2
-                  AND request_key = $3
-                LIMIT 1
-                """,
-                user_id,
-                cls._WORKFLOW_TYPE,
-                session_id,
-            )
+            try:
+                row = await conn.fetchrow(
+                    """
+                    SELECT input_data
+                    FROM public.workflows
+                    WHERE user_id = $1::uuid
+                      AND type = $2
+                      AND workflow_id = $3
+                    LIMIT 1
+                    """,
+                    user_id,
+                    cls._WORKFLOW_TYPE,
+                    workflow_id,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Persona studio load failed | session_id=%s | workflow_id=%s",
+                    session_id,
+                    workflow_id,
+                )
+                raise
         if row is None:
             raise ValueError("Persona studio session not found.")
         payload = row.get("input_data") or {}

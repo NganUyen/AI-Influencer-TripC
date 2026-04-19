@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 import pytest
 
+from services import app_review_studio_service as studio_module
 from services.app_review_studio_service import AppReviewStudioService
 from services.contracts import WebPageReviewContract
 from services.customer_auth_service import CustomerSession
@@ -41,6 +42,62 @@ def _page_review(**overrides: Any) -> WebPageReviewContract:
     }
     payload.update(overrides)
     return WebPageReviewContract.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_get_setup_uses_canonical_system_and_customer_persona_split(
+    monkeypatch,
+):
+    async def fake_list_personas(*, user_id):
+        assert user_id == _session().user_id
+        return [
+            {
+                "user_id": _session().user_id,
+                "persona_id": "custom-hero",
+                "display_name": "Custom Hero",
+                "language": "English",
+                "status": "ready",
+            },
+            {
+                "user_id": AppReviewStudioService.SYSTEM_PERSONA_USER_ID,
+                "persona_id": "global-us-alex",
+                "display_name": "Alex Rivera",
+                "language": "English (US)",
+                "status": "draft",
+            },
+        ]
+
+    async def fake_list_accounts(_user_id):
+        return []
+
+    async def fake_get_link_for_user(_user_id):
+        return None
+
+    monkeypatch.setattr(
+        studio_module.PersonaRegistryService,
+        "list_personas",
+        fake_list_personas,
+    )
+    monkeypatch.setattr(
+        studio_module.AccountConnectionService,
+        "list_accounts",
+        fake_list_accounts,
+    )
+    monkeypatch.setattr(
+        studio_module.TelegramLinkService,
+        "get_link_for_user",
+        fake_get_link_for_user,
+    )
+
+    payload = await AppReviewStudioService.get_setup(user_id=_session().user_id)
+
+    assert [item["persona_id"] for item in payload["persona_options"]] == [
+        "global-us-alex"
+    ]
+    assert payload["persona_options"][0]["is_preset_catalog"] is True
+    assert [item["persona_id"] for item in payload["custom_personas"]] == [
+        "custom-hero"
+    ]
 
 
 @pytest.mark.asyncio

@@ -385,7 +385,7 @@ services:
     image: ${GHCR_NAMESPACE:-ghcr.io/nganuyen}/ai-influencer-growchief:${IMAGE_TAG:-latest}
     container_name: ai-influencer-growchief
     ports:
-      - "127.0.0.1:3200:5000"
+      - "127.0.0.1:3200:3000"
     environment:
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/growchief
       - STORAGE_PROVIDER=local
@@ -413,8 +413,12 @@ services:
       - ./.docker-data/openclaw/workspace:/app/browser_profiles
       - growchief_config:/config
       - growchief_uploads:/uploads
+      - ./docker/growchief/start-growchief.sh:/usr/local/bin/start-growchief.sh:ro
     networks:
       - ai-influencer-network
+    command:
+      - /bin/sh
+      - /usr/local/bin/start-growchief.sh
     deploy:
       resources:
         limits:
@@ -432,9 +436,9 @@ services:
           "--label",
           "GrowChief",
           "--ui",
-          "http://127.0.0.1:5000/",
+          "http://127.0.0.1:3000/",
           "--api",
-          "http://127.0.0.1:5000/api/public/workflows",
+          "http://127.0.0.1:3000/public/workflows",
           "--auth-env",
           "GROWCHIEF_API_KEY",
           "--processes",
@@ -468,7 +472,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - OPENCLAW_API_URL=http://openclaw:18789
       - POSTIZ_API_URL=http://postiz:5000
-      - GROWCHIEF_API_URL=http://growchief:5000
+      - GROWCHIEF_API_URL=http://growchief:3000
       - FRONTEND_PUBLIC_URL=${FRONTEND_PUBLIC_URL:-https://ai-influencer.tripc.ai}
       - BACKEND_PUBLIC_URL=${BACKEND_PUBLIC_URL:-https://api.ai-influencer.tripc.ai}
       - CHATGPT_CONNECTOR_PUBLIC_URL=${CHATGPT_CONNECTOR_PUBLIC_URL:-https://connector.ai-influencer.tripc.ai}
@@ -520,7 +524,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - OPENCLAW_API_URL=http://openclaw:18789
       - POSTIZ_API_URL=http://postiz:5000
-      - GROWCHIEF_API_URL=http://growchief:5000
+      - GROWCHIEF_API_URL=http://growchief:3000
       - WORKER_CONCURRENCY=8
       - APP_ADMIN_TOKEN=${APP_ADMIN_TOKEN}
       - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}

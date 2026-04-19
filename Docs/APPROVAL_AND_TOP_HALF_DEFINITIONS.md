@@ -133,16 +133,23 @@ When top-half is slow or unstable:
 - Add explicit error logging around approval DB insert failures.
 - Add optional fallback strategy to avoid memory-only approval state.
 - Expose top-half stage duration metrics per scene for tuning.
-Checklist vướng mắc hiện tại
 
- Approval chưa persist ổn định vào public.approvals cho mọi workflow (đang có case Approval request not found).
- Workflow state chưa được ghi nhất quán vào public.workflows ngay từ đầu run (có run phải insert tay).
- FK timing giữa approvals.workflow_id và workflows.workflow_id chưa được xử lý an toàn.
- Logging khi fallback memory (approval/workflow) chưa đủ rõ để debug nhanh.
- Create Video trên web vẫn còn phần mock (render/publish) chưa full backend end-to-end.
- Top-half capture còn chậm/dao động (browser capture là bottleneck chính).
- Chưa có dashboard timing theo stage (script, top_half, talking_head, assembly, upload).
- Metadata visibility đang mismatch với URL public trong media_assets.
- Chưa có quy trình recover khi approval message cũ/legacy callback được bấm lại.
- Chưa có test tích hợp đầy đủ cho nhánh Telegram save/discard + DB persistence.
- Cần verify publish end-to-end sau khi approval persistence được fix.
+## 5) Current Gap Checklist
+
+This section tracks the current known gaps after local verification.
+
+- `P0` Approval persistence is not stable for all workflows (`Approval request not found` observed).
+- `P0` Workflow state is not always persisted to `public.workflows` from the start of each run.
+- `P0` FK timing between `approvals.workflow_id` and `workflows.workflow_id` is still fragile.
+- `P0` Fallback-to-memory paths do not emit enough structured logs for fast diagnosis.
+- `P1` Top-half capture latency is variable (browser capture remains the main bottleneck).
+- `P1` No stage timing dashboard yet (`script`, `top_half`, `talking_head`, `assembly`, `upload`).
+- `P1` Metadata mismatch exists: `visibility` may be `private` while URL path is `public`.
+- `P1` No robust recovery path for stale legacy callback messages.
+- `P1` Integration coverage is missing for Telegram `save/discard` persistence scenarios.
+- `P1` Publish flow should be re-verified end-to-end after approval persistence is fixed.
+
+## 6) Notes
+
+- Publishing UI mock mode has been removed and is now backend-driven.
+- Remaining blockers are primarily backend workflow-state and approval durability issues.

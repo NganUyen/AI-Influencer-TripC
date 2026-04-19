@@ -434,6 +434,12 @@ class MediaStorageService:
             )
             normalized_origin = _normalize_asset_origin(asset_origin)
 
+            visibility_value = (
+                "public"
+                if str(storage.public_base_url or "").strip()
+                else "private"
+            )
+
             db_metadata = {
                 **(metadata or {}),
                 "campaign_id": campaign_id,
@@ -444,7 +450,7 @@ class MediaStorageService:
                 "storage_bucket": storage.bucket_name,
                 "storage_path": resolved_destination,
                 "storage_provider": storage.provider,
-                "visibility": "private" if storage.provider == "supabase" else "public",
+                "visibility": visibility_value,
                 "asset_origin": normalized_origin,
             }
             cleaned_metadata = {k: v for k, v in db_metadata.items() if v is not None}
@@ -459,7 +465,7 @@ class MediaStorageService:
                 bucket_name=storage.bucket_name,
                 storage_path=resolved_destination,
                 storage_provider=storage.provider,
-                visibility="private" if storage.provider == "supabase" else "public",
+                visibility=visibility_value,
                 asset_origin=normalized_origin,
                 asset_status="available",
                 provider_job_id=provider_job_id,

@@ -15,6 +15,8 @@ import type {
   CreateVideoProgressViewModel,
   CreateVideoSetupState,
   PersonaPlanCardViewModel,
+  ScenePreviewItem,
+  SharedContractDraft,
 } from '@/types/video-planning';
 import { DEFAULT_SETUP_STATE } from '@/types/video-planning';
 import {
@@ -63,6 +65,110 @@ function mergeJobs(
   existing.forEach((job) => merged.set(jobKey(job), job));
   incoming.forEach((job) => merged.set(jobKey(job), job));
   return sortJobs(Array.from(merged.values()));
+}
+
+function formatScenesForEditor(scenes: ScenePreviewItem[]): string {
+  return scenes
+    .map((scene) =>
+      `${scene.description}${scene.durationSeconds !== undefined ? ` | ${scene.durationSeconds}` : ''}`,
+    )
+    .join('\n');
+}
+
+function parseScenesFromEditor(input: string): ScenePreviewItem[] {
+  return input
+    .split('\n')
+    .map((row) => row.trim())
+    .filter(Boolean)
+    .map((row, idx) => {
+      const [descPart, durationPart] = row.split('|').map((part) => part.trim());
+      const duration = durationPart
+        ? Number(durationPart.replace(/[^\d.]/g, ''))
+        : Number.NaN;
+      return {
+        index: idx + 1,
+        description: descPart || `Scene ${idx + 1}`,
+        durationSeconds: Number.isFinite(duration) ? duration : undefined,
+      };
+    });
+}
+
+function buildSharedContractDraft(jobs: ReviewEngineJob[]): SharedContractDraft {
+  const firstJob = jobs[0];
+  const scriptText = String(
+    firstJob?.script?.script || firstJob?.editable_content || firstJob?.content?.body || '',
+  ).trim();
+  const scenes = Array.isArray(firstJob?.script?.scenes)
+    ? firstJob.script?.scenes.map((scene, index) => ({
+        index: index + 1,
+        description: String(
+          scene?.description ||
+            scene?.caption ||
+            scene?.scene_description ||
+            scene?.voiceover ||
+            scene?.script ||
+            scene?.text ||
+            `Scene ${index + 1}`,
+        ).trim(),
+        durationSeconds: Number.isFinite(
+          Number(scene?.durationSeconds ?? scene?.duration_seconds ?? scene?.duration),
+        )
+          ? Number(scene?.durationSeconds ?? scene?.duration_seconds ?? scene?.duration)
+          : undefined,
+      }))
+    : [];
+  return {
+    scriptText,
+    scenesText: formatScenesForEditor(scenes),
+  };
+}
+
+function syncPlanCardsWithSharedDraft(
+  cards: PersonaPlanCardViewModel[],
+  draft: SharedContractDraft,
+): PersonaPlanCardViewModel[] {
+  const scenes = parseScenesFromEditor(draft.scenesText);
+  return cards.map((card) => ({
+    ...card,
+    scriptPreview: draft.scriptText.trim() || card.scriptPreview,
+    scenes: scenes.length > 0 ? scenes : card.scenes,
+  }));
+}
+
+function resetReviewFlowState() {
+  return {
+    activePlanIds: [] as string[],
+    planCards: [] as PersonaPlanCardViewModel[],
+    progressItems: [] as CreateVideoProgressViewModel[],
+    sharedContractDraft: { scriptText: '', scenesText: '' } as SharedContractDraft,
+    sharedContractDirty: false,
+    currentStep: 1 as Step,
+  };
+}
+
+function normalizeContractFingerprint(job: ReviewEngineJob): string {
+  const scriptText = String(
+    job.script?.script || job.editable_content || job.content?.body || '',
+  ).trim();
+  const scenes = Array.isArray(job.script?.scenes) ? job.script.scenes : [];
+  const normalizedScenes = scenes
+    .map((scene, index) => {
+      const description = String(
+        scene?.description ||
+          scene?.caption ||
+          scene?.scene_description ||
+          scene?.voiceover ||
+          scene?.script ||
+          scene?.text ||
+          `Scene ${index + 1}`,
+      ).trim();
+      const duration = Number(scene?.durationSeconds ?? scene?.duration_seconds ?? scene?.duration);
+      return {
+        description,
+        durationSeconds: Number.isFinite(duration) ? duration : null,
+      };
+    });
+  return JSON.stringify({ scriptText, scenes: normalizedScenes });
 }
 
 function deriveStepFromJobs(jobs: ReviewEngineJob[]): Step {
@@ -201,6 +307,11 @@ export function CreateVideoTab({
   const [jobs, setJobs] = useState<ReviewEngineJob[]>(initialJobs);
   const [planCards, setPlanCards] = useState<PersonaPlanCardViewModel[]>([]);
   const [progressItems, setProgressItems] = useState<CreateVideoProgressViewModel[]>([]);
+  const [sharedContractDraft, setSharedContractDraft] = useState<SharedContractDraft>({
+    scriptText: '',
+    scenesText: '',
+  });
+  const [sharedContractDirty, setSharedContractDirty] = useState(false);
   const [activePlanIds, setActivePlanIds] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSavingPlans, setIsSavingPlans] = useState(false);
@@ -272,19 +383,21 @@ export function CreateVideoTab({
     if (editableCards.length === 0) {
       return;
     }
+    const scriptText = sharedContractDraft.scriptText.trim();
+    const scenesData = parseScenesFromEditor(sharedContractDraft.scenesText);
     await Promise.all(
       editableCards.map((card) =>
         customerApiRequest(`/api/customer/review-engine/plans/${card.planId}`, {
           method: 'PATCH',
           body: JSON.stringify({
-            script_text: card.scriptPreview,
-            scenes_data: card.scenes,
+            script_text: scriptText,
+            scenes_data: scenesData,
             creative_preferences: creativePreferences,
           }),
         }),
       ),
     );
-  }, [setupState]);
+  }, [setupState, sharedContractDraft]);
 
   useEffect(() => {
     setJobs(initialJobs);
@@ -336,6 +449,14 @@ export function CreateVideoTab({
     });
   }, [activePlanIds, jobs]);
 
+  const hasDivergentContracts = useMemo(() => {
+    if (activeJobs.length <= 1) {
+      return false;
+    }
+    const fingerprints = new Set(activeJobs.map(normalizeContractFingerprint));
+    return fingerprints.size > 1;
+  }, [activeJobs]);
+
   useEffect(() => {
     if (activeJobs.length === 0) {
       return;
@@ -350,13 +471,14 @@ export function CreateVideoTab({
           ? {
               ...card,
               reviewDecision: existing.reviewDecision,
-              scriptPreview: existing.scriptPreview,
-              scenes: existing.scenes,
             }
           : card;
       });
     });
     setProgressItems(toRenderProgressItems(activeJobs));
+    if (!sharedContractDirty) {
+      setSharedContractDraft(buildSharedContractDraft(activeJobs));
+    }
 
     const derivedStep = deriveStepFromJobs(activeJobs);
     setCurrentStep((current) => {
@@ -365,7 +487,7 @@ export function CreateVideoTab({
       }
       return current;
     });
-  }, [activeJobs]);
+  }, [activeJobs, sharedContractDirty]);
 
   useEffect(() => {
     persistActiveFlow(activePlanIds, currentStep);
@@ -413,10 +535,12 @@ export function CreateVideoTab({
       setJobs((current) => mergeJobs(current, nextJobs));
       setActivePlanIds(nextPlanIds);
       setPlanCards(toPersonaPlanCards(nextJobs));
+      setSharedContractDraft(buildSharedContractDraft(nextJobs));
+      setSharedContractDirty(false);
       setProgressItems([]);
       setCurrentStep(2);
       if (result.warnings?.[0]?.message) {
-        toast(result.warnings[0].message);
+        toast(`Review jobs created with a warning: ${result.warnings[0].message}`);
       }
       await Promise.resolve(onRefresh?.());
     } catch (error) {
@@ -434,14 +558,15 @@ export function CreateVideoTab({
     setIsSavingPlans(true);
     try {
       await persistPlanCards(planCards);
+      setSharedContractDirty(false);
       await refreshJobs();
       await Promise.resolve(onRefresh?.());
-      toast.success('Plan edits saved.');
+      toast.success('Shared contract saved and synced to editable persona plans.');
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to save plan edits';
       setErrorMessage(message);
-      toast.error(message);
+      toast.error(`Shared edits were not saved: ${message}`);
     } finally {
       setIsSavingPlans(false);
     }
@@ -459,35 +584,87 @@ export function CreateVideoTab({
     setIsSubmittingPlans(true);
     try {
       await persistPlanCards(planCards);
-      await Promise.all(
-        approvedCards.map((card) =>
-          customerApiRequest(`/api/customer/review-engine/plans/${card.planId}/approve`, {
+      setSharedContractDirty(false);
+      const approvedPlanIds: string[] = [];
+      const failedApprovals: string[] = [];
+
+      for (const card of approvedCards) {
+        try {
+          await customerApiRequest(`/api/customer/review-engine/plans/${card.planId}/approve`, {
             method: 'POST',
             body: JSON.stringify({}),
-          }),
-        ),
-      );
-      const nextPlanIds = approvedCards
-        .map((card) => String(card.planId || '').trim())
-        .filter(Boolean);
+          });
+          approvedPlanIds.push(String(card.planId || '').trim());
+        } catch (error) {
+          failedApprovals.push(card.personaName);
+        }
+      }
+
+      const nextPlanIds = approvedPlanIds.filter(Boolean);
+      if (nextPlanIds.length === 0) {
+        throw new Error('No approved plans could continue to production.');
+      }
       setActivePlanIds(nextPlanIds);
       const nextJobs = await refreshJobs();
       const refreshedActiveJobs = nextJobs.filter((job) =>
         nextPlanIds.includes(String(job.plan_id || '').trim()),
       );
       setPlanCards(toPersonaPlanCards(refreshedActiveJobs));
+      setSharedContractDraft(buildSharedContractDraft(refreshedActiveJobs));
       setProgressItems(toRenderProgressItems(refreshedActiveJobs));
       setCurrentStep(3);
       await Promise.resolve(onRefresh?.());
+      toast.success(`Approved ${nextPlanIds.length} persona plan${nextPlanIds.length > 1 ? 's' : ''} and moved to Step 3.`);
+      if (failedApprovals.length > 0) {
+        toast.error(`Some persona plans stayed on Step 2: ${failedApprovals.join(', ')}.`);
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to approve plans';
       setErrorMessage(message);
-      toast.error(message);
+      toast.error(`Could not approve the selected persona plans: ${message}`);
     } finally {
       setIsSubmittingPlans(false);
     }
   }, [onRefresh, persistPlanCards, planCards, refreshJobs]);
+
+  const deleteReviewPlans = useCallback(async (planIds: string[]) => {
+    const uniquePlanIds = Array.from(new Set(planIds.map((planId) => planId.trim()).filter(Boolean)));
+    if (uniquePlanIds.length === 0) {
+      throw new Error('No plans were selected for deletion.');
+    }
+
+    setErrorMessage(null);
+    const failures: string[] = [];
+
+    for (const planId of uniquePlanIds) {
+      try {
+        await customerApiRequest(`/api/customer/review-engine/plans/${planId}`, {
+          method: 'DELETE',
+        });
+      } catch (error) {
+        failures.push(planId);
+      }
+    }
+
+    if (failures.length > 0) {
+      const message = `Failed to delete plan(s): ${failures.join(', ')}`;
+      setErrorMessage(message);
+      toast.error(message);
+      throw new Error(message);
+    }
+
+    await refreshJobs();
+    await Promise.resolve(onRefresh?.());
+    const nextState = resetReviewFlowState();
+    setActivePlanIds(nextState.activePlanIds);
+    setPlanCards(nextState.planCards);
+    setProgressItems(nextState.progressItems);
+    setSharedContractDraft(nextState.sharedContractDraft);
+    setSharedContractDirty(nextState.sharedContractDirty);
+    setCurrentStep(nextState.currentStep);
+    toast.success('Deleted the selected plan(s) and returned to Setup.');
+  }, [onRefresh, refreshJobs]);
 
   const handleUploadPlanVideo = useCallback(async (planId: string, file: File | null) => {
     if (!file) {
@@ -574,9 +751,25 @@ export function CreateVideoTab({
         {currentStep === 2 && (
           <CreateVideoReviewStep
             planCards={planCards}
+            sharedContractDraft={sharedContractDraft}
+            hasUnsavedChanges={sharedContractDirty}
+            onSharedContractChange={(nextDraft) => {
+              setSharedContractDraft(nextDraft);
+              setPlanCards((current) => syncPlanCardsWithSharedDraft(current, nextDraft));
+              setSharedContractDirty(true);
+            }}
+            onResetSharedContract={() => {
+              const baselineDraft = buildSharedContractDraft(activeJobs);
+              setSharedContractDraft(baselineDraft);
+              setPlanCards((current) => syncPlanCardsWithSharedDraft(current, baselineDraft));
+              setSharedContractDirty(false);
+            }}
+            hasDivergentContracts={hasDivergentContracts}
             onCardsChange={setPlanCards}
             onSaveEdits={savePlanEdits}
             isSaving={isSavingPlans}
+            onDeletePlans={deleteReviewPlans}
+            onReturnToSetup={() => setCurrentStep(1)}
             onUploadPlanVideo={handleUploadPlanVideo}
             uploadingPlanIds={uploadingPlanIds}
             onContinue={goToStep3}

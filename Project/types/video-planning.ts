@@ -21,6 +21,13 @@ export interface CreateVideoModeViewModel {
   note?: string;
 }
 
+export interface ValidationFeatureViewModel {
+  label: string;
+  summary?: string;
+  sourceUrl?: string;
+  evidence?: string[];
+}
+
 // ---------------------------------------------------------------------------
 // Step 1 — Setup form state
 // ---------------------------------------------------------------------------
@@ -34,6 +41,7 @@ export interface CreateVideoSetupState {
     pageTitle?: string;
     suggestedObjective?: string | null;
     visibleFeatureCount?: number;
+    visibleFeatures?: ValidationFeatureViewModel[];
   };
   selectedPersonaIds: string[];
   objective: string;
@@ -75,12 +83,18 @@ export interface ScenePreviewItem {
   durationSeconds?: number;
 }
 
+export interface SharedContractDraft {
+  scriptText: string;
+  scenesText: string;
+}
+
 export interface PersonaPlanCardViewModel {
   jobId: string;
   planId?: string | null;
   workflowId?: string | null;
   personaId: string;
   personaName: string;
+  personaLanguage?: string | null;
   personaAvatarUrl?: string;
   sourceUrl?: string | null;
   objective?: string | null;

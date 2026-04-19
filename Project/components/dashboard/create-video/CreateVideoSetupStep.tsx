@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import type { CreateVideoSetupState, VideoCreationMode } from '@/types/video-planning';
+import type { CreateVideoSetupState, ValidationFeatureViewModel, VideoCreationMode } from '@/types/video-planning';
 import type { Persona } from '@/components/customer-dashboard';
 import { CreateVideoModeCards } from './CreateVideoModeCards';
 import { CreateVideoSummaryPanel } from './CreateVideoSummaryPanel';
@@ -170,6 +170,10 @@ export function CreateVideoSetupStep({
           pageTitle: result.page_title,
           suggestedObjective: result.suggested_objective,
           visibleFeatureCount: result.visible_features?.length ?? 0,
+          visibleFeatures: (result.visible_features ?? [])
+            .map(coerceValidationFeature)
+            .filter((feature): feature is ValidationFeatureViewModel => feature !== null)
+            .slice(0, 6),
         },
         objective:
           objective.trim().length > 0
@@ -186,6 +190,32 @@ export function CreateVideoSetupStep({
       });
     }
   }, [objective, onChange, sourceUrl]);
+
+  function coerceValidationFeature(item: unknown): ValidationFeatureViewModel | null {
+    if (!item || typeof item !== 'object') return null;
+
+    const raw = item as Record<string, unknown>;
+    const label = typeof raw.label === 'string' ? raw.label.trim() : '';
+    const summary = typeof raw.summary === 'string' ? raw.summary.trim() : '';
+    const sourceUrl = typeof raw.source_url === 'string'
+      ? raw.source_url.trim()
+      : typeof raw.sourceUrl === 'string'
+        ? raw.sourceUrl.trim()
+        : '';
+
+    if (!label && !summary) return null;
+
+    const evidence = Array.isArray(raw.evidence)
+      ? raw.evidence.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : undefined;
+
+    return {
+      label: label || summary,
+      summary: summary || undefined,
+      sourceUrl: sourceUrl || undefined,
+      evidence,
+    };
+  }
 
   // -------------------------------------------------------------------------
   // Persona selection toggle
@@ -348,10 +378,23 @@ export function CreateVideoSetupStep({
                       {urlValidationDetails.pageTitle && (
                         <span><strong>Page title</strong>{urlValidationDetails.pageTitle}</span>
                       )}
-                      <span>
+                      <div className="cv-validation-feature-panel">
                         <strong>Visible features</strong>
-                        {urlValidationDetails.visibleFeatureCount ?? 0} found
-                      </span>
+                        {urlValidationDetails.visibleFeatures && urlValidationDetails.visibleFeatures.length > 0 ? (
+                          <div className="cv-validation-feature-list">
+                            {urlValidationDetails.visibleFeatures.map((feature) => (
+                              <div className="cv-validation-feature-item" key={`${feature.label}-${feature.sourceUrl ?? feature.summary ?? ''}`}>
+                                <span className="cv-validation-feature-name">{feature.label}</span>
+                                {feature.summary && (
+                                  <span className="cv-validation-feature-summary">{feature.summary}</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="cv-validation-feature-empty">No visible features extracted.</span>
+                        )}
+                      </div>
                       {urlValidationDetails.suggestedObjective && (
                         <span><strong>Suggested objective</strong>{urlValidationDetails.suggestedObjective}</span>
                       )}

@@ -143,3 +143,25 @@ async def test_load_session_accepts_stringified_json_payload(monkeypatch):
 
     assert loaded.step_key == "preview"
     assert loaded.collected["persona_id"] == "zoe-founder"
+
+
+def test_apply_message_accepts_confirm_dream_actions():
+    session = SkillSession(
+        skill_name="persona-creator",
+        step_key="confirm_dream",
+        collected={},
+        artifacts={"web_messages": []},
+        control=SkillControl(status=SkillStatus.collecting),
+    )
+
+    message = PersonaStudioService._apply_message_to_session(
+        session=session,
+        kind="action",
+        content=None,
+        action="confirm",
+        value="confirm",
+    )
+
+    assert session.collected["dream_confirmed"] == "confirm"
+    assert message["role"] == "user"
+    assert "Use & Continue" in message["content"]

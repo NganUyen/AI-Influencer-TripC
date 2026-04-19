@@ -559,6 +559,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "confirm_dream": {
             "input_type": "preview_actions",
+            "field": "dream_confirmed",
             "prompt_text": "✨ *Identity Suggestions Ready\\!* Review the localized name and ID below:",
             "options": _options(
                 ("✅ Use & Continue", "confirm"),

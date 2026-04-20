@@ -718,7 +718,7 @@ Response format:
                         f"Nationality: {nationality}\n"
                         f"Suggested Name: {dream['display_name']}\n"
                         f"ID: {dream['persona_id']}\n\n"
-                        f"Appearance: {dream['appearance'][:200]}..."
+                        f"Appearance: {dream['appearance']}"
                     )
                     # Remove Telegram-style backslash escapes for web display
                     summary = summary.replace("\\!", "!").replace("\\.", ".")
@@ -735,12 +735,30 @@ Response format:
                         }
                     )
 
-                if current.collected.get("dream_confirmed") == "confirm":
+                confirm_action = current.collected.get("dream_confirmed")
+                if confirm_action == "confirm":
                     current.step_key = "generate_preview"
                     # Proceed to standard collection
+                elif confirm_action == "cancel":
+                    # Abort the skill session
+                    current.control.status = SkillStatus.done
+                    return SkillResult(
+                        success=True,
+                        next_step="cancel",
+                        session=current,
+                        output={"message": "Creation cancelled by user."}
+                    )
                 elif current.step_key == "confirm_dream":
-                    # Stay here until confirmed or retried
-                    return cls._collecting_result(current, next_step="confirm_dream")
+                    # Stay here until confirmed or retried (or cancelled)
+                    preview_url = current.artifacts.get("preview_image_url") or current.artifacts.get("avatar_image_url")
+                    return cls._collecting_result(
+                        current, 
+                        next_step="confirm_dream",
+                        output={
+                            "message": current.artifacts.get("dream_summary", "Ready to continue?"),
+                            "preview_image_url": preview_url
+                        }
+                    )
 
             # ── Step 1: Standard Collection ────────────────────────────────────
             # We re-evaluate missing params AFTER the dreaming layer has pre-filled them

@@ -203,11 +203,19 @@ class PersonaCreatorSkill(BaseSkill):
     @classmethod
     async def _dream_persona_details_refined(
         cls, 
+        current: SkillSession,
         nationality: str, 
         brief: str
     ) -> Dict[str, Any]:
         """AI-powered identity generation using OpenClaw."""
-        openclaw = OpenClawGateway()
+        user_id = current.artifacts.get("user_id")
+        telegram_chat_id = current.artifacts.get("telegram_chat_id")
+        owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
+        
+        openclaw = await OpenClawGateway.create_for_owner(
+            user_id=user_id,
+            owner_key=owner_key,
+        )
         
         prompt = f"""You are a master of global identities and cultural nuances.
 Suggest a realistic, culturally accurate persona identity.
@@ -365,9 +373,7 @@ Response format:
         if not uploaded_url:
             return persona
 
-        telegram_chat_id = current.artifacts.get("telegram_chat_id")
-        owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
-        patch_params = {"owner_key": owner_key} if owner_key else None
+        patch_params = cls._owner_params(current)
         patch_payload: Dict[str, Any] = {
             "avatar_image_url": uploaded_url,
             "avatar_source_type": "telegram_upload",
@@ -408,9 +414,7 @@ Response format:
         if persona.get("avatar_image_url") and persona.get("avatar_media_asset_id"):
             return persona
 
-        telegram_chat_id = current.artifacts.get("telegram_chat_id")
-        owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
-        patch_params = {"owner_key": owner_key} if owner_key else None
+        patch_params = cls._owner_params(current)
         patch_payload: Dict[str, Any] = {
             "avatar_image_url": artifact_avatar_url,
             "avatar_media_asset_id": artifact_media_asset_id,
@@ -662,7 +666,7 @@ Response format:
                 if not current.artifacts.get("dream_ready"):
                     try:
                         dream = await cls._dream_persona_details_refined(
-                            nationality, dream_brief
+                            current, nationality, dream_brief
                         )
                     except Exception as exc:
                         logger.error(
@@ -935,5 +939,8 @@ Response format:
             import traceback
             error_details = traceback.format_exc()
             logger.error(f"SKILL EXECUTION FAILED: {exc}\n{error_details}")
-            msg = "🚫 Unexpected error while creating persona. Please try again or send /cancel."
+            
+            # Remove Telegram-specific /cancel mention and show actual error if possible
+            error_msg = str(exc)
+            msg = f"🚫 Unexpected error while creating persona: {error_msg}. Please try again later."
             return cls._error_result(current, msg)

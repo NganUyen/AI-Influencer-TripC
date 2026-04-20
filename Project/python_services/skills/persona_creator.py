@@ -203,11 +203,21 @@ class PersonaCreatorSkill(BaseSkill):
     @classmethod
     async def _dream_persona_details_refined(
         cls, 
+        current: SkillSession,
         nationality: str, 
         brief: str
     ) -> Dict[str, Any]:
         """AI-powered identity generation using OpenClaw."""
-        openclaw = OpenClawGateway()
+        params = cls._owner_params(current) or {}
+        
+        try:
+            openclaw = await OpenClawGateway.create_for_owner(
+                user_id=params.get("user_id"),
+                owner_key=params.get("owner_key"),
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create owner-aware OpenClaw gateway: {e}. Falling back to system default.")
+            openclaw = OpenClawGateway()
         
         prompt = f"""You are a master of global identities and cultural nuances.
 Suggest a realistic, culturally accurate persona identity.
@@ -221,7 +231,7 @@ Hard requirements:
 - Do not default to an average white, Western, or English-coded influencer unless the brief explicitly asks for that.
 - Reflect the brief's age, style, profession, and environment in the appearance description.
 
-You MUST return valid JSON with these keys:
+You MUST return ONLY a raw JSON object. Do not include any conversational filler, intro, or outro text.\n\nKeys required:
 - persona_id: A unique URL-safe slug (e.g., 'kaito_tanaka')
 - display_name: A realistic, localized full name (e.g., 'Kaito Tanaka')
 - appearance: A detailed visual description for an image generator (e.g., 'A portrait of an elderly man with silver hair wearing a kimono...')
@@ -242,25 +252,49 @@ Response format:
                 context={"nationality": nationality, "brief": brief},
             )
             
-            # Result may already be parsed JSON or contain a 'result' key
-            data = result if isinstance(result.get("persona_id"), str) else result.get("result", result)
+                        # Result may already be parsed JSON or contain a 'result' key, or be raw with output_text
+            data = result
+            if isinstance(result, dict) and isinstance(result.get("persona_id"), str):
+                data = result
+            elif isinstance(result, dict) and isinstance(result.get("result"), dict):
+                data = result["result"]
+            elif isinstance(result, dict) and isinstance(result.get("output_text"), str):
+                from utils.json_helpers import extract_json_from_llm_response
+                data = extract_json_from_llm_response(result["output_text"])
+            elif isinstance(result, str):
+                from utils.json_helpers import extract_json_from_llm_response
+                data = extract_json_from_llm_response(result)
             
-            # If data is still a string, try to parse it
-            if isinstance(data, str):
-                json_match = re.search(r"\{.*\}", data, re.DOTALL)
-                if json_match:
-                    data = json.loads(json_match.group(0))
-            
+            # If data is still missing keys, try one last aggressive search in any string content found
+            if not isinstance(data, dict) or "persona_id" not in data:
+                text_to_search = ""
+                if isinstance(data, dict) and "text" in data:
+                    text_to_search = data["text"]
+                elif isinstance(data, str):
+                    text_to_search = data
+                elif isinstance(result, dict) and "output_text" in result:
+                    text_to_search = result["output_text"]
+                elif isinstance(result, dict) and "result" in result and isinstance(result["result"], str):
+                    text_to_search = result["result"]
+                
+                if "{" in text_to_search:
+                    from utils.json_helpers import extract_json_from_llm_response
+                    data = extract_json_from_llm_response(text_to_search)
+
             # Validate required keys
-            if not isinstance(data, dict) or not all(k in data for k in ["persona_id", "display_name", "appearance"]):
-                logger.error(f"OpenClaw response missing required keys: {result}")
-                raise ValueError("AI response missing required JSON keys")
+            if not isinstance(data, dict):
+                raise ValueError(f"AI response was not a valid dictionary: {type(data).__name__}")
+                
+            missing = [k for k in ["persona_id", "display_name", "appearance"] if k not in data]
+            if missing:
+                logger.error(f"OpenClaw response missing required keys {missing}: {result}")
+                raise ValueError(f"AI response missing required JSON keys: {', '.join(missing)}")
             
             logger.info("Dream: OpenClaw generation successful")
             return {
-                "persona_id": data["persona_id"],
-                "display_name": data["display_name"],
-                "appearance": data["appearance"],
+                "persona_id": str(data["persona_id"]).strip(),
+                "display_name": str(data["display_name"]).strip(),
+                "appearance": str(data["appearance"]).strip(),
                 "success": True,
             }
             
@@ -365,9 +399,7 @@ Response format:
         if not uploaded_url:
             return persona
 
-        telegram_chat_id = current.artifacts.get("telegram_chat_id")
-        owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
-        patch_params = {"owner_key": owner_key} if owner_key else None
+        patch_params = cls._owner_params(current)
         patch_payload: Dict[str, Any] = {
             "avatar_image_url": uploaded_url,
             "avatar_source_type": "telegram_upload",
@@ -408,9 +440,7 @@ Response format:
         if persona.get("avatar_image_url") and persona.get("avatar_media_asset_id"):
             return persona
 
-        telegram_chat_id = current.artifacts.get("telegram_chat_id")
-        owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
-        patch_params = {"owner_key": owner_key} if owner_key else None
+        patch_params = cls._owner_params(current)
         patch_payload: Dict[str, Any] = {
             "avatar_image_url": artifact_avatar_url,
             "avatar_media_asset_id": artifact_media_asset_id,
@@ -451,10 +481,9 @@ Response format:
         if not appearance:
             return persona
 
-        user_id = current.artifacts.get("user_id")
-        telegram_chat_id = current.artifacts.get("telegram_chat_id")
-        owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
-        resolved_user_id = user_id or str(persona.get("user_id") or "").strip() or None
+        params = cls._owner_params(current) or {}
+        resolved_user_id = params.get("user_id") or str(persona.get("user_id") or "").strip() or None
+        owner_key = params.get("owner_key")
         base_metadata = {
             "source": "telegram_skill",
             "skill_name": cls.name,
@@ -662,7 +691,7 @@ Response format:
                 if not current.artifacts.get("dream_ready"):
                     try:
                         dream = await cls._dream_persona_details_refined(
-                            nationality, dream_brief
+                            current, nationality, dream_brief
                         )
                     except Exception as exc:
                         logger.error(
@@ -671,11 +700,15 @@ Response format:
                             exc,
                             exc_info=True,
                         )
-                        if cls._is_ai_auth_error(exc) or cls._is_ai_service_unavailable_error(exc):
-                            logger.warning(
-                                "Dream provider unavailable (auth=%s, service=%s), switching to deterministic fallback",
-                                cls._is_ai_auth_error(exc),
-                                cls._is_ai_service_unavailable_error(exc),
+                        if (
+                            cls._is_ai_auth_error(exc) 
+                            or cls._is_ai_service_unavailable_error(exc)
+                            or isinstance(exc, (ValueError, json.JSONDecodeError))
+                        ):
+                            logger.error(
+                                "Dream fallback triggered due to error: %s",
+                                exc,
+                                exc_info=True
                             )
                             dream = cls._dream_persona_details_fallback(
                                 nationality,
@@ -935,5 +968,8 @@ Response format:
             import traceback
             error_details = traceback.format_exc()
             logger.error(f"SKILL EXECUTION FAILED: {exc}\n{error_details}")
-            msg = "🚫 Unexpected error while creating persona. Please try again or send /cancel."
+            
+            # Remove Telegram-specific /cancel mention and show actual error if possible
+            error_msg = str(exc)
+            msg = f"🚫 Unexpected error while creating persona: {error_msg}. Please try again later."
             return cls._error_result(current, msg)

@@ -11,6 +11,12 @@ import type {
   ReviewEngineSetup,
 } from '@/lib/review-engine';
 import { customerApiRequest } from '@/lib/customer-api';
+import {
+  deriveStepFromJobs,
+  getJobsForPlanIds,
+  getPlanIdsFromJobs,
+  inferBackendFlowJobs,
+} from '@/lib/create-video-flow';
 import type {
   CreateVideoProgressViewModel,
   CreateVideoSetupState,
@@ -177,34 +183,11 @@ function resetReviewFlowState() {
   };
 }
 
-function deriveStepFromJobs(jobs: ReviewEngineJob[]): Step {
-  if (jobs.length === 0) {
-    return 1;
+function haveSamePlanIds(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
   }
-  const hasWorkflowOrApprovedState = jobs.some((job) => {
-    const status = String(job.status || '').trim().toLowerCase();
-    return (
-      Boolean(job.workflow_id) ||
-      status === 'approved' ||
-      status === 'in_progress' ||
-      status === 'running' ||
-      status === 'completed' ||
-      status === 'failed'
-    );
-  });
-  if (!hasWorkflowOrApprovedState) {
-    return 2;
-  }
-  const allSettled = jobs.every((job) => {
-    const status = String(job.status || '').trim().toLowerCase();
-    return (
-      Boolean(job.production?.ready) ||
-      status === 'completed' ||
-      status === 'failed' ||
-      job.publish?.status === 'published'
-    );
-  });
-  return allSettled ? 4 : 3;
+  return left.every((value, index) => value === right[index]);
 }
 
 function PublishStep({
@@ -417,6 +400,10 @@ export function CreateVideoTab({
   }, [initialJobs]);
 
   useEffect(() => {
+    void refreshJobs(true).catch(() => undefined);
+  }, [refreshJobs]);
+
+  useEffect(() => {
     setSetupState((current) => ({
       ...current,
       sourceUrl: current.sourceUrl || initialSourceUrl,
@@ -451,16 +438,51 @@ export function CreateVideoTab({
     }
   }, []);
 
-  const activeJobs = useMemo(() => {
-    if (activePlanIds.length === 0) {
-      return [];
-    }
-    const activeIds = new Set(activePlanIds);
-    return jobs.filter((job) => {
-      const planId = String(job.plan_id || '').trim();
-      return planId && activeIds.has(planId);
-    });
+  const explicitActiveJobs = useMemo(() => {
+    return getJobsForPlanIds(jobs, activePlanIds);
   }, [activePlanIds, jobs]);
+
+  const inferredActiveJobs = useMemo(() => {
+    return inferBackendFlowJobs(jobs);
+  }, [jobs]);
+
+  const inferredActivePlanIds = useMemo(() => {
+    return getPlanIdsFromJobs(inferredActiveJobs);
+  }, [inferredActiveJobs]);
+
+  const activeJobs = useMemo(() => {
+    if (explicitActiveJobs.length > 0) {
+      return explicitActiveJobs;
+    }
+    return inferredActiveJobs;
+  }, [explicitActiveJobs, inferredActiveJobs]);
+
+  useEffect(() => {
+    if (inferredActivePlanIds.length === 0) {
+      return;
+    }
+    setActivePlanIds((current) => {
+      if (current.length > 0 && explicitActiveJobs.length > 0) {
+        return current;
+      }
+      return haveSamePlanIds(current, inferredActivePlanIds)
+        ? current
+        : inferredActivePlanIds;
+    });
+  }, [explicitActiveJobs.length, inferredActivePlanIds]);
+
+  const shouldPollJobs = activePlanIds.length > 0 || inferredActiveJobs.length > 0;
+
+  useEffect(() => {
+    if (!shouldPollJobs) {
+      return;
+    }
+    void refreshJobs(true).catch(() => undefined);
+    const interval = window.setInterval(() => {
+      void refreshJobs(true).catch(() => undefined);
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [refreshJobs, shouldPollJobs]);
 
   useEffect(() => {
     if (activeJobs.length === 0) {
@@ -497,17 +519,6 @@ export function CreateVideoTab({
   useEffect(() => {
     persistActiveFlow(activePlanIds, currentStep);
   }, [activePlanIds, currentStep, persistActiveFlow]);
-
-  useEffect(() => {
-    if (activePlanIds.length === 0 || currentStep < 3) {
-      return;
-    }
-    void refreshJobs(true).catch(() => undefined);
-    const interval = window.setInterval(() => {
-      void refreshJobs(true).catch(() => undefined);
-    }, 5000);
-    return () => window.clearInterval(interval);
-  }, [activePlanIds, currentStep, refreshJobs]);
 
   const handleSetupChange = useCallback((patch: Partial<CreateVideoSetupState>) => {
     setSetupState((current) => ({ ...current, ...patch }));

@@ -4,6 +4,7 @@ import uuid
 from unittest.mock import AsyncMock, patch, MagicMock
 
 from activities.media_activities import generate_scene_images
+from temporalio.exceptions import ApplicationError
 
 
 @pytest.mark.asyncio
@@ -217,3 +218,61 @@ async def test_public_page_capture_requires_source_ref():
     assert "source_ref" in str(exc.value).lower()
     
     print("Public page capture source_ref requirement test passed!")
+
+
+@pytest.mark.asyncio
+async def test_convert_image_to_video_timeout_is_retryable_and_uses_low_cpu_flags(
+    monkeypatch,
+):
+    import subprocess
+
+    from activities import media_activities
+
+    captured = {}
+
+    class FakeResponse:
+        content = b"\x89PNG" + (b"\x00" * 4096)
+
+        def raise_for_status(self):
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, _url):
+            return FakeResponse()
+
+    async def fake_to_thread(fn, *args, **kwargs):
+        assert fn is subprocess.run
+        captured["cmd"] = list(args[0])
+        captured["timeout"] = kwargs["timeout"]
+        raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+
+    monkeypatch.setenv("AI_VISUAL_VIDEO_FFMPEG_TIMEOUT_SEC", "90")
+    monkeypatch.setattr(media_activities.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(media_activities.asyncio, "to_thread", fake_to_thread)
+
+    with pytest.raises(ApplicationError) as exc:
+        await media_activities._convert_image_to_video(
+            image_url="https://cdn.example.com/fallback.png",
+            scene_id="scene-1",
+            scene_metadata={},
+            duration_sec=5.0,
+        )
+
+    error = exc.value
+    assert error.non_retryable is False
+    assert captured["timeout"] == 90
+    assert "-preset" in captured["cmd"]
+    assert captured["cmd"][captured["cmd"].index("-preset") + 1] == "ultrafast"
+    assert "-tune" in captured["cmd"]
+    assert captured["cmd"][captured["cmd"].index("-tune") + 1] == "stillimage"
+    assert "-threads" in captured["cmd"]
+    assert captured["cmd"][captured["cmd"].index("-threads") + 1] == "1"

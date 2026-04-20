@@ -19,6 +19,7 @@ export type PersonaStudioMessage = {
   content: string;
   actions?: PersonaStudioAction[];
   preview?: PersonaStudioPreview | null;
+  image_url?: string | null;
 };
 
 export type PersonaStudioComposer = {

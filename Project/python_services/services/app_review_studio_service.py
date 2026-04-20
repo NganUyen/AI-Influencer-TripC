@@ -1756,8 +1756,8 @@ class AppReviewStudioService:
         tiktok_accounts: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         workflow_id = str(job_row.get("workflow_id") or "")
-        input_data = job_row.get("input_data") or {}
-        output_data = job_row.get("output_data") or {}
+        input_data = _coerce_json_dict(job_row.get("input_data"))
+        output_data = _coerce_json_dict(job_row.get("output_data"))
         publish_settings = _coerce_json_dict(input_data.get("publish_settings"))
         temporal_result = job_row.get("_temporal_result") or {}
         temporal_metadata = temporal_result.get("metadata") or {}
@@ -1930,7 +1930,8 @@ class AppReviewStudioService:
             workflow_id = str(row.get("workflow_id") or "").strip()
             if workflow_id:
                 workflow_by_id[workflow_id] = row
-            plan_ref = str((row.get("input_data") or {}).get("plan_id") or "").strip()
+            input_data = _coerce_json_dict(row.get("input_data"))
+            plan_ref = str(input_data.get("plan_id") or "").strip()
             if plan_ref and plan_ref not in workflow_by_plan_id:
                 workflow_by_plan_id[plan_ref] = row
 

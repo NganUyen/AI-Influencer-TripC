@@ -270,3 +270,73 @@ After this update, the intended user-facing model is:
 - approved lanes continue into the existing backend workflow model
 
 This is a UI and state-model alignment fix, not a backend data-model unification.
+
+## Session Extension: Audio Library + Movement Overlay (2026-04-20)
+
+The same session also introduced managed audio grouping and setup-summary demos for create-plan.
+
+### Audio Asset Structure
+
+Audio assets are now grouped for easier ownership and lookup:
+
+- backend BGM library:
+  - `Project/python_services/assets/audio_library/bgm/`
+- backend movement library:
+  - `Project/python_services/assets/audio_library/movement/`
+- frontend demo BGM:
+  - `Project/public/create-video-demos/bgm/`
+- frontend demo movement:
+  - `Project/public/create-video-demos/movement/`
+
+Each backend group has its own `library.json` manifest.
+
+### Backend Integration
+
+`BackgroundMusicService` now supports grouped libraries:
+
+- `list_tracks(group="bgm" | "movement")`
+- `select_track(group=..., profile=..., max_duration_seconds=...)`
+- backward-compatible fallback for legacy BGM manifest
+
+`VideoAudioPolicyContract` now supports movement overlay controls:
+
+- `movement_overlay_enabled`
+- `movement_library_profile`
+- `movement_overlay_volume`
+
+`build_split_screen_video` now supports optional movement overlay:
+
+- load movement track by profile
+- mix narration/BGM base with movement audio through ffmpeg `amix`
+- fail open if movement mix fails (continues with base audio)
+
+### Frontend Setup + Summary
+
+Create-plan setup now uses centralized options (`setup-options.ts`) for:
+
+- background presets
+- gesture style metadata
+- music mood metadata
+
+Summary panel now shows:
+
+- selected background + movement + music labels
+- audio demo player for selected music mood
+- gesture preview + movement audio demo player
+- selected persona chips
+
+### API Surface
+
+New authenticated route:
+
+- `GET /api/customer/review-engine/audio-library`
+  - returns grouped `bgm` and `movement` tracks (public metadata for UI)
+
+### Verification Status (this extension)
+
+- FE `npm run type-check`: fails due pre-existing unrelated test/type issues.
+- Python pytest: not executable in current environment because no working Python runtime is available on PATH.
+- Added/updated tests for new behavior:
+  - `Project/python_services/tests/test_background_music_service.py`
+  - `Project/python_services/tests/test_video_activities_bgm_fallback.py`
+  - `Project/python_services/tests/test_app_review_studio_service.py`

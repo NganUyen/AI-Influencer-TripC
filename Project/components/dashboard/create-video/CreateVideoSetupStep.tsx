@@ -13,6 +13,10 @@ import { CreateVideoModeCards } from './CreateVideoModeCards';
 import { CreateVideoSummaryPanel } from './CreateVideoSummaryPanel';
 import { customerApiRequest } from '@/lib/customer-api';
 import { resolveCountryCode } from '@/lib/country-mapping';
+import {
+  GESTURE_STYLE_OPTIONS,
+  MUSIC_MOOD_OPTIONS,
+} from './setup-options';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -58,6 +62,8 @@ export function CreateVideoSetupStep({
 
   const [isBriefExpanded, setIsBriefExpanded] = useState(false);
   const [isFeatureModalOpen, setIsFeatureModalOpen] = useState(false);
+  const [movementPreviewNonce, setMovementPreviewNonce] = useState(0);
+  const [musicPreviewNonce, setMusicPreviewNonce] = useState(0);
   const [expandedPersonaGroups, setExpandedPersonaGroups] = useState({
     system: true,
     custom: true,
@@ -107,6 +113,14 @@ export function CreateVideoSetupStep({
   const selectedCustomCount = useMemo(
     () => customPersonaIds.filter((id) => selectedPersonaSet.has(id)).length,
     [customPersonaIds, selectedPersonaSet],
+  );
+
+  const selectedPersonas = useMemo(
+    () =>
+      [...systemPersonas, ...customPersonas].filter((persona) =>
+        selectedPersonaSet.has(persona.persona_id),
+      ),
+    [customPersonas, selectedPersonaSet, systemPersonas],
   );
 
   const getPersonaCountryCode = useCallback((persona: Persona): string | null => {
@@ -610,17 +624,18 @@ export function CreateVideoSetupStep({
               Gesture Style
             </p>
             <div className="cv-gesture-chips">
-              {['Natural', 'Expressive', 'Minimal', 'Energetic', 'Professional', 'Casual', 'Storytelling', 'Calm'].map((style) => (
+              {GESTURE_STYLE_OPTIONS.map((style) => (
                 <button
-                  key={style}
+                  key={style.value}
                   type="button"
-                  className={`cv-gesture-chip${selectedMovementStyle === style ? ' cv-gesture-chip--selected' : ''}`}
+                  className={`cv-gesture-chip${selectedMovementStyle === style.value ? ' cv-gesture-chip--selected' : ''}`}
                   onClick={() => {
-                    onChange({ selectedMovementStyle: style });
-                    toast.success(`Movement style: ${style}`);
+                    onChange({ selectedMovementStyle: style.value });
+                    setMovementPreviewNonce((prev) => prev + 1);
+                    toast.success(`Movement style: ${style.label}`);
                   }}
                 >
-                  {style}
+                  {style.label}
                 </button>
               ))}
             </div>
@@ -654,18 +669,19 @@ export function CreateVideoSetupStep({
           </div>
           <div className="cv-section-content">
             <div className="cv-bgm-mood-cards">
-              {['None', 'Upbeat', 'Corporate', 'Ambient', 'Cinematic', 'Lo-fi'].map((mood) => (
+              {MUSIC_MOOD_OPTIONS.map((mood) => (
                 <button
-                  key={mood}
+                  key={mood.value}
                   type="button"
-                  className={`cv-bgm-mood-card${selectedMusicMood === mood ? ' cv-bgm-mood-card--selected' : ''}`}
+                  className={`cv-bgm-mood-card${selectedMusicMood === mood.value ? ' cv-bgm-mood-card--selected' : ''}`}
                   onClick={() => {
-                    onChange({ selectedMusicMood: mood });
-                    toast.success(`Music mood: ${mood}`);
+                    onChange({ selectedMusicMood: mood.value });
+                    setMusicPreviewNonce((prev) => prev + 1);
+                    toast.success(`Music mood: ${mood.label}`);
                   }}
                 >
                   <span className="cv-bgm-mood-icon">♪</span>
-                  <span className="cv-bgm-mood-label">{mood}</span>
+                  <span className="cv-bgm-mood-label">{mood.label}</span>
                 </button>
               ))}
             </div>
@@ -741,7 +757,12 @@ export function CreateVideoSetupStep({
       </div>
 
       {/* ===== RIGHT COLUMN: Summary Sidebar (Sticky) ===== */}
-      <CreateVideoSummaryPanel setupState={setupState} />
+      <CreateVideoSummaryPanel
+        setupState={setupState}
+        selectedPersonas={selectedPersonas}
+        movementPreviewNonce={movementPreviewNonce}
+        musicPreviewNonce={musicPreviewNonce}
+      />
 
       {isFeatureModalOpen && visibleFeatures.length > 0 && (
         <>

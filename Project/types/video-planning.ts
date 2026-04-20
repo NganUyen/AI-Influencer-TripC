@@ -74,6 +74,7 @@ export interface CreateVideoSetupState {
   objective: string;
   brief?: string;
   selectedMode: VideoCreationMode;
+  selectedBackground: string;
   selectedMovementStyle: string;
   gestureIntensity: number;
   selectedMusicMood: string;
@@ -89,6 +90,7 @@ export const DEFAULT_SETUP_STATE: CreateVideoSetupState = {
   objective: '',
   brief: '',
   selectedMode: 'ai_auto',
+  selectedBackground: 'blur',
   selectedMovementStyle: 'Natural',
   gestureIntensity: 50,
   selectedMusicMood: 'None',

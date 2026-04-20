@@ -87,7 +87,10 @@ class PersonaStudioService:
 
     @classmethod
     def _normalize_text(cls, value: Any) -> str:
-        return re.sub(r"\s+", " ", str(value or "")).strip()
+        # Preserve newlines but collapse other excessive whitespace
+        text = str(value or "")
+        text = re.sub(r"[ \t\r\f\v]+", " ", text)
+        return text.strip()
 
     @classmethod
     def _display_text_from_prompt(cls, prompt_text: str) -> str:
@@ -564,6 +567,7 @@ class PersonaStudioService:
 
         session_id = str(uuid4())
         session = PersonaCreatorSkill.initial_session()
+        session.artifacts["user_id"] = user_id
         session.artifacts["web_messages"] = []
         result = await cls._execute(app=app, session=session)
         next_session = result.session or session
@@ -643,6 +647,7 @@ class PersonaStudioService:
         value: Optional[str] = None,
     ) -> Dict[str, Any]:
         session = await cls._load_session(session_id=session_id, user_id=user_id)
+        session.artifacts["user_id"] = user_id
         cls._append_history(
             session,
             cls._apply_message_to_session(
@@ -681,6 +686,7 @@ class PersonaStudioService:
         mode: PersonaStudioCommitMode,
     ) -> Dict[str, Any]:
         session = await cls._load_session(session_id=session_id, user_id=user_id)
+        session.artifacts["user_id"] = user_id
         if mode == "save_draft":
             cls._append_history(
                 session,

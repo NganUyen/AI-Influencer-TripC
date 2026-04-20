@@ -54,6 +54,38 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 SAFE_FALLBACK_SOURCE_TYPE = "ai_visual_fallback"
+_SHARED_ASYNC_SEMAPHORES: Dict[str, Dict[str, Any]] = {}
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    raw_value = str(os.getenv(name, str(default))).strip()
+    try:
+        return max(1, int(raw_value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _truthy_env(name: str, default: bool = False) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _shared_async_semaphore(name: str, default: int) -> asyncio.Semaphore:
+    limit = _positive_int_env(name, default)
+    cached = _SHARED_ASYNC_SEMAPHORES.get(name)
+    if cached and cached.get("limit") == limit:
+        semaphore = cached.get("semaphore")
+        if isinstance(semaphore, asyncio.Semaphore):
+            return semaphore
+
+    semaphore = asyncio.Semaphore(limit)
+    _SHARED_ASYNC_SEMAPHORES[name] = {
+        "limit": limit,
+        "semaphore": semaphore,
+    }
+    return semaphore
 
 
 def resolve_top_half_source_type(
@@ -909,9 +941,14 @@ async def _convert_image_to_video(
         b"GIF8": "GIF",
     }
 
-    # 30s is more than enough for a still-image loop encode at 1080x960.
-    # The previous 120s timeout masked broken inputs.
-    _FFMPEG_TIMEOUT_SEC = 30
+    ffmpeg_timeout_sec = _positive_int_env(
+        "AI_VISUAL_VIDEO_FFMPEG_TIMEOUT_SEC",
+        90,
+    )
+    ffmpeg_gate = _shared_async_semaphore(
+        "AI_VISUAL_VIDEO_GLOBAL_CONCURRENCY",
+        1,
+    )
 
     logger.info(
         "Converting AI image to video | scene=%s | url=%s | duration=%ss",
@@ -967,7 +1004,7 @@ async def _convert_image_to_video(
         # -vf scale=...: scale to 1080x960 (top-half standard dimensions)
         # -c:v libx264: encode with h264
         # -pix_fmt yuv420p: pixel format for compatibility
-        # -preset fast: encoding speed
+        # -preset ultrafast + -threads 1: keep fallback encodes cheap under worker load
         # -crf 23: quality (default)
         ffmpeg_cmd = [
             "ffmpeg",
@@ -977,10 +1014,13 @@ async def _convert_image_to_video(
             "-t", str(duration_sec),  # Duration in seconds
             "-vf", "scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2",
             "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-tune", "stillimage",
             "-pix_fmt", "yuv420p",  # Required for compatibility with most players
-            "-preset", "fast",
             "-crf", "23",
+            "-movflags", "+faststart",
             "-an",  # No audio (top-half is silent)
+            "-threads", "1",
             str(video_output_path),
         ]
 
@@ -991,25 +1031,26 @@ async def _convert_image_to_video(
         )
 
         try:
-            result = await asyncio.to_thread(
-                subprocess.run,
-                ffmpeg_cmd,
-                capture_output=True,
-                text=True,
-                timeout=_FFMPEG_TIMEOUT_SEC,
-            )
+            async with ffmpeg_gate:
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    ffmpeg_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=ffmpeg_timeout_sec,
+                )
         except subprocess.TimeoutExpired:
             logger.error(
                 "ffmpeg image-to-video TIMED OUT | scene=%s | timeout=%ds | image_size=%d | duration=%s",
                 scene_id,
-                _FFMPEG_TIMEOUT_SEC,
+                ffmpeg_timeout_sec,
                 image_size,
                 duration_sec,
             )
             raise ApplicationError(
-                f"Scene {scene_id}: ffmpeg timed out after {_FFMPEG_TIMEOUT_SEC}s converting image to video "
+                f"Scene {scene_id}: ffmpeg timed out after {ffmpeg_timeout_sec}s converting image to video "
                 f"(image_size={image_size}, duration={duration_sec}s)",
-                non_retryable=True,
+                non_retryable=False,
             )
 
         if result.returncode != 0:
@@ -1374,25 +1415,30 @@ async def _capture_with_retry(
                 attempt_hint = capture_hint
                 attempt_max_seconds = max_capture_seconds
                 attempt_follow_links = follow_relevant_links
+                attempt_warmup_enabled = True
             elif attempt == 2:
                 # Extended timeout, reduced features
                 attempt_hint = capture_hint if capture_hint != "deep" else "scroll"
                 attempt_max_seconds = min(60, int(max_capture_seconds * 1.5))
                 attempt_follow_links = False
+                attempt_warmup_enabled = False
                 logger.info(
-                    "Retry attempt 2 | scene=%s | extended_timeout=%d | no_link_follow",
+                    "Retry attempt 2 | scene=%s | extended_timeout=%d | no_link_follow | warmup=%s",
                     scene_id,
                     attempt_max_seconds,
+                    attempt_warmup_enabled,
                 )
             else:
                 # Static mode fallback
                 attempt_hint = "static"
                 attempt_max_seconds = min(60, max(10, max_capture_seconds))
                 attempt_follow_links = False
+                attempt_warmup_enabled = False
                 logger.info(
-                    "Retry attempt 3 | scene=%s | static_mode | timeout=%d",
+                    "Retry attempt 3 | scene=%s | static_mode | timeout=%d | warmup=%s",
                     scene_id,
                     attempt_max_seconds,
+                    attempt_warmup_enabled,
                 )
             
             result = await browser.record_video_for_tutorial(
@@ -1406,6 +1452,7 @@ async def _capture_with_retry(
                 max_capture_seconds=attempt_max_seconds,
                 follow_relevant_links=attempt_follow_links,
                 scene_duration_sec=scene_duration_sec,
+                warmup_enabled=attempt_warmup_enabled,
             )
             
             # Handle both old (string) and new (tuple) return types
@@ -2072,9 +2119,13 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
     except ValueError:
         max_parallel = 2
     semaphore = asyncio.Semaphore(max_parallel)
-    strict_browser_fallback_enabled = (
-        str(os.getenv("TOP_HALF_STRICT_ALLOW_AI_FALLBACK", "true")).strip().lower()
-        in {"1", "true", "yes", "on"}
+    browser_capture_gate = _shared_async_semaphore(
+        "TOP_HALF_BROWSER_GLOBAL_CONCURRENCY",
+        2,
+    )
+    browser_capture_ai_fallback_enabled = _truthy_env(
+        "TOP_HALF_BROWSER_ALLOW_AI_FALLBACK",
+        _truthy_env("TOP_HALF_STRICT_ALLOW_AI_FALLBACK", False),
     )
 
     async def gen_one(scene: dict) -> dict:
@@ -2141,12 +2192,15 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
                             normalized_scene, scene_metadata
                         )
                     else:
-                        # Has URL → try browser, fall back to AI on any failure
+                        # Has URL → try browser; AI fallback is opt-in only.
                         try:
-                            result = await _capture_browser_video(
-                                normalized_scene, scene_metadata, source_ref
-                            )
+                            async with browser_capture_gate:
+                                result = await _capture_browser_video(
+                                    normalized_scene, scene_metadata, source_ref
+                                )
                         except Exception as capture_err:
+                            if not browser_capture_ai_fallback_enabled:
+                                raise
                             browser_error = str(capture_err)[:300]
                             fallback_triggered = True
                             logger.warning(
@@ -2167,19 +2221,19 @@ async def generate_scene_images(scenes: List[Dict[str, Any]]) -> List[Dict[str, 
 
                 elif top_half_type in _STRICT_BROWSER_CAPTURE_TYPES:
                     # public_page_capture / authenticated_capture_later:
-                    # Browser capture required by default; optional AI fallback can be enabled
-                    # via TOP_HALF_STRICT_ALLOW_AI_FALLBACK for resilience in unstable environments.
+                    # Browser capture required by default; AI fallback is opt-in only.
                     if not source_ref:
                         raise ApplicationError(
                             f"Scene {scene_id} requires source_ref for browser capture (type={top_half_type})",
                             non_retryable=True,
                         )
                     try:
-                        result = await _capture_browser_video(
-                            normalized_scene, scene_metadata, source_ref
-                        )
+                        async with browser_capture_gate:
+                            result = await _capture_browser_video(
+                                normalized_scene, scene_metadata, source_ref
+                            )
                     except Exception as capture_err:
-                        if not strict_browser_fallback_enabled:
+                        if not browser_capture_ai_fallback_enabled:
                             raise
                         browser_error = str(capture_err)[:300]
                         fallback_triggered = True

@@ -12,7 +12,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init/00_create_service_databases.sql:/docker-entrypoint-initdb.d/00_create_service_databases.sql
-      - ./Project/supabase/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./Project/supabase/schema.local.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./Project/supabase/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql
     networks:
       - ai-influencer-network
     healthcheck:

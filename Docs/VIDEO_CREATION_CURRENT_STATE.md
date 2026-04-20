@@ -1,6 +1,6 @@
 # Video Creation Current State
 
-Last verified: 2026-04-18 (UTC)
+Last verified: 2026-04-20 (UTC)
 
 This is the current-state reference for create-video behavior across the web dashboard, Telegram, backend review-engine routes, and the production workflow handoff.
 
@@ -30,17 +30,18 @@ What is live now:
 - dashboard preload calls `GET /api/customer/review-engine/jobs`
 - new setup UI calls `POST /api/customer/review-engine/source/validate`
 
-What is still placeholder/demo in the new dashboard tab:
+What is live now:
 
-- persona plan generation cards
-- review approval state
-- render progress state
-- publish step
+- setup uses real `POST /api/customer/review-engine/source/validate`
+- setup stores validated `page_review_data` in frontend state
+- create-plan uses real `POST /api/customer/review-engine/jobs`
+- create-plan forwards validated `page_review_data` so backend can skip duplicate source review on the happy path
+- review step uses real plan patch/approve/upload flows
 
 Important detail:
 
-- the old `LiveFeedTab` still contains the real wired client for `review-engine/jobs`, `review-engine/plans`, upload, and publish actions
-- the new `CreateVideoTab` is mostly a presentation shell around local state
+- `CreateVideoTab` is no longer only a presentation shell for setup/review actions
+- the backend create-plan route is still synchronous overall, but it now avoids one duplicated review pass and runs per-persona generation concurrently
 
 ### Telegram flow
 
@@ -72,7 +73,7 @@ Behavior:
 
 - normalize URL
 - fetch visible page content through browser/Jina-backed review helpers
-- return `normalized_url`, `page_title`, `suggested_objective`, and `visible_features`
+- return `normalized_url`, `page_title`, `suggested_objective`, `visible_features`, and full `page_review_data`
 
 ### 2. Review-engine job creation
 
@@ -86,11 +87,13 @@ Backend path:
 
 Behavior:
 
-- review source page
+- reuse `page_review_data` from setup when available
+- fall back to live source review only if cached/validated payload is missing or invalid
 - generate script data from the review plan
 - create campaign draft data
 - persist a `video_render_plans` row
 - return review-engine job payloads to the frontend
+- process target personas concurrently instead of strictly sequentially
 
 ### 3. Plan storage and approval
 
@@ -150,22 +153,35 @@ Shown in UI but not persisted in setup state:
 - gesture intensity slider
 - music volume slider
 
-### Backend contract mismatch
+### Backend contract status
 
-Current backend request models for review-engine jobs do not fully match the new dashboard setup state.
+Current request contract is partially aligned.
 
-Important mismatches:
+Resolved alignment:
 
-- frontend modes are `ai_auto | ai_remote | human_phone`
-- backend execution modes are `ai_autonomous | user_upload`
-- optional dashboard fields like `brief`, `background`, `movement`, and `music` are not part of the review-engine request model
+- frontend modes are mapped into backend execution modes through the adapter
+- validated `page_review_data` now flows from setup into create-plan
+- `creative_preferences` flow into create-plan and plan persistence
+
+Remaining mismatch areas:
+
+- optional dashboard fields like `brief` are still UI-only
+- background, movement, gesture, and music are only partially represented through `creative_preferences`
+- `ai_remote` is still intentionally unsupported in backend submit flow
 
 ## Known Gaps And Bugs
 
 ### Dashboard wiring gap
 
-- new `CreateVideoTab` only performs real source validation
-- real create/review/render/publish actions still live in `LiveFeedTab`
+- the old `LiveFeedTab` still exists, but setup/review actions are now wired in `CreateVideoTab`
+- long-lived render/publish behavior still needs careful end-to-end verification in the new tab
+
+### Setup latency and timeout risk
+
+- `source/validate` is intentionally expensive because it performs real content review, not only URL normalization
+- `jobs` previously duplicated the same source review and was a major latency multiplier
+- that duplicated review pass is now removed on the normal validated-setup path
+- create-plan can still be slow in worst-case environments because AI generation remains synchronous inside the request
 
 ### Plan persistence issues
 
@@ -187,10 +203,10 @@ Important mismatches:
 
 ## Recommended Next Work
 
-1. Wire the new `CreateVideoTab` to real `review-engine/jobs`, `review-engine/plans`, and approval endpoints.
-2. Unify the mode contract between frontend and backend.
-3. Decide which optional setup fields belong in the persisted backend contract.
-4. Fix `video_render_plans` persistence bugs before relying on the new web flow.
+1. Finish hardening the new `CreateVideoTab` around polling, publish, and failure-state visibility.
+2. Decide which optional setup fields belong in the persisted backend contract.
+3. Consider moving create-plan to a true async batch model if upstream timeouts still occur.
+4. Fix `video_render_plans` persistence bugs before relying on the new web flow for all cases.
 5. Either remove the dead manual-upload path or finish the missing job-type and approval handling.
 
 ## Related Docs
@@ -199,3 +215,4 @@ Important mismatches:
 - [BACKEND_API.md](./BACKEND_API.md)
 - [WORKFLOWS_AND_AUTOMATION.md](./WORKFLOWS_AND_AUTOMATION.md)
 - [db.md](./db.md)
+- [CREATE_VIDEO_SHARED_CONTRACT_UPDATE_2026-04-20.md](./CREATE_VIDEO_SHARED_CONTRACT_UPDATE_2026-04-20.md)

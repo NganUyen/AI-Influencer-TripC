@@ -165,7 +165,6 @@ export function buildCreativePreferences(
   setupState: CreateVideoSetupState,
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {
-    background: setupState.selectedBackground,
     movement_style: setupState.selectedMovementStyle,
     gesture_intensity: setupState.gestureIntensity,
     music_mood: setupState.selectedMusicMood,
@@ -187,6 +186,7 @@ export function buildCreateJobPayload(
   input_mode: BackendInputMode;
   publish_to_tiktok: boolean;
   creative_preferences: Record<string, unknown>;
+  page_review_data?: Record<string, unknown>;
 } {
   const inputMode = CREATE_VIDEO_UI_TO_BACKEND_MODE[setupState.selectedMode];
   if (!inputMode) {
@@ -199,6 +199,9 @@ export function buildCreateJobPayload(
     setupState.objective.trim() ||
     setupState.urlValidationDetails?.suggestedObjective?.trim() ||
     'Product review';
+  const pageReviewData = setupState.urlValidationDetails?.pageReviewData as
+    | Record<string, unknown>
+    | undefined;
   return {
     source_url: sourceUrl,
     objective,
@@ -206,6 +209,7 @@ export function buildCreateJobPayload(
     input_mode: inputMode,
     publish_to_tiktok: false,
     creative_preferences: buildCreativePreferences(setupState),
+    ...(pageReviewData ? { page_review_data: pageReviewData } : {}),
   };
 }
 

@@ -155,6 +155,7 @@ export type ReviewEngineSourceValidateResponse = {
   page_title: string;
   suggested_objective?: string | null;
   visible_features: any[];
+  page_review_data?: Record<string, unknown>;
 };
 
 export function getReviewJobTone(

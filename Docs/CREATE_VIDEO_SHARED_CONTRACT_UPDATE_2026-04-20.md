@@ -154,6 +154,68 @@ If workflow startup fails after the plan is approved, the API now logs the failu
 
 The reject/delete modal was softened visually and in copy so it feels like a guided decision rather than a hard-stop error screen.
 
+## Pipeline And Setup Improvements Added
+
+The recent session also addressed the most immediate create-video setup latency problems.
+
+### 1. Create-plan now reuses validated page review data
+
+Previously, the flow did this twice:
+
+- `POST /review-engine/source/validate`
+- `POST /review-engine/jobs`
+
+Both paths could trigger the same expensive `WebsiteReviewService.review_url()` pipeline.
+
+The setup flow now keeps the validated `page_review_data` payload in frontend state and sends it back during job creation.
+
+Backend `create_jobs()` now:
+
+- accepts `page_review_data`
+- validates/coerces it into `WebPageReviewContract`
+- skips the second live website review when the payload is usable
+- falls back to live review only when cached/validated payload is missing or invalid
+
+This removes one full expensive review pass from the normal happy path.
+
+### 2. Persona generation is now concurrent
+
+The original create-plan path processed target personas sequentially.
+
+That meant total request time scaled linearly with persona count because each persona could trigger:
+
+- persona resolution
+- AI script generation
+- optional campaign creation
+- plan persistence
+
+The backend now runs persona job creation through `asyncio.gather(...)` so the per-persona work can happen concurrently instead of one-by-one.
+
+This does not change the public result shape, but it reduces wall-clock latency for multi-persona plan creation.
+
+### 3. Timing instrumentation was added around the heavy path
+
+The backend now logs timing for:
+
+- create-job prerequisites
+- per-persona script generation
+- per-persona completion
+- total create-jobs duration
+
+This gives a direct way to trace future slowdowns instead of debugging only from frontend symptoms like `504`.
+
+### 4. Setup feature display is compact again
+
+The source-validation UI no longer expands the full visible-feature list inline inside the setup card.
+
+It now shows:
+
+- extracted feature count in the setup section
+- extracted feature count in the summary panel
+- a `View details` action that opens a modal with the full extracted feature list
+
+The modal reuses the existing create-video modal pattern rather than adding a new visual system.
+
 ## Files Touched
 
 - `Project/components/dashboard/CreateVideoTab.tsx`
@@ -162,17 +224,23 @@ The reject/delete modal was softened visually and in copy so it feels like a gui
 - `Project/types/video-planning.ts`
 - `Project/app/create-video.css`
 - `Project/python_services/api/customer.py`
+- `Project/python_services/services/app_review_studio_service.py`
+- `Project/components/dashboard/create-video/CreateVideoSetupStep.tsx`
+- `Project/components/dashboard/create-video/CreateVideoSummaryPanel.tsx`
+- `Project/lib/review-engine.ts`
 
 ## Verification
 
 Commands run:
 
 - `npm run build`
+- `python -m py_compile "D:\coding\AI-Influencer-TripC\Project\python_services\api\customer.py" "D:\coding\AI-Influencer-TripC\Project\python_services\services\app_review_studio_service.py"`
 - `npm run type-check`
 
 Results:
 
 - `npm run build`: passed
+- `python -m py_compile ...`: passed
 - `npm run type-check`: still fails, but only from pre-existing test/type issues outside this Step 2 refactor
 
 Existing unrelated failures:
@@ -190,6 +258,7 @@ It does not yet fix:
 - create-video polling errors being silent during interval refresh
 - backend debug detail not being exposed through create-video routes
 - deeper backend architectural mismatch where persistence is still per persona instead of a true single stored contract record
+- long-running create-plan requests can still hit upstream timeout in worst-case environments because the endpoint is still synchronous overall, even though one heavy review pass was removed and per-persona generation is now concurrent
 
 ## Current Product Meaning
 

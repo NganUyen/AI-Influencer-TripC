@@ -56,6 +56,28 @@ Implement one ordered migration that:
 - Persist `creative_preferences` on create and update
 - Persist `approved_at` during approval
 - Persist `page_review_data` from source review so workflow startup does not reconstruct a dummy page-review object
+- Reuse validated `page_review_data` from setup during `POST /review-engine/jobs` so the backend does not rerun the same expensive website review on the normal happy path
+
+### Source-review reuse and latency control
+
+- `POST /api/customer/review-engine/source/validate` should remain the authoritative place that builds the expensive source review payload
+- `POST /api/customer/review-engine/jobs` should consume that validated payload when present
+- If validated payload is missing or invalid, only then should create-plan fall back to live source review
+- Add structured timing logs around:
+  - prerequisite resolution
+  - live source review fallback
+  - per-persona script generation
+  - total create-plan duration
+
+### Persona orchestration latency
+
+- Per-persona create-plan work should not be strictly sequential when there are multiple target personas
+- Persona generation should run concurrently where safe:
+  - persona resolution
+  - script generation
+  - campaign creation
+  - plan persistence
+- Preserve stable response ordering and error collection even when execution becomes concurrent
 
 ### Workflow start-from-plan
 
@@ -112,6 +134,7 @@ This avoids silently downgrading autonomous generation into a different mode.
 - `POST /api/customer/review-engine/jobs`
   - accept `creative_preferences`
   - treat `persona_id` inputs as text ids only
+  - accept `page_review_data`
 
 - `POST /api/customer/review-engine/plans`
   - accept text `persona_id`
@@ -130,8 +153,10 @@ This avoids silently downgrading autonomous generation into a different mode.
 
 - Web happy path with `ai_auto`
   - validate URL
+  - confirm `page_review_data` is returned
   - select personas
   - generate plans
+  - confirm create-plan does not rerun live source review when validated payload is present
   - edit a plan
   - approve
   - see progress
@@ -155,7 +180,14 @@ This avoids silently downgrading autonomous generation into a different mode.
   - global/system personas and customer personas both resolve correctly
   - `publish_settings`, `creative_preferences`, and `approved_at` persist correctly
   - `page_review_data` is sufficient to start the workflow without a dummy placeholder object
+  - `page_review_data` survives setup-to-create-plan handoff without schema drift
   - script-generation failure does not crash the request path
+
+- Performance
+  - validate URL performs one expensive review pass only
+  - create-plan reuses validated review data on the happy path
+  - multi-persona create-plan duration improves relative to strict sequential execution
+  - logs identify whether latency came from source review, script generation, or persistence
 
 - Compatibility
   - Telegram `video-ai` flow still works unchanged

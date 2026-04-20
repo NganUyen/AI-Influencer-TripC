@@ -910,6 +910,20 @@
   grid-column: 1 / -1;
 }
 
+.cv-validation-feature-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cv-validation-feature-count {
+  color: #2e2f2c;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .cv-validation-feature-list {
   display: grid;
   gap: 8px;
@@ -937,6 +951,21 @@
   color: #474743;
   font-size: 12px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.cv-validation-feature-evidence {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.cv-validation-feature-evidence span {
+  border-left: 2px solid rgb(0 104 79 / 0.22);
+  padding-left: 10px;
+  color: #5c5c58;
+  font-size: 11px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 

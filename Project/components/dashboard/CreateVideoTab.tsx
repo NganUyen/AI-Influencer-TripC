@@ -18,6 +18,7 @@ import type {
   ScenePreviewItem,
   SharedContractDraft,
 } from '@/types/video-planning';
+import type { ReviewEngineMasterContract } from '@/lib/review-engine';
 import { DEFAULT_SETUP_STATE } from '@/types/video-planning';
 import {
   buildCreateJobPayload,
@@ -93,7 +94,37 @@ function parseScenesFromEditor(input: string): ScenePreviewItem[] {
     });
 }
 
-function buildSharedContractDraft(jobs: ReviewEngineJob[]): SharedContractDraft {
+function buildSharedContractDraft(
+  jobs: ReviewEngineJob[],
+  masterContract?: ReviewEngineMasterContract | null,
+): SharedContractDraft {
+  const masterSource = masterContract || jobs[0]?.master_contract || jobs[0]?.publish_settings?.shared_contract;
+  if (masterSource) {
+    const scenes = Array.isArray(masterSource.scenes_data)
+      ? masterSource.scenes_data.map((scene, index) => ({
+          index: index + 1,
+          description: String(
+            scene?.description ||
+              scene?.caption ||
+              scene?.scene_description ||
+              scene?.voiceover ||
+              scene?.script ||
+              scene?.text ||
+              `Scene ${index + 1}`,
+          ).trim(),
+          durationSeconds: Number.isFinite(
+            Number(scene?.durationSeconds ?? scene?.duration_seconds ?? scene?.duration),
+          )
+            ? Number(scene?.durationSeconds ?? scene?.duration_seconds ?? scene?.duration)
+            : undefined,
+        }))
+      : [];
+    return {
+      scriptText: String(masterSource.script_text || '').trim(),
+      scenesText: formatScenesForEditor(scenes),
+    };
+  }
+
   const firstJob = jobs[0];
   const scriptText = String(
     firstJob?.script?.script || firstJob?.editable_content || firstJob?.content?.body || '',
@@ -144,31 +175,6 @@ function resetReviewFlowState() {
     sharedContractDirty: false,
     currentStep: 1 as Step,
   };
-}
-
-function normalizeContractFingerprint(job: ReviewEngineJob): string {
-  const scriptText = String(
-    job.script?.script || job.editable_content || job.content?.body || '',
-  ).trim();
-  const scenes = Array.isArray(job.script?.scenes) ? job.script.scenes : [];
-  const normalizedScenes = scenes
-    .map((scene, index) => {
-      const description = String(
-        scene?.description ||
-          scene?.caption ||
-          scene?.scene_description ||
-          scene?.voiceover ||
-          scene?.script ||
-          scene?.text ||
-          `Scene ${index + 1}`,
-      ).trim();
-      const duration = Number(scene?.durationSeconds ?? scene?.duration_seconds ?? scene?.duration);
-      return {
-        description,
-        durationSeconds: Number.isFinite(duration) ? duration : null,
-      };
-    });
-  return JSON.stringify({ scriptText, scenes: normalizedScenes });
 }
 
 function deriveStepFromJobs(jobs: ReviewEngineJob[]): Step {
@@ -392,6 +398,13 @@ export function CreateVideoTab({
           body: JSON.stringify({
             script_text: scriptText,
             scenes_data: scenesData,
+            publish_settings: {
+              shared_contract: {
+                language: 'English',
+                script_text: scriptText,
+                scenes_data: scenesData,
+              },
+            },
             creative_preferences: creativePreferences,
           }),
         }),
@@ -448,14 +461,6 @@ export function CreateVideoTab({
       return planId && activeIds.has(planId);
     });
   }, [activePlanIds, jobs]);
-
-  const hasDivergentContracts = useMemo(() => {
-    if (activeJobs.length <= 1) {
-      return false;
-    }
-    const fingerprints = new Set(activeJobs.map(normalizeContractFingerprint));
-    return fingerprints.size > 1;
-  }, [activeJobs]);
 
   useEffect(() => {
     if (activeJobs.length === 0) {
@@ -522,6 +527,7 @@ export function CreateVideoTab({
       const payload = buildCreateJobPayload(setupState);
       const result = await customerApiRequest<{
         jobs: ReviewEngineJob[];
+        master_contract?: ReviewEngineMasterContract | null;
         warnings?: Array<{ message?: string }>;
       }>('/api/customer/review-engine/jobs', {
         method: 'POST',
@@ -535,7 +541,7 @@ export function CreateVideoTab({
       setJobs((current) => mergeJobs(current, nextJobs));
       setActivePlanIds(nextPlanIds);
       setPlanCards(toPersonaPlanCards(nextJobs));
-      setSharedContractDraft(buildSharedContractDraft(nextJobs));
+      setSharedContractDraft(buildSharedContractDraft(nextJobs, result.master_contract));
       setSharedContractDirty(false);
       setProgressItems([]);
       setCurrentStep(2);
@@ -582,11 +588,11 @@ export function CreateVideoTab({
 
     setErrorMessage(null);
     setIsSubmittingPlans(true);
+    const approvedPlanIds: string[] = [];
+    const failedApprovals: string[] = [];
     try {
       await persistPlanCards(planCards);
       setSharedContractDirty(false);
-      const approvedPlanIds: string[] = [];
-      const failedApprovals: string[] = [];
 
       for (const card of approvedCards) {
         try {
@@ -596,13 +602,17 @@ export function CreateVideoTab({
           });
           approvedPlanIds.push(String(card.planId || '').trim());
         } catch (error) {
+          console.error(`[Approve Plan] Failed for ${card.personaName} (${card.planId}):`, error);
           failedApprovals.push(card.personaName);
         }
       }
 
       const nextPlanIds = approvedPlanIds.filter(Boolean);
       if (nextPlanIds.length === 0) {
-        throw new Error('No approved plans could continue to production.');
+        const failMessage = failedApprovals.length > 0
+          ? `All ${approvedCards.length} plans failed to approve. Check console for details.`
+          : 'No approved plans were selected.';
+        throw new Error(failMessage);
       }
       setActivePlanIds(nextPlanIds);
       const nextJobs = await refreshJobs();
@@ -621,8 +631,10 @@ export function CreateVideoTab({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to approve plans';
-      setErrorMessage(message);
+      const detailedMessage = `${message}${failedApprovals.length > 0 ? ` (${failedApprovals.length} failed)` : ''} - Check browser console for details.`;
+      setErrorMessage(detailedMessage);
       toast.error(`Could not approve the selected persona plans: ${message}`);
+      console.error('[goToStep3] Approval process error:', error, { failedApprovals });
     } finally {
       setIsSubmittingPlans(false);
     }
@@ -631,7 +643,7 @@ export function CreateVideoTab({
   const deleteReviewPlans = useCallback(async (planIds: string[]) => {
     const uniquePlanIds = Array.from(new Set(planIds.map((planId) => planId.trim()).filter(Boolean)));
     if (uniquePlanIds.length === 0) {
-      throw new Error('No plans were selected for deletion.');
+      throw new Error('No plans were selected for discard.');
     }
 
     setErrorMessage(null);
@@ -643,12 +655,13 @@ export function CreateVideoTab({
           method: 'DELETE',
         });
       } catch (error) {
+        console.error(`[Delete Plan] Failed for planId ${planId}:`, error);
         failures.push(planId);
       }
     }
 
     if (failures.length > 0) {
-      const message = `Failed to delete plan(s): ${failures.join(', ')}`;
+      const message = `Failed to discard plan(s): ${failures.join(', ')}`;
       setErrorMessage(message);
       toast.error(message);
       throw new Error(message);
@@ -663,7 +676,7 @@ export function CreateVideoTab({
     setSharedContractDraft(nextState.sharedContractDraft);
     setSharedContractDirty(nextState.sharedContractDirty);
     setCurrentStep(nextState.currentStep);
-    toast.success('Deleted the selected plan(s) and returned to Setup.');
+    toast.success('Discarded the selected plan(s) and returned to Setup.');
   }, [onRefresh, refreshJobs]);
 
   const handleUploadPlanVideo = useCallback(async (planId: string, file: File | null) => {
@@ -764,7 +777,6 @@ export function CreateVideoTab({
               setPlanCards((current) => syncPlanCardsWithSharedDraft(current, baselineDraft));
               setSharedContractDirty(false);
             }}
-            hasDivergentContracts={hasDivergentContracts}
             onCardsChange={setPlanCards}
             onSaveEdits={savePlanEdits}
             isSaving={isSavingPlans}

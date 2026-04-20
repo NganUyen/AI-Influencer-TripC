@@ -1795,6 +1795,16 @@
 .cv-badge--approved { background: rgb(0 104 79 / 0.1); color: #00684f; }
 .cv-badge--rejected { background: rgb(180 19 64 / 0.08); color: #b41340; }
 .cv-badge--pending  { background: var(--surface-card-muted); color: #aeada9; }
+.cv-badge--country  { background: rgb(174 173 169 / 0.08); color: #5c5c58; gap: 6px; }
+
+.cv-persona-country-flag {
+  width: 16px;
+  height: 12px;
+  border-radius: 2px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px rgb(46 47 44 / 0.08);
+  flex: none;
+}
 
 /* Render status badges */
 .cv-badge--queued        { background: var(--surface-card-muted); color: #aeada9; }
@@ -2270,6 +2280,23 @@
   overflow-wrap: anywhere;
 }
 
+.cv-persona-country-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.cv-persona-country-flag {
+  width: 14px;
+  height: 10px;
+  border-radius: 2px;
+  object-fit: cover;
+  flex: none;
+  box-shadow: 0 0 0 1px rgb(46 47 44 / 0.08);
+}
+
 .cv-persona-detail-grid {
   display: flex;
   flex-wrap: wrap;
@@ -2317,8 +2344,7 @@
   flex-wrap: wrap;
 }
 
-.cv-shared-contract-note,
-.cv-shared-contract-warning {
+.cv-shared-contract-note {
   display: grid;
   gap: 4px;
   padding: 12px 14px;
@@ -2330,18 +2356,17 @@
   color: #5c5c58;
 }
 
-.cv-shared-contract-note strong,
-.cv-shared-contract-warning strong {
+.cv-shared-contract-note strong {
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #2e2f2c;
 }
 
-.cv-shared-contract-warning {
-  border-color: rgb(246 128 109 / 0.25);
-  background: rgb(246 128 109 / 0.08);
-  color: #7f3528;
+.cv-shared-contract-helper {
+  color: #474743;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .cv-shared-contract-grid {

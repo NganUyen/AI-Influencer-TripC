@@ -108,6 +108,36 @@ export function CreateVideoSetupStep({
     [customPersonaIds, selectedPersonaSet],
   );
 
+  const getPersonaCountryCode = useCallback((persona: Persona): string | null => {
+    const normalized = String(persona.region_label || persona.market_default || '')
+      .trim()
+      .toLowerCase();
+
+    if (!normalized) {
+      return null;
+    }
+
+    const countryMap: Record<string, string> = {
+      'united states': 'US',
+      'united states of america': 'US',
+      usa: 'US',
+      us: 'US',
+      american: 'US',
+      vietnam: 'VN',
+      vietnamese: 'VN',
+      'viet nam': 'VN',
+      vn: 'VN',
+      china: 'CN',
+      chinese: 'CN',
+      cn: 'CN',
+      india: 'IN',
+      indian: 'IN',
+      in: 'IN',
+    };
+
+    return countryMap[normalized] || null;
+  }, []);
+
   // -------------------------------------------------------------------------
   // URL validation on blur
   // -------------------------------------------------------------------------
@@ -254,6 +284,7 @@ export function CreateVideoSetupStep({
     const voiceLabel = persona.tts_voice || 'Voice not set';
     const statusLabel = persona.status || 'draft';
     const toneLabel = persona.tone_default ? formatMarketLabel(persona.tone_default) : null;
+    const countryCode = getPersonaCountryCode(persona);
 
     return (
       <button
@@ -286,7 +317,23 @@ export function CreateVideoSetupStep({
               {formatMarketLabel(statusLabel)}
             </span>
           </span>
-          <span className="cv-persona-meta-line">{regionLabel}</span>
+          <span className="cv-persona-meta-line">
+            {countryCode ? (
+              <span className="cv-persona-country-chip" title={regionLabel} aria-label={regionLabel}>
+                <img
+                  src={`https://flagcdn.com/${countryCode.toLowerCase()}.svg`}
+                  alt=""
+                  aria-hidden="true"
+                  className="cv-persona-country-flag"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <span>{regionLabel}</span>
+              </span>
+            ) : (
+              regionLabel
+            )}
+          </span>
           <span className="cv-persona-detail-grid">
             <span>{languageLabel}</span>
             <span>{voiceLabel}</span>
@@ -300,7 +347,7 @@ export function CreateVideoSetupStep({
         )}
       </button>
     );
-  }, [selectedPersonaSet, togglePersona]);
+  }, [getPersonaCountryCode, selectedPersonaSet, togglePersona]);
 
   // -------------------------------------------------------------------------
   // Continue guard

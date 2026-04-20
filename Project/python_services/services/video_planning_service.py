@@ -218,8 +218,8 @@ class VideoPlanningService:
     @classmethod
     async def approve_plan(cls, plan_id: str, user_id: str) -> Optional[Dict[str, Any]]:
         return await cls.update_plan(
-            plan_id, user_id, 
-            {"status": "approved", "approved_at": datetime.now(timezone.utc).isoformat()}
+            plan_id, user_id,
+            {"status": "approved", "approved_at": datetime.now(timezone.utc)}
         )
 
     @classmethod

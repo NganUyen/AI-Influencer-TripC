@@ -13,6 +13,7 @@ import type {
   VideoCreationMode,
   ViewTone,
 } from '@/types/video-planning';
+import { resolveCountryCode } from '@/lib/country-mapping';
 
 export const CREATE_VIDEO_UI_TO_BACKEND_MODE: Record<
   VideoCreationMode,
@@ -51,33 +52,6 @@ function toViewTone(value: ReturnType<typeof getReviewJobTone>): ViewTone {
     return 'warning';
   }
   return 'default';
-}
-
-function resolveCountryCode(value: string | null | undefined): string | null {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (!normalized) {
-    return null;
-  }
-
-  const countryMap: Record<string, string> = {
-    'united states': 'US',
-    'united states of america': 'US',
-    usa: 'US',
-    us: 'US',
-    american: 'US',
-    vietnam: 'VN',
-    vietnamese: 'VN',
-    'viet nam': 'VN',
-    vn: 'VN',
-    china: 'CN',
-    chinese: 'CN',
-    cn: 'CN',
-    india: 'IN',
-    indian: 'IN',
-    in: 'IN',
-  };
-
-  return countryMap[normalized] || null;
 }
 
 function extractSceneDescription(scene: unknown, index: number): string {

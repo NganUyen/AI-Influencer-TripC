@@ -901,6 +901,18 @@ async def _convert_image_to_video(
     import tempfile
     from pathlib import Path
 
+    # Known magic-byte prefixes for valid image formats
+    _IMAGE_MAGIC = {
+        b"\x89PNG": "PNG",
+        b"\xff\xd8\xff": "JPEG",
+        b"RIFF": "WEBP",  # RIFF....WEBP
+        b"GIF8": "GIF",
+    }
+
+    # 30s is more than enough for a still-image loop encode at 1080x960.
+    # The previous 120s timeout masked broken inputs.
+    _FFMPEG_TIMEOUT_SEC = 30
+
     logger.info(
         "Converting AI image to video | scene=%s | url=%s | duration=%ss",
         scene_id,
@@ -919,11 +931,34 @@ async def _convert_image_to_video(
             response.raise_for_status()
             image_path.write_bytes(response.content)
 
+        image_size = image_path.stat().st_size
         logger.debug(
             "Downloaded AI image | scene=%s | size_kb=%.1f",
             scene_id,
-            image_path.stat().st_size / 1024,
+            image_size / 1024,
         )
+
+        # Validate input image before invoking ffmpeg
+        if image_size < _MIN_IMAGE_FILE_SIZE:
+            raise ApplicationError(
+                f"Scene {scene_id}: downloaded image too small ({image_size} bytes) — likely corrupt or empty",
+                non_retryable=True,
+            )
+
+        header = image_path.read_bytes()[:8]
+        detected_format = None
+        for magic, fmt in _IMAGE_MAGIC.items():
+            if header.startswith(magic):
+                detected_format = fmt
+                break
+        if detected_format is None:
+            logger.warning(
+                "Unknown image format | scene=%s | header_hex=%s | size=%d",
+                scene_id,
+                header[:8].hex(),
+                image_size,
+            )
+            # Don't hard-fail — ffmpeg may still handle it — but log for diagnostics
 
         # Convert image to video using ffmpeg
         # -loop 1: loop the input image
@@ -955,12 +990,27 @@ async def _convert_image_to_video(
             " ".join(ffmpeg_cmd),
         )
 
-        result = subprocess.run(
-            ffmpeg_cmd,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ffmpeg_cmd,
+                capture_output=True,
+                text=True,
+                timeout=_FFMPEG_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired:
+            logger.error(
+                "ffmpeg image-to-video TIMED OUT | scene=%s | timeout=%ds | image_size=%d | duration=%s",
+                scene_id,
+                _FFMPEG_TIMEOUT_SEC,
+                image_size,
+                duration_sec,
+            )
+            raise ApplicationError(
+                f"Scene {scene_id}: ffmpeg timed out after {_FFMPEG_TIMEOUT_SEC}s converting image to video "
+                f"(image_size={image_size}, duration={duration_sec}s)",
+                non_retryable=True,
+            )
 
         if result.returncode != 0:
             error_output = result.stderr[-500:] if result.stderr else "no stderr"

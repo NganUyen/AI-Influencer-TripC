@@ -31,6 +31,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from activities.distribution_activities import publish_to_platforms
     from activities.video_activities import build_split_screen_video
+    from activities.workflow_status_activities import sync_workflow_terminal_status
     from services.contracts import VideoWorkflowStartPayloadContract
     from services.errors import (
         PersonaNotReadyError,
@@ -46,6 +47,8 @@ MEDIA_RETRY_POLICY = RetryPolicy(
         "PersonaConfigurationError",
     ],
 )
+
+_DB_SYNC_RETRY = RetryPolicy(maximum_attempts=2)
 
 
 _VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi"}
@@ -232,6 +235,36 @@ class ShortVideoWorkflow:
                 "error_summary": sanitize_for_user(raw_text, error_type),
             }
 
+        async def _sync_db_status(
+            wf_id: str,
+            status: str,
+            step: str,
+            *,
+            error_message: str | None = None,
+        ) -> None:
+            """Fire-and-forget sync of terminal status to public.workflows."""
+            try:
+                await workflow.execute_activity(
+                    sync_workflow_terminal_status,
+                    args=[
+                        {
+                            "workflow_id": wf_id,
+                            "status": status,
+                            "current_step": step,
+                            "error_message": error_message,
+                        }
+                    ],
+                    start_to_close_timeout=timedelta(seconds=10),
+                    retry_policy=_DB_SYNC_RETRY,
+                )
+            except Exception as sync_exc:
+                workflow.logger.warning(
+                    "DB status sync failed (non-fatal) | workflow_id=%s | status=%s | error=%s",
+                    wf_id,
+                    status,
+                    sync_exc,
+                )
+
         try:
             start_payload = VideoWorkflowStartPayloadContract.model_validate(payload)
             persona_id = start_payload.persona_id
@@ -371,6 +404,7 @@ class ShortVideoWorkflow:
                     self.workflow_status = "discarded"
                     self.current_step = "script_rejected"
                     log_step_change("script_rejected", "user rejected script")
+                    await _sync_db_status(workflow_id, "discarded", "script_rejected")
                     return {
                         "type": "video",
                         "status": "discarded",
@@ -721,6 +755,7 @@ class ShortVideoWorkflow:
                         workflow_id,
                         preview.get("request_id"),
                     )
+                    await _sync_db_status(workflow_id, "expired", "decision_timeout")
                     return {
                         **final_video,
                         "status": "expired",
@@ -739,6 +774,7 @@ class ShortVideoWorkflow:
                     self.workflow_status = "discarded"
                     self.current_step = "discarded"
                     log_step_change("discarded", "user discarded video")
+                    await _sync_db_status(workflow_id, "discarded", "discarded")
                     return {
                         "type": "video",
                         "status": "discarded",
@@ -780,6 +816,7 @@ class ShortVideoWorkflow:
             self.workflow_status = "completed"
             self.current_step = "completed"
             log_step_change("completed", "workflow successful")
+            await _sync_db_status(workflow_id, "completed", "completed")
             return {
                 **final_video,
                 "status": "completed",
@@ -805,6 +842,7 @@ class ShortVideoWorkflow:
                 workflow_id,
                 fallback_topic,
             )
+            await _sync_db_status(workflow_id, "cancelled", "cancelled")
             return {
                 "type": "video",
                 "status": "cancelled",
@@ -827,6 +865,12 @@ class ShortVideoWorkflow:
                 getattr(self, "current_step", "unknown"),
                 error_details["error_type"],
                 error_details["error_summary"],
+            )
+
+            # Sync terminal status to DB before re-raising
+            await _sync_db_status(
+                workflow_id, "failed", "failed",
+                error_message=error_details["error_summary"],
             )
             
             # Send error notification to user if enabled, but don't let notification failure block the raise

@@ -44,6 +44,7 @@ from activities.approval_activities import (
     send_telegram_progress_update,
     send_telegram_error_notification,
 )
+from activities.workflow_status_activities import sync_workflow_terminal_status
 from config.settings import settings
 from services.content_persistence_service import ContentPersistenceService
 
@@ -84,6 +85,7 @@ activities = [
     generate_script_from_approved_package_activity,
     send_telegram_progress_update,
     send_telegram_error_notification,
+    sync_workflow_terminal_status,
 ]
 
 

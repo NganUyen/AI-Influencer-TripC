@@ -288,6 +288,62 @@ class WorkflowStateService:
         return normalized
 
     @classmethod
+    async def record_terminal_status(
+        cls,
+        *,
+        workflow_id: str,
+        status: str,
+        current_step: Optional[str] = None,
+        error_message: Optional[str] = None,
+        output_data: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Sync a terminal workflow state (failed/completed/cancelled/discarded/expired)
+        back to the public.workflows table so the DB row matches Temporal.
+        """
+        try:
+            pool = await DatabaseService.get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    UPDATE public.workflows
+                    SET status = $2,
+                        current_step = COALESCE($3, current_step),
+                        error_message = $4,
+                        output_data = COALESCE($5::jsonb, output_data),
+                        completed_at = CASE
+                            WHEN completed_at IS NULL THEN NOW()
+                            ELSE completed_at
+                        END,
+                        updated_at = NOW()
+                    WHERE workflow_id = $1
+                    RETURNING *
+                    """,
+                    workflow_id,
+                    status,
+                    current_step,
+                    error_message,
+                    json.dumps(output_data or {}, sort_keys=True) if output_data else None,
+                )
+        except Exception:
+            payload = cls._memory_store.get(workflow_id)
+            if payload is None:
+                return None
+            payload["status"] = status
+            if current_step:
+                payload["current_step"] = current_step
+            payload["error_message"] = error_message
+            if output_data:
+                payload["output_data"] = output_data
+            return dict(payload)
+
+        if row is None:
+            return None
+        normalized = _normalize_workflow_row(dict(row))
+        cls._memory_store[workflow_id] = normalized
+        return normalized
+
+    @classmethod
     async def list_for_user(
         cls,
         *,

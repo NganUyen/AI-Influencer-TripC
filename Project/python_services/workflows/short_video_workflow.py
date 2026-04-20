@@ -11,7 +11,7 @@ from typing import Any, Dict, List
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, TimeoutError
+from temporalio.exceptions import ActivityError, ApplicationError, TimeoutError
 
 with workflow.unsafe.imports_passed_through():
     from activities.approval_activities import (
@@ -49,6 +49,14 @@ MEDIA_RETRY_POLICY = RetryPolicy(
 )
 
 _DB_SYNC_RETRY = RetryPolicy(maximum_attempts=2)
+_ASSEMBLY_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=2,
+    non_retryable_error_types=[
+        "AssemblyError",
+        "AssemblyMissingAssetError",
+        "SceneAssetMismatchError",
+    ],
+)
 
 
 _VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi"}
@@ -87,6 +95,142 @@ def _scene_has_video_asset(scene: Dict[str, Any]) -> bool:
 def _has_nonempty_asset_url(scene: Dict[str, Any]) -> bool:
     asset_url = scene.get("image_url")
     return isinstance(asset_url, str) and bool(asset_url.strip())
+
+
+_FFMPEG_SUBSTAGE_PATTERN = re.compile(r"ffmpeg failed \(([^)]+)\)")
+
+
+def _trim_debug_text(text: str, limit: int = 3000) -> str:
+    normalized = str(text or "").strip()
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3] + "..."
+
+
+def _application_error_type(exc: ApplicationError, raw_text: str) -> str:
+    explicit_type = str(getattr(exc, "type", "") or "").strip()
+    if explicit_type and explicit_type != "ApplicationError":
+        return explicit_type
+    inline_match = re.match(r"^([A-Za-z][A-Za-z0-9_]+):", raw_text)
+    if inline_match and inline_match.group(1) != "ApplicationError":
+        return inline_match.group(1)
+    return type(exc).__name__
+
+
+def _sanitize_workflow_error_for_user(error_text: str, error_type: str) -> str:
+    text_lower = error_text.lower()
+    error_type_lower = error_type.lower()
+
+    if "assemblymissingasseterror" in error_type_lower:
+        return "A required media file was unavailable during video assembly."
+    if "assemblyerror" in error_type_lower:
+        return "Video processing encountered an issue. Please try again."
+    if "storageuploaderror" in error_type_lower:
+        return "Final video upload issue. Please try again."
+    if "sceneassetmismatcherror" in error_type_lower:
+        return "Scene assets were incomplete. Please try again."
+
+    if "ffmpeg" in text_lower or "ffprobe" in text_lower:
+        return "Video processing encountered an issue. Please try again."
+    if "codec" in text_lower or "encoding" in text_lower:
+        return "Video encoding issue. Please try with a different video format."
+
+    if any(
+        p in text_lower
+        for p in ["/tmp/", "\\tmp\\", "storage", "bucket", "blob", "s3://"]
+    ):
+        return "Temporary storage issue. Please try again in a few minutes."
+    if "file not found" in text_lower or "no such file" in text_lower:
+        return "A required file was unavailable. Please try again."
+
+    if "timeout" in text_lower:
+        return "Request timed out. Please try again."
+    if "connection" in text_lower or "network" in text_lower:
+        return "Network issue encountered. Please try again."
+    if "rate limit" in text_lower or "429" in text_lower:
+        return "Service is busy. Please try again in a few minutes."
+
+    if (
+        "auth" in text_lower
+        or "token" in text_lower
+        or "credential" in text_lower
+    ):
+        return "Authentication issue. Please contact support."
+
+    if "applicationerror" in error_type_lower:
+        clean = re.sub(r"^(ActivityError/|ApplicationError:?\s*)", "", error_text)
+        if any(c in clean for c in ["\\", "/", "0x", "stack", "trace"]):
+            return "An unexpected error occurred. Please try again."
+        return clean[:200] if len(clean) <= 200 else clean[:197] + "..."
+
+    if re.search(r"(File \".+\", line \d+|Traceback|at 0x[0-9a-f]+)", error_text):
+        return "An internal error occurred. Our team has been notified."
+
+    if len(error_text) <= 150 and not any(
+        c in error_text for c in ["\\", "://", "/home/", "/var/", "C:\\"]
+    ):
+        return error_text
+
+    return "An unexpected error occurred. Please try again or contact support."
+
+
+def _infer_failure_substage(raw_error_message: str) -> str | None:
+    match = _FFMPEG_SUBSTAGE_PATTERN.search(str(raw_error_message or ""))
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def _summarize_workflow_exception(exc: Exception) -> Dict[str, Any]:
+    raw_text = str(exc).strip() or repr(exc)
+    error_type = type(exc).__name__
+    activity_type = None
+    cause_type = None
+    retryable = getattr(exc, "retryable", None)
+
+    if isinstance(exc, ActivityError):
+        activity_type = getattr(exc, "activity_type", None)
+        cause = getattr(exc, "cause", None)
+        raw_text = str(cause or exc).strip() or "Activity task failed"
+        if isinstance(cause, ApplicationError):
+            cause_type = _application_error_type(cause, raw_text)
+            retryable = not bool(getattr(cause, "non_retryable", False))
+        elif cause is not None:
+            cause_type = type(cause).__name__
+            retryable = getattr(cause, "retryable", retryable)
+        error_type = f"ActivityError/{cause_type or 'UnknownCause'}"
+    elif isinstance(exc, ApplicationError):
+        error_type = _application_error_type(exc, raw_text)
+        retryable = not bool(getattr(exc, "non_retryable", False))
+
+    return {
+        "error_type": error_type,
+        "error_summary": _sanitize_workflow_error_for_user(raw_text, error_type),
+        "raw_error_message": _trim_debug_text(raw_text, limit=4000),
+        "failure_substage": _infer_failure_substage(raw_text),
+        "activity_type": activity_type,
+        "activity_cause_type": cause_type,
+        "retryable": retryable,
+    }
+
+
+def _build_failure_output_data(
+    *, failed_step: str, error_details: Dict[str, Any]
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "failure_step": failed_step,
+        "error_type": error_details["error_type"],
+        "raw_error_message": error_details["raw_error_message"],
+    }
+    if error_details.get("failure_substage"):
+        payload["failure_substage"] = error_details["failure_substage"]
+    if error_details.get("activity_type"):
+        payload["activity_type"] = error_details["activity_type"]
+    if error_details.get("activity_cause_type"):
+        payload["activity_cause_type"] = error_details["activity_cause_type"]
+    if error_details.get("retryable") is not None:
+        payload["error_retryable"] = bool(error_details["retryable"])
+    return payload
 
 
 @workflow.defn
@@ -148,99 +292,13 @@ class ShortVideoWorkflow:
                     exc,
                 )
 
-        def summarize_exception(exc: Exception) -> Dict[str, str]:
-            """Return a more useful error type/summary for Telegram and status payloads."""
-
-            def sanitize_for_user(error_text: str, error_type: str) -> str:
-                """
-                Convert technical error messages to user-friendly text.
-                P0.3: Prevent leaking ffmpeg, storage paths, stack traces to users.
-                """
-                text_lower = error_text.lower()
-
-                # ffmpeg/video processing errors
-                if "ffmpeg" in text_lower or "ffprobe" in text_lower:
-                    return "Video processing encountered an issue. Please try again."
-                if "codec" in text_lower or "encoding" in text_lower:
-                    return "Video encoding issue. Please try with a different video format."
-
-                # Storage/file system errors
-                if any(
-                    p in text_lower
-                    for p in ["/tmp/", "\\tmp\\", "storage", "bucket", "blob", "s3://"]
-                ):
-                    return "Temporary storage issue. Please try again in a few minutes."
-                if "file not found" in text_lower or "no such file" in text_lower:
-                    return "A required file was unavailable. Please try again."
-
-                # Network/API errors
-                if "timeout" in text_lower:
-                    return "Request timed out. Please try again."
-                if "connection" in text_lower or "network" in text_lower:
-                    return "Network issue encountered. Please try again."
-                if "rate limit" in text_lower or "429" in text_lower:
-                    return "Service is busy. Please try again in a few minutes."
-
-                # Authentication errors (don't expose details)
-                if (
-                    "auth" in text_lower
-                    or "token" in text_lower
-                    or "credential" in text_lower
-                ):
-                    return "Authentication issue. Please contact support."
-
-                # Generic ApplicationError from activities
-                if "applicationerror" in error_type.lower():
-                    # Strip technical prefixes but keep user-safe portion
-                    clean = re.sub(
-                        r"^(ActivityError/|ApplicationError:?\s*)", "", error_text
-                    )
-                    # If still looks technical, use generic message
-                    if any(c in clean for c in ["\\", "/", "0x", "stack", "trace"]):
-                        return "An unexpected error occurred. Please try again."
-                    return clean[:200] if len(clean) <= 200 else clean[:197] + "..."
-
-                # Check for stack trace patterns
-                if re.search(
-                    r"(File \".+\", line \d+|Traceback|at 0x[0-9a-f]+)", error_text
-                ):
-                    return "An internal error occurred. Our team has been notified."
-
-                # If message looks safe (no paths, no stack traces), return truncated
-                if len(error_text) <= 150 and not any(
-                    c in error_text for c in ["\\", "://", "/home/", "/var/", "C:\\"]
-                ):
-                    return error_text
-
-                return (
-                    "An unexpected error occurred. Please try again or contact support."
-                )
-
-            if isinstance(exc, ActivityError):
-                cause = getattr(exc, "cause", None)
-                cause_text = str(cause or exc).strip() or "Activity task failed"
-                cause_type = (
-                    type(cause).__name__ if cause is not None else "UnknownCause"
-                )
-                error_type = f"ActivityError/{cause_type}"
-                return {
-                    "error_type": error_type,
-                    "error_summary": sanitize_for_user(cause_text, error_type),
-                }
-
-            error_type = type(exc).__name__
-            raw_text = str(exc).strip() or repr(exc)
-            return {
-                "error_type": error_type,
-                "error_summary": sanitize_for_user(raw_text, error_type),
-            }
-
         async def _sync_db_status(
             wf_id: str,
             status: str,
             step: str,
             *,
             error_message: str | None = None,
+            output_data: Dict[str, Any] | None = None,
         ) -> None:
             """Fire-and-forget sync of terminal status to public.workflows."""
             try:
@@ -252,6 +310,7 @@ class ShortVideoWorkflow:
                             "status": status,
                             "current_step": step,
                             "error_message": error_message,
+                            "output_data": output_data,
                         }
                     ],
                     start_to_close_timeout=timedelta(seconds=10),
@@ -264,6 +323,56 @@ class ShortVideoWorkflow:
                     status,
                     sync_exc,
                 )
+
+        async def _handle_workflow_failure(exc: Exception) -> None:
+            failed_step = str(getattr(self, "current_step", "unknown") or "unknown")
+            self.workflow_status = "failed"
+            error_details = _summarize_workflow_exception(exc)
+            failure_output = _build_failure_output_data(
+                failed_step=failed_step,
+                error_details=error_details,
+            )
+
+            workflow.logger.error(
+                "Workflow failed | workflow_id=%s | topic=%s | step=%s | substage=%s | error_type=%s | error=%s | raw_error=%s",
+                workflow_id,
+                fallback_topic,
+                failed_step,
+                error_details.get("failure_substage") or "none",
+                error_details["error_type"],
+                error_details["error_summary"],
+                error_details["raw_error_message"],
+            )
+
+            await _sync_db_status(
+                workflow_id,
+                "failed",
+                failed_step,
+                error_message=error_details["error_summary"],
+                output_data=failure_output,
+            )
+
+            if telegram_chat_id and error_notify_enabled:
+                try:
+                    await workflow.execute_activity(
+                        send_telegram_error_notification,
+                        args=[
+                            {
+                                "telegram_chat_id": telegram_chat_id,
+                                "workflow_id": workflow_id,
+                                "topic": fallback_topic,
+                                "error_type": error_details["error_type"],
+                                "error_summary": error_details["error_summary"],
+                            }
+                        ],
+                        start_to_close_timeout=timedelta(seconds=30),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
+                except Exception as notify_exc:
+                    workflow.logger.warning(
+                        "Failed to send error notification to Telegram: %s",
+                        notify_exc,
+                    )
 
         try:
             start_payload = VideoWorkflowStartPayloadContract.model_validate(payload)
@@ -704,7 +813,7 @@ class ShortVideoWorkflow:
                     }
                 ],
                 start_to_close_timeout=timedelta(minutes=20),
-                retry_policy=RetryPolicy(maximum_attempts=2),
+                retry_policy=_ASSEMBLY_RETRY_POLICY,
             )
 
             if telegram_chat_id:
@@ -829,9 +938,8 @@ class ShortVideoWorkflow:
                     "publish_result": publish_result,
                 },
             }
-        except (PersonaNotReadyError, PersonaConfigurationError):
-            self.workflow_status = "failed"
-            self.current_step = "failed"
+        except (PersonaNotReadyError, PersonaConfigurationError) as exc:
+            await _handle_workflow_failure(exc)
             raise
         except asyncio.CancelledError:
             # [SAFETY-1] Handle cancellation explicitly - don't treat as failure
@@ -854,50 +962,7 @@ class ShortVideoWorkflow:
                 "metadata": {"reason": "Cancelled by user"},
             }
         except Exception as exc:
-            self.workflow_status = "failed"
-            self.current_step = "failed"
-            error_details = summarize_exception(exc)
-
-            workflow.logger.error(
-                "Workflow failed | workflow_id=%s | topic=%s | step=%s | error_type=%s | error=%s",
-                workflow_id,
-                fallback_topic,
-                getattr(self, "current_step", "unknown"),
-                error_details["error_type"],
-                error_details["error_summary"],
-            )
-
-            # Sync terminal status to DB before re-raising
-            await _sync_db_status(
-                workflow_id, "failed", "failed",
-                error_message=error_details["error_summary"],
-            )
-            
-            # Send error notification to user if enabled, but don't let notification failure block the raise
-            if telegram_chat_id and error_notify_enabled:
-                try:
-                    await workflow.execute_activity(
-                        send_telegram_error_notification,
-                        args=[
-                            {
-                                "telegram_chat_id": telegram_chat_id,
-                                "workflow_id": workflow_id,
-                                "topic": fallback_topic,
-                                "error_type": error_details["error_type"],
-                                "error_summary": error_details["error_summary"],
-                            }
-                        ],
-                        start_to_close_timeout=timedelta(seconds=30),
-                        retry_policy=RetryPolicy(maximum_attempts=2),
-                    )
-                except Exception as notify_exc:
-                    workflow.logger.warning(
-                        "Failed to send error notification to Telegram: %s",
-                        notify_exc,
-                    )
-            
-            # Re-raise the exception so Temporal properly tracks this as a workflow failure
-            # This enables automatic retries and proper failure monitoring
+            await _handle_workflow_failure(exc)
             raise
 
     @workflow.query

@@ -75,6 +75,8 @@ export type ReviewEngineJob = {
     display_name?: string | null;
     language?: string | null;
     region_label?: string | null;
+    market_default?: string | null;
+    country_code?: string | null;
     image_url?: string | null;
     selection_image_url?: string | null;
     tiktok_integration?: ReviewEngineTikTokIntegration | null;
@@ -106,6 +108,18 @@ export type ReviewEngineJob = {
     tiktok_channel_id?: string | null;
     input_mode?: string | null;
     uploaded_media_asset_id?: string | null;
+    shared_contract?: {
+      language?: string | null;
+      script_text?: string | null;
+      scenes_data?: any[] | null;
+      duration_estimate?: number | null;
+    } | null;
+  } | null;
+  master_contract?: {
+    language?: string | null;
+    script_text?: string | null;
+    scenes_data?: any[] | null;
+    duration_estimate?: number | null;
   } | null;
   creative_preferences?: Record<string, unknown> | null;
   recording_script?: unknown;
@@ -156,6 +170,13 @@ export type ReviewEngineSourceValidateResponse = {
   suggested_objective?: string | null;
   visible_features: any[];
   page_review_data?: Record<string, unknown>;
+};
+
+export type ReviewEngineMasterContract = {
+  language?: string | null;
+  script_text?: string | null;
+  scenes_data?: any[] | null;
+  duration_estimate?: number | null;
 };
 
 export function getReviewJobTone(

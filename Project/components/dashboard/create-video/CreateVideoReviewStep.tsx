@@ -9,13 +9,33 @@ import type {
   ViewTone,
 } from '@/types/video-planning';
 
+function getCountryFlagSrc(countryCode: string): string {
+  return `https://flagcdn.com/${countryCode.toLowerCase()}.svg`;
+}
+
+function getPersonaCountryLabel(card: PersonaPlanCardViewModel): string {
+  const regionLabel = String(card.personaRegionLabel || '').trim();
+  if (regionLabel) {
+    return regionLabel;
+  }
+
+  const marketDefault = String(card.personaMarketDefault || '').trim().replace(/_/g, ' ');
+  if (!marketDefault) {
+    return 'Global';
+  }
+
+  return marketDefault
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 interface CreateVideoReviewStepProps {
   planCards: PersonaPlanCardViewModel[];
   sharedContractDraft: SharedContractDraft;
   hasUnsavedChanges?: boolean;
   onSharedContractChange: (draft: SharedContractDraft) => void;
   onResetSharedContract: () => void;
-  hasDivergentContracts?: boolean;
   onCardsChange: Dispatch<SetStateAction<PersonaPlanCardViewModel[]>>;
   onSaveEdits: () => void | Promise<void>;
   isSaving?: boolean;
@@ -51,6 +71,30 @@ function decisionButtonClass(
   return `cv-action-btn${active}`;
 }
 
+function renderCountryBadge(card: PersonaPlanCardViewModel) {
+  const countryCode = String(card.personaCountryCode || '').trim();
+  if (!countryCode) {
+    return (
+      <span className={toneBadgeClass(card.statusTone)}>{card.backendStatusLabel}</span>
+    );
+  }
+
+  const countryLabel = getPersonaCountryLabel(card);
+  return (
+    <span className="cv-badge cv-badge--country" title={countryLabel} aria-label={countryLabel}>
+      <img
+        className="cv-persona-country-flag"
+        src={getCountryFlagSrc(countryCode)}
+        alt=""
+        aria-hidden="true"
+        loading="lazy"
+        decoding="async"
+      />
+      <span>{countryLabel}</span>
+    </span>
+  );
+}
+
 function parseScenes(input: string) {
   const rows = input
     .split('\n')
@@ -76,7 +120,6 @@ export function CreateVideoReviewStep({
   hasUnsavedChanges = false,
   onSharedContractChange,
   onResetSharedContract,
-  hasDivergentContracts = false,
   onCardsChange,
   onSaveEdits,
   isSaving = false,
@@ -89,8 +132,8 @@ export function CreateVideoReviewStep({
   onBack,
 }: CreateVideoReviewStepProps) {
   const [isEditingContract, setIsEditingContract] = useState(false);
-  const [rejectModalPlanIds, setRejectModalPlanIds] = useState<string[]>([]);
-  const [isDeletingPlans, setIsDeletingPlans] = useState(false);
+  const [discardModalPlanIds, setDiscardModalPlanIds] = useState<string[]>([]);
+  const [isDiscardingPlans, setIsDiscardingPlans] = useState(false);
 
   const approvedCount = planCards.filter(
     (card) => card.reviewDecision === 'approved',
@@ -124,35 +167,35 @@ export function CreateVideoReviewStep({
     );
   };
 
-  const openRejectModal = (planIds: string[]) => {
+  const openDiscardModal = (planIds: string[]) => {
     const uniquePlanIds = Array.from(
       new Set(planIds.map((planId) => planId.trim()).filter(Boolean)),
     );
     if (uniquePlanIds.length === 0) {
       return;
     }
-    setRejectModalPlanIds(uniquePlanIds);
+    setDiscardModalPlanIds(uniquePlanIds);
   };
 
-  const closeRejectModal = () => {
-    if (isDeletingPlans) {
+  const closeDiscardModal = () => {
+    if (isDiscardingPlans) {
       return;
     }
-    setRejectModalPlanIds([]);
+    setDiscardModalPlanIds([]);
   };
 
-  const confirmDeletePlans = async () => {
-    if (rejectModalPlanIds.length === 0) {
+  const confirmDiscardPlans = async () => {
+    if (discardModalPlanIds.length === 0) {
       return;
     }
 
-    setIsDeletingPlans(true);
+    setIsDiscardingPlans(true);
     try {
-      await onDeletePlans(rejectModalPlanIds);
-      setRejectModalPlanIds([]);
+      await onDeletePlans(discardModalPlanIds);
+      setDiscardModalPlanIds([]);
       onReturnToSetup();
     } finally {
-      setIsDeletingPlans(false);
+      setIsDiscardingPlans(false);
     }
   };
 
@@ -182,12 +225,12 @@ export function CreateVideoReviewStep({
       ),
     );
     if (labels.length === 0) {
-      return 'Persona languages stay synced from the selected targets.';
+      return 'The English master stays canonical, and persona languages are derived from it.';
     }
     if (labels.length <= 3) {
-      return `Persona targets: ${labels.join(' / ')}.`;
+      return `Persona targets: ${labels.join(' / ')}. Non-English lanes use strict translation from the English master.`;
     }
-    return `Persona targets span ${labels.length} languages and stay aligned to this shared contract.`;
+    return `Persona targets span ${labels.length} languages and use strict translation from the English master contract.`;
   }, [planCards]);
 
   const personaStats = useMemo(() => {
@@ -245,13 +288,13 @@ export function CreateVideoReviewStep({
               <span className="cv-badge cv-badge--ready">
                 {approvedCount}/{planCards.length} approved
               </span>
-              <button
-                type="button"
-                className="cv-action-btn cv-action-btn--reject"
-                onClick={() => openRejectModal(planCards.map((card) => card.planId || ''))}
-              >
-                Reject all
-              </button>
+                <button
+                  type="button"
+                  className="cv-action-btn cv-action-btn--reject"
+                  onClick={() => openDiscardModal(planCards.map((card) => card.planId || ''))}
+                >
+                  Discard all
+                </button>
               <button
                 type="button"
                 className="cv-action-btn cv-action-btn--approve"
@@ -281,12 +324,10 @@ export function CreateVideoReviewStep({
             <div className="cv-shared-contract-note">
               <strong>Shared contract note</strong>
               <span>{languageSummary}</span>
+              <span className="cv-shared-contract-helper">
+                Editing this contract updates the English master first. Other persona scripts are regenerated as strict translations to keep every lane consistent.
+              </span>
             </div>
-            {hasDivergentContracts && (
-              <div className="cv-shared-contract-warning">
-                Existing persona drafts differed. This editor is now the single shared contract source.
-              </div>
-            )}
           </div>
 
           <div className="cv-section-content cv-shared-contract-grid">
@@ -391,9 +432,7 @@ export function CreateVideoReviewStep({
                       </span>
                     </div>
                   </div>
-                  <span className={toneBadgeClass(card.statusTone)}>
-                    {card.backendStatusLabel}
-                  </span>
+                  {renderCountryBadge(card)}
                 </div>
 
                 <div className="cv-persona-target-meta">
@@ -403,9 +442,7 @@ export function CreateVideoReviewStep({
                   <span className="cv-persona-target-pill">
                     {card.reviewDecision === 'approved'
                       ? 'Approved lane'
-                      : card.reviewDecision === 'rejected'
-                        ? 'Rejected lane'
-                        : 'Pending lane'}
+                      : 'Pending lane'}
                   </span>
                 </div>
 
@@ -413,10 +450,10 @@ export function CreateVideoReviewStep({
                   <button
                     type="button"
                     className={decisionButtonClass(card.reviewDecision, 'rejected')}
-                    onClick={() => openRejectModal([card.planId || ''])}
+                    onClick={() => openDiscardModal([card.planId || ''])}
                     disabled={!card.planId}
                   >
-                    Reject
+                    Discard
                   </button>
                   <button
                     type="button"
@@ -484,33 +521,33 @@ export function CreateVideoReviewStep({
         </div>
       </div>
 
-      {rejectModalPlanIds.length > 0 && (
-        <div className="cv-delete-modal-backdrop" onClick={closeRejectModal} aria-hidden="true" />
+      {discardModalPlanIds.length > 0 && (
+        <div className="cv-delete-modal-backdrop" onClick={closeDiscardModal} aria-hidden="true" />
       )}
 
-      {rejectModalPlanIds.length > 0 && (
-        <div className="cv-delete-modal-shell" role="dialog" aria-modal="true" aria-label="Delete review plans confirmation">
+      {discardModalPlanIds.length > 0 && (
+        <div className="cv-delete-modal-shell" role="dialog" aria-modal="true" aria-label="Discard review plans confirmation">
           <div className="cv-delete-modal-card">
             <div className="cv-delete-modal-header">
               <div>
-                <h4 className="cv-delete-modal-title">Delete selected plan{rejectModalPlanIds.length > 1 ? 's' : ''}?</h4>
+                <h4 className="cv-delete-modal-title">Discard selected plan{discardModalPlanIds.length > 1 ? 's' : ''}?</h4>
                 <p className="cv-delete-modal-subtitle">
-                  This will remove the selected plan{rejectModalPlanIds.length > 1 ? 's' : ''} and take you back to Setup.
+                  This will permanently discard the selected plan{discardModalPlanIds.length > 1 ? 's' : ''} and take you back to Setup.
                 </p>
               </div>
-              <button type="button" className="cv-delete-modal-close" onClick={closeRejectModal} aria-label="Close delete modal">
+              <button type="button" className="cv-delete-modal-close" onClick={closeDiscardModal} aria-label="Close discard modal">
                 ×
               </button>
             </div>
 
             <div className="cv-delete-modal-body">
               <p className="cv-delete-modal-note">
-                If you only want to revise the shared contract, choose <strong>Keep editing</strong> instead of deleting.
+                If you only want to revise the shared contract, choose <strong>Keep editing</strong> instead of discarding.
               </p>
               <div className="cv-delete-modal-summary">
-                <span className="cv-delete-modal-count">{rejectModalPlanIds.length} plan{rejectModalPlanIds.length > 1 ? 's' : ''} selected</span>
+                <span className="cv-delete-modal-count">{discardModalPlanIds.length} plan{discardModalPlanIds.length > 1 ? 's' : ''} selected</span>
                 <ul className="cv-delete-modal-list">
-                  {rejectModalPlanIds.map((planId) => (
+                  {discardModalPlanIds.map((planId) => (
                     <li key={planId}>{planId}</li>
                   ))}
                 </ul>
@@ -518,16 +555,16 @@ export function CreateVideoReviewStep({
             </div>
 
             <div className="cv-delete-modal-actions">
-              <button type="button" className="btn-secondary" onClick={closeRejectModal} disabled={isDeletingPlans}>
+              <button type="button" className="btn-secondary" onClick={closeDiscardModal} disabled={isDiscardingPlans}>
                 Keep editing
               </button>
               <button
                 type="button"
                 className="cv-action-btn cv-action-btn--reject"
-                onClick={confirmDeletePlans}
-                disabled={isDeletingPlans}
+                onClick={confirmDiscardPlans}
+                disabled={isDiscardingPlans}
               >
-                {isDeletingPlans ? 'Deleting…' : 'Delete and return to Setup'}
+                {isDiscardingPlans ? 'Discarding…' : 'Discard and return to Setup'}
               </button>
             </div>
           </div>

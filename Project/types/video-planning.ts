@@ -120,6 +120,9 @@ export interface PersonaPlanCardViewModel {
   personaId: string;
   personaName: string;
   personaLanguage?: string | null;
+  personaRegionLabel?: string | null;
+  personaMarketDefault?: string | null;
+  personaCountryCode?: string | null;
   personaAvatarUrl?: string;
   sourceUrl?: string | null;
   objective?: string | null;

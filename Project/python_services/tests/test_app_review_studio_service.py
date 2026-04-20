@@ -152,8 +152,11 @@ async def test_create_jobs_user_upload_persists_plan_state(monkeypatch):
             "approved_at": None,
         }
 
-    async def fail_script_generation(*args, **kwargs):
-        raise AssertionError("user_upload should not generate a script")
+    async def fake_generate_script(*args, **kwargs):
+        return (
+            type("Script", (), {"model_dump": lambda self, mode=None: {"script": "English master", "scenes": [], "duration_estimate": 12}})(),
+            None,
+        )
 
     monkeypatch.setattr(
         "services.app_review_studio_service.TelegramLinkService.get_link_for_user",
@@ -182,7 +185,7 @@ async def test_create_jobs_user_upload_persists_plan_state(monkeypatch):
     )
     monkeypatch.setattr(
         "services.script_service.ScriptService.generate_script_from_review_plan",
-        fail_script_generation,
+        fake_generate_script,
     )
 
     result = await AppReviewStudioService.create_jobs(
@@ -200,9 +203,11 @@ async def test_create_jobs_user_upload_persists_plan_state(monkeypatch):
     assert result["jobs"][0]["status"] == "upload_required"
     assert result["jobs"][0]["plan_id"] == "plan-1"
     assert result["jobs"][0]["input_mode"] == "user_upload"
+    assert result["master_contract"]["language"] == "English"
     assert recorded_plan_payloads[0]["persona_id"] == "persona-1"
     assert recorded_plan_payloads[0]["status"] == "upload_required"
     assert recorded_plan_payloads[0]["publish_settings"]["input_mode"] == "user_upload"
+    assert recorded_plan_payloads[0]["publish_settings"]["shared_contract"]["language"] == "English"
     assert recorded_plan_payloads[0]["creative_preferences"] == {"hook_style": "bold"}
     assert (
         recorded_plan_payloads[0]["page_review_data"]["normalized_url"]
@@ -279,6 +284,239 @@ async def test_create_jobs_ai_script_failure_does_not_create_plan(monkeypatch):
             },
             temporal_client=None,
         )
+
+
+@pytest.mark.asyncio
+async def test_create_jobs_reuses_validated_page_review_payload_without_live_review(monkeypatch):
+    recorded_plan_payloads: List[Dict[str, Any]] = []
+
+    async def fake_get_link(_user_id):
+        return None
+
+    async def fake_list_accounts(_user_id):
+        return []
+
+    async def fake_get_brand(_user_id):
+        return None
+
+    async def fail_live_review(**kwargs):
+        raise AssertionError("validated page_review_data should bypass live source review")
+
+    async def fake_resolve_persona(*, persona_id, user_id):
+        return {
+            "persona_id": persona_id,
+            "display_name": "Ava",
+            "language": "English",
+            "tts_voice": "en-US-Standard-F",
+        }
+
+    async def fake_create_plan(payload):
+        recorded_plan_payloads.append(payload)
+        return {
+            "id": "plan-1",
+            "user_id": payload["user_id"],
+            "campaign_id": payload.get("campaign_id"),
+            "persona_id": payload["persona_id"],
+            "source_url": payload["source_url"],
+            "objective": payload["objective"],
+            "script_text": payload["script_text"],
+            "scenes_data": payload["scenes_data"],
+            "duration_estimate": payload["duration_estimate"],
+            "status": payload["status"],
+            "workflow_id": None,
+            "video_url": None,
+            "publish_settings": payload["publish_settings"],
+            "creative_preferences": payload["creative_preferences"],
+            "page_review_data": payload["page_review_data"],
+            "created_at": "2026-04-20T00:00:00Z",
+            "updated_at": "2026-04-20T00:00:00Z",
+            "approved_at": None,
+        }
+
+    async def fake_generate_script(*args, **kwargs):
+        return (
+            type("Script", (), {"model_dump": lambda self, mode="json": {"script": "English master", "scenes": [], "duration_estimate": 12}})(),
+            None,
+        )
+
+    monkeypatch.setattr(
+        "services.app_review_studio_service.TelegramLinkService.get_link_for_user",
+        fake_get_link,
+    )
+    monkeypatch.setattr(
+        "services.app_review_studio_service.AccountConnectionService.list_accounts",
+        fake_list_accounts,
+    )
+    monkeypatch.setattr(
+        "services.app_review_studio_service.BrandProfileService.get_for_user",
+        fake_get_brand,
+    )
+    monkeypatch.setattr(
+        "services.app_review_studio_service.WebsiteReviewService.review_url",
+        fail_live_review,
+    )
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "_resolve_persona",
+        classmethod(lambda cls, *, persona_id, user_id: fake_resolve_persona(persona_id=persona_id, user_id=user_id)),
+    )
+    monkeypatch.setattr(
+        "services.app_review_studio_service.VideoPlanningService.create_plan",
+        fake_create_plan,
+    )
+    monkeypatch.setattr(
+        "services.script_service.ScriptService.generate_script_from_review_plan",
+        fake_generate_script,
+    )
+
+    result = await AppReviewStudioService.create_jobs(
+        session=_session(),
+        payload={
+            "source_url": "https://example.com/app",
+            "objective": "Review product",
+            "target_personas": ["persona-1"],
+            "input_mode": "ai_autonomous",
+            "page_review_data": _page_review().model_dump(mode="json"),
+        },
+        temporal_client=None,
+    )
+
+    assert result["jobs"][0]["source_url"] == "https://example.com/app"
+    assert recorded_plan_payloads[0]["page_review_data"]["normalized_url"] == "https://example.com/app"
+
+
+@pytest.mark.asyncio
+async def test_create_jobs_builds_english_master_and_translates_persona_outputs(monkeypatch):
+    recorded_review_plans: List[Dict[str, Any]] = []
+    recorded_plan_payloads: List[Dict[str, Any]] = []
+
+    async def fake_get_link(_user_id):
+        return None
+
+    async def fake_list_accounts(_user_id):
+        return []
+
+    async def fake_get_brand(_user_id):
+        return None
+
+    async def fake_review_url(*, url, objective=None, user_id=None):
+        return _page_review()
+
+    async def fake_resolve_persona(*, persona_id, user_id):
+        personas = {
+            "persona-en": {
+                "persona_id": "persona-en",
+                "display_name": "Ava",
+                "language": "English",
+                "tts_voice": "en-US-Standard-F",
+            },
+            "persona-ru": {
+                "persona_id": "persona-ru",
+                "display_name": "Nika",
+                "language": "Russian",
+                "tts_voice": "ru-RU-Standard-A",
+            },
+        }
+        return personas[persona_id]
+
+    async def fake_create_plan(payload):
+        recorded_plan_payloads.append(payload)
+        return {
+            "id": f"plan-{payload['persona_id']}",
+            "user_id": payload["user_id"],
+            "campaign_id": payload.get("campaign_id"),
+            "persona_id": payload["persona_id"],
+            "source_url": payload["source_url"],
+            "objective": payload["objective"],
+            "script_text": payload["script_text"],
+            "scenes_data": payload["scenes_data"],
+            "duration_estimate": payload["duration_estimate"],
+            "status": payload["status"],
+            "workflow_id": None,
+            "video_url": None,
+            "publish_settings": payload["publish_settings"],
+            "creative_preferences": payload["creative_preferences"],
+            "page_review_data": payload["page_review_data"],
+            "created_at": "2026-04-20T00:00:00Z",
+            "updated_at": "2026-04-20T00:00:00Z",
+            "approved_at": None,
+        }
+
+    async def fake_generate_script(_self, *, app_name, review_plan, persona_config):
+        recorded_review_plans.append(review_plan)
+        language = review_plan["language"]
+        if language == "English":
+            return (
+                type("Script", (), {"model_dump": lambda self, mode="json": {"script": "English master script", "scenes": [{"description": "English scene 1", "duration": 6}], "duration_estimate": 12}})(),
+                None,
+            )
+        raise AssertionError("persona generation should translate from English master instead of regenerating by persona language")
+
+    async def fake_translate_script(_self, *, app_name, source_script, target_language, persona_config):
+        assert source_script.script == "English master script"
+        assert target_language == "Russian"
+        return type(
+            "TranslatedScript",
+            (),
+            {
+                "model_dump": lambda self, mode="json": {
+                    "script": "Russian translated script",
+                    "scenes": [{"description": "Russian scene 1", "duration": 6}],
+                    "duration_estimate": 12,
+                }
+            },
+        )()
+
+    monkeypatch.setattr(
+        "services.app_review_studio_service.TelegramLinkService.get_link_for_user",
+        fake_get_link,
+    )
+    monkeypatch.setattr(
+        "services.app_review_studio_service.AccountConnectionService.list_accounts",
+        fake_list_accounts,
+    )
+    monkeypatch.setattr(
+        "services.app_review_studio_service.BrandProfileService.get_for_user",
+        fake_get_brand,
+    )
+    monkeypatch.setattr(
+        "services.app_review_studio_service.WebsiteReviewService.review_url",
+        fake_review_url,
+    )
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "_resolve_persona",
+        classmethod(lambda cls, *, persona_id, user_id: fake_resolve_persona(persona_id=persona_id, user_id=user_id)),
+    )
+    monkeypatch.setattr(
+        "services.app_review_studio_service.VideoPlanningService.create_plan",
+        fake_create_plan,
+    )
+    monkeypatch.setattr(
+        "services.script_service.ScriptService.generate_script_from_review_plan",
+        fake_generate_script,
+    )
+    monkeypatch.setattr(
+        "services.script_service.ScriptService.translate_review_plan_script",
+        fake_translate_script,
+    )
+
+    result = await AppReviewStudioService.create_jobs(
+        session=_session(),
+        payload={
+            "source_url": "https://example.com/app",
+            "objective": "Review product",
+            "target_personas": ["persona-ru", "persona-en"],
+            "input_mode": "ai_autonomous",
+        },
+        temporal_client=None,
+    )
+
+    assert recorded_review_plans[0]["language"] == "English"
+    scripts_by_persona = {item["persona_id"]: item["script_text"] for item in recorded_plan_payloads}
+    assert scripts_by_persona["persona-en"] == "English master script"
+    assert scripts_by_persona["persona-ru"] == "Russian translated script"
+    assert result["master_contract"]["script_text"] == "English master script"
 
 
 @pytest.mark.asyncio

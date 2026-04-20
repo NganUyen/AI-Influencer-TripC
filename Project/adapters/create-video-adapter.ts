@@ -53,6 +53,33 @@ function toViewTone(value: ReturnType<typeof getReviewJobTone>): ViewTone {
   return 'default';
 }
 
+function resolveCountryCode(value: string | null | undefined): string | null {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  const countryMap: Record<string, string> = {
+    'united states': 'US',
+    'united states of america': 'US',
+    usa: 'US',
+    us: 'US',
+    american: 'US',
+    vietnam: 'VN',
+    vietnamese: 'VN',
+    'viet nam': 'VN',
+    vn: 'VN',
+    china: 'CN',
+    chinese: 'CN',
+    cn: 'CN',
+    india: 'IN',
+    indian: 'IN',
+    in: 'IN',
+  };
+
+  return countryMap[normalized] || null;
+}
+
 function extractSceneDescription(scene: unknown, index: number): string {
   if (!scene || typeof scene !== 'object') {
     return `Scene ${index + 1}`;
@@ -230,6 +257,11 @@ export function toPersonaPlanCards(
         job.persona?.display_name || job.persona?.persona_id || job.persona_id || 'Persona',
       ),
       personaLanguage: job.persona?.language || null,
+      personaRegionLabel: job.persona?.region_label || null,
+      personaMarketDefault: job.persona?.market_default || null,
+      personaCountryCode: resolveCountryCode(
+        job.persona?.country_code || job.persona?.region_label || job.persona?.market_default,
+      ),
       personaAvatarUrl:
         job.persona?.selection_image_url || job.persona?.image_url || undefined,
       sourceUrl: job.source_url,

@@ -316,3 +316,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 export async function PATCH(request: NextRequest, { params }: Params) {
   return proxyCustomerRequest(request, await params);
 }
+
+export async function DELETE(request: NextRequest, { params }: Params) {
+  return proxyCustomerRequest(request, await params);
+}

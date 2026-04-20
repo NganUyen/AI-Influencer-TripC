@@ -31,6 +31,8 @@ from services.script_service import ScriptService
 from services.telegram_link_service import TelegramLinkService
 from services.workflow_state_service import WorkflowStateService
 from services.contracts import (
+    SceneContract,
+    ScriptContract,
     VideoAudioPolicyContract,
     VideoReviewPlanContract,
     VideoWorkflowPersonaSnapshotContract,
@@ -113,6 +115,66 @@ def _caption_from_script(
         f"{script_text}\n\n"
         f"{' '.join(dict.fromkeys(hashtags))}"
     ).strip()
+
+
+def _build_master_contract_payload(script_payload: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "language": "English",
+        "script_text": str(script_payload.get("script") or "").strip(),
+        "scenes_data": script_payload.get("scenes") or [],
+        "duration_estimate": script_payload.get("duration_estimate") or 0,
+    }
+
+
+def _shared_contract_to_script_contract(shared_contract: Dict[str, Any]) -> ScriptContract:
+    script_text = str(shared_contract.get("script_text") or "").strip()
+    raw_scenes = shared_contract.get("scenes_data") or []
+    scenes: List[SceneContract] = []
+    current_second = 0.0
+    for index, scene in enumerate(raw_scenes, start=1):
+        if not isinstance(scene, dict):
+            continue
+        duration = float(
+            scene.get("durationSeconds")
+            or scene.get("duration_seconds")
+            or scene.get("duration")
+            or 6
+        )
+        description = str(
+            scene.get("description")
+            or scene.get("caption")
+            or scene.get("scene_description")
+            or scene.get("voiceover")
+            or scene.get("script")
+            or scene.get("text")
+            or f"Scene {index}"
+        ).strip()
+        scenes.append(
+            SceneContract(
+                id=index,
+                timestamp_start=current_second,
+                timestamp_end=current_second + duration,
+                caption=description[:80] or f"Scene {index}",
+                narration_text=description,
+                prompt=str(scene.get("prompt") or "Keep original visual prompt").strip() or "Keep original visual prompt",
+                browser_action=str(scene.get("browser_action") or "Keep original browser action").strip() or "Keep original browser action",
+                visual_success_criteria=str(scene.get("visual_success_criteria") or "Keep original visual success criteria").strip() or "Keep original visual success criteria",
+                top_half_source_type=scene.get("top_half_source_type"),
+                top_half_target=scene.get("top_half_target"),
+                top_half_capture_hint=scene.get("top_half_capture_hint"),
+                top_half_follow_links=bool(scene.get("top_half_follow_links", True)),
+                top_half_max_capture_seconds=int(scene.get("top_half_max_capture_seconds") or max(5, min(120, round(duration)))),
+                source_ref=scene.get("source_ref"),
+            )
+        )
+        current_second += duration
+
+    duration_estimate = float(shared_contract.get("duration_estimate") or current_second or 0)
+    return ScriptContract(
+        script=script_text,
+        duration_estimate=duration_estimate,
+        scenes=scenes,
+    )
 
 
 def _job_progress(status: str, current_step: Optional[str], has_video: bool) -> int:
@@ -721,6 +783,11 @@ class AppReviewStudioService:
             payload["publish_settings"] = _merge_dict(
                 publish_settings, payload.get("publish_settings")
             )
+            payload["master_contract"] = (
+                payload.get("master_contract")
+                or payload.get("publish_settings", {}).get("shared_contract")
+                or publish_settings.get("shared_contract")
+            )
             payload["creative_preferences"] = creative_preferences
             payload["created_at"] = plan.get("created_at")
             payload["updated_at"] = payload.get("updated_at") or plan.get("updated_at")
@@ -819,6 +886,7 @@ class AppReviewStudioService:
             "persona_id": str(plan.get("persona_id") or ""),
             "target_platform": "tiktok",
             "publish_settings": publish_settings,
+            "master_contract": publish_settings.get("shared_contract") or None,
             "creative_preferences": creative_preferences,
             "created_at": plan.get("created_at"),
             "updated_at": plan.get("updated_at"),
@@ -1001,6 +1069,9 @@ class AppReviewStudioService:
         creative_preferences: Dict[str, Any],
         page_review: WebPageReviewContract,
         page_review_payload: Dict[str, Any],
+        master_script_payload: Optional[Dict[str, Any]],
+        master_recording_script_payload: Optional[Dict[str, Any]],
+        master_contract_payload: Optional[Dict[str, Any]],
         tiktok_accounts: List[Dict[str, Any]],
         brand_profile: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
@@ -1040,53 +1111,56 @@ class AppReviewStudioService:
         caption_draft = ""
         selected_mode = input_mode
 
-        if input_mode == "ai_autonomous":
+        try:
             script_started = perf_counter()
-            script_service = ScriptService()
-            try:
-                (
-                    script_contract,
-                    recording_script,
-                ) = await script_service.generate_script_from_review_plan(
+            if not master_script_payload:
+                raise ValueError("Missing English master script payload")
+
+            persona_language = str(persona.get("language") or "English").strip() or "English"
+            if persona_language.lower() == "english":
+                script_payload = dict(master_script_payload)
+                recording_script_payload = master_recording_script_payload
+            else:
+                script_service = ScriptService()
+                translated_contract = await script_service.translate_review_plan_script(
                     app_name=getattr(page_review, "page_title", None)
                     or page_review.normalized_url,
-                    review_plan=review_plan_payload,
+                    source_script=_shared_contract_to_script_contract(
+                        _build_master_contract_payload(master_script_payload)
+                    ),
+                    target_language=persona_language,
                     persona_config=persona,
                 )
-                script_payload = script_contract.model_dump()
-                recording_script_payload = (
-                    recording_script.model_dump(mode="json")
-                    if recording_script
-                    else None
-                )
-                caption_draft = _caption_from_script(
-                    objective=objective,
-                    page_title=getattr(page_review, "page_title", None)
-                    or page_review.normalized_url,
-                    persona=persona,
-                    script_payload=script_payload,
-                )
-                logger.info(
-                    "Create jobs persona script completed | persona_id=%s | duration_ms=%d",
-                    persona_id,
-                    int((perf_counter() - script_started) * 1000),
-                )
-            except Exception:
-                logger.warning(
-                    "Script generation failed for persona %s",
-                    persona_id,
-                    exc_info=True,
-                )
-                return {
-                    "error": {
-                        "code": "script_generation_failed",
-                        "persona_id": persona_id,
-                        "message": (
-                            f"AI script generation failed for persona '{persona_id}'. "
-                            "No plan was created for this persona."
-                        ),
-                    }
+                script_payload = translated_contract.model_dump(mode="json")
+                recording_script_payload = master_recording_script_payload
+            caption_draft = _caption_from_script(
+                objective=objective,
+                page_title=getattr(page_review, "page_title", None)
+                or page_review.normalized_url,
+                persona=persona,
+                script_payload=script_payload,
+            )
+            logger.info(
+                "Create jobs persona script completed | persona_id=%s | duration_ms=%d",
+                persona_id,
+                int((perf_counter() - script_started) * 1000),
+            )
+        except Exception:
+            logger.warning(
+                "Script generation failed for persona %s",
+                persona_id,
+                exc_info=True,
+            )
+            return {
+                "error": {
+                    "code": "script_generation_failed",
+                    "persona_id": persona_id,
+                    "message": (
+                        f"AI script generation failed for persona '{persona_id}'. "
+                        "No plan was created for this persona."
+                    ),
                 }
+            }
 
         content_title = (
             f"{getattr(page_review, 'page_title', None) or 'App Review'}"
@@ -1127,6 +1201,7 @@ class AppReviewStudioService:
                     "content_title": content_title,
                     "page_title": getattr(page_review, "page_title", None),
                     "input_mode": selected_mode,
+                    "shared_contract": master_contract_payload or {},
                 },
                 "creative_preferences": creative_preferences,
                 "page_review_data": page_review_payload,
@@ -1146,6 +1221,25 @@ class AppReviewStudioService:
             int((perf_counter() - persona_start) * 1000),
         )
         return {"job": job_payload}
+
+    @classmethod
+    async def localize_shared_contract(
+        cls,
+        *,
+        app_name: str,
+        shared_contract: Dict[str, Any],
+        persona: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        script_service = ScriptService()
+        source_script = _shared_contract_to_script_contract(shared_contract)
+        target_language = str(persona.get("language") or "English").strip() or "English"
+        translated = await script_service.translate_review_plan_script(
+            app_name=app_name,
+            source_script=source_script,
+            target_language=target_language,
+            persona_config=persona,
+        )
+        return translated.model_dump(mode="json")
 
     @classmethod
     async def create_jobs(
@@ -1219,6 +1313,53 @@ class AppReviewStudioService:
             objective = page_review.suggested_objective
 
         page_review_payload = page_review.model_dump(mode="json")
+        master_script_payload: Optional[Dict[str, Any]] = None
+        master_recording_script_payload: Optional[Dict[str, Any]] = None
+        master_contract_payload: Optional[Dict[str, Any]] = None
+        master_generation_started = perf_counter()
+        master_review_plan_payload = {
+            "objective": objective,
+            "target_url": page_review.normalized_url,
+            "language": "English",
+            "persona_id": "shared-master",
+            "execution_mode": _execution_mode_for_page_review(
+                page_review_data=page_review_payload,
+                input_mode=input_mode,
+            ),
+            "access_level": page_review.access_level,
+            "page_review": page_review_payload,
+            "assumptions": list(page_review.assumptions or []),
+            "risks": list(page_review.risks or []),
+            "status": "confirmed",
+            "suggested_objective": getattr(page_review, "suggested_objective", None),
+        }
+        script_service = ScriptService()
+        try:
+            master_contract, master_recording_script = await script_service.generate_script_from_review_plan(
+                app_name=getattr(page_review, "page_title", None)
+                or page_review.normalized_url,
+                review_plan=master_review_plan_payload,
+                persona_config={
+                    "persona_id": "shared-master",
+                    "display_name": "Shared Master",
+                    "language": "English",
+                    "tts_voice": "en-US-Standard-F",
+                },
+            )
+        except Exception:
+            logger.warning("English master script generation failed", exc_info=True)
+            raise
+        master_script_payload = master_contract.model_dump(mode="json")
+        master_recording_script_payload = (
+            master_recording_script.model_dump(mode="json")
+            if master_recording_script
+            else None
+        )
+        master_contract_payload = _build_master_contract_payload(master_script_payload)
+        logger.info(
+            "Create jobs English master completed | duration_ms=%d",
+            int((perf_counter() - master_generation_started) * 1000),
+        )
         warnings: List[Dict[str, Any]] = []
         errors: List[Dict[str, Any]] = []
         if brand_profile is None:
@@ -1262,6 +1403,9 @@ class AppReviewStudioService:
                     creative_preferences=creative_preferences,
                     page_review=page_review,
                     page_review_payload=page_review_payload,
+                    master_script_payload=master_script_payload,
+                    master_recording_script_payload=master_recording_script_payload,
+                    master_contract_payload=master_contract_payload,
                     tiktok_accounts=tiktok_accounts,
                     brand_profile=brand_profile,
                 )
@@ -1295,6 +1439,7 @@ class AppReviewStudioService:
             "status": "success",
             "jobs": jobs,
             "warnings": warnings,
+            "master_contract": master_contract_payload,
         }
         if errors:
             response["errors"] = errors

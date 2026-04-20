@@ -496,3 +496,86 @@ class ScriptService:
             ) from exc
 
         return script, recording_script
+
+    async def translate_review_plan_script(
+        self,
+        *,
+        app_name: str,
+        source_script: ScriptContract,
+        target_language: str,
+        persona_config: dict,
+    ) -> ScriptContract:
+        normalized_language = str(target_language or "English").strip() or "English"
+        if normalized_language.lower() == "english":
+            return source_script
+
+        prompt = (
+            "You are a strict translator for a shared master video contract.\n\n"
+            "Translate the English master script into the target language while preserving exactly the same structure, timing, and meaning.\n"
+            "Return ONLY valid JSON with this structure:\n"
+            "{\n"
+            '  "script": "<translated narration>",\n'
+            '  "duration_estimate": 42,\n'
+            '  "scenes": [\n'
+            "    {\n"
+            '      "id": 1,\n'
+            '      "timestamp_start": 0,\n'
+            '      "timestamp_end": 6,\n'
+            '      "caption": "<translated caption>",\n'
+            '      "narration_text": "<translated narration>",\n'
+            '      "prompt": "<keep the original English prompt>",\n'
+            '      "browser_action": "<keep the original browser action>",\n'
+            '      "visual_success_criteria": "<keep the original English criteria>",\n'
+            '      "top_half_source_type": "<keep same value>",\n'
+            '      "top_half_target": "<keep the original English target>",\n'
+            '      "top_half_capture_hint": "<keep same value>",\n'
+            '      "top_half_follow_links": true,\n'
+            '      "top_half_max_capture_seconds": 8,\n'
+            '      "source_ref": "<keep same value>"\n'
+            "    }\n"
+            "  ]\n"
+            "}\n\n"
+            "Rules:\n"
+            "- Keep the same number of scenes.\n"
+            "- Keep timestamps exactly the same.\n"
+            "- Translate script, captions, and narration_text only.\n"
+            "- Keep prompts, browser actions, and system instructions in English.\n"
+            "- Do not localize creatively. This must be strict translation.\n"
+            "- Do not add, remove, or reorder scenes.\n"
+            "- No markdown, no explanations, no extra keys.\n\n"
+            f"App: {app_name}\n"
+            f"Target language: {normalized_language}\n"
+            f"English master JSON: {json.dumps(source_script.model_dump(mode='json'), ensure_ascii=True, sort_keys=True)}\n"
+        )
+
+        service = await self._make_openclaw_service(persona_config)
+        try:
+            result = await service.execute_task(
+                task_type="review_plan_script_translation",
+                prompt=prompt,
+                user_id=f"review-plan-translation:{persona_config.get('persona_id') or 'unknown'}",
+                context={
+                    "app_name": app_name,
+                    "target_language": normalized_language,
+                    "source_script": source_script.model_dump(mode="json"),
+                },
+            )
+        except Exception as exc:
+            raise ScriptGenerationError(f"AI call failed: {exc}") from exc
+        finally:
+            try:
+                await service.close()
+            except Exception:
+                pass
+
+        data = result if isinstance(result, dict) else {"result": result}
+        payload = data.get("result", data)
+        if isinstance(payload, str):
+            payload = extract_json_from_llm_response(payload)
+
+        try:
+            return ScriptContract(**payload)
+        except Exception as exc:
+            raise ScriptContractError(
+                f"Translated review-plan script does not match ScriptContract schema: {exc}"
+            ) from exc

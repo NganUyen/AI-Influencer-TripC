@@ -1201,6 +1201,30 @@ async def update_review_engine_plan(
             existing_plan.get("page_review_data"),
             updates.get("page_review_data"),
         )
+    shared_contract = _merge_patch_dict(
+        existing_plan.get("publish_settings"),
+        updates.get("publish_settings"),
+    ).get("shared_contract")
+    if shared_contract:
+        persona = await AppReviewStudioService._resolve_persona(
+            persona_id=str(existing_plan.get("persona_id") or ""),
+            user_id=session.user_id,
+        )
+        if persona:
+            localized_script = await AppReviewStudioService.localize_shared_contract(
+                app_name=str(
+                    shared_contract.get("page_title")
+                    or existing_plan.get("page_title")
+                    or _merge_patch_dict(existing_plan.get("page_review_data"), updates.get("page_review_data")).get("page_title")
+                    or existing_plan.get("source_url")
+                    or "App Review"
+                ),
+                shared_contract=shared_contract,
+                persona=persona,
+            )
+            updates["script_text"] = localized_script.get("script") or updates.get("script_text")
+            updates["scenes_data"] = localized_script.get("scenes") or updates.get("scenes_data")
+            updates["duration_estimate"] = localized_script.get("duration_estimate") or updates.get("duration_estimate")
     plan = await VideoPlanningService.update_plan(plan_id, session.user_id, updates)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")

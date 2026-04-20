@@ -893,6 +893,7 @@ const SYSTEM_PERSONA_USER_ID = '00000000-0000-0000-0000-000000000001';
 
 function isSystemPersona(persona: Persona): boolean {
   return (
+    persona.persona_id?.startsWith('global-') ||
     !persona.user_id ||
     persona.user_id === SYSTEM_PERSONA_USER_ID ||
     Boolean(persona.is_preset_catalog)

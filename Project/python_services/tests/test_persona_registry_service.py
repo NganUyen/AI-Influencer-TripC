@@ -10,6 +10,15 @@ from services.persona_registry_service import (
 )
 
 
+@pytest.fixture(autouse=True)
+def stub_reserved_global_persona_list(monkeypatch):
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_list_reserved_global_personas_from_db",
+        AsyncMock(return_value=[]),
+    )
+
+
 @pytest.mark.asyncio
 async def test_list_personas_falls_back_to_legacy_system_scope_for_owner_key(monkeypatch):
     synthetic_owner_id = "53fd56c6-ae1d-51fb-bc5b-706032e24226"
@@ -87,6 +96,57 @@ async def test_list_personas_merges_user_and_system_personas_for_explicit_user_i
 
 
 @pytest.mark.asyncio
+async def test_list_personas_appends_reserved_global_personas_even_if_owner_drifted(
+    monkeypatch,
+):
+    resolved_user_id = "550e8400-e29b-41d4-a716-446655440000"
+
+    async def fake_resolve_owner_user_id(*, user_id=None, owner_key=None):
+        assert user_id == resolved_user_id
+        return resolved_user_id
+
+    async def fake_list_from_db(*, user_id, status=None):
+        if user_id == resolved_user_id:
+            return [{"persona_id": "custom-hero", "status": "ready", "user_id": resolved_user_id}]
+        if user_id == _SYSTEM_PERSONA_USER_ID:
+            return [{"persona_id": "global-us-alex", "status": "ready", "user_id": _SYSTEM_PERSONA_USER_ID}]
+        return []
+
+    async def fake_list_reserved_global_personas_from_db(*, status=None):
+        return [
+            {
+                "persona_id": "global-cn-wei",
+                "status": "ready",
+                "user_id": "ecfafcde-45c3-5a00-9711-34246e451cf7",
+            }
+        ]
+
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_resolve_owner_user_id",
+        fake_resolve_owner_user_id,
+    )
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_list_from_db",
+        fake_list_from_db,
+    )
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_list_reserved_global_personas_from_db",
+        fake_list_reserved_global_personas_from_db,
+    )
+
+    personas = await PersonaRegistryService.list_personas(user_id=resolved_user_id)
+
+    assert [item["persona_id"] for item in personas] == [
+        "custom-hero",
+        "global-us-alex",
+        "global-cn-wei",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_list_personas_falls_back_to_unowned_legacy_scope_for_owner_key(monkeypatch):
     synthetic_owner_id = "53fd56c6-ae1d-51fb-bc5b-706032e24226"
 
@@ -159,6 +219,57 @@ async def test_get_persona_falls_back_to_system_scope_for_explicit_user_id(monke
         ("global-mx-valeria", resolved_user_id),
         ("global-mx-valeria", _SYSTEM_PERSONA_USER_ID),
     ]
+
+
+@pytest.mark.asyncio
+async def test_get_persona_falls_back_to_reserved_global_match_when_system_owner_missing(
+    monkeypatch,
+):
+    resolved_user_id = "550e8400-e29b-41d4-a716-446655440000"
+
+    async def fake_resolve_owner_user_id(*, user_id=None, owner_key=None):
+        assert user_id == resolved_user_id
+        return resolved_user_id
+
+    async def fake_get_from_db(persona_id, *, user_id):
+        return None
+
+    async def fake_find_personas_by_id_global(persona_id):
+        assert persona_id == "global-cn-wei"
+        return [
+            {
+                "persona_id": "global-cn-wei",
+                "status": "ready",
+                "user_id": "ecfafcde-45c3-5a00-9711-34246e451cf7",
+            }
+        ]
+
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_resolve_owner_user_id",
+        fake_resolve_owner_user_id,
+    )
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_get_from_db",
+        fake_get_from_db,
+    )
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_find_personas_by_id_global",
+        fake_find_personas_by_id_global,
+    )
+
+    persona = await PersonaRegistryService.get_persona(
+        "global-cn-wei",
+        user_id=resolved_user_id,
+    )
+
+    assert persona == {
+        "persona_id": "global-cn-wei",
+        "status": "ready",
+        "user_id": "ecfafcde-45c3-5a00-9711-34246e451cf7",
+    }
 
 
 @pytest.mark.asyncio
@@ -412,3 +523,31 @@ async def test_create_persona_reports_legacy_global_index_conflict(monkeypatch):
         )
 
     assert "legacy global persona index" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_create_persona_rejects_reserved_global_ids_for_non_system_owner(monkeypatch):
+    synthetic_owner_id = "53fd56c6-ae1d-51fb-bc5b-706032e24226"
+
+    async def fake_resolve_owner_user_id(*, user_id=None, owner_key=None):
+        assert user_id == synthetic_owner_id
+        return synthetic_owner_id
+
+    monkeypatch.setattr(
+        PersonaRegistryService,
+        "_resolve_owner_user_id",
+        fake_resolve_owner_user_id,
+    )
+
+    with pytest.raises(PersonaConfigurationError) as exc_info:
+        await PersonaRegistryService.create_persona(
+            {
+                "persona_id": "global-cn-wei",
+                "display_name": "Wei Chen",
+                "language": "Mandarin",
+                "tts_voice": "cmn-CN-Standard-B",
+                "user_id": synthetic_owner_id,
+            }
+        )
+
+    assert "reserved for system personas" in str(exc_info.value)

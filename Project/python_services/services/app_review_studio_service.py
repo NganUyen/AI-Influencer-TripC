@@ -355,6 +355,17 @@ class AppReviewStudioService:
     ]
 
     @classmethod
+    def is_system_persona(cls, persona: Optional[Dict[str, Any]]) -> bool:
+        if not persona:
+            return False
+        persona_id = str(persona.get("persona_id") or "").strip()
+        return bool(
+            persona.get("is_preset_catalog")
+            or persona.get("user_id") == _SYSTEM_PERSONA_USER_ID
+            or persona_id.startswith("global-")
+        )
+
+    @classmethod
     def preset_persona_map(cls) -> Dict[str, Dict[str, Any]]:
         payload: Dict[str, Dict[str, Any]] = {}
         for item in cls.PREMADE_PERSONAS:
@@ -421,10 +432,7 @@ class AppReviewStudioService:
             or persona.get("thumbnail_url")
             or persona.get("avatar_image_url")
         )
-        is_preset_catalog = bool(
-            persona.get("is_preset_catalog")
-            or persona.get("user_id") == _SYSTEM_PERSONA_USER_ID
-        )
+        is_preset_catalog = cls.is_system_persona(persona)
         return {
             "persona_id": persona.get("persona_id"),
             "display_name": persona.get("display_name"),
@@ -475,8 +483,7 @@ class AppReviewStudioService:
         system_source_personas = [
             persona
             for persona in personas
-            if persona.get("user_id") == _SYSTEM_PERSONA_USER_ID
-            or persona.get("is_preset_catalog")
+            if cls.is_system_persona(persona)
         ]
         if not system_source_personas:
             system_source_personas = list(cls.preset_persona_map().values())
@@ -488,8 +495,7 @@ class AppReviewStudioService:
         custom_personas = [
             cls._persona_option_payload(persona, tiktok_accounts=tiktok_accounts)
             for persona in personas
-            if persona.get("user_id") != _SYSTEM_PERSONA_USER_ID
-            and not persona.get("is_preset_catalog")
+            if not cls.is_system_persona(persona)
         ]
         return {
             "steps": [

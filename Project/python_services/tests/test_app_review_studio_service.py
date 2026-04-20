@@ -101,6 +101,62 @@ async def test_get_setup_uses_canonical_system_and_customer_persona_split(
 
 
 @pytest.mark.asyncio
+async def test_get_setup_treats_reserved_global_ids_as_system_when_owner_drifted(
+    monkeypatch,
+):
+    async def fake_list_personas(*, user_id):
+        assert user_id == _session().user_id
+        return [
+            {
+                "user_id": _session().user_id,
+                "persona_id": "custom-hero",
+                "display_name": "Custom Hero",
+                "language": "English",
+                "status": "ready",
+            },
+            {
+                "user_id": _session().user_id,
+                "persona_id": "global-cn-wei",
+                "display_name": "Wei Chen",
+                "language": "Mandarin",
+                "status": "ready",
+            },
+        ]
+
+    async def fake_list_accounts(_user_id):
+        return []
+
+    async def fake_get_link_for_user(_user_id):
+        return None
+
+    monkeypatch.setattr(
+        studio_module.PersonaRegistryService,
+        "list_personas",
+        fake_list_personas,
+    )
+    monkeypatch.setattr(
+        studio_module.AccountConnectionService,
+        "list_accounts",
+        fake_list_accounts,
+    )
+    monkeypatch.setattr(
+        studio_module.TelegramLinkService,
+        "get_link_for_user",
+        fake_get_link_for_user,
+    )
+
+    payload = await AppReviewStudioService.get_setup(user_id=_session().user_id)
+
+    assert [item["persona_id"] for item in payload["persona_options"]] == [
+        "global-cn-wei"
+    ]
+    assert payload["persona_options"][0]["is_preset_catalog"] is True
+    assert [item["persona_id"] for item in payload["custom_personas"]] == [
+        "custom-hero"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_create_jobs_user_upload_persists_plan_state(monkeypatch):
     recorded_plan_payloads: List[Dict[str, Any]] = []
 

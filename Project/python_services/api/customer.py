@@ -686,8 +686,7 @@ async def list_customer_personas(
 ) -> Dict[str, Any]:
     personas = await PersonaRegistryService.list_personas(user_id=session.user_id)
     has_system_personas = any(
-        item.get("is_preset_catalog")
-        or item.get("user_id") == AppReviewStudioService.SYSTEM_PERSONA_USER_ID
+        AppReviewStudioService.is_system_persona(item)
         for item in personas
     )
     if not has_system_personas:
@@ -715,10 +714,7 @@ async def list_customer_personas(
                 or str(item.get("market_default") or "global")
                 .replace("_", " ")
                 .title(),
-                "is_preset_catalog": bool(
-                    item.get("is_preset_catalog")
-                    or item.get("user_id") == AppReviewStudioService.SYSTEM_PERSONA_USER_ID
-                ),
+                "is_preset_catalog": AppReviewStudioService.is_system_persona(item),
                 "status": item.get("status"),
                 "video_count": int(item.get("video_count") or 0),
                 "description": item.get("description"),

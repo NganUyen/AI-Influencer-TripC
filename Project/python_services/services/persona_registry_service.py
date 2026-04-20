@@ -26,6 +26,7 @@ from services.telegram_link_service import TelegramLinkService
 
 logger = logging.getLogger(__name__)
 _SYSTEM_PERSONA_USER_ID = "00000000-0000-0000-0000-000000000001"
+_GLOBAL_PERSONA_ID_PREFIX = "global-"
 
 
 def _persona_db_write_timeout_seconds() -> float:
@@ -51,6 +52,10 @@ def _normalize_uuid(value: Optional[str]) -> Optional[str]:
         return str(UUID(text))
     except (TypeError, ValueError):
         return None
+
+
+def _is_reserved_global_persona_id(persona_id: Optional[str]) -> bool:
+    return str(persona_id or "").strip().startswith(_GLOBAL_PERSONA_ID_PREFIX)
 
 
 class PersonaRegistryService:
@@ -310,6 +315,66 @@ class PersonaRegistryService:
             except Exception as exc:
                 logger.error(
                     "Failed to decorate persona record %s: %s",
+                    item.get("persona_id"),
+                    exc,
+                )
+                decorated.append(item)
+        return decorated
+
+    @classmethod
+    async def _list_reserved_global_personas_from_db(
+        cls, *, status: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        pool = await cls._get_pool()
+        query = """
+            SELECT
+                p.user_id,
+                p.persona_id,
+                p.display_name,
+                p.language,
+                p.tts_voice,
+                p.avatar_image_url,
+                p.avatar_source_type,
+                p.avatar_prompt,
+                p.heygen_avatar_id,
+                p.avatar_media_asset_id,
+                p.status,
+                p.video_count,
+                p.tone_default,
+                p.market_default,
+                p.thumbnail_url,
+                p.description, p.gender, p.channel_configs,
+                ma.bucket_name AS avatar_storage_bucket,
+                ma.storage_path AS avatar_storage_path,
+                p.created_at,
+                p.updated_at
+            FROM public.personas p
+            LEFT JOIN public.media_assets ma
+              ON ma.id = p.avatar_media_asset_id
+            WHERE p.persona_id LIKE 'global-%'
+        """
+        args: List[Any] = []
+        if status:
+            query += " AND p.status = $1"
+            args.append(status)
+        query += """
+            ORDER BY
+                CASE WHEN p.user_id = $%d::uuid THEN 0 ELSE 1 END,
+                p.created_at DESC NULLS LAST,
+                p.persona_id ASC
+        """ % (len(args) + 1)
+        args.append(_SYSTEM_PERSONA_USER_ID)
+
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(query, *args)
+        records = [cls._record_from_row(dict(row)) for row in rows]
+        decorated: List[Dict[str, Any]] = []
+        for item in records:
+            try:
+                decorated.append(await cls._decorate_persona_record(item))
+            except Exception as exc:
+                logger.error(
+                    "Failed to decorate reserved global persona %s: %s",
                     item.get("persona_id"),
                     exc,
                 )
@@ -698,6 +763,24 @@ class PersonaRegistryService:
                     await cls._list_unowned_from_db(status=status)
                 )
 
+            # Step 4: Some legacy/prod rows used reserved global IDs under the wrong
+            # owner. Pull those IDs globally so every account still sees canonical
+            # `global-*` personas until the data is cleaned up.
+            reserved_global_personas = await cls._list_reserved_global_personas_from_db(
+                status=status
+            )
+            if reserved_global_personas:
+                existing_ids = {
+                    str(item.get("persona_id") or "").strip()
+                    for item in aggregated_personas
+                    if item.get("persona_id")
+                }
+                for persona in reserved_global_personas:
+                    persona_id = str(persona.get("persona_id") or "").strip()
+                    if persona_id and persona_id not in existing_ids:
+                        aggregated_personas.append(persona)
+                        existing_ids.add(persona_id)
+
             return cls._dedupe_personas(aggregated_personas) if aggregated_personas else []
         except Exception as exc:  # pragma: no cover - degraded-mode fallback
             logger.exception("Persona DB list failed, using in-memory fallback")
@@ -745,6 +828,13 @@ class PersonaRegistryService:
                 )
                 if system_persona:
                     return system_persona
+            if _is_reserved_global_persona_id(persona_id):
+                global_matches = await cls._find_personas_by_id_global(persona_id)
+                if global_matches:
+                    for match in global_matches:
+                        if match.get("user_id") == _SYSTEM_PERSONA_USER_ID:
+                            return match
+                    return global_matches[0]
             if include_legacy_scope:
                 return await cls._get_unowned_from_db(persona_id)
             return None
@@ -796,6 +886,13 @@ class PersonaRegistryService:
             "status": payload.get("status") or "draft",
             "video_count": int(payload.get("video_count", 0)),
         }
+        if (
+            resolved_user_id != _SYSTEM_PERSONA_USER_ID
+            and _is_reserved_global_persona_id(payload.get("persona_id"))
+        ):
+            raise PersonaConfigurationError(
+                "persona_id values starting with 'global-' are reserved for system personas."
+            )
 
         try:
             if resolved_user_id != _SYSTEM_PERSONA_USER_ID:

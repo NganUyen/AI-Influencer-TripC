@@ -509,6 +509,44 @@ def test_list_customer_personas_does_not_append_legacy_presets_when_system_perso
     )
 
 
+def test_list_customer_personas_marks_reserved_global_ids_as_preset_when_owner_drifted(
+    monkeypatch,
+):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_list_personas(*, user_id):
+        assert user_id == _session().user_id
+        return [
+            {
+                "user_id": _session().user_id,
+                "persona_id": "global-cn-wei",
+                "display_name": "Wei Chen",
+                "language": "Mandarin",
+                "status": "ready",
+                "video_count": 0,
+            },
+        ]
+
+    monkeypatch.setattr(
+        customer.CustomerAuthService, "resolve_session", fake_resolve_session
+    )
+    monkeypatch.setattr(
+        customer.PersonaRegistryService, "list_personas", fake_list_personas
+    )
+
+    client = _build_client()
+    response = client.get(
+        "/api/customer/personas",
+        headers={"Authorization": "Bearer customer-token"},
+    )
+
+    assert response.status_code == 200
+    personas = response.json()["personas"]
+    assert personas[0]["persona_id"] == "global-cn-wei"
+    assert personas[0]["is_preset_catalog"] is True
+
+
 def test_create_customer_persona_uses_default_voice(monkeypatch):
     async def fake_resolve_session(_authorization):
         return _session()

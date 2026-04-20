@@ -528,7 +528,7 @@ Response format:
                 "Please try again or contact support if the issue persists."
             )
 
-        patch_params = {"owner_key": owner_key} if owner_key else None
+        patch_params = cls._owner_params(current)
         patch_payload: Dict[str, Any] = {
             "avatar_image_url": avatar_url,
             "avatar_source_type": "generated",
@@ -570,10 +570,7 @@ Response format:
         if not patch_fields:
             return persona
 
-        telegram_chat_id = current.artifacts.get("telegram_chat_id")
-        patch_params = (
-            {"owner_key": f"telegram:{telegram_chat_id}"} if telegram_chat_id else None
-        )
+        patch_params = cls._owner_params(current)
         patched = await cls._request_json(
             http_client,
             "PATCH",

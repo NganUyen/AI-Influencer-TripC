@@ -28,6 +28,32 @@ export interface ValidationFeatureViewModel {
   evidence?: string[];
 }
 
+export interface PageReviewPayload {
+  target_url?: string;
+  normalized_url: string;
+  page_title?: string | null;
+  product_summary?: string;
+  page_fetch_method?: string;
+  access_level?: string;
+  login_required?: boolean;
+  visible_features?: Array<{
+    label: string;
+    summary: string;
+    source_url?: string | null;
+    evidence?: string[];
+  }>;
+  visible_flows?: Array<{
+    label: string;
+    summary: string;
+    source_url?: string | null;
+    evidence?: string[];
+  }>;
+  recording_candidates?: string[];
+  risks?: string[];
+  assumptions?: string[];
+  suggested_objective?: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Step 1 — Setup form state
 // ---------------------------------------------------------------------------
@@ -42,12 +68,12 @@ export interface CreateVideoSetupState {
     suggestedObjective?: string | null;
     visibleFeatureCount?: number;
     visibleFeatures?: ValidationFeatureViewModel[];
+    pageReviewData?: PageReviewPayload;
   };
   selectedPersonaIds: string[];
   objective: string;
   brief?: string;
   selectedMode: VideoCreationMode;
-  selectedBackground: string;
   selectedMovementStyle: string;
   gestureIntensity: number;
   selectedMusicMood: string;
@@ -63,7 +89,6 @@ export const DEFAULT_SETUP_STATE: CreateVideoSetupState = {
   objective: '',
   brief: '',
   selectedMode: 'ai_auto',
-  selectedBackground: 'studio-soft',
   selectedMovementStyle: 'Natural',
   gestureIntensity: 50,
   selectedMusicMood: 'None',

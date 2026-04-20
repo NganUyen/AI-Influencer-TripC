@@ -20,7 +20,6 @@ export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelP
     urlValidationDetails,
     selectedPersonaIds,
     selectedMode,
-    selectedBackground,
     selectedMovementStyle,
     gestureIntensity,
     selectedMusicMood,
@@ -89,22 +88,10 @@ export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelP
             )}
             <div className="cv-summary-feature-block">
               <span className="cv-summary-label">Features</span>
-              {urlValidationDetails.visibleFeatures && urlValidationDetails.visibleFeatures.length > 0 ? (
-                <div className="cv-summary-feature-list">
-                  {urlValidationDetails.visibleFeatures.slice(0, 4).map((feature) => (
-                    <div className="cv-summary-feature-item" key={`${feature.label}-${feature.sourceUrl ?? feature.summary ?? ''}`}>
-                      <span className="cv-summary-feature-name">{feature.label}</span>
-                      {feature.summary && (
-                        <span className="cv-summary-feature-summary">{feature.summary}</span>
-                      )}
-                    </div>
-                  ))}
-                  {urlValidationDetails.visibleFeatures.length > 4 && (
-                    <span className="cv-summary-feature-more">
-                      +{urlValidationDetails.visibleFeatures.length - 4} more
-                    </span>
-                  )}
-                </div>
+              {urlValidationDetails.visibleFeatureCount && urlValidationDetails.visibleFeatureCount > 0 ? (
+                <span className="cv-summary-value">
+                  {urlValidationDetails.visibleFeatureCount} extracted
+                </span>
               ) : (
                 <span className="cv-summary-value cv-summary-value--empty">No visible features extracted.</span>
               )}
@@ -121,11 +108,6 @@ export function CreateVideoSummaryPanel({ setupState }: CreateVideoSummaryPanelP
         <SummaryRow
           label="Mode"
           value={modeLabel}
-        />
-
-        <SummaryRow
-          label="Background"
-          value={selectedBackground || '—'}
         />
 
         <SummaryRow

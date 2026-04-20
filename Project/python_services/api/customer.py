@@ -168,6 +168,7 @@ class ReviewEngineJobRequest(BaseModel):
     input_mode: Literal["ai_autonomous", "user_upload"] = "ai_autonomous"
     publish_to_tiktok: bool = False
     creative_preferences: Dict[str, Any] = Field(default_factory=dict)
+    page_review_data: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ReviewEngineJobUpdateRequest(BaseModel):
@@ -996,7 +997,8 @@ async def validate_review_engine_source(
             "normalized_url": result.normalized_url,
             "page_title": result.page_title,
             "suggested_objective": result.suggested_objective,
-            "visible_features": [f.model_dump() for f in result.visible_features] if result.visible_features else []
+            "visible_features": [f.model_dump() for f in result.visible_features] if result.visible_features else [],
+            "page_review_data": result.model_dump(mode="json"),
         }
     except Exception as exc:
         import logging

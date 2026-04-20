@@ -8,7 +8,9 @@ import base64
 import hashlib
 import json
 import logging
+import asyncio
 from datetime import timedelta
+from time import perf_counter
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 from uuid import uuid4
@@ -218,6 +220,36 @@ def _execution_mode_for_page_review(
     }:
         return "authenticated_pc_recording"
     return "autonomous_screen_recording"
+
+
+def _coerce_page_review_contract(
+    value: Any,
+    *,
+    fallback_url: str,
+) -> Optional[WebPageReviewContract]:
+    payload = _coerce_json_dict(value)
+    if not payload:
+        return None
+    normalized_url = str(
+        payload.get("normalized_url") or payload.get("target_url") or fallback_url
+    ).strip()
+    target_url = str(payload.get("target_url") or normalized_url or fallback_url).strip()
+    if not normalized_url or not target_url:
+        return None
+
+    merged_payload = {
+        **payload,
+        "normalized_url": normalized_url,
+        "target_url": target_url,
+    }
+    try:
+        return WebPageReviewContract.model_validate(merged_payload)
+    except Exception:
+        logger.warning(
+            "Invalid cached page review payload; falling back to live review",
+            exc_info=True,
+        )
+        return None
 
 
 class AppReviewStudioService:
@@ -957,6 +989,165 @@ class AppReviewStudioService:
         }
 
     @classmethod
+    async def _create_job_for_persona(
+        cls,
+        *,
+        session: CustomerSession,
+        persona_id: str,
+        source_url: str,
+        objective: str,
+        input_mode: str,
+        publish_to_tiktok: bool,
+        creative_preferences: Dict[str, Any],
+        page_review: WebPageReviewContract,
+        page_review_payload: Dict[str, Any],
+        tiktok_accounts: List[Dict[str, Any]],
+        brand_profile: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        persona_start = perf_counter()
+        persona = await cls._resolve_persona(
+            persona_id=persona_id,
+            user_id=session.user_id,
+        )
+        if not persona:
+            return {
+                "warning": {
+                    "code": "persona_not_found",
+                    "message": f"Persona '{persona_id}' was not found and was skipped.",
+                }
+            }
+
+        execution_mode = _execution_mode_for_page_review(
+            page_review_data=page_review_payload,
+            input_mode=input_mode,
+        )
+        review_plan_payload = {
+            "objective": objective,
+            "target_url": page_review.normalized_url,
+            "language": str(persona.get("language") or "English"),
+            "persona_id": persona_id,
+            "execution_mode": execution_mode,
+            "access_level": page_review.access_level,
+            "page_review": page_review_payload,
+            "assumptions": list(page_review.assumptions or []),
+            "risks": list(page_review.risks or []),
+            "status": "confirmed",
+            "suggested_objective": getattr(page_review, "suggested_objective", None),
+        }
+
+        script_payload: Optional[Dict[str, Any]] = None
+        recording_script_payload: Optional[Dict[str, Any]] = None
+        caption_draft = ""
+        selected_mode = input_mode
+
+        if input_mode == "ai_autonomous":
+            script_started = perf_counter()
+            script_service = ScriptService()
+            try:
+                (
+                    script_contract,
+                    recording_script,
+                ) = await script_service.generate_script_from_review_plan(
+                    app_name=getattr(page_review, "page_title", None)
+                    or page_review.normalized_url,
+                    review_plan=review_plan_payload,
+                    persona_config=persona,
+                )
+                script_payload = script_contract.model_dump()
+                recording_script_payload = (
+                    recording_script.model_dump(mode="json")
+                    if recording_script
+                    else None
+                )
+                caption_draft = _caption_from_script(
+                    objective=objective,
+                    page_title=getattr(page_review, "page_title", None)
+                    or page_review.normalized_url,
+                    persona=persona,
+                    script_payload=script_payload,
+                )
+                logger.info(
+                    "Create jobs persona script completed | persona_id=%s | duration_ms=%d",
+                    persona_id,
+                    int((perf_counter() - script_started) * 1000),
+                )
+            except Exception:
+                logger.warning(
+                    "Script generation failed for persona %s",
+                    persona_id,
+                    exc_info=True,
+                )
+                return {
+                    "error": {
+                        "code": "script_generation_failed",
+                        "persona_id": persona_id,
+                        "message": (
+                            f"AI script generation failed for persona '{persona_id}'. "
+                            "No plan was created for this persona."
+                        ),
+                    }
+                }
+
+        content_title = (
+            f"{getattr(page_review, 'page_title', None) or 'App Review'}"
+            f" · {persona.get('display_name')}"
+        )
+        campaign_id = None
+        if brand_profile is not None:
+            campaign_payload = {
+                "name": content_title,
+                "description": objective,
+                "content_pillars": ["App Review"],
+                "target_platforms": ["tiktok"],
+            }
+            created_campaign = await CustomerCampaignService.create_campaign(
+                session=session,
+                payload=campaign_payload,
+            )
+            campaign_id = created_campaign["id"]
+
+        plan = await VideoPlanningService.create_plan(
+            {
+                "user_id": session.user_id,
+                "campaign_id": campaign_id,
+                "persona_id": persona_id,
+                "source_url": source_url,
+                "objective": objective,
+                "script_text": (script_payload or {}).get("script", ""),
+                "scenes_data": (script_payload or {}).get("scenes", []),
+                "duration_estimate": (script_payload or {}).get(
+                    "duration_estimate", 0
+                ),
+                "status": "upload_required"
+                if selected_mode == "user_upload"
+                else "generated",
+                "publish_settings": {
+                    "caption_draft": caption_draft,
+                    "publish_requested": publish_to_tiktok,
+                    "content_title": content_title,
+                    "page_title": getattr(page_review, "page_title", None),
+                    "input_mode": selected_mode,
+                },
+                "creative_preferences": creative_preferences,
+                "page_review_data": page_review_payload,
+            }
+        )
+
+        job_payload = cls._serialize_plan_job(
+            plan,
+            persona=persona,
+            tiktok_accounts=tiktok_accounts,
+        )
+        job_payload["recording_script"] = recording_script_payload
+        job_payload["review_plan"] = review_plan_payload
+        logger.info(
+            "Create jobs persona completed | persona_id=%s | duration_ms=%d",
+            persona_id,
+            int((perf_counter() - persona_start) * 1000),
+        )
+        return {"job": job_payload}
+
+    @classmethod
     async def create_jobs(
         cls,
         *,
@@ -981,18 +1172,45 @@ class AppReviewStudioService:
         if input_mode not in {"ai_autonomous", "user_upload"}:
             raise ValueError("input_mode must be ai_autonomous or user_upload")
 
-        telegram_link = await TelegramLinkService.get_link_for_user(session.user_id)
-        tiktok_accounts = await cls._list_tiktok_accounts(session.user_id)
+        request_started = perf_counter()
+        cached_page_review = _coerce_page_review_contract(
+            payload.get("page_review_data"),
+            fallback_url=source_url,
+        )
+        dependency_tasks = [
+            TelegramLinkService.get_link_for_user(session.user_id),
+            cls._list_tiktok_accounts(session.user_id),
+            BrandProfileService.get_for_user(session.user_id),
+        ]
+        if cached_page_review is None:
+            dependency_tasks.append(
+                WebsiteReviewService.review_url(
+                    url=source_url,
+                    objective=objective,
+                    user_id=session.user_id,
+                )
+            )
+
+        dependency_results = await asyncio.gather(*dependency_tasks)
+        telegram_link = dependency_results[0]
+        tiktok_accounts = dependency_results[1]
+        brand_profile = dependency_results[2]
         active_tiktok_accounts = [
             item
             for item in tiktok_accounts
             if item.get("connection_status") == "connected" and item.get("is_active")
         ]
-        brand_profile = await BrandProfileService.get_for_user(session.user_id)
-        page_review = await WebsiteReviewService.review_url(
-            url=source_url,
-            objective=objective,
-            user_id=session.user_id,
+        page_review = (
+            cached_page_review
+            if cached_page_review is not None
+            else dependency_results[3]
+        )
+        source_url = page_review.normalized_url
+        logger.info(
+            "Create jobs prerequisites resolved | cached_page_review=%s | duration_ms=%d | personas=%d",
+            cached_page_review is not None,
+            int((perf_counter() - request_started) * 1000),
+            len(target_personas),
         )
 
         if (not str(payload.get("objective") or "").strip()) and getattr(
@@ -1001,7 +1219,6 @@ class AppReviewStudioService:
             objective = page_review.suggested_objective
 
         page_review_payload = page_review.model_dump(mode="json")
-        script_service = ScriptService()
         warnings: List[Dict[str, Any]] = []
         errors: List[Dict[str, Any]] = []
         if brand_profile is None:
@@ -1033,140 +1250,46 @@ class AppReviewStudioService:
                 }
             )
 
-        jobs: List[Dict[str, Any]] = []
-        for persona_id in target_personas:
-            persona = await cls._resolve_persona(
-                persona_id=persona_id,
-                user_id=session.user_id,
-            )
-            if not persona:
-                warnings.append(
-                    {
-                        "code": "persona_not_found",
-                        "message": f"Persona '{persona_id}' was not found and was skipped.",
-                    }
-                )
-                continue
-
-            execution_mode = _execution_mode_for_page_review(
-                page_review_data=page_review_payload,
-                input_mode=input_mode,
-            )
-            review_plan_payload = {
-                "objective": objective,
-                "target_url": page_review.normalized_url,
-                "language": str(persona.get("language") or "English"),
-                "persona_id": persona_id,
-                "execution_mode": execution_mode,
-                "access_level": page_review.access_level,
-                "page_review": page_review_payload,
-                "assumptions": list(page_review.assumptions or []),
-                "risks": list(page_review.risks or []),
-                "status": "confirmed",
-                "suggested_objective": getattr(page_review, "suggested_objective", None),
-            }
-            script_payload: Optional[Dict[str, Any]] = None
-            recording_script_payload: Optional[Dict[str, Any]] = None
-            caption_draft = ""
-            selected_mode = input_mode
-
-            if input_mode == "ai_autonomous":
-                try:
-                    (
-                        script_contract,
-                        recording_script,
-                    ) = await script_service.generate_script_from_review_plan(
-                        app_name=getattr(page_review, "page_title", None)
-                        or page_review.normalized_url,
-                        review_plan=review_plan_payload,
-                        persona_config=persona,
-                    )
-                    script_payload = script_contract.model_dump()
-                    recording_script_payload = (
-                        recording_script.model_dump(mode="json")
-                        if recording_script
-                        else None
-                    )
-                    caption_draft = _caption_from_script(
-                        objective=objective,
-                        page_title=getattr(page_review, "page_title", None)
-                        or page_review.normalized_url,
-                        persona=persona,
-                        script_payload=script_payload,
-                    )
-                except Exception as script_err:
-                    logger.warning(
-                        "Script generation failed for persona %s",
-                        persona_id,
-                        exc_info=True,
-                    )
-                    failure = {
-                        "code": "script_generation_failed",
-                        "persona_id": persona_id,
-                        "message": (
-                            f"AI script generation failed for persona '{persona_id}'. "
-                            "No plan was created for this persona."
-                        ),
-                    }
-                    errors.append(failure)
-                    continue
-
-            content_title = (
-                f"{getattr(page_review, 'page_title', None) or 'App Review'}"
-                f" · {persona.get('display_name')}"
-            )
-            campaign_id = None
-            if brand_profile is not None:
-                campaign_payload = {
-                    "name": content_title,
-                    "description": objective,
-                    "content_pillars": ["App Review"],
-                    "target_platforms": ["tiktok"],
-                }
-                created_campaign = await CustomerCampaignService.create_campaign(
+        persona_results = await asyncio.gather(
+            *[
+                cls._create_job_for_persona(
                     session=session,
-                    payload=campaign_payload,
+                    persona_id=persona_id,
+                    source_url=source_url,
+                    objective=objective,
+                    input_mode=input_mode,
+                    publish_to_tiktok=publish_to_tiktok,
+                    creative_preferences=creative_preferences,
+                    page_review=page_review,
+                    page_review_payload=page_review_payload,
+                    tiktok_accounts=tiktok_accounts,
+                    brand_profile=brand_profile,
                 )
-                campaign_id = created_campaign["id"]
+                for persona_id in target_personas
+            ]
+        )
 
-            plan = await VideoPlanningService.create_plan(
-                {
-                    "user_id": session.user_id,
-                    "campaign_id": campaign_id,
-                    "persona_id": persona_id,
-                    "source_url": source_url,
-                    "objective": objective,
-                    "script_text": (script_payload or {}).get("script", ""),
-                    "scenes_data": (script_payload or {}).get("scenes", []),
-                    "duration_estimate": (script_payload or {}).get(
-                        "duration_estimate", 0
-                    ),
-                    "status": "upload_required"
-                    if selected_mode == "user_upload"
-                    else "generated",
-                    "publish_settings": {
-                        "caption_draft": caption_draft,
-                        "publish_requested": publish_to_tiktok,
-                        "content_title": content_title,
-                        "page_title": getattr(page_review, "page_title", None),
-                        "input_mode": selected_mode,
-                    },
-                    "creative_preferences": creative_preferences,
-                    "page_review_data": page_review_payload,
-                }
-            )
-
-            job_payload = cls._serialize_plan_job(
-                plan,
-                persona=persona,
-                tiktok_accounts=tiktok_accounts,
-            )
-            job_payload["recording_script"] = recording_script_payload
-            job_payload["review_plan"] = review_plan_payload
-            jobs.append(job_payload)
+        jobs: List[Dict[str, Any]] = []
+        for result in persona_results:
+            if result.get("warning"):
+                warnings.append(result["warning"])
+                continue
+            if result.get("error"):
+                errors.append(result["error"])
+                continue
+            if result.get("job"):
+                jobs.append(result["job"])
 
         if not jobs and errors:
             raise ValueError(errors[0]["message"])
+
+        logger.info(
+            "Create jobs completed | duration_ms=%d | jobs=%d | warnings=%d | errors=%d",
+            int((perf_counter() - request_started) * 1000),
+            len(jobs),
+            len(warnings),
+            len(errors),
+        )
 
         response = {
             "status": "success",

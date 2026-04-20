@@ -2,7 +2,12 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import type { CreateVideoSetupState, ValidationFeatureViewModel, VideoCreationMode } from '@/types/video-planning';
+import type {
+  CreateVideoSetupState,
+  PageReviewPayload,
+  ValidationFeatureViewModel,
+  VideoCreationMode,
+} from '@/types/video-planning';
 import type { Persona } from '@/components/customer-dashboard';
 import { CreateVideoModeCards } from './CreateVideoModeCards';
 import { CreateVideoSummaryPanel } from './CreateVideoSummaryPanel';
@@ -44,23 +49,14 @@ export function CreateVideoSetupStep({
     objective,
     brief,
     selectedMode,
-    selectedBackground,
     selectedMovementStyle,
     gestureIntensity,
     selectedMusicMood,
     musicVolume,
   } = setupState;
 
-  const backgroundOptions = [
-    { id: 'studio-soft', label: 'Studio Soft Light' },
-    { id: 'office-modern', label: 'Modern Office' },
-    { id: 'minimal-white', label: 'Minimal White' },
-    { id: 'tech-gradient', label: 'Tech Gradient' },
-    { id: 'lifestyle-home', label: 'Lifestyle Home' },
-    { id: 'city-night', label: 'City Night' },
-  ];
-
   const [isBriefExpanded, setIsBriefExpanded] = useState(false);
+  const [isFeatureModalOpen, setIsFeatureModalOpen] = useState(false);
   const [expandedPersonaGroups, setExpandedPersonaGroups] = useState({
     system: true,
     custom: true,
@@ -143,6 +139,7 @@ export function CreateVideoSetupStep({
         page_title?: string;
         suggested_objective?: string | null;
         visible_features?: unknown[];
+        page_review_data?: PageReviewPayload;
       }>(
         '/api/customer/review-engine/source/validate',
         { method: 'POST', body: JSON.stringify({ source_url: url }) },
@@ -160,6 +157,11 @@ export function CreateVideoSetupStep({
         return;
       }
 
+      const normalizedFeatures = (result.visible_features ?? [])
+        .map(coerceValidationFeature)
+        .filter((feature): feature is ValidationFeatureViewModel => feature !== null)
+        .slice(0, 12);
+
       onChange({
         urlValidationStatus: 'valid',
         urlValidationMessage: result.page_title
@@ -170,10 +172,19 @@ export function CreateVideoSetupStep({
           pageTitle: result.page_title,
           suggestedObjective: result.suggested_objective,
           visibleFeatureCount: result.visible_features?.length ?? 0,
-          visibleFeatures: (result.visible_features ?? [])
-            .map(coerceValidationFeature)
-            .filter((feature): feature is ValidationFeatureViewModel => feature !== null)
-            .slice(0, 6),
+          visibleFeatures: normalizedFeatures,
+          pageReviewData: result.page_review_data || {
+            target_url: url,
+            normalized_url: validatedUrl,
+            page_title: result.page_title,
+            suggested_objective: result.suggested_objective,
+            visible_features: normalizedFeatures.map((feature) => ({
+              label: feature.label,
+              summary: feature.summary || '',
+              source_url: feature.sourceUrl,
+              evidence: feature.evidence || [],
+            })),
+          },
         },
         objective:
           objective.trim().length > 0
@@ -296,6 +307,7 @@ export function CreateVideoSetupStep({
   // -------------------------------------------------------------------------
 
   const canContinue = urlValidationStatus === 'valid' && selectedPersonaIds.length > 0;
+  const visibleFeatures = urlValidationDetails?.visibleFeatures || [];
 
   const disabledReason = (() => {
     if (urlValidationStatus !== 'valid' && selectedPersonaIds.length === 0)
@@ -353,12 +365,15 @@ export function CreateVideoSetupStep({
                   placeholder="https://example.com/product"
                   value={sourceUrl}
                   onChange={(e) =>
-                    onChange({
-                      sourceUrl: e.target.value,
-                      urlValidationStatus: 'idle',
-                      urlValidationMessage: undefined,
-                      urlValidationDetails: undefined,
-                    })
+                    {
+                      setIsFeatureModalOpen(false);
+                      onChange({
+                        sourceUrl: e.target.value,
+                        urlValidationStatus: 'idle',
+                        urlValidationMessage: undefined,
+                        urlValidationDetails: undefined,
+                      });
+                    }
                   }
                   onBlur={handleUrlBlur}
                   className="cv-input"
@@ -380,16 +395,18 @@ export function CreateVideoSetupStep({
                       )}
                       <div className="cv-validation-feature-panel">
                         <strong>Visible features</strong>
-                        {urlValidationDetails.visibleFeatures && urlValidationDetails.visibleFeatures.length > 0 ? (
-                          <div className="cv-validation-feature-list">
-                            {urlValidationDetails.visibleFeatures.map((feature) => (
-                              <div className="cv-validation-feature-item" key={`${feature.label}-${feature.sourceUrl ?? feature.summary ?? ''}`}>
-                                <span className="cv-validation-feature-name">{feature.label}</span>
-                                {feature.summary && (
-                                  <span className="cv-validation-feature-summary">{feature.summary}</span>
-                                )}
-                              </div>
-                            ))}
+                        {urlValidationDetails.visibleFeatureCount && urlValidationDetails.visibleFeatureCount > 0 ? (
+                          <div className="cv-validation-feature-summary-row">
+                            <span className="cv-validation-feature-count">
+                              {urlValidationDetails.visibleFeatureCount} features extracted
+                            </span>
+                            <button
+                              type="button"
+                              className="cv-persona-action-btn"
+                              onClick={() => setIsFeatureModalOpen(true)}
+                            >
+                              View details
+                            </button>
                           </div>
                         ) : (
                           <span className="cv-validation-feature-empty">No visible features extracted.</span>
@@ -634,36 +651,6 @@ export function CreateVideoSetupStep({
           </div>
         </div>
 
-        {/* ============== SECTION 6: Persona Background (Optional) ============== */}
-        <div className="cv-section-card">
-          <div className="cv-section-header">
-            <h3 className="cv-section-title">
-              Persona Background
-              <span className="cv-section-badge cv-section-badge--optional">Optional</span>
-            </h3>
-          </div>
-          <div className="cv-section-content">
-            <p className="cv-field-label" style={{ fontSize: '13px', color: '#5c5c58', marginBottom: '8px' }}>
-              Choose background style behind persona
-            </p>
-            <div className="cv-gesture-chips">
-              {backgroundOptions.map((bg) => (
-                <button
-                  key={bg.id}
-                  type="button"
-                  className={`cv-gesture-chip${selectedBackground === bg.id ? ' cv-gesture-chip--selected' : ''}`}
-                  onClick={() => {
-                    onChange({ selectedBackground: bg.id });
-                    toast.success(`Persona background: ${bg.label}`);
-                  }}
-                >
-                  {bg.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
         {/* ============== OPTIONAL: Brief ============== */}
         <div className="cv-section-card">
           <button
@@ -717,6 +704,67 @@ export function CreateVideoSetupStep({
 
       {/* ===== RIGHT COLUMN: Summary Sidebar (Sticky) ===== */}
       <CreateVideoSummaryPanel setupState={setupState} />
+
+      {isFeatureModalOpen && visibleFeatures.length > 0 && (
+        <>
+          <div
+            className="cv-delete-modal-backdrop"
+            onClick={() => setIsFeatureModalOpen(false)}
+            aria-hidden="true"
+          />
+          <div
+            className="cv-delete-modal-shell"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Visible features details"
+          >
+            <div className="cv-delete-modal-card">
+              <div className="cv-delete-modal-header">
+                <div>
+                  <h4 className="cv-delete-modal-title">Extracted visible features</h4>
+                  <p className="cv-delete-modal-subtitle">
+                    {visibleFeatures.length} feature{visibleFeatures.length > 1 ? 's' : ''} detected from the validated source.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="cv-delete-modal-close"
+                  onClick={() => setIsFeatureModalOpen(false)}
+                  aria-label="Close features modal"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="cv-delete-modal-body">
+                <div className="cv-validation-feature-list">
+                  {visibleFeatures.map((feature) => (
+                    <div className="cv-validation-feature-item" key={`${feature.label}-${feature.sourceUrl ?? feature.summary ?? ''}`}>
+                      <span className="cv-validation-feature-name">{feature.label}</span>
+                      {feature.summary && (
+                        <span className="cv-validation-feature-summary">{feature.summary}</span>
+                      )}
+                      {feature.evidence && feature.evidence.length > 0 && (
+                        <div className="cv-validation-feature-evidence">
+                          {feature.evidence.slice(0, 3).map((entry, index) => (
+                            <span key={`${feature.label}-evidence-${index}`}>{entry}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="cv-delete-modal-actions">
+                <button type="button" className="btn-secondary" onClick={() => setIsFeatureModalOpen(false)}>
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

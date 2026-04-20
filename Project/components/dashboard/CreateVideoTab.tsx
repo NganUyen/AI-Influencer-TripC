@@ -1,7 +1,7 @@
 'use client';
 
 import '@/app/create-video.css';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Clapperboard, FileCheck2, Play, Settings2, type LucideIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import type { Persona } from '@/components/customer-dashboard';
@@ -49,6 +49,7 @@ interface CreateVideoTabProps {
 }
 
 const ACTIVE_FLOW_STORAGE_KEY = 'create-video-active-flow';
+const ACTIVE_FLOW_MAX_AGE_MS = 1000 * 60 * 60 * 6;
 
 function jobKey(job: ReviewEngineJob): string {
   return String(job.plan_id || job.job_id);
@@ -308,6 +309,7 @@ export function CreateVideoTab({
   const [uploadingPlanIds, setUploadingPlanIds] = useState<string[]>([]);
   const [publishingJobId, setPublishingJobId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const restoredFlowPlanIdsRef = useRef<string[] | null>(null);
 
   const setupPersonaLists = useMemo(() => {
     if (setup) {
@@ -334,7 +336,7 @@ export function CreateVideoTab({
     };
   }, [personas, setup]);
 
-  const persistActiveFlow = useCallback((planIds: string[], step: Step) => {
+  const persistActiveFlow = useCallback((planIds: string[]) => {
     if (typeof window === 'undefined') {
       return;
     }
@@ -344,7 +346,7 @@ export function CreateVideoTab({
     }
     window.localStorage.setItem(
       ACTIVE_FLOW_STORAGE_KEY,
-      JSON.stringify({ planIds, step }),
+      JSON.stringify({ planIds, updatedAt: Date.now() }),
     );
   }, []);
 
@@ -423,20 +425,45 @@ export function CreateVideoTab({
       return;
     }
     try {
-      const payload = JSON.parse(raw) as { planIds?: string[]; step?: Step };
+      const payload = JSON.parse(raw) as { planIds?: string[]; updatedAt?: number };
+      const updatedAt = Number(payload.updatedAt || 0);
+      if (!Number.isFinite(updatedAt) || Date.now() - updatedAt > ACTIVE_FLOW_MAX_AGE_MS) {
+        window.localStorage.removeItem(ACTIVE_FLOW_STORAGE_KEY);
+        return;
+      }
       const nextPlanIds = Array.isArray(payload.planIds)
         ? payload.planIds.filter(Boolean)
         : [];
       if (nextPlanIds.length > 0) {
+        restoredFlowPlanIdsRef.current = nextPlanIds;
         setActivePlanIds(nextPlanIds);
-        if (payload.step && payload.step >= 1 && payload.step <= 4) {
-          setCurrentStep(payload.step);
-        }
       }
     } catch {
       window.localStorage.removeItem(ACTIVE_FLOW_STORAGE_KEY);
     }
   }, []);
+
+  useEffect(() => {
+    const restoredPlanIds = restoredFlowPlanIdsRef.current;
+    if (!restoredPlanIds) {
+      return;
+    }
+
+    const restoredJobs = getJobsForPlanIds(jobs, restoredPlanIds);
+    if (restoredJobs.length === 0) {
+      setActivePlanIds([]);
+      setCurrentStep(1);
+      setPlanCards([]);
+      setProgressItems([]);
+      setSharedContractDraft({ scriptText: '', scenesText: '' });
+      setSharedContractDirty(false);
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(ACTIVE_FLOW_STORAGE_KEY);
+      }
+    }
+
+    restoredFlowPlanIdsRef.current = null;
+  }, [jobs]);
 
   const explicitActiveJobs = useMemo(() => {
     return getJobsForPlanIds(jobs, activePlanIds);
@@ -508,17 +535,18 @@ export function CreateVideoTab({
     }
 
     const derivedStep = deriveStepFromJobs(activeJobs);
+    const autoStep = Math.min(derivedStep, 3) as Step;
     setCurrentStep((current) => {
-      if (derivedStep > current) {
-        return derivedStep;
+      if (autoStep > current) {
+        return autoStep;
       }
       return current;
     });
   }, [activeJobs, sharedContractDirty]);
 
   useEffect(() => {
-    persistActiveFlow(activePlanIds, currentStep);
-  }, [activePlanIds, currentStep, persistActiveFlow]);
+    persistActiveFlow(activePlanIds);
+  }, [activePlanIds, persistActiveFlow]);
 
   const handleSetupChange = useCallback((patch: Partial<CreateVideoSetupState>) => {
     setSetupState((current) => ({ ...current, ...patch }));

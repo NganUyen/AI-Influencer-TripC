@@ -20,6 +20,17 @@ function normalizeFlowValue(value: string | null | undefined): string {
   return String(value || '').trim().toLowerCase();
 }
 
+function isTerminalJob(job: ReviewEngineJob): boolean {
+  const status = normalizeStatus(job);
+  return (
+    Boolean(job.production?.ready) ||
+    status === 'completed' ||
+    status === 'failed' ||
+    job.publish?.status === 'published' ||
+    job.publish?.status === 'failed'
+  );
+}
+
 function flowFingerprint(job: ReviewEngineJob): string | null {
   const sourceUrl = normalizeFlowValue(job.source_url);
   const objective = normalizeFlowValue(job.objective);
@@ -81,7 +92,9 @@ export function hasBackendExecution(job: ReviewEngineJob): boolean {
 export function inferBackendFlowJobs(
   jobs: ReviewEngineJob[],
 ): ReviewEngineJob[] {
-  const candidates = sortReviewJobsByRecency(jobs).filter(hasBackendExecution);
+  const candidates = sortReviewJobsByRecency(jobs).filter(
+    (job) => hasBackendExecution(job) && !isTerminalJob(job),
+  );
   if (candidates.length === 0) {
     return [];
   }
@@ -105,15 +118,6 @@ export function deriveStepFromJobs(jobs: ReviewEngineJob[]): CreateVideoStep {
     return 2;
   }
 
-  const allSettled = jobs.every((job) => {
-    const status = normalizeStatus(job);
-    return (
-      Boolean(job.production?.ready) ||
-      status === 'completed' ||
-      status === 'failed' ||
-      job.publish?.status === 'published'
-    );
-  });
-
-  return allSettled ? 4 : 3;
+  // Step 4 (publish) is entered explicitly by user action from render step.
+  return 3;
 }

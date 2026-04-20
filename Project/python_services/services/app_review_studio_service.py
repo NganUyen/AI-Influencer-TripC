@@ -885,8 +885,11 @@ class AppReviewStudioService:
             payload["updated_at"] = payload.get("updated_at") or plan.get("updated_at")
             if plan.get("approved_at") and not payload.get("approved_at"):
                 payload["approved_at"] = plan.get("approved_at")
-            if plan.get("video_url") and not payload.get("production", {}).get(
-                "playable_video_url"
+            if (
+                input_mode == "user_upload"
+                and publish_settings.get("uploaded_media_asset_id")
+                and plan.get("video_url")
+                and not payload.get("production", {}).get("playable_video_url")
             ):
                 payload["production"] = {
                     **payload.get("production", {}),
@@ -2225,9 +2228,27 @@ class AppReviewStudioService:
         )
         if not job:
             raise ValueError("App review job not found")
-        video_url = job["production"].get("playable_video_url")
+        publish_settings = _coerce_json_dict(job.get("publish_settings"))
+        production = _coerce_json_dict(job.get("production"))
+        input_mode = str(
+            job.get("input_mode")
+            or publish_settings.get("input_mode")
+            or ""
+        ).strip().lower()
+
+        video_url = production.get("playable_video_url")
         if not video_url:
             raise ValueError("Final product is not ready for TikTok publishing yet")
+
+        if input_mode == "user_upload":
+            if not publish_settings.get("uploaded_media_asset_id"):
+                raise ValueError("Manual upload video is not verified for publishing yet")
+        else:
+            if not job.get("workflow_id"):
+                raise ValueError("Workflow output is not linked to this job yet")
+            if not bool(production.get("publish_enabled")):
+                raise ValueError("Final product is not publish-enabled yet")
+
         telegram_link = await TelegramLinkService.get_link_for_user(session.user_id)
         if not telegram_link:
             raise ValueError("Link Telegram before publishing to TikTok")

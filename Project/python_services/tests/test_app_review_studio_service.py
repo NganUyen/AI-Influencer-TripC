@@ -646,7 +646,7 @@ async def test_list_jobs_merges_plan_and_workflow_by_plan_id(monkeypatch):
                 "scenes_data": [],
                 "status": "approved",
                 "workflow_id": "video-wf-1",
-                "video_url": None,
+                "video_url": "https://cdn.example/stale-plan-video.mp4",
                 "publish_settings": {
                     "content_title": "Example App · Ava",
                     "caption_draft": "Caption draft",
@@ -756,6 +756,76 @@ async def test_list_jobs_merges_plan_and_workflow_by_plan_id(monkeypatch):
     assert job["input_mode"] == "ai_autonomous"
     assert job["creative_preferences"] == {"hook_style": "bold"}
     assert job["source_url"] == "https://example.com/app"
+    assert job["production"].get("playable_video_url") in {None, ""}
+    assert job["production"].get("ready") is not True
+
+
+@pytest.mark.asyncio
+async def test_publish_job_rejects_manual_upload_without_verified_asset(monkeypatch):
+    async def fake_get_job(*, user_id, job_id, temporal_client=None):
+        return {
+            "job_id": job_id,
+            "plan_id": job_id,
+            "workflow_id": None,
+            "input_mode": "user_upload",
+            "publish_settings": {
+                "input_mode": "user_upload",
+            },
+            "production": {
+                "playable_video_url": "https://cdn.example/upload.mp4",
+                "ready": True,
+                "publish_enabled": True,
+            },
+            "content": {"body": "Caption"},
+            "objective": "Review product",
+            "page_title": "Example App",
+        }
+
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "get_job",
+        classmethod(lambda cls, *, user_id, job_id, temporal_client=None: fake_get_job(user_id=user_id, job_id=job_id, temporal_client=temporal_client)),
+    )
+
+    with pytest.raises(ValueError, match="Manual upload video is not verified"):
+        await AppReviewStudioService.publish_job_to_tiktok(
+            session=_session(),
+            job_id="plan-1",
+        )
+
+
+@pytest.mark.asyncio
+async def test_publish_job_rejects_ai_job_without_workflow_link(monkeypatch):
+    async def fake_get_job(*, user_id, job_id, temporal_client=None):
+        return {
+            "job_id": job_id,
+            "plan_id": job_id,
+            "workflow_id": None,
+            "input_mode": "ai_autonomous",
+            "publish_settings": {
+                "input_mode": "ai_autonomous",
+            },
+            "production": {
+                "playable_video_url": "https://cdn.example/final.mp4",
+                "ready": True,
+                "publish_enabled": True,
+            },
+            "content": {"body": "Caption"},
+            "objective": "Review product",
+            "page_title": "Example App",
+        }
+
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "get_job",
+        classmethod(lambda cls, *, user_id, job_id, temporal_client=None: fake_get_job(user_id=user_id, job_id=job_id, temporal_client=temporal_client)),
+    )
+
+    with pytest.raises(ValueError, match="Workflow output is not linked"):
+        await AppReviewStudioService.publish_job_to_tiktok(
+            session=_session(),
+            job_id="plan-1",
+        )
 
 
 @pytest.mark.asyncio

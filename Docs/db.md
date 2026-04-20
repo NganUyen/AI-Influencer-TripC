@@ -167,6 +167,52 @@ Rules of thumb:
 - skip `latest.sql` during production-style migration runs
 - back up the canonical app database before schema-changing deploys
 
+## Recent Operational Data Corrections
+
+### 2026-04-20 (UTC) - Global Persona Ownership Correction
+
+Issue:
+
+- `global-cn-wei` and `global-in-arjun` did not appear under `System Personas`
+- both rows existed in `public.personas`, but their `user_id` had drifted to `ecfafcde-45c3-5a00-9711-34246e451cf7`
+- the product groups system personas under the reserved system owner `00000000-0000-0000-0000-000000000001`
+
+Live data correction applied:
+
+```sql
+UPDATE public.personas
+SET user_id = '00000000-0000-0000-0000-000000000001',
+    updated_at = NOW()
+WHERE persona_id IN ('global-cn-wei', 'global-in-arjun')
+  AND user_id = 'ecfafcde-45c3-5a00-9711-34246e451cf7';
+```
+
+Expected result after correction:
+
+- `Wei Chen` and `Arjun Sharma` return to the shared system-persona pool
+- the canonical global set becomes:
+  `global-us-alex`, `global-cn-wei`, `global-ru-natasha`, `global-in-arjun`, `global-mx-valeria`
+
+Verification query:
+
+```sql
+SELECT persona_id, display_name, user_id, status
+FROM public.personas
+WHERE persona_id IN (
+  'global-us-alex',
+  'global-cn-wei',
+  'global-ru-natasha',
+  'global-in-arjun',
+  'global-mx-valeria'
+)
+ORDER BY persona_id;
+```
+
+Operational note:
+
+- this was a live data correction, not a schema migration
+- backend and frontend were also hardened so reserved `global-*` personas still classify as system personas if ownership drifts again
+
 ## Change Process
 
 When the data model changes:

@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ArrowUp, Brain, Check, Loader2, Sparkles, X } from "lucide-react";
+import { ArrowUp, Brain, Check, ChevronDown, ChevronUp, Loader2, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
   PersonaStudioAction,
@@ -216,6 +216,12 @@ function PersonaStudioMessageView({
 }) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
+  const [isExpanded, setIsExpanded] = React.useState(false);
+  const contentThreshold = 400;
+  const isTooLong = message.content.length > contentThreshold;
+  const displayContent = isTooLong && !isExpanded 
+    ? message.content.slice(0, contentThreshold) + "..." 
+    : message.content;
 
   return (
     <div className={cn("flex gap-4", isUser && "justify-end")}>
@@ -239,9 +245,37 @@ function PersonaStudioMessageView({
               : "bg-aura-surface-container-low text-aura-on-surface border-aura-outline-variant/5 rounded-tl-none",
         )}
       >
-        <p className={cn("text-base leading-relaxed font-medium whitespace-pre-wrap", isUser && "italic")}>
-          {message.content}
-        </p>
+        {message.image_url ? (
+          <div className="mb-4 aspect-square overflow-hidden rounded-2xl bg-aura-surface-container-high border border-aura-outline-variant/10 shadow-inner">
+            <img
+              src={message.image_url}
+              alt="AI suggested avatar"
+              className="h-full w-full object-cover transition-transform hover:scale-105 duration-700"
+            />
+          </div>
+        ) : null}
+        <div className={cn("space-y-4")}>
+          <p className={cn("text-base leading-relaxed font-medium whitespace-pre-wrap", isUser && "italic")}>
+            {displayContent}
+          </p>
+          {isTooLong && (
+            <button
+              type="button"
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-aura-primary hover:text-aura-primary-high transition-colors cursor-pointer"
+            >
+              {isExpanded ? (
+                <>
+                  <ChevronUp className="w-3 h-3" /> Show Less
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-3 h-3" /> Read More
+                </>
+              )}
+            </button>
+          )}
+        </div>
         {message.actions?.length ? (
           <div className="mt-5 flex flex-wrap gap-2">
             {message.actions.map((action) => (

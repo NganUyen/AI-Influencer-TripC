@@ -215,6 +215,7 @@ class PersonaStudioService:
         content: str,
         actions: Optional[List[Dict[str, Any]]] = None,
         preview: Optional[Dict[str, Any]] = None,
+        image_url: Optional[str] = None,
     ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "id": str(uuid4()),
@@ -225,6 +226,8 @@ class PersonaStudioService:
             payload["actions"] = actions
         if preview:
             payload["preview"] = preview
+        if image_url:
+            payload["image_url"] = image_url
         return payload
 
     @classmethod
@@ -266,6 +269,7 @@ class PersonaStudioService:
                 content=prompt_text,
                 actions=actions,
                 preview=preview,
+                image_url=output.get("preview_image_url"),
             ),
         )
 

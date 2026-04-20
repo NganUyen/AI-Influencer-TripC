@@ -397,6 +397,9 @@ class ShortVideoWorkflow:
                     "bgm_library_profile": "product_explainer",
                     "bgm_duck_under_voiceover": True,
                     "max_bgm_duration_seconds": 60,
+                    "movement_overlay_enabled": False,
+                    "movement_library_profile": "natural",
+                    "movement_overlay_volume": 0.18,
                 }
             )
             review_plan = (

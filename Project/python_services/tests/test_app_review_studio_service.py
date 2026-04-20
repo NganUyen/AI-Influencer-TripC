@@ -44,26 +44,62 @@ def _page_review(**overrides: Any) -> WebPageReviewContract:
     return WebPageReviewContract.model_validate(payload)
 
 
-class _FakeAcquire:
-    def __init__(self, rows: List[Dict[str, Any]]):
-        self._rows = rows
+def test_audio_policy_prefers_explicit_profiles_from_creative_preferences():
+    policy = studio_module._audio_policy_from_creative_preferences(
+        {
+            "music_mood": "Corporate",
+            "bgm_profile": "upbeat_demo",
+            "movement_style": "Natural",
+            "movement_profile": "professional",
+            "gesture_intensity": 80,
+        }
+    )
 
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        return False
-
-    async def fetch(self, *_args, **_kwargs):
-        return self._rows
+    assert policy.bgm_fallback_enabled is True
+    assert policy.bgm_library_profile == "upbeat_demo"
+    assert policy.movement_overlay_enabled is True
+    assert policy.movement_library_profile == "professional"
+    assert policy.movement_overlay_volume == pytest.approx(0.276)
 
 
-class _FakePool:
-    def __init__(self, rows: List[Dict[str, Any]]):
-        self._rows = rows
+def test_audio_policy_disables_optional_audio_layers_for_none_mood_and_movement():
+    policy = studio_module._audio_policy_from_creative_preferences(
+        {
+            "music_mood": "None",
+            "movement_style": "none",
+            "gesture_intensity": 25,
+        }
+    )
 
-    def acquire(self):
-        return _FakeAcquire(self._rows)
+    assert policy.bgm_fallback_enabled is False
+    assert policy.movement_overlay_enabled is False
+
+
+def test_audio_policy_maps_new_bgm_moods():
+    policy = studio_module._audio_policy_from_creative_preferences(
+        {
+            "music_mood": "Electronic",
+        }
+    )
+
+    assert policy.bgm_fallback_enabled is True
+    assert policy.bgm_library_profile == "electro_drive"
+    assert policy.movement_overlay_enabled is False
+
+
+def test_audio_policy_handles_invalid_gesture_intensity_without_crashing():
+    policy = studio_module._audio_policy_from_creative_preferences(
+        {
+            "music_mood": "Upbeat",
+            "movement_style": "Natural",
+            "gesture_intensity": "not-a-number",
+        }
+    )
+
+    assert policy.bgm_fallback_enabled is True
+    assert policy.movement_overlay_enabled is True
+    assert policy.movement_library_profile == "natural"
+    assert policy.movement_overlay_volume == pytest.approx(0.21)
 
 
 @pytest.mark.asyncio

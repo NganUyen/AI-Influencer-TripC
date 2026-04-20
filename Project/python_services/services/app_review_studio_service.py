@@ -47,6 +47,39 @@ _SYSTEM_PERSONA_USER_ID = "00000000-0000-0000-0000-000000000001"
 _APP_REVIEW_JOB_TYPES = {"app_review_video", "app_review_upload"}
 logger = logging.getLogger(__name__)
 
+_MUSIC_MOOD_TO_BGM_PROFILE = {
+    "none": "product_explainer",
+    "upbeat": "upbeat_demo",
+    "corporate": "product_explainer",
+    "ambient": "calm_review",
+    "cinematic": "cinematic_rise",
+    "lo-fi": "lofi_focus",
+    "lofi": "lofi_focus",
+    "electronic": "electro_drive",
+    "motivational": "motivational_lift",
+    "focus": "focus_loop",
+    "tropical": "tropical_pop",
+}
+
+_MOVEMENT_STYLE_TO_PROFILE = {
+    "natural": "natural",
+    "expressive": "expressive",
+    "minimal": "minimal",
+    "energetic": "energetic",
+    "professional": "professional",
+    "casual": "casual",
+    "storytelling": "storytelling",
+    "calm": "calm",
+}
+_DISABLED_MOVEMENT_TOKENS = {"", "none", "off", "disabled"}
+
+
+def _coerce_float(value: Any, fallback: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(fallback)
+
 
 def _slugify(value: str) -> str:
     normalized = "".join(
@@ -255,6 +288,56 @@ def _coerce_json_list(value: Any) -> List[Any]:
         except Exception:
             return []
     return value if isinstance(value, list) else []
+
+
+def _audio_policy_from_creative_preferences(
+    creative_preferences: Dict[str, Any],
+) -> VideoAudioPolicyContract:
+    payload = _coerce_json_dict(creative_preferences)
+    music_mood = str(payload.get("music_mood") or "").strip().lower() or "none"
+    requested_bgm_profile = str(payload.get("bgm_profile") or "").strip().lower()
+    movement_style = str(payload.get("movement_style") or "").strip().lower()
+    requested_movement_profile = (
+        str(payload.get("movement_profile") or "").strip().lower()
+    )
+
+    bgm_profile = (
+        requested_bgm_profile
+        or _MUSIC_MOOD_TO_BGM_PROFILE.get(music_mood, "product_explainer")
+    )
+    bgm_enabled = music_mood != "none"
+
+    movement_profile = "none"
+    if requested_movement_profile in _MOVEMENT_STYLE_TO_PROFILE.values():
+        movement_profile = requested_movement_profile
+    elif movement_style in _MOVEMENT_STYLE_TO_PROFILE:
+        movement_profile = _MOVEMENT_STYLE_TO_PROFILE[movement_style]
+    elif (
+        requested_movement_profile in _DISABLED_MOVEMENT_TOKENS
+        or movement_style in _DISABLED_MOVEMENT_TOKENS
+    ):
+        movement_profile = "none"
+
+    movement_enabled = movement_profile != "none"
+    if movement_enabled:
+        intensity = max(
+            0.0,
+            min(100.0, _coerce_float(payload.get("gesture_intensity"), 50.0)),
+        )
+        movement_overlay_volume = round(0.1 + ((intensity / 100.0) * 0.22), 3)
+    else:
+        movement_overlay_volume = 0.0
+
+    return VideoAudioPolicyContract(
+        voiceover_required=True,
+        bgm_fallback_enabled=bgm_enabled,
+        bgm_library_profile=bgm_profile,
+        bgm_duck_under_voiceover=True,
+        max_bgm_duration_seconds=60,
+        movement_overlay_enabled=movement_enabled,
+        movement_library_profile=movement_profile,
+        movement_overlay_volume=movement_overlay_volume,
+    )
 
 
 def _plan_input_mode(plan: Dict[str, Any]) -> str:
@@ -648,6 +731,8 @@ class AppReviewStudioService:
         persona: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
         page_review = cls._build_page_review_contract(plan=plan)
+        creative_preferences = _coerce_json_dict(plan.get("creative_preferences"))
+        audio_policy = _audio_policy_from_creative_preferences(creative_preferences)
         input_mode = _plan_input_mode(plan)
         execution_mode = _execution_mode_for_page_review(
             page_review_data=page_review.model_dump(mode="json"),
@@ -662,6 +747,7 @@ class AppReviewStudioService:
             execution_mode=execution_mode,
             access_level=page_review.access_level,
             page_review=page_review,
+            audio_policy=audio_policy,
             assumptions=list(page_review.assumptions or []),
             risks=list(page_review.risks or []),
             status="confirmed",
@@ -988,6 +1074,7 @@ class AppReviewStudioService:
         auto_publish_enabled: bool,
         content_title: str,
         caption_draft: str,
+        audio_policy: VideoAudioPolicyContract,
         campaign_id: Optional[str],
         temporal_client: Any | None,
         telegram_link: Optional[Dict[str, Any]],
@@ -1000,7 +1087,7 @@ class AppReviewStudioService:
             execution_mode=execution_mode,
             access_level=str(page_review.access_level or "unknown"),
             page_review=page_review,
-            audio_policy=VideoAudioPolicyContract(),
+            audio_policy=audio_policy,
             assumptions=list(page_review.assumptions or []),
             risks=list(page_review.risks or []),
             status="confirmed",
@@ -1019,7 +1106,7 @@ class AppReviewStudioService:
             talking_head_optional=True,
             review_plan=review_plan,
             execution_mode=execution_mode,
-            audio_policy=VideoAudioPolicyContract(),
+            audio_policy=audio_policy,
             persona_snapshot=VideoWorkflowPersonaSnapshotContract(
                 persona_id=str(persona.get("persona_id")),
                 display_name=str(
@@ -1106,6 +1193,9 @@ class AppReviewStudioService:
             "execution_mode": execution_mode,
             "access_level": page_review.access_level,
             "page_review": page_review_payload,
+            "audio_policy": _audio_policy_from_creative_preferences(
+                creative_preferences
+            ).model_dump(mode="json"),
             "assumptions": list(page_review.assumptions or []),
             "risks": list(page_review.risks or []),
             "status": "confirmed",
@@ -1334,6 +1424,9 @@ class AppReviewStudioService:
             ),
             "access_level": page_review.access_level,
             "page_review": page_review_payload,
+            "audio_policy": _audio_policy_from_creative_preferences(
+                creative_preferences
+            ).model_dump(mode="json"),
             "assumptions": list(page_review.assumptions or []),
             "risks": list(page_review.risks or []),
             "status": "confirmed",
@@ -1481,6 +1574,8 @@ class AppReviewStudioService:
         ]
 
         publish_settings = _coerce_json_dict(plan.get("publish_settings"))
+        creative_preferences = _coerce_json_dict(plan.get("creative_preferences"))
+        audio_policy = _audio_policy_from_creative_preferences(creative_preferences)
         publish_to_tiktok = bool(publish_settings.get("publish_requested"))
         content_title = str(publish_settings.get("content_title") or "App Review")
         caption_draft = str(
@@ -1547,6 +1642,7 @@ class AppReviewStudioService:
             ),
             content_title=content_title,
             caption_draft=caption_draft,
+            audio_policy=audio_policy,
             campaign_id=plan.get("campaign_id") and str(plan.get("campaign_id")),
             temporal_client=temporal_client,
             telegram_link=telegram_link,

@@ -1,0 +1,92 @@
+[
+  {
+    "id": "bgm_product_explainer_soft",
+    "group": "bgm",
+    "profile": "product_explainer",
+    "mood": "corporate",
+    "duration_seconds": 55,
+    "filename": "bgm_corporate_atlasaudio.mp3",
+    "relative_path": "bgm/bgm_corporate_atlasaudio.mp3",
+    "preview_path": "/create-video-demos/bgm/bgm_corporate_atlasaudio.mp3"
+  },
+  {
+    "id": "bgm_calm_review_bed",
+    "group": "bgm",
+    "profile": "calm_review",
+    "mood": "ambient",
+    "duration_seconds": 55,
+    "filename": "bgm_ambient_nastelbom.mp3",
+    "relative_path": "bgm/bgm_ambient_nastelbom.mp3",
+    "preview_path": "/create-video-demos/bgm/bgm_ambient_nastelbom.mp3"
+  },
+  {
+    "id": "bgm_upbeat_demo_loop",
+    "group": "bgm",
+    "profile": "upbeat_demo",
+    "mood": "upbeat",
+    "duration_seconds": 26,
+    "filename": "upbeat_demo_loop.mp3",
+    "relative_path": "bgm/upbeat_demo_loop.mp3",
+    "preview_path": "/create-video-demos/bgm/upbeat_demo_loop.mp3"
+  },
+  {
+    "id": "bgm_electro_drive",
+    "group": "bgm",
+    "profile": "electro_drive",
+    "mood": "electronic",
+    "duration_seconds": 55,
+    "filename": "bgm_electro_drive.mp3",
+    "relative_path": "bgm/bgm_electro_drive.mp3",
+    "preview_path": "/create-video-demos/bgm/bgm_electro_drive.mp3"
+  },
+  {
+    "id": "bgm_cinematic_rise",
+    "group": "bgm",
+    "profile": "cinematic_rise",
+    "mood": "cinematic",
+    "duration_seconds": 55,
+    "filename": "bgm_cinematic_rise.mp3",
+    "relative_path": "bgm/bgm_cinematic_rise.mp3",
+    "preview_path": "/create-video-demos/bgm/bgm_cinematic_rise.mp3"
+  },
+  {
+    "id": "bgm_lofi_focus",
+    "group": "bgm",
+    "profile": "lofi_focus",
+    "mood": "focus",
+    "duration_seconds": 55,
+    "filename": "bgm_lofi_focus.mp3",
+    "relative_path": "bgm/bgm_lofi_focus.mp3",
+    "preview_path": "/create-video-demos/bgm/bgm_lofi_focus.mp3"
+  },
+  {
+    "id": "bgm_tropical_pop",
+    "group": "bgm",
+    "profile": "tropical_pop",
+    "mood": "tropical",
+    "duration_seconds": 55,
+    "filename": "bgm_tropical_bounce.mp3",
+    "relative_path": "bgm/bgm_tropical_bounce.mp3",
+    "preview_path": "/create-video-demos/bgm/bgm_tropical_bounce.mp3"
+  },
+  {
+    "id": "bgm_motivational_lift",
+    "group": "bgm",
+    "profile": "motivational_lift",
+    "mood": "motivational",
+    "duration_seconds": 55,
+    "filename": "bgm_motivation_eliveta.mp3",
+    "relative_path": "bgm/bgm_motivation_eliveta.mp3",
+    "preview_path": "/create-video-demos/bgm/bgm_motivation_eliveta.mp3"
+  },
+  {
+    "id": "bgm_focus_loop",
+    "group": "bgm",
+    "profile": "focus_loop",
+    "mood": "focus",
+    "duration_seconds": 55,
+    "filename": "bgm_focus_track.mp3",
+    "relative_path": "bgm/bgm_focus_track.mp3",
+    "preview_path": "/create-video-demos/bgm/bgm_focus_track.mp3"
+  }
+]

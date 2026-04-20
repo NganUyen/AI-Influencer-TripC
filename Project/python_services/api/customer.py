@@ -37,6 +37,10 @@ from services.video_capture_handoff_service import (
     VideoCaptureHandoffError,
     VideoCaptureHandoffService,
 )
+from services.background_music_service import (
+    BackgroundMusicError,
+    BackgroundMusicService,
+)
 from services.video_planner_handoff_service import VideoPlannerHandoffService
 from services.persona_registry_service import PersonaRegistryService
 from services.errors import PersonaConfigurationError
@@ -274,6 +278,18 @@ def _public_review_engine_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
         "approved_at": plan.get("approved_at"),
         "created_at": plan.get("created_at"),
         "updated_at": plan.get("updated_at"),
+    }
+
+
+def _public_audio_track(track: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": track.get("id"),
+        "group": track.get("group"),
+        "profile": track.get("profile"),
+        "style": track.get("style"),
+        "mood": track.get("mood"),
+        "duration_seconds": track.get("duration_seconds"),
+        "preview_path": track.get("preview_path"),
     }
 
 
@@ -1034,6 +1050,25 @@ async def get_review_engine_setup(
     session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
     return await AppReviewStudioService.get_setup(user_id=session.user_id)
+
+
+@router.get("/review-engine/audio-library")
+async def get_review_engine_audio_library(
+    session: CustomerSession = Depends(require_customer_session),
+) -> Dict[str, Any]:
+    _ = session  # authenticated route; no per-user filtering currently required
+    try:
+        bgm_tracks = BackgroundMusicService.list_tracks(group="bgm")
+        movement_tracks = BackgroundMusicService.list_tracks(group="movement")
+    except BackgroundMusicError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Audio library unavailable: {exc}",
+        ) from exc
+    return {
+        "bgm": [_public_audio_track(track) for track in bgm_tracks],
+        "movement": [_public_audio_track(track) for track in movement_tracks],
+    }
 
 
 @router.get("/review-engine/jobs")

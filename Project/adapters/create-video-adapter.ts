@@ -14,6 +14,10 @@ import type {
   ViewTone,
 } from '@/types/video-planning';
 import { resolveCountryCode } from '@/lib/country-mapping';
+import {
+  getGestureStyleOption,
+  getMusicMoodOption,
+} from '@/components/dashboard/create-video/setup-options';
 
 export const CREATE_VIDEO_UI_TO_BACKEND_MODE: Record<
   VideoCreationMode,
@@ -165,11 +169,15 @@ export function isCreateVideoModeSupportedForSubmit(
 export function buildCreativePreferences(
   setupState: CreateVideoSetupState,
 ): Record<string, unknown> {
+  const gestureOption = getGestureStyleOption(setupState.selectedMovementStyle);
+  const musicMoodOption = getMusicMoodOption(setupState.selectedMusicMood);
   const payload: Record<string, unknown> = {
     movement_style: setupState.selectedMovementStyle,
     gesture_intensity: setupState.gestureIntensity,
     music_mood: setupState.selectedMusicMood,
     music_volume: setupState.musicVolume,
+    movement_profile: gestureOption?.movementProfile || 'natural',
+    bgm_profile: musicMoodOption?.bgmProfile || 'product_explainer',
   };
   const brief = String(setupState.brief || '').trim();
   if (brief) {

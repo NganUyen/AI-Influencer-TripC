@@ -41,7 +41,12 @@ FULL_FRAME_HEIGHT = 1920
 BOTTOM_SOURCE_WIDTH = 1080
 BOTTOM_SOURCE_HEIGHT = 1080
 TOP_SCENE_SKIP_SECONDS = 8.0
+
+DEFAULT_DUCKED_BGM_VOLUME = 0.22
+DEFAULT_FULL_BGM_VOLUME = 0.35
+
 SUBTITLE_FONT_NAME = os.getenv("VIDEO_SUBTITLE_FONT_NAME", "DejaVu Sans")
+
 SUBTITLE_FONT_SIZE = 64
 SUBTITLE_CENTER_X = FULL_FRAME_WIDTH // 2
 SUBTITLE_CENTER_Y = FULL_FRAME_HEIGHT // 2
@@ -274,6 +279,167 @@ def _prepare_audio_source(
             f"audio_url is missing and no local BGM fallback is available: {exc}"
         ) from exc
     return str(tmp_path / "bgm_fallback.mp3"), selected_track
+
+
+def _prepare_movement_overlay(
+    assembly_input: SplitScreenVideoInput,
+    tmp_path: Path,
+) -> tuple[Optional[str], Optional[Dict[str, Any]], float]:
+    audio_policy = assembly_input.audio_policy or {}
+    movement_enabled = bool(audio_policy.get("movement_overlay_enabled", False))
+    if not movement_enabled:
+        return None, None, 0.0
+
+    profile = str(audio_policy.get("movement_library_profile") or "natural").strip()
+    max_duration = int(audio_policy.get("max_bgm_duration_seconds") or 60)
+    movement_volume = float(audio_policy.get("movement_overlay_volume") or 0.18)
+    movement_volume = max(0.0, min(movement_volume, 1.0))
+
+    try:
+        selected_track = BackgroundMusicService.select_track(
+            group="movement",
+            profile=profile,
+            max_duration_seconds=max_duration,
+        )
+    except BackgroundMusicError as exc:
+        logger.warning(
+            "Movement overlay is enabled but no movement track is available. Continuing without movement overlay: %s",
+            exc,
+        )
+        return None, None, movement_volume
+    return str(tmp_path / "movement_overlay.mp3"), selected_track, movement_volume
+
+
+def _mix_audio_tracks(
+    *,
+    base_audio_path: str,
+    overlay_audio_path: str,
+    output_audio_path: str,
+    overlay_volume: float,
+) -> None:
+    volume = max(0.0, min(float(overlay_volume), 1.0))
+    _run_ffmpeg(
+        [
+            "ffmpeg",
+            "-y",
+            "-stream_loop",
+            "-1",
+            "-i",
+            overlay_audio_path,
+            "-i",
+            base_audio_path,
+            "-filter_complex",
+            (
+                f"[1:a]volume=1.0[a0];"
+                f"[0:a]volume={volume:.3f}[a1];"
+                "[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+            ),
+            "-map",
+            "[aout]",
+            "-c:a",
+            "libmp3lame",
+            "-q:a",
+            "2",
+            output_audio_path,
+        ],
+        "mix_movement_overlay",
+    )
+
+
+def _resolve_bgm_overlay_volume(audio_policy: Dict[str, Any]) -> float:
+    explicit_volume = audio_policy.get("bgm_overlay_volume")
+    if explicit_volume is not None:
+        try:
+            volume = float(explicit_volume)
+        except (TypeError, ValueError):
+            volume = DEFAULT_DUCKED_BGM_VOLUME
+    else:
+        duck_under_voiceover = bool(audio_policy.get("bgm_duck_under_voiceover", True))
+        volume = (
+            DEFAULT_DUCKED_BGM_VOLUME
+            if duck_under_voiceover
+            else DEFAULT_FULL_BGM_VOLUME
+        )
+    return max(0.0, min(volume, 1.0))
+
+
+def _mix_video_audio_with_bgm(
+    *,
+    input_video_path: str,
+    bgm_audio_path: str,
+    output_video_path: str,
+    bgm_volume: float,
+) -> None:
+    volume = max(0.0, min(float(bgm_volume), 1.0))
+    _run_ffmpeg(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-nostats",
+            "-i",
+            input_video_path,
+            "-stream_loop",
+            "-1",
+            "-i",
+            bgm_audio_path,
+            "-filter_complex",
+            (
+                "[0:a]volume=1.0[a0];"
+                f"[1:a]volume={volume:.3f}[a1];"
+                "[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+            ),
+            "-map",
+            "0:v",
+            "-map",
+            "[aout]",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            output_video_path,
+        ],
+        "mix_bgm_after_combine",
+    )
+
+
+def _prepare_overlay_segment(
+    *,
+    source_path: str,
+    output_path: str,
+    start_offset_seconds: float,
+    clip_duration_seconds: float,
+) -> str:
+    start_offset = max(0.0, float(start_offset_seconds or 0.0))
+    clip_duration = max(4.0, min(float(clip_duration_seconds or 10.0), 24.0))
+    if start_offset < 0.01:
+        return source_path
+
+    _run_ffmpeg(
+        [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            f"{start_offset:.3f}",
+            "-i",
+            source_path,
+            "-t",
+            f"{clip_duration:.3f}",
+            "-c:a",
+            "libmp3lame",
+            "-q:a",
+            "2",
+            output_path,
+        ],
+        "prepare_overlay_segment",
+    )
+    if os.path.exists(output_path) and os.path.getsize(output_path) >= 1200:
+        return output_path
+    return source_path
 
 
 def _clean_subtitle_text(text: str) -> str:
@@ -592,6 +758,10 @@ async def _build_split_screen_video_impl(config: Dict[str, Any]) -> Dict[str, An
 
         audio_path, bgm_track = _prepare_audio_source(assembly_input, tmp_path)
         using_bgm_fallback = bgm_track is not None
+        movement_overlay_path, movement_track, movement_overlay_volume = (
+            _prepare_movement_overlay(assembly_input, tmp_path)
+        )
+        using_movement_overlay = False
         if not audio_path:
             raise AssemblyMissingAssetError(
                 "audio_url is missing and BGM fallback is disabled or unavailable."
@@ -605,6 +775,13 @@ async def _build_split_screen_video_impl(config: Dict[str, Any]) -> Dict[str, An
                 asyncio.to_thread(
                     Path(audio_path).write_bytes,
                     Path(str(bgm_track["path"])).read_bytes(),
+                )
+            )
+        if movement_overlay_path and movement_track:
+            download_tasks.append(
+                asyncio.to_thread(
+                    Path(movement_overlay_path).write_bytes,
+                    Path(str(movement_track["path"])).read_bytes(),
                 )
             )
 
@@ -641,6 +818,43 @@ async def _build_split_screen_video_impl(config: Dict[str, Any]) -> Dict[str, An
                     using_bgm_fallback = True
                 except BackgroundMusicError as exc:
                     logger.warning("BGM fallback unavailable after silent audio detection: %s", exc)
+
+        if (
+            movement_overlay_path
+            and movement_track
+            and os.path.exists(movement_overlay_path)
+            and os.path.getsize(movement_overlay_path) >= 2000
+        ):
+            try:
+                movement_overlay_path = _prepare_overlay_segment(
+                    source_path=movement_overlay_path,
+                    output_path=str(tmp_path / "movement_overlay_segment.mp3"),
+                    start_offset_seconds=float(
+                        movement_track.get("start_offset_seconds") or 0.0
+                    ),
+                    clip_duration_seconds=float(
+                        movement_track.get("clip_duration_seconds") or 10.0
+                    ),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Movement segment preparation failed, using full movement track: %s",
+                    exc,
+                )
+
+            mixed_audio_path = str(tmp_path / "audio_with_movement.mp3")
+            try:
+                _mix_audio_tracks(
+                    base_audio_path=audio_path,
+                    overlay_audio_path=movement_overlay_path,
+                    output_audio_path=mixed_audio_path,
+                    overlay_volume=movement_overlay_volume,
+                )
+                if os.path.exists(mixed_audio_path) and os.path.getsize(mixed_audio_path) >= 2000:
+                    audio_path = mixed_audio_path
+                    using_movement_overlay = True
+            except Exception as exc:
+                logger.warning("Movement overlay mix failed, continuing with base audio: %s", exc)
 
         # New Robust Concat Logic for Mixed Media Types
         concat_file = str(tmp_path / "concat.txt")
@@ -872,8 +1086,62 @@ async def _build_split_screen_video_impl(config: Dict[str, Any]) -> Dict[str, An
         if not os.path.exists(final_path) or os.path.getsize(final_path) < 10_000:
             raise AssemblyError("Final video file is missing or suspiciously small.")
 
-        subtitle_status = "not_requested"
-        subtitle_error: Optional[str] = None
+        audio_policy = assembly_input.audio_policy or {}
+        using_bgm_overlay_after_combine = False
+        bgm_overlay_track: Optional[Dict[str, Any]] = None
+        if (
+            assembly_input.audio_url
+            and not using_bgm_fallback
+            and bool(audio_policy.get("bgm_fallback_enabled", True))
+        ):
+            try:
+                bgm_overlay_track = BackgroundMusicService.select_track(
+                    profile=str(
+                        audio_policy.get("bgm_library_profile") or "product_explainer"
+                    ).strip(),
+                    max_duration_seconds=int(
+                        audio_policy.get("max_bgm_duration_seconds") or 60
+                    ),
+                )
+            except BackgroundMusicError as exc:
+                logger.warning(
+                    "BGM overlay is enabled but no BGM track is available for post-combine mix: %s",
+                    exc,
+                )
+                bgm_overlay_track = None
+
+            bgm_overlay_source = str((bgm_overlay_track or {}).get("path") or "").strip()
+            if bgm_overlay_source and os.path.exists(bgm_overlay_source):
+                bgm_overlay_volume = _resolve_bgm_overlay_volume(audio_policy)
+                mixed_with_bgm_path = str(tmp_path / "final_output_with_bgm.mp4")
+                try:
+                    _mix_video_audio_with_bgm(
+                        input_video_path=final_path,
+                        bgm_audio_path=bgm_overlay_source,
+                        output_video_path=mixed_with_bgm_path,
+                        bgm_volume=bgm_overlay_volume,
+                    )
+                    if (
+                        os.path.exists(mixed_with_bgm_path)
+                        and os.path.getsize(mixed_with_bgm_path) >= 10_000
+                    ):
+                        final_path = mixed_with_bgm_path
+                        using_bgm_overlay_after_combine = True
+                    else:
+                        logger.warning(
+                            "Post-combine BGM mix output is missing/too small; continuing with base final output."
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "Post-combine BGM mix failed; continuing with base final output: %s",
+                        exc,
+                    )
+            elif bgm_overlay_track:
+                logger.warning(
+                    "Configured post-combine BGM track file is missing: %s",
+                    bgm_overlay_source,
+                )
+
         subtitle_events = _build_subtitle_events(
             subtitle_segments=assembly_input.subtitle_segments,
             subtitle_script=assembly_input.subtitle_script,
@@ -956,16 +1224,21 @@ async def _build_split_screen_video_impl(config: Dict[str, Any]) -> Dict[str, An
         except Exception as exc:
             raise StorageUploadError(f"Failed to upload final video: {exc}") from exc
 
+        effective_bgm_track = bgm_track or bgm_overlay_track
         metadata = {
             **assembly_input.model_dump(),
             "assembly_mode": "split_screen",
             "workflow_id": _workflow_id,
             "used_talking_head": used_talking_head,
             "used_bgm_fallback": using_bgm_fallback,
-            "bgm_profile": (bgm_track or {}).get("profile") if bgm_track else None,
-            "subtitle_status": subtitle_status,
-            "subtitle_error": subtitle_error,
-            "subtitle_font": SUBTITLE_FONT_NAME,
+            "used_bgm_overlay_after_combine": using_bgm_overlay_after_combine,
+            "bgm_profile": (effective_bgm_track or {}).get("profile")
+            if effective_bgm_track
+            else None,
+            "used_movement_overlay": using_movement_overlay,
+            "movement_profile": (movement_track or {}).get("profile")
+            if movement_track
+            else None,
             "top_half_resolution": f"{HALF_FRAME_WIDTH}x{HALF_FRAME_HEIGHT}",
             "bottom_half_resolution": f"{HALF_FRAME_WIDTH}x{HALF_FRAME_HEIGHT}",
             "bottom_half_source_resolution": f"{BOTTOM_SOURCE_WIDTH}x{BOTTOM_SOURCE_HEIGHT}",

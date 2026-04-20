@@ -683,6 +683,9 @@ class VideoAudioPolicyContract(BaseModel):
     bgm_library_profile: str = "product_explainer"
     bgm_duck_under_voiceover: bool = True
     max_bgm_duration_seconds: int = 60
+    movement_overlay_enabled: bool = False
+    movement_library_profile: str = "natural"
+    movement_overlay_volume: float = 0.18
 
     @field_validator("max_bgm_duration_seconds")
     @classmethod
@@ -690,6 +693,14 @@ class VideoAudioPolicyContract(BaseModel):
         if value <= 0 or value > 60:
             raise ValueError("max_bgm_duration_seconds must be between 1 and 60")
         return value
+
+    @field_validator("movement_overlay_volume")
+    @classmethod
+    def validate_movement_overlay_volume(cls, value: float) -> float:
+        numeric = float(value)
+        if numeric < 0 or numeric > 1:
+            raise ValueError("movement_overlay_volume must be between 0 and 1")
+        return round(numeric, 3)
 
 
 class VideoReviewPlanContract(BaseModel):

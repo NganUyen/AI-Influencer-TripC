@@ -1,0 +1,98 @@
+[
+  {
+    "id": "movement_natural",
+    "group": "movement",
+    "profile": "natural",
+    "mood": "natural",
+    "duration_seconds": 26,
+    "filename": "movement_natural.mp3",
+    "relative_path": "movement/movement_natural.mp3",
+    "preview_path": "/create-video-demos/movement/movement_natural.mp3",
+    "start_offset_seconds": 0.4,
+    "clip_duration_seconds": 10.0
+  },
+  {
+    "id": "movement_expressive",
+    "group": "movement",
+    "profile": "expressive",
+    "mood": "expressive",
+    "duration_seconds": 55,
+    "filename": "movement_expressive.mp3",
+    "relative_path": "movement/movement_expressive.mp3",
+    "preview_path": "/create-video-demos/movement/movement_expressive.mp3",
+    "start_offset_seconds": 14.0,
+    "clip_duration_seconds": 10.0
+  },
+  {
+    "id": "movement_minimal",
+    "group": "movement",
+    "profile": "minimal",
+    "mood": "minimal",
+    "duration_seconds": 55,
+    "filename": "movement_minimal.mp3",
+    "relative_path": "movement/movement_minimal.mp3",
+    "preview_path": "/create-video-demos/movement/movement_minimal.mp3",
+    "start_offset_seconds": 22.0,
+    "clip_duration_seconds": 10.0
+  },
+  {
+    "id": "movement_energetic",
+    "group": "movement",
+    "profile": "energetic",
+    "mood": "energetic",
+    "duration_seconds": 55,
+    "filename": "movement_energetic.mp3",
+    "relative_path": "movement/movement_energetic.mp3",
+    "preview_path": "/create-video-demos/movement/movement_energetic.mp3",
+    "start_offset_seconds": 10.0,
+    "clip_duration_seconds": 10.0
+  },
+  {
+    "id": "movement_professional",
+    "group": "movement",
+    "profile": "professional",
+    "mood": "professional",
+    "duration_seconds": 55,
+    "filename": "movement_professional.mp3",
+    "relative_path": "movement/movement_professional.mp3",
+    "preview_path": "/create-video-demos/movement/movement_professional.mp3",
+    "start_offset_seconds": 34.0,
+    "clip_duration_seconds": 10.0
+  },
+  {
+    "id": "movement_casual",
+    "group": "movement",
+    "profile": "casual",
+    "mood": "casual",
+    "duration_seconds": 26,
+    "filename": "movement_casual.mp3",
+    "relative_path": "movement/movement_casual.mp3",
+    "preview_path": "/create-video-demos/movement/movement_casual.mp3",
+    "start_offset_seconds": 0.2,
+    "clip_duration_seconds": 10.0
+  },
+  {
+    "id": "movement_storytelling",
+    "group": "movement",
+    "profile": "storytelling",
+    "mood": "storytelling",
+    "duration_seconds": 55,
+    "filename": "movement_storytelling.mp3",
+    "relative_path": "movement/movement_storytelling.mp3",
+    "preview_path": "/create-video-demos/movement/movement_storytelling.mp3",
+    "start_offset_seconds": 16.0,
+    "clip_duration_seconds": 10.0
+  },
+  {
+    "id": "movement_calm",
+    "group": "movement",
+    "profile": "calm",
+    "mood": "calm",
+    "duration_seconds": 24,
+    "filename": "movement_calm.mp3",
+    "relative_path": "movement/movement_calm.mp3",
+    "preview_path": "/create-video-demos/movement/movement_calm.mp3",
+    "start_offset_seconds": 0.6,
+    "clip_duration_seconds": 10.0
+  }
+]

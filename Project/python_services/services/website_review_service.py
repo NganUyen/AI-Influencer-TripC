@@ -169,20 +169,43 @@ class WebsiteReviewService:
         findings: list[WebPageReviewFindingContract] = []
         if not isinstance(items, list):
             return findings
+
+        def first_text(payload: Dict[str, Any], *keys: str) -> str:
+            for key in keys:
+                value = payload.get(key)
+                if isinstance(value, str):
+                    text = value.strip()
+                    if text:
+                        return text
+            return ""
+
         for item in items[:6]:
-            if not isinstance(item, dict):
+            if isinstance(item, str):
+                label = item.strip()
+                summary = label
+                evidence: list[str] = []
+                source_url = normalized_url
+            elif isinstance(item, dict):
+                label = first_text(item, "label", "name", "title")
+                summary = first_text(item, "summary", "description", "details", "text")
+                raw_evidence = item.get("evidence") if isinstance(item.get("evidence"), list) else []
+                evidence = [
+                    str(entry).strip()[:240]
+                    for entry in raw_evidence
+                    if str(entry).strip()
+                ][:3]
+                source_url = first_text(item, "source_url", "sourceUrl", "url") or normalized_url
+            else:
                 continue
-            label = str(item.get("label") or "").strip()
-            summary = str(item.get("summary") or "").strip()
+
             if not label or not summary:
                 continue
-            evidence = item.get("evidence") if isinstance(item.get("evidence"), list) else []
             findings.append(
                 WebPageReviewFindingContract(
                     label=label[:120],
                     summary=summary[:400],
-                    evidence=[str(entry).strip()[:240] for entry in evidence if str(entry).strip()][:3],
-                    source_url=str(item.get("source_url") or normalized_url).strip() or normalized_url,
+                    evidence=evidence,
+                    source_url=source_url,
                 )
             )
         return findings

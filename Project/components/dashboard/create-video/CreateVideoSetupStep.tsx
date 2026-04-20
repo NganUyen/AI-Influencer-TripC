@@ -12,6 +12,7 @@ import type { Persona } from '@/components/customer-dashboard';
 import { CreateVideoModeCards } from './CreateVideoModeCards';
 import { CreateVideoSummaryPanel } from './CreateVideoSummaryPanel';
 import { customerApiRequest } from '@/lib/customer-api';
+import { resolveCountryCode } from '@/lib/country-mapping';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -109,33 +110,7 @@ export function CreateVideoSetupStep({
   );
 
   const getPersonaCountryCode = useCallback((persona: Persona): string | null => {
-    const normalized = String(persona.region_label || persona.market_default || '')
-      .trim()
-      .toLowerCase();
-
-    if (!normalized) {
-      return null;
-    }
-
-    const countryMap: Record<string, string> = {
-      'united states': 'US',
-      'united states of america': 'US',
-      usa: 'US',
-      us: 'US',
-      american: 'US',
-      vietnam: 'VN',
-      vietnamese: 'VN',
-      'viet nam': 'VN',
-      vn: 'VN',
-      china: 'CN',
-      chinese: 'CN',
-      cn: 'CN',
-      india: 'IN',
-      indian: 'IN',
-      in: 'IN',
-    };
-
-    return countryMap[normalized] || null;
+    return resolveCountryCode(persona.region_label || persona.market_default);
   }, []);
 
   // -------------------------------------------------------------------------
@@ -201,7 +176,7 @@ export function CreateVideoSetupStep({
           normalizedUrl: validatedUrl,
           pageTitle: result.page_title,
           suggestedObjective: result.suggested_objective,
-          visibleFeatureCount: result.visible_features?.length ?? 0,
+          visibleFeatureCount: normalizedFeatures.length,
           visibleFeatures: normalizedFeatures,
           pageReviewData: result.page_review_data || {
             target_url: url,
@@ -236,12 +211,28 @@ export function CreateVideoSetupStep({
     if (!item || typeof item !== 'object') return null;
 
     const raw = item as Record<string, unknown>;
-    const label = typeof raw.label === 'string' ? raw.label.trim() : '';
-    const summary = typeof raw.summary === 'string' ? raw.summary.trim() : '';
+    const label = typeof raw.label === 'string'
+      ? raw.label.trim()
+      : typeof raw.name === 'string'
+        ? raw.name.trim()
+        : typeof raw.title === 'string'
+          ? raw.title.trim()
+          : '';
+    const summary = typeof raw.summary === 'string'
+      ? raw.summary.trim()
+      : typeof raw.description === 'string'
+        ? raw.description.trim()
+        : typeof raw.details === 'string'
+          ? raw.details.trim()
+          : typeof raw.text === 'string'
+            ? raw.text.trim()
+            : '';
     const sourceUrl = typeof raw.source_url === 'string'
       ? raw.source_url.trim()
       : typeof raw.sourceUrl === 'string'
         ? raw.sourceUrl.trim()
+        : typeof raw.url === 'string'
+          ? raw.url.trim()
         : '';
 
     if (!label && !summary) return null;

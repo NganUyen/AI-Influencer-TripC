@@ -66,6 +66,64 @@ async def test_website_review_service_returns_structured_review(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_website_review_service_accepts_feature_alias_fields(monkeypatch):
+    async def fake_fetch_source(normalized_url: str):
+        return ("Feature one. Feature two. Feature three.", "manual_summary")
+
+    async def fake_execute_task(self, task_type, prompt, user_id, context=None):
+        return {
+            "page_title": "ExampleApp",
+            "product_summary": "ExampleApp is a launch planning platform.",
+            "access_level": "public_page_only",
+            "login_required": False,
+            "visible_features": [
+                {
+                    "name": "Dashboard",
+                    "description": "Shows campaign and launch metrics.",
+                    "sourceUrl": "https://example.com",
+                },
+                {
+                    "title": "Reports",
+                    "details": "Exports campaign reports for sharing.",
+                    "url": "https://example.com/reports",
+                },
+            ],
+            "visible_flows": [],
+            "recording_candidates": [],
+            "risks": [],
+            "assumptions": [],
+        }
+
+    monkeypatch.setattr(
+        WebsiteReviewService,
+        "_fetch_source",
+        classmethod(lambda cls, normalized_url: fake_fetch_source(normalized_url)),
+    )
+    monkeypatch.setattr(
+        "services.website_review_service.OpenClawService.execute_task",
+        fake_execute_task,
+    )
+    monkeypatch.setattr(
+        "services.website_review_service.OpenClawService.close",
+        AsyncMock(return_value=None),
+    )
+
+    review = await WebsiteReviewService.review_url(
+        "example.com",
+        objective="Create a product review video",
+        user_id="telegram:123",
+    )
+
+    assert len(review.visible_features) == 2
+    assert review.visible_features[0].label == "Dashboard"
+    assert review.visible_features[0].summary == "Shows campaign and launch metrics."
+    assert review.visible_features[0].source_url == "https://example.com"
+    assert review.visible_features[1].label == "Reports"
+    assert review.visible_features[1].summary == "Exports campaign reports for sharing."
+    assert review.visible_features[1].source_url == "https://example.com/reports"
+
+
+@pytest.mark.asyncio
 async def test_website_review_service_falls_back_when_ai_analysis_fails(monkeypatch):
     async def fake_fetch_source(normalized_url: str):
         return (

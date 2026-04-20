@@ -435,6 +435,9 @@ async def send_telegram_error_notification(config: Dict[str, Any]) -> Dict[str, 
     topic = config.get("topic", "N/A")
     error_type = config.get("error_type", "UnknownError")
     error_summary = config.get("error_summary", "An unexpected error occurred")
+    failure_step = str(config.get("failure_step") or "").strip()
+    failure_substage = str(config.get("failure_substage") or "").strip()
+    activity_type = str(config.get("activity_type") or "").strip()
 
     if not chat_id:
         logger.warning("No telegram_chat_id provided — skipping error notification")
@@ -447,11 +450,29 @@ async def send_telegram_error_notification(config: Dict[str, Any]) -> Dict[str, 
     safe_error_type = escape_markdown(error_type)
     safe_error_summary = escape_markdown(error_summary)
 
+    context_lines = []
+    if failure_step:
+        context_lines.append(
+            f"• *Failed Step*: {escape_markdown(failure_step)}"
+        )
+    if failure_substage:
+        context_lines.append(
+            f"• *Substage*: {escape_markdown(failure_substage)}"
+        )
+    if activity_type:
+        context_lines.append(
+            f"• *Activity*: {escape_markdown(activity_type)}"
+        )
+
+    context_block = ""
+    if context_lines:
+        context_block = "\n" + "\n".join(context_lines)
+
     error_msg = (
         f"⚠️ *Video Generation Failed*\n\n"
         f"• *Topic*: {safe_topic}\n"
         f"• *Workflow ID*: `{safe_workflow_id}`\n"
-        f"• *Error*: {safe_error_type}\n\n"
+        f"• *Error*: {safe_error_type}{context_block}\n\n"
         f"📝 *Details*: {safe_error_summary}\n\n"
         "Our team has been notified. Please try again or contact support."
     )

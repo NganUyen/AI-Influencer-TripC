@@ -121,6 +121,24 @@ def _sanitize_workflow_error_for_user(error_text: str, error_type: str) -> str:
     text_lower = error_text.lower()
     error_type_lower = error_type.lower()
 
+    if "talking-head generation failed" in text_lower or "heygen" in text_lower:
+        return (
+            "Talking-head generation failed. Please verify avatar/provider availability "
+            "and retry."
+        )
+    if "playwright top-half recording failed" in text_lower:
+        return (
+            "Top-half browser recording failed. Please verify website accessibility "
+            "and try again."
+        )
+    if "top-half assets must be playwright" in text_lower:
+        return (
+            "Top-half assets were not valid video recordings. Please retry render "
+            "after re-validating the plan."
+        )
+    if "asset generation failed for" in text_lower and "scene" in text_lower:
+        return "Top-half asset generation failed for one or more scenes. Please retry."
+
     if "assemblymissingasseterror" in error_type_lower:
         return "A required media file was unavailable during video assembly."
     if "assemblyerror" in error_type_lower:
@@ -203,9 +221,27 @@ def _summarize_workflow_exception(exc: Exception) -> Dict[str, Any]:
         error_type = _application_error_type(exc, raw_text)
         retryable = not bool(getattr(exc, "non_retryable", False))
 
+    error_summary = _sanitize_workflow_error_for_user(raw_text, error_type)
+    if error_summary == "An unexpected error occurred. Please try again." and activity_type:
+        activity_fallbacks = {
+            "create_talking_head_video": (
+                "Talking-head generation failed while processing avatar video. "
+                "Please retry."
+            ),
+            "generate_scene_images": (
+                "Top-half scene generation failed while preparing recorded visuals. "
+                "Please retry."
+            ),
+            "build_split_screen_video": (
+                "Video assembly failed while combining top-half and bottom-half. "
+                "Please retry."
+            ),
+        }
+        error_summary = activity_fallbacks.get(activity_type, error_summary)
+
     return {
         "error_type": error_type,
-        "error_summary": _sanitize_workflow_error_for_user(raw_text, error_type),
+        "error_summary": error_summary,
         "raw_error_message": _trim_debug_text(raw_text, limit=4000),
         "failure_substage": _infer_failure_substage(raw_text),
         "activity_type": activity_type,
@@ -363,6 +399,9 @@ class ShortVideoWorkflow:
                                 "topic": fallback_topic,
                                 "error_type": error_details["error_type"],
                                 "error_summary": error_details["error_summary"],
+                                "failure_step": failed_step,
+                                "failure_substage": error_details.get("failure_substage"),
+                                "activity_type": error_details.get("activity_type"),
                             }
                         ],
                         start_to_close_timeout=timedelta(seconds=30),

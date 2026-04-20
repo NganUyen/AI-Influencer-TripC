@@ -648,6 +648,8 @@ class TestTelegramErrorNotification:
             "topic": "Beach vacation guide",
             "error_type": "SceneAssetMismatchError",
             "error_summary": "Asset generation failed for 2 scene(s)",
+            "failure_step": "generating_top_half",
+            "activity_type": "generate_scene_images",
         }
 
         result = await send_telegram_error_notification(config)
@@ -659,6 +661,8 @@ class TestTelegramErrorNotification:
         assert call_kwargs["chat_id"] == "123456789"
         assert "Failed" in call_kwargs["text"]
         assert "Beach vacation guide" in call_kwargs["text"]
+        assert "Failed Step" in call_kwargs["text"]
+        assert "generate\\_scene\\_images" in call_kwargs["text"]
         assert result["status"] == "sent"
 
     @pytest.mark.asyncio

@@ -31,6 +31,8 @@ export function CreateVideoRenderStep({ progressItems, onContinue, onBack }: Cre
   const allDone = progressItems.every((item) =>
     item.status === 'completed' || item.status === 'failed' || item.status === 'upload_required',
   );
+  const hasPublishableOutput = progressItems.some((item) => item.readyToPublish);
+  const failedCount = progressItems.filter((item) => item.status === 'failed').length;
   const completedCount = progressItems.filter((item) => item.status === 'completed').length;
   const processingCount = progressItems.filter((item) => item.status === 'in_progress' || item.status === 'queued').length;
   const uploadRequiredCount = progressItems.filter((item) => item.status === 'upload_required').length;
@@ -76,7 +78,14 @@ export function CreateVideoRenderStep({ progressItems, onContinue, onBack }: Cre
         ))}
       </div>
 
-      {allDone && (
+      {allDone && !hasPublishableOutput && (
+        <div className="cv-failed-render-banner" role="alert">
+          <strong>Render failed.</strong>
+          No publishable output is available yet. Please retry failed personas before continuing to publish.
+        </div>
+      )}
+
+      {allDone && hasPublishableOutput && (
         <div className="cv-continue-bar">
           <button type="button" onClick={onContinue} className="btn-primary">
             Continue to publish

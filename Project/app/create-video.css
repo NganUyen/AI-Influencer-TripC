@@ -2529,6 +2529,21 @@
   margin-right: 4px;
 }
 
+.cv-failed-render-banner {
+  padding: 12px 14px;
+  border-radius: var(--radius-card);
+  background: rgb(180 19 64 / 0.06);
+  border: 1px solid rgb(180 19 64 / 0.22);
+  font-size: 12px;
+  color: #7e1030;
+  line-height: 1.5;
+}
+
+.cv-failed-render-banner strong {
+  color: #b41340;
+  margin-right: 4px;
+}
+
 @media (max-width: 1024px) {
   .cv-render-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -39,3 +39,16 @@ def test_build_failure_output_data_preserves_stage_and_debug_fields():
     assert payload["activity_type"] == "build_split_screen_video"
     assert payload["activity_cause_type"] == "AssemblyError"
     assert payload["error_retryable"] is False
+
+
+def test_summarize_workflow_exception_maps_talking_head_failures_to_user_message():
+    exc = ApplicationError(
+        "Talking-head generation failed while polling HeyGen status.",
+        type="ApplicationError",
+        non_retryable=False,
+    )
+
+    details = _summarize_workflow_exception(exc)
+
+    assert details["error_type"] == "ApplicationError"
+    assert "talking-head generation failed" in details["error_summary"].lower()

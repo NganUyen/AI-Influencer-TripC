@@ -2174,9 +2174,9 @@
    -------------------------------------------------------------------------- */
 
 .cv-render-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
 }
 
 .cv-progress-card {
@@ -2184,19 +2184,54 @@
   border: 1px solid rgb(174 173 169 / 0.18);
   background: var(--surface-card);
   overflow: hidden;
-  box-shadow: 0 8px 24px rgba(46, 47, 44, 0.06);
+  box-shadow: 0 6px 20px rgba(46, 47, 44, 0.05);
 }
 
 .cv-progress-body {
-  padding: 20px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
+}
+
+.cv-render-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cv-render-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cv-render-summary-card {
+  border: 1px solid rgb(174 173 169 / 0.16);
+  border-radius: 12px;
+  background: var(--surface-card-muted);
+  padding: 10px 12px;
+}
+
+.cv-render-summary-label {
+  margin: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #777773;
+  font-weight: 700;
+}
+
+.cv-render-summary-value {
+  margin: 6px 0 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #2e2f2c;
 }
 
 /* Progress bar */
 .cv-render-progress-track {
-  height: 4px;
+  height: 8px;
   border-radius: 9999px;
   background: var(--surface-card-muted);
   overflow: hidden;
@@ -2206,25 +2241,72 @@
 .cv-render-progress-fill {
   height: 100%;
   border-radius: 9999px;
-  background: #a03929;
+  background: linear-gradient(90deg, #a03929, #f6806d);
   transition: width 0.6s ease;
 }
 
 .cv-render-progress-fill--done {
-  background: #00684f;
+  background: linear-gradient(90deg, #00684f, #14a075);
+}
+
+.cv-render-progress-fill--active {
+  background: linear-gradient(90deg, #a03929, #f6806d);
+}
+
+.cv-render-progress-fill--failed {
+  background: linear-gradient(90deg, #b41340, #dc3e68);
+}
+
+.cv-render-progress-fill--upload {
+  background: linear-gradient(90deg, #705900, #a98a1a);
+}
+
+.cv-render-progress-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cv-render-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cv-render-progress-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #777773;
+}
+
+.cv-render-progress-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #2e2f2c;
+}
+
+.cv-render-progress-scale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #aeada9;
 }
 
 /* Timeline */
 .cv-timeline {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .cv-timeline-row {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 10px;
 }
 
 .cv-timeline-dot {
@@ -2258,7 +2340,7 @@
 }
 
 .cv-timeline-label {
-  font-size: 13px;
+  font-size: 12px;
   color: #aeada9;
 }
 
@@ -2272,7 +2354,7 @@
 }
 
 .cv-timeline-time {
-  font-size: 11px;
+  font-size: 10px;
   color: #aeada9;
   flex-shrink: 0;
 }
@@ -2280,7 +2362,7 @@
 /* Output preview */
 .cv-output-preview-img {
   width: 100%;
-  max-height: 200px;
+  max-height: 168px;
   object-fit: cover;
   border-radius: var(--radius-card);
 }
@@ -2297,11 +2379,11 @@
 
 /* Final state ready banner */
 .cv-ready-banner {
-  padding: 12px 16px;
+  padding: 10px 12px;
   border-radius: var(--radius-card);
   background: rgb(160 57 41 / 0.05);
   border: 1px solid rgb(160 57 41 / 0.14);
-  font-size: 13px;
+  font-size: 12px;
   color: #5c5c58;
   line-height: 1.5;
 }
@@ -2309,6 +2391,31 @@
 .cv-ready-banner strong {
   color: #a03929;
   margin-right: 4px;
+}
+
+@media (max-width: 1024px) {
+  .cv-render-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .cv-render-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cv-card-header {
+    padding: 12px 14px;
+  }
+
+  .cv-progress-body {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .cv-output-preview-img {
+    max-height: 148px;
+  }
 }
 
 /* --------------------------------------------------------------------------

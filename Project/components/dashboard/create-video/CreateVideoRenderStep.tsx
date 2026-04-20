@@ -31,9 +31,16 @@ export function CreateVideoRenderStep({ progressItems, onContinue, onBack }: Cre
   const allDone = progressItems.every((item) =>
     item.status === 'completed' || item.status === 'failed' || item.status === 'upload_required',
   );
+  const completedCount = progressItems.filter((item) => item.status === 'completed').length;
+  const processingCount = progressItems.filter((item) => item.status === 'in_progress' || item.status === 'queued').length;
+  const uploadRequiredCount = progressItems.filter((item) => item.status === 'upload_required').length;
+  const avgProgress = Math.round(
+    progressItems.reduce((sum, item) => sum + (item.progressPercent || 0), 0) /
+      Math.max(progressItems.length, 1),
+  );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div className="cv-render-shell">
       <div className="cv-step-header">
         <button type="button" onClick={onBack} className="cv-back-btn">← Back</button>
         <div>
@@ -41,6 +48,25 @@ export function CreateVideoRenderStep({ progressItems, onContinue, onBack }: Cre
           <p className="cv-step-sub">
             Live backend status from review-engine jobs. Refresh is automatic while work is running.
           </p>
+        </div>
+      </div>
+
+      <div className="cv-render-summary-grid">
+        <div className="cv-render-summary-card">
+          <p className="cv-render-summary-label">Average Progress</p>
+          <p className="cv-render-summary-value">{avgProgress}%</p>
+        </div>
+        <div className="cv-render-summary-card">
+          <p className="cv-render-summary-label">Completed</p>
+          <p className="cv-render-summary-value">{completedCount}</p>
+        </div>
+        <div className="cv-render-summary-card">
+          <p className="cv-render-summary-label">In Queue/Processing</p>
+          <p className="cv-render-summary-value">{processingCount}</p>
+        </div>
+        <div className="cv-render-summary-card">
+          <p className="cv-render-summary-label">Need Upload</p>
+          <p className="cv-render-summary-value">{uploadRequiredCount}</p>
         </div>
       </div>
 
@@ -63,6 +89,14 @@ export function CreateVideoRenderStep({ progressItems, onContinue, onBack }: Cre
 
 function RenderProgressCard({ item }: { item: CreateVideoProgressViewModel }) {
   const isDone = item.status === 'completed';
+  const normalizedProgress = Math.max(0, Math.min(100, item.progressPercent || 0));
+  const progressToneClass = isDone
+    ? 'cv-render-progress-fill--done'
+    : item.status === 'failed'
+      ? 'cv-render-progress-fill--failed'
+      : item.status === 'upload_required'
+        ? 'cv-render-progress-fill--upload'
+        : 'cv-render-progress-fill--active';
 
   return (
     <div className="cv-progress-card">
@@ -111,11 +145,22 @@ function RenderProgressCard({ item }: { item: CreateVideoProgressViewModel }) {
         </div>
 
         {item.progressPercent !== undefined && (
-          <div className="cv-render-progress-track">
-            <div
-              className={`cv-render-progress-fill${isDone ? ' cv-render-progress-fill--done' : ''}`}
-              style={{ width: `${item.progressPercent}%` }}
-            />
+          <div className="cv-render-progress-panel" role="status" aria-live="polite">
+            <div className="cv-render-progress-meta">
+              <span className="cv-render-progress-title">Render progress</span>
+              <span className="cv-render-progress-value">{normalizedProgress}%</span>
+            </div>
+            <div className="cv-render-progress-track" aria-label={`Progress ${normalizedProgress}%`}>
+              <div
+                className={`cv-render-progress-fill ${progressToneClass}`}
+                style={{ width: `${normalizedProgress}%` }}
+              />
+            </div>
+            <div className="cv-render-progress-scale" aria-hidden="true">
+              <span>0%</span>
+              <span>50%</span>
+              <span>100%</span>
+            </div>
           </div>
         )}
 

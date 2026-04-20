@@ -103,6 +103,9 @@ class PersonaCreatorSkill(BaseSkill):
 
     @classmethod
     def _owner_params(cls, session: SkillSession) -> Optional[Dict[str, str]]:
+        user_id = session.artifacts.get("user_id")
+        if user_id:
+            return {"user_id": user_id}
         telegram_chat_id = session.artifacts.get("telegram_chat_id")
         if not telegram_chat_id:
             return None
@@ -440,15 +443,18 @@ Response format:
         if persona.get("avatar_image_url") and not force:
             return persona
 
+        logger.info(f"_ensure_avatar_image: generating avatar for persona_id={persona.get('persona_id')} force={force}")
+
         appearance = str(
             current.collected.get("appearance_prompt_or_photo") or ""
         ).strip()
         if not appearance:
             return persona
 
+        user_id = current.artifacts.get("user_id")
         telegram_chat_id = current.artifacts.get("telegram_chat_id")
         owner_key = f"telegram:{telegram_chat_id}" if telegram_chat_id else None
-        resolved_user_id = str(persona.get("user_id") or "").strip() or None
+        resolved_user_id = user_id or str(persona.get("user_id") or "").strip() or None
         base_metadata = {
             "source": "telegram_skill",
             "skill_name": cls.name,
@@ -708,23 +714,25 @@ Response format:
                         logger.error(f"Early avatar generation failed: {e}")
                     
                     summary = (
-                        f"✨ *AI Suggested Identity:*\n"
+                        f"✨ AI Suggested Identity:\n"
                         f"Nationality: {nationality}\n"
-                        f"Suggested Name: *{dream['display_name']}*\n"
-                        f"ID: `{dream['persona_id']}`\n\n"
-                        f"*Appearance:* {dream['appearance'][:200]}..."
+                        f"Suggested Name: {dream['display_name']}\n"
+                        f"ID: {dream['persona_id']}\n\n"
+                        f"Appearance: {dream['appearance'][:200]}..."
                     )
-                    if not dream.get("success"):
-                        summary += f"\n\n⚠️ *AI Dream Warning:* {dream.get('error')}"
-                        if dream.get("debug_info"):
-                            summary += f"\n`{dream['debug_info']}`"
+                    # Remove Telegram-style backslash escapes for web display
+                    summary = summary.replace("\\!", "!").replace("\\.", ".")
 
                     current.artifacts["dream_summary"] = summary
                     current.step_key = "confirm_dream"
+                    preview_url = current.artifacts.get("preview_image_url") or current.artifacts.get("avatar_image_url")
                     return cls._collecting_result(
                         current, 
                         next_step="confirm_dream",
-                        output={"message": summary}
+                        output={
+                            "message": summary,
+                            "preview_image_url": preview_url
+                        }
                     )
 
                 if current.collected.get("dream_confirmed") == "confirm":

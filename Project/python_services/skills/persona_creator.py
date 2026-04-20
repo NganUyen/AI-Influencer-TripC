@@ -250,25 +250,37 @@ Response format:
                 context={"nationality": nationality, "brief": brief},
             )
             
-            # Result may already be parsed JSON or contain a 'result' key
-            data = result if isinstance(result.get("persona_id"), str) else result.get("result", result)
+            # Result may already be parsed JSON or contain a 'result' key, or be raw with output_text
+            data = result
+            if isinstance(result.get("persona_id"), str):
+                data = result
+            elif isinstance(result.get("result"), dict):
+                data = result["result"]
+            elif isinstance(result.get("output_text"), str):
+                from utils.json_helpers import extract_json_from_llm_response
+                data = extract_json_from_llm_response(result["output_text"])
             
-            # If data is still a string, try to parse it
-            if isinstance(data, str):
-                json_match = re.search(r"\{.*\}", data, re.DOTALL)
-                if json_match:
-                    data = json.loads(json_match.group(0))
+            # If data is still a string or missing keys, try one last re-search in any string content
+            if not isinstance(data, dict) or "persona_id" not in data:
+                text_to_search = str(data.get("text") if isinstance(data, dict) else data)
+                if "{" in text_to_search:
+                    from utils.json_helpers import extract_json_from_llm_response
+                    data = extract_json_from_llm_response(text_to_search)
             
             # Validate required keys
-            if not isinstance(data, dict) or not all(k in data for k in ["persona_id", "display_name", "appearance"]):
-                logger.error(f"OpenClaw response missing required keys: {result}")
-                raise ValueError("AI response missing required JSON keys")
+            if not isinstance(data, dict):
+                raise ValueError(f"AI response was not a valid dictionary: {type(data).__name__}")
+                
+            missing = [k for k in ["persona_id", "display_name", "appearance"] if k not in data]
+            if missing:
+                logger.error(f"OpenClaw response missing required keys {missing}: {result}")
+                raise ValueError(f"AI response missing required JSON keys: {', '.join(missing)}")
             
             logger.info("Dream: OpenClaw generation successful")
             return {
-                "persona_id": data["persona_id"],
-                "display_name": data["display_name"],
-                "appearance": data["appearance"],
+                "persona_id": str(data["persona_id"]).strip(),
+                "display_name": str(data["display_name"]).strip(),
+                "appearance": str(data["appearance"]).strip(),
                 "success": True,
             }
             
@@ -675,11 +687,14 @@ Response format:
                             exc,
                             exc_info=True,
                         )
-                        if cls._is_ai_auth_error(exc) or cls._is_ai_service_unavailable_error(exc):
+                        if (
+                            cls._is_ai_auth_error(exc) 
+                            or cls._is_ai_service_unavailable_error(exc)
+                            or isinstance(exc, (ValueError, json.JSONDecodeError))
+                        ):
                             logger.warning(
-                                "Dream provider unavailable (auth=%s, service=%s), switching to deterministic fallback",
-                                cls._is_ai_auth_error(exc),
-                                cls._is_ai_service_unavailable_error(exc),
+                                "Dream fallback triggered due to error: %s",
+                                exc,
                             )
                             dream = cls._dream_persona_details_fallback(
                                 nationality,

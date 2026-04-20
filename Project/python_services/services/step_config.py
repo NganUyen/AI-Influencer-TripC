@@ -537,19 +537,28 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
             ),
         },
         "collect_nationality": {
-            "input_type": "free_text",
+            "input_type": "inline_keyboard",
             "field": "nationality",
-            "prompt_text": "🏳️ *Step 1: Nationality*\n\nWhich nationality should this persona represent?\nExamples: 'American', 'Italian', 'Japanese'\\.",
+            "prompt_text": "🏳️ *Step 1: Nationality*\n\nWhich nationality should this persona represent?\nExamples: 'American', 'Italian', 'Japanese'\\.\n\n*Editing Mode*: Type a new nationality or use the buttons below:",
+            "options": _options(
+                ("✨ Regenerate Name", "regenerate_name"),
+                ("✅ Apply & Preview", "apply_change"),
+            ),
         },
         "choose_voice": {
             "input_type": "inline_keyboard",
             "field": "voice",
-            "prompt_text": "🗣️ *Step 2: Voice*\n\nPlease select a voice preset for your persona:",
+            "prompt_text": (
+                "🗣️ *Step 2: Voice*\n\n"
+                "Please select a voice preset OR **describe the accent** you want below\\.\n\n"
+                "Example: 'Friendly British lady' or 'Deep American man'\\."
+            ),
             "options": _options(
                 ("Male Friendly", "male_friendly"),
                 ("Female Warm", "female_warm"),
                 ("Male Professional", "male_professional"),
                 ("Female Clear", "female_clear"),
+                ("✅ Apply & Preview", "apply_change"),
             ),
         },
         "collect_dream_brief": {
@@ -579,6 +588,7 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
             "options": _options(
                 ("Vietnamese", "Vietnamese"),
                 ("English", "English"),
+                ("✅ Apply & Preview", "apply_change"),
             ),
         },
         "choose_voice": {
@@ -611,14 +621,20 @@ STEP_CONFIG: Dict[str, Dict[str, Dict[str, Any]]] = {
             ),
         },
         "edit_p_name": {
-            "input_type": "free_text",
+            "input_type": "inline_keyboard",
             "field": "display_name",
             "prompt_text": "✏️ *Update Persona Name*\n\nPlease send the new name for this persona:",
+            "options": _options(
+                ("✅ Apply & Preview", "apply_change"),
+            ),
         },
         "edit_appearance": {
-            "input_type": "free_text",
+            "input_type": "inline_keyboard",
             "field": "appearance_prompt_or_photo",
             "prompt_text": "🎭 *Update Appearance*\n\nDescribe the new visual style or upload a reference photo:",
+            "options": _options(
+                ("✅ Apply & Preview", "apply_change"),
+            ),
         },
     },
     "weekly-planner": {

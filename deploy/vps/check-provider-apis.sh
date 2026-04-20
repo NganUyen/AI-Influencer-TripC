@@ -23,7 +23,7 @@ import urllib.error
 import urllib.request
 
 
-def check_provider(label: str, base_url_var: str, key_var: str, path: str) -> None:
+def check_provider(label: str, base_url_var: str, key_var: str, paths) -> None:
     base_url = (os.environ.get(base_url_var) or "").rstrip("/")
     if not base_url:
         raise SystemExit(f"{label}: {base_url_var} is not configured")
@@ -32,25 +32,38 @@ def check_provider(label: str, base_url_var: str, key_var: str, path: str) -> No
     if not api_key:
         raise SystemExit(f"{label}: {key_var} is not configured")
 
-    request = urllib.request.Request(
-        f"{base_url}{path}",
-        headers={
-            "Accept": "application/json",
-            "Authorization": api_key,
-        },
-    )
+    status = None
+    body = b""
+    content_type = ""
+    path_options = list(paths)
 
-    try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            status = response.getcode()
-            body = response.read()
-            content_type = response.headers.get("Content-Type", "")
-    except urllib.error.HTTPError as exc:
-        status = exc.code
-        body = exc.read()
-        content_type = exc.headers.get("Content-Type", "")
-    except Exception as exc:  # pragma: no cover - shell smoke path
-        raise SystemExit(f"{label}: API check failed: {exc}") from exc
+    for index, path in enumerate(path_options):
+        request = urllib.request.Request(
+            f"{base_url}{path}",
+            headers={
+                "Accept": "application/json",
+                "Authorization": api_key,
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                status = response.getcode()
+                body = response.read()
+                content_type = response.headers.get("Content-Type", "")
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            body = exc.read()
+            content_type = exc.headers.get("Content-Type", "")
+        except Exception as exc:  # pragma: no cover - shell smoke path
+            raise SystemExit(f"{label}: API check failed: {exc}") from exc
+
+        if status == 404 and index < len(path_options) - 1:
+            continue
+        break
+
+    if status is None:
+        raise SystemExit(f"{label}: API check did not run")
 
     if status not in (200, 401):
         raise SystemExit(f"{label}: API returned unhealthy status {status}")
@@ -73,6 +86,6 @@ def check_provider(label: str, base_url_var: str, key_var: str, path: str) -> No
     print(f"{label}: API reachable with status {status}{suffix}")
 
 
-check_provider("Postiz", "POSTIZ_API_URL", "POSTIZ_API_KEY", "/api/public/v1/integrations")
-check_provider("GrowChief", "GROWCHIEF_API_URL", "GROWCHIEF_API_KEY", "/api/public/workflows")
+check_provider("Postiz", "POSTIZ_API_URL", "POSTIZ_API_KEY", ["/api/public/v1/integrations"])
+check_provider("GrowChief", "GROWCHIEF_API_URL", "GROWCHIEF_API_KEY", ["/public/workflows", "/api/public/workflows"])
 PY

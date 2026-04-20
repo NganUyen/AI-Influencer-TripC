@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 import httpx
@@ -55,11 +55,14 @@ def _coalesce(*values: Any) -> Any:
     return None
 
 
-def _normalize_public_api_base_url(value: str) -> str:
+def _public_api_base_urls(value: str) -> List[str]:
     base_url = value.rstrip("/")
+    if not base_url:
+        return []
     if base_url.endswith("/public") or base_url.endswith("/api/public"):
-        return base_url
-    return f"{base_url}/api/public"
+        return [base_url]
+    # Support current prod `/public` and older `/api/public` layouts.
+    return [f"{base_url}/public", f"{base_url}/api/public"]
 
 
 def _parse_json_map(raw: str | None) -> Dict[str, str]:
@@ -93,7 +96,8 @@ class GrowChiefService:
     """
 
     def __init__(self):
-        self.base_url = _normalize_public_api_base_url(settings.GROWCHIEF_API_URL or "")
+        self.base_urls = _public_api_base_urls(settings.GROWCHIEF_API_URL or "")
+        self.base_url = self.base_urls[0] if self.base_urls else ""
         self.api_key = settings.GROWCHIEF_API_KEY
         if not self.base_url:
             raise ValueError("GROWCHIEF_API_URL is not configured")
@@ -102,7 +106,6 @@ class GrowChiefService:
 
         self.workflow_map = _parse_json_map(os.getenv("GROWCHIEF_WORKFLOW_MAP"))
         self.client = httpx.AsyncClient(
-            base_url=self.base_url,
             headers={"Authorization": self.api_key},
             timeout=120.0,
         )
@@ -179,20 +182,46 @@ class GrowChiefService:
         return GrowChiefRetryableError(f"GrowChief {operation} request failed.")
 
     async def _get_json(self, path: str, *, operation: str) -> Any:
-        try:
-            response = await self.client.get(path)
-        except httpx.HTTPError as exc:
-            raise self._classify_transport_error(exc, operation) from exc
-        return self._decode_json(response, operation)
+        last_transport_error: Optional[httpx.HTTPError] = None
+        for index, base_url in enumerate(self.base_urls):
+            try:
+                response = await self.client.get(f"{base_url}{path}")
+            except httpx.HTTPError as exc:
+                last_transport_error = exc
+                if index < len(self.base_urls) - 1:
+                    continue
+                raise self._classify_transport_error(exc, operation) from exc
+
+            status_code = int(getattr(response, "status_code", 0) or 0)
+            if status_code == 404 and index < len(self.base_urls) - 1:
+                continue
+            return self._decode_json(response, operation)
+
+        if last_transport_error is not None:
+            raise self._classify_transport_error(last_transport_error, operation) from last_transport_error
+        raise GrowChiefConfigurationError("GROWCHIEF_API_URL is not configured")
 
     async def _post_json(
         self, path: str, *, json_payload: Dict[str, Any], operation: str
     ) -> Any:
-        try:
-            response = await self.client.post(path, json=json_payload)
-        except httpx.HTTPError as exc:
-            raise self._classify_transport_error(exc, operation) from exc
-        return self._decode_json(response, operation)
+        last_transport_error: Optional[httpx.HTTPError] = None
+        for index, base_url in enumerate(self.base_urls):
+            try:
+                response = await self.client.post(f"{base_url}{path}", json=json_payload)
+            except httpx.HTTPError as exc:
+                last_transport_error = exc
+                if index < len(self.base_urls) - 1:
+                    continue
+                raise self._classify_transport_error(exc, operation) from exc
+
+            status_code = int(getattr(response, "status_code", 0) or 0)
+            if status_code == 404 and index < len(self.base_urls) - 1:
+                continue
+            return self._decode_json(response, operation)
+
+        if last_transport_error is not None:
+            raise self._classify_transport_error(last_transport_error, operation) from last_transport_error
+        raise GrowChiefConfigurationError("GROWCHIEF_API_URL is not configured")
 
     @staticmethod
     def normalize_webhook_event(payload: Dict[str, Any]) -> Dict[str, Any]:

@@ -133,6 +133,15 @@
   gap: 32px;
 }
 
+.cv-container--submitting > .cv-progress-tracker,
+.cv-container--submitting > .cv-step-content {
+  opacity: 0.52;
+  filter: saturate(0.7) blur(2px);
+  pointer-events: none;
+  user-select: none;
+  transition: opacity 0.35s ease, filter 0.35s ease;
+}
+
 .cv-step-content {
   animation: cv-fade-in 0.3s ease-out;
 }
@@ -592,11 +601,6 @@
 
 .cv-field-form--submitting {
   pointer-events: none;
-}
-
-.cv-field-form--submitting > *:not(.cv-plan-creating-overlay) {
-  opacity: 0.56;
-  filter: saturate(0.9);
 }
 
 .cv-field-label {
@@ -1908,13 +1912,6 @@
   animation-delay: 0.24s;
 }
 
-.cv-form-dimmed {
-  opacity: 0.4;
-  filter: saturate(0.7) blur(0.5px);
-  pointer-events: none;
-  transition: opacity 0.4s ease, filter 0.4s ease;
-}
-
 .cv-plan-creating-overlay {
   position: fixed;
   inset: 0;
@@ -1923,60 +1920,62 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgb(0 0 0 / 0.35);
-  backdrop-filter: blur(4px);
-  animation: cv-fade-in 0.25s ease-out;
+  background: rgb(17 16 14 / 0.28);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: cv-fade-in 0.2s ease-out;
 }
 
 .cv-plan-creating-badge {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   text-align: center;
-  padding: 24px 32px;
-  border-radius: 12px;
-  border: 1px solid rgb(160 57 41 / 0.22);
-  background: rgb(255 255 255 / 0.96);
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.18);
-  max-width: 420px;
-  animation: cv-badge-enter 0.4s cubic-bezier(0.16, 1, 0.3, 1), cv-pulse-ring 2.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  padding: 22px 24px;
+  border-radius: 14px;
+  border: 1px solid rgb(174 173 169 / 0.26);
+  background: rgb(255 255 255 / 0.97);
+  box-shadow: 0 14px 32px rgb(30 29 26 / 0.16);
+  max-width: 380px;
+  animation: cv-badge-enter 0.24s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .cv-plan-creating-title {
-  color: #7f3024;
-  font-size: 15px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-weight: 800;
+  color: #2e2f2c;
+  font-size: 16px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 700;
+  line-height: 1.3;
 }
 
 .cv-plan-creating-subtitle {
-  color: #5c5c58;
-  font-size: 14px;
+  color: #4b4b47;
+  font-size: 13px;
   line-height: 1.5;
 }
 
 .cv-plan-creating-stage {
-  color: #a03929;
-  font-size: 13px;
+  color: #6b6a66;
+  font-size: 12px;
   font-weight: 600;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .cv-plan-creating-dots {
   display: inline-flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .cv-plan-creating-dot {
-  width: 10px;
-  height: 10px;
+  width: 6px;
+  height: 6px;
   border-radius: 9999px;
-  background: #a03929;
-  animation: cv-bounce-dot-enhanced 1s ease-in-out infinite;
+  background: #8f8d88;
+  animation: cv-dot-pulse 1s ease-in-out infinite;
 }
 
 .cv-plan-creating-dot:nth-child(2) {
@@ -1988,19 +1987,20 @@
 }
 
 @keyframes cv-badge-enter {
-  0% { transform: scale(0.9) translateY(10px); opacity: 0; }
+  0% { transform: scale(0.97) translateY(4px); opacity: 0; }
   100% { transform: scale(1) translateY(0); opacity: 1; }
 }
 
-@keyframes cv-pulse-ring {
-  0% { box-shadow: 0 0 0 0 rgba(160, 57, 41, 0.3); }
-  70% { box-shadow: 0 0 0 15px rgba(160, 57, 41, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(160, 57, 41, 0); }
-}
-
-@keyframes cv-bounce-dot-enhanced {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-6px) scale(1.1); }
+@keyframes cv-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1);
+  }
 }
 
 @keyframes cv-fade-in {
@@ -2014,7 +2014,7 @@
   }
 
   .cv-plan-creating-badge {
-    padding: 20px;
+    padding: 18px;
     max-width: 90vw;
   }
 }
@@ -2398,8 +2398,8 @@
 
 .cv-render-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
 }
 
 .cv-progress-card {
@@ -2407,14 +2407,14 @@
   border: 1px solid rgb(174 173 169 / 0.18);
   background: var(--surface-card);
   overflow: hidden;
-  box-shadow: 0 6px 20px rgba(46, 47, 44, 0.05);
+  box-shadow: 0 4px 14px rgba(46, 47, 44, 0.05);
 }
 
 .cv-progress-body {
-  padding: 14px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
 .cv-render-shell {
@@ -2433,7 +2433,7 @@
   border: 1px solid rgb(174 173 169 / 0.16);
   border-radius: 12px;
   background: var(--surface-card-muted);
-  padding: 10px 12px;
+  padding: 9px 11px;
 }
 
 .cv-render-summary-label {
@@ -2446,19 +2446,19 @@
 }
 
 .cv-render-summary-value {
-  margin: 6px 0 0;
-  font-size: 18px;
+  margin: 4px 0 0;
+  font-size: 17px;
   font-weight: 800;
   color: #2e2f2c;
 }
 
 /* Progress bar */
 .cv-render-progress-track {
-  height: 8px;
+  height: 10px;
   border-radius: 9999px;
-  background: var(--surface-card-muted);
+  background: rgb(174 173 169 / 0.22);
   overflow: hidden;
-  border: 1px solid rgb(174 173 169 / 0.14);
+  border: 1px solid rgb(174 173 169 / 0.2);
 }
 
 .cv-render-progress-fill {
@@ -2488,6 +2488,10 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgb(174 173 169 / 0.16);
+  background: rgb(255 255 255 / 0.72);
 }
 
 .cv-render-progress-meta {
@@ -2506,9 +2510,16 @@
 }
 
 .cv-render-progress-value {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 800;
   color: #2e2f2c;
+}
+
+.cv-render-progress-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #6b6a66;
 }
 
 .cv-render-progress-scale {
@@ -2523,13 +2534,13 @@
 .cv-timeline {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .cv-timeline-row {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
 }
 
 .cv-timeline-dot {
@@ -2563,7 +2574,7 @@
 }
 
 .cv-timeline-label {
-  font-size: 12px;
+  font-size: 11px;
   color: #aeada9;
 }
 
@@ -2591,13 +2602,26 @@
 }
 
 .cv-output-placeholder {
-  padding: 20px;
+  padding: 12px;
   border-radius: var(--radius-card);
   border: 1px dashed rgb(174 173 169 / 0.3);
-  text-align: center;
-  font-size: 13px;
-  color: #aeada9;
+  text-align: left;
   background: var(--surface-card-muted);
+}
+
+.cv-output-placeholder-title {
+  margin: 0;
+  color: #4b4b47;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.cv-output-placeholder-subtitle {
+  margin: 4px 0 0;
+  color: #777773;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 /* Final state ready banner */

@@ -286,6 +286,36 @@ def _probe_media_duration(path: str) -> Optional[float]:
     return duration if duration > 0 else None
 
 
+def _validate_video_stream(path: str, label: str) -> bool:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.warning(
+            "ffprobe video validation failed for %s (%s): %s",
+            label,
+            path,
+            (result.stderr or "").strip()[-300:],
+        )
+        return False
+
+    codec_name = str(result.stdout or "").strip().lower()
+    return bool(codec_name)
+
+
 def _audio_has_audible_signal(path: str) -> bool:
     result = subprocess.run(
         [
@@ -869,6 +899,12 @@ async def _build_split_screen_video_impl(config: Dict[str, Any]) -> Dict[str, An
                     f"Required asset missing or too small (min 2000 bytes, got {os.path.getsize(path) if os.path.exists(path) else '0'}): {path}"
                 )
 
+        for idx, path in enumerate(image_paths):
+            if not _validate_video_stream(path, f"top_half_{idx}"):
+                raise AssemblyMissingAssetError(
+                    f"Top-half asset {idx + 1} has an invalid video stream: {path}"
+                )
+
         if audio_path and not using_bgm_fallback and not _audio_has_audible_signal(audio_path):
             audio_policy = assembly_input.audio_policy or {}
             if bool(audio_policy.get("bgm_fallback_enabled", True)):
@@ -1059,6 +1095,14 @@ async def _build_split_screen_video_impl(config: Dict[str, Any]) -> Dict[str, An
             and os.path.exists(talking_head_path)
             and os.path.getsize(talking_head_path) >= 100
         )
+        if used_talking_head and not _validate_video_stream(
+            talking_head_path, "talking_head"
+        ):
+            logger.warning(
+                "Talking head stream is invalid; falling back to neutral bottom-half | path=%s",
+                talking_head_path,
+            )
+            used_talking_head = False
         if used_talking_head:
             logger.info(
                 "Using split-screen assembly with talking head | scene_count=%s",

@@ -146,6 +146,7 @@ async def test_build_split_screen_video_uses_bgm_fallback_and_preserves_vertical
     monkeypatch.setattr(video_activities, "_run_ffmpeg", fake_run_ffmpeg)
     monkeypatch.setattr(video_activities, "_probe_media_duration", fake_probe_duration)
     monkeypatch.setattr(video_activities, "_audio_has_audible_signal", fake_audio_signal)
+    monkeypatch.setattr(video_activities, "_validate_video_stream", lambda path, label: True)
     monkeypatch.setattr(video_activities, "MediaStorageService", _FakeMediaStorage)
 
     result = await video_activities.build_split_screen_video(
@@ -220,6 +221,7 @@ async def test_build_split_screen_video_applies_post_combine_bgm_when_voiceover_
     monkeypatch.setattr(video_activities, "_run_ffmpeg", fake_run_ffmpeg)
     monkeypatch.setattr(video_activities, "_probe_media_duration", fake_probe_duration)
     monkeypatch.setattr(video_activities, "_audio_has_audible_signal", fake_audio_signal)
+    monkeypatch.setattr(video_activities, "_validate_video_stream", lambda path, label: True)
     monkeypatch.setattr(video_activities, "MediaStorageService", _FakeMediaStorage)
     monkeypatch.setattr(
         video_activities.BackgroundMusicService,
@@ -309,6 +311,7 @@ async def test_build_split_screen_video_applies_movement_overlay_when_enabled(
     monkeypatch.setattr(video_activities, "_run_ffmpeg", fake_run_ffmpeg)
     monkeypatch.setattr(video_activities, "_probe_media_duration", fake_probe_duration)
     monkeypatch.setattr(video_activities, "_audio_has_audible_signal", fake_audio_signal)
+    monkeypatch.setattr(video_activities, "_validate_video_stream", lambda path, label: True)
     monkeypatch.setattr(video_activities, "MediaStorageService", _FakeMediaStorage)
     monkeypatch.setattr(
         video_activities.BackgroundMusicService,
@@ -396,6 +399,7 @@ async def test_build_split_screen_video_can_apply_movement_and_post_combine_bgm_
     monkeypatch.setattr(video_activities, "_run_ffmpeg", fake_run_ffmpeg)
     monkeypatch.setattr(video_activities, "_probe_media_duration", fake_probe_duration)
     monkeypatch.setattr(video_activities, "_audio_has_audible_signal", fake_audio_signal)
+    monkeypatch.setattr(video_activities, "_validate_video_stream", lambda path, label: True)
     monkeypatch.setattr(video_activities, "MediaStorageService", _FakeMediaStorage)
     monkeypatch.setattr(
         video_activities.BackgroundMusicService,
@@ -432,3 +436,126 @@ async def test_build_split_screen_video_can_apply_movement_and_post_combine_bgm_
     assert "mix_bgm_after_combine" in ffmpeg_labels
     assert result["metadata"]["used_movement_overlay"] is True
     assert result["metadata"]["used_bgm_overlay_after_combine"] is True
+
+
+@pytest.mark.asyncio
+async def test_build_split_screen_video_fails_fast_when_top_half_video_stream_is_invalid(
+    monkeypatch,
+):
+    async def fake_download_required(url: str, dest: str, label: str) -> None:
+        Path(dest).write_bytes(b"0" * 5000)
+
+    async def fake_download_optional(url: str, dest: str, label: str):
+        return None
+
+    def fake_run_ffmpeg(cmd, label, cwd=None):
+        output_path = Path(cmd[-1])
+        output_path.write_bytes(b"1" * 20000)
+
+    def fake_probe_duration(path: str):
+        return 12.0
+
+    def fake_audio_signal(path: str):
+        return True
+
+    class _FakeMediaStorage:
+        async def upload_bytes(self, **kwargs):
+            return {
+                "access_url": "https://cdn.example/final.mp4",
+                "storage_path": "videos/persona/final.mp4",
+            }
+
+    monkeypatch.setattr(video_activities, "_download_required", fake_download_required)
+    monkeypatch.setattr(video_activities, "_download_optional", fake_download_optional)
+    monkeypatch.setattr(video_activities, "_run_ffmpeg", fake_run_ffmpeg)
+    monkeypatch.setattr(video_activities, "_probe_media_duration", fake_probe_duration)
+    monkeypatch.setattr(video_activities, "_audio_has_audible_signal", fake_audio_signal)
+    monkeypatch.setattr(video_activities, "MediaStorageService", _FakeMediaStorage)
+    monkeypatch.setattr(
+        video_activities,
+        "_validate_video_stream",
+        lambda path, label: False if "img_00" in path else True,
+        raising=False,
+    )
+
+    with pytest.raises(ApplicationError, match="invalid video stream"):
+        await video_activities.build_split_screen_video(
+            {
+                "image_urls": ["https://cdn.example/scene-1.mp4"],
+                "audio_url": "https://cdn.example/voiceover.mp3",
+                "talking_head_url": None,
+                "subtitle_script": "",
+                "subtitle_segments": [],
+                "scene_durations": [4.0],
+                "is_video_flags": [True],
+                "persona_id": "persona-1",
+                "topic": "invalid top half",
+                "duration_per_image": 4.0,
+                "owner_key": "telegram:555",
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_build_split_screen_video_falls_back_when_talking_head_stream_is_invalid(
+    monkeypatch,
+):
+    ffmpeg_labels = []
+
+    async def fake_download_required(url: str, dest: str, label: str) -> None:
+        Path(dest).write_bytes(b"0" * 5000)
+
+    async def fake_download_optional(url: str, dest: str, label: str):
+        Path(dest).write_bytes(b"2" * 5000)
+        return dest
+
+    def fake_run_ffmpeg(cmd, label, cwd=None):
+        ffmpeg_labels.append(label)
+        output_path = Path(cmd[-1])
+        output_path.write_bytes(b"1" * 20000)
+
+    def fake_probe_duration(path: str):
+        return 12.0
+
+    def fake_audio_signal(path: str):
+        return True
+
+    class _FakeMediaStorage:
+        async def upload_bytes(self, **kwargs):
+            return {
+                "access_url": "https://cdn.example/final.mp4",
+                "storage_path": "videos/persona/final.mp4",
+            }
+
+    monkeypatch.setattr(video_activities, "_download_required", fake_download_required)
+    monkeypatch.setattr(video_activities, "_download_optional", fake_download_optional)
+    monkeypatch.setattr(video_activities, "_run_ffmpeg", fake_run_ffmpeg)
+    monkeypatch.setattr(video_activities, "_probe_media_duration", fake_probe_duration)
+    monkeypatch.setattr(video_activities, "_audio_has_audible_signal", fake_audio_signal)
+    monkeypatch.setattr(video_activities, "MediaStorageService", _FakeMediaStorage)
+    monkeypatch.setattr(
+        video_activities,
+        "_validate_video_stream",
+        lambda path, label: False if "talking_head" in path else True,
+        raising=False,
+    )
+
+    result = await video_activities.build_split_screen_video(
+        {
+            "image_urls": ["https://cdn.example/scene-1.mp4"],
+            "audio_url": "https://cdn.example/voiceover.mp3",
+            "talking_head_url": "https://cdn.example/talking-head.mp4",
+            "subtitle_script": "",
+            "subtitle_segments": [],
+            "scene_durations": [4.0],
+            "is_video_flags": [True],
+            "persona_id": "persona-1",
+            "topic": "invalid talking head",
+            "duration_per_image": 4.0,
+            "owner_key": "telegram:555",
+        }
+    )
+
+    assert "normalize_talking_head" not in ffmpeg_labels
+    assert "build_fallback_bottom_half" in ffmpeg_labels
+    assert result["metadata"]["used_talking_head"] is False

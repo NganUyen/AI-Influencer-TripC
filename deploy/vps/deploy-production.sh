@@ -92,6 +92,36 @@ maybe_cleanup_before_pull() {
     fi
 }
 
+validate_registry_image_tags() {
+    local missing_images=()
+    local image_names=(
+        ai-influencer-frontend
+        ai-influencer-python-api
+        ai-influencer-python-worker
+        ai-influencer-postiz
+        ai-influencer-growchief
+    )
+    local image_ref=""
+    local image_name=""
+
+    for image_name in "${image_names[@]}"; do
+        image_ref="${GHCR_NAMESPACE}/${image_name}:${IMAGE_TAG}"
+        if ! docker manifest inspect "${image_ref}" >/dev/null 2>&1; then
+            missing_images+=("${image_ref}")
+        fi
+    done
+
+    if (( ${#missing_images[@]} > 0 )); then
+        echo "Missing published GHCR image manifest(s) for IMAGE_TAG=${IMAGE_TAG}:" >&2
+        printf '  - %s\n' "${missing_images[@]}" >&2
+        echo >&2
+        echo "This usually means the selected git commit never published app images." >&2
+        echo "The publish workflow only runs on pushes that touch .github/workflows/publish-production-images.yml, Project/**, docker/**, deploy/**, or docker-compose.production.yml." >&2
+        echo "Use a previously published image tag, omit IMAGE_TAG to use latest, or set BUILD_APP_IMAGES_FROM_REPO=1 for an intentional local build." >&2
+        exit 1
+    fi
+}
+
 if [[ "${sync_repo_before_deploy}" =~ ^(1|true|yes)$ ]]; then
     if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
         echo "Refusing to sync branch because tracked local changes exist in ${REPO_ROOT}."
@@ -173,6 +203,7 @@ if [[ "${build_app_images_from_repo}" =~ ^(1|true|yes)$ ]]; then
     docker compose -f "${COMPOSE_FILE}" pull \
         postgres temporal temporal-ui social-temporal-postgres social-temporal-elasticsearch social-temporal redis openclaw
 else
+    validate_registry_image_tags
     echo "Pulling registry-backed production images..."
     docker compose -f "${COMPOSE_FILE}" pull
 fi

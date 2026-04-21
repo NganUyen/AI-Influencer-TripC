@@ -11,6 +11,8 @@ on:
       - ".github/workflows/publish-production-images.yml"
       - "Project/**"
       - "docker/**"
+      - "deploy/**"
+      - "docker-compose.production.yml"
 
 permissions:
   contents: read

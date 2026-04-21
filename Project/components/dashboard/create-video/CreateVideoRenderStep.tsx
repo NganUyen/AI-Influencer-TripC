@@ -112,6 +112,14 @@ const RenderProgressCard = memo(({ item }: { item: CreateVideoProgressViewModel 
       : item.status === 'upload_required'
         ? 'cv-render-progress-fill--upload'
         : 'cv-render-progress-fill--active';
+  const progressHint =
+    item.status === 'completed'
+      ? 'Render completed successfully.'
+      : item.status === 'failed'
+        ? 'Render failed. Check details below.'
+        : item.status === 'upload_required'
+          ? 'Waiting for your final footage upload.'
+          : 'Backend is still processing. Updates are automatic.';
 
   return (
     <div className="cv-progress-card">
@@ -122,6 +130,27 @@ const RenderProgressCard = memo(({ item }: { item: CreateVideoProgressViewModel 
       </div>
 
       <div className="cv-progress-body">
+        {item.progressPercent !== undefined && (
+          <div className="cv-render-progress-panel" role="status" aria-live="polite">
+            <div className="cv-render-progress-meta">
+              <span className="cv-render-progress-title">Render progress</span>
+              <span className="cv-render-progress-value">{normalizedProgress}%</span>
+            </div>
+            <div className="cv-render-progress-track" aria-label={`Progress ${normalizedProgress}%`}>
+              <div
+                className={`cv-render-progress-fill ${progressToneClass}`}
+                style={{ width: `${normalizedProgress}%` }}
+              />
+            </div>
+            <p className="cv-render-progress-hint">{progressHint}</p>
+            <div className="cv-render-progress-scale" aria-hidden="true">
+              <span>0%</span>
+              <span>50%</span>
+              <span>100%</span>
+            </div>
+          </div>
+        )}
+
         <div>
           <p className="cv-card-section-label">Timeline</p>
           <div className="cv-timeline">
@@ -159,26 +188,6 @@ const RenderProgressCard = memo(({ item }: { item: CreateVideoProgressViewModel 
           </div>
         </div>
 
-        {item.progressPercent !== undefined && (
-          <div className="cv-render-progress-panel" role="status" aria-live="polite">
-            <div className="cv-render-progress-meta">
-              <span className="cv-render-progress-title">Render progress</span>
-              <span className="cv-render-progress-value">{normalizedProgress}%</span>
-            </div>
-            <div className="cv-render-progress-track" aria-label={`Progress ${normalizedProgress}%`}>
-              <div
-                className={`cv-render-progress-fill ${progressToneClass}`}
-                style={{ width: `${normalizedProgress}%` }}
-              />
-            </div>
-            <div className="cv-render-progress-scale" aria-hidden="true">
-              <span>0%</span>
-              <span>50%</span>
-              <span>100%</span>
-            </div>
-          </div>
-        )}
-
         {item.status === 'failed' && item.statusMessage && (
           <div className="cv-error-box" style={{ marginTop: 10, fontSize: '0.85rem' }}>
             <strong>Backend Error:</strong> {item.statusMessage}
@@ -208,7 +217,8 @@ const RenderProgressCard = memo(({ item }: { item: CreateVideoProgressViewModel 
             </div>
           ) : (
             <div className="cv-output-placeholder">
-              Waiting for backend output
+              <p className="cv-output-placeholder-title">Preview is on the way</p>
+              <p className="cv-output-placeholder-subtitle">We are still receiving backend output. This card updates automatically.</p>
             </div>
           )}
         </div>

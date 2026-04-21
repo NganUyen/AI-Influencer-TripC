@@ -30,6 +30,10 @@ import type {
   SharedContractDraft,
 } from '@/types/video-planning';
 import type { ReviewEngineMasterContract } from '@/lib/review-engine';
+import {
+  formatScenesForEditor,
+  toScenePreviewItem,
+} from '@/lib/create-video-contract';
 import { DEFAULT_SETUP_STATE } from '@/types/video-planning';
 import {
   buildCreateJobPayload,
@@ -80,14 +84,6 @@ function mergeJobs(
   return sortJobs(Array.from(merged.values()));
 }
 
-function formatScenesForEditor(scenes: ScenePreviewItem[]): string {
-  return scenes
-    .map((scene) =>
-      `${scene.description}${scene.durationSeconds !== undefined ? ` | ${scene.durationSeconds}` : ''}`,
-    )
-    .join('\n');
-}
-
 function parseScenesFromEditor(input: string): ScenePreviewItem[] {
   return input
     .split('\n')
@@ -113,23 +109,7 @@ function buildSharedContractDraft(
   const masterSource = masterContract || jobs[0]?.master_contract || jobs[0]?.publish_settings?.shared_contract;
   if (masterSource) {
     const scenes = Array.isArray(masterSource.scenes_data)
-      ? masterSource.scenes_data.map((scene, index) => ({
-          index: index + 1,
-          description: String(
-            scene?.description ||
-              scene?.caption ||
-              scene?.scene_description ||
-              scene?.voiceover ||
-              scene?.script ||
-              scene?.text ||
-              `Scene ${index + 1}`,
-          ).trim(),
-          durationSeconds: Number.isFinite(
-            Number(scene?.durationSeconds ?? scene?.duration_seconds ?? scene?.duration),
-          )
-            ? Number(scene?.durationSeconds ?? scene?.duration_seconds ?? scene?.duration)
-            : undefined,
-        }))
+      ? masterSource.scenes_data.map((scene, index) => toScenePreviewItem(scene, index))
       : [];
     return {
       scriptText: String(masterSource.script_text || '').trim(),
@@ -142,23 +122,7 @@ function buildSharedContractDraft(
     firstJob?.script?.script || firstJob?.editable_content || firstJob?.content?.body || '',
   ).trim();
   const scenes = Array.isArray(firstJob?.script?.scenes)
-    ? firstJob.script?.scenes.map((scene, index) => ({
-        index: index + 1,
-        description: String(
-          scene?.description ||
-            scene?.caption ||
-            scene?.scene_description ||
-            scene?.voiceover ||
-            scene?.script ||
-            scene?.text ||
-            `Scene ${index + 1}`,
-        ).trim(),
-        durationSeconds: Number.isFinite(
-          Number(scene?.durationSeconds ?? scene?.duration_seconds ?? scene?.duration),
-        )
-          ? Number(scene?.durationSeconds ?? scene?.duration_seconds ?? scene?.duration)
-          : undefined,
-      }))
+    ? firstJob.script?.scenes.map((scene, index) => toScenePreviewItem(scene, index))
     : [];
   return {
     scriptText,
@@ -686,6 +650,8 @@ export function CreateVideoTab({
       return;
     }
 
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
     setErrorMessage(null);
     setIsGenerating(true);
     setGeneratingStage('validating');
@@ -926,8 +892,16 @@ export function CreateVideoTab({
     setCurrentStep(toStep);
   }, []);
 
+  const generatingOverlayVisible = isGenerating || isGeneratingSuccess;
+  const generatingStageLabel =
+    generatingStage === 'validating'
+      ? 'Validating source context...'
+      : generatingStage === 'generating'
+        ? 'Generating scripts...'
+        : 'Finalizing plans...';
+
   return (
-    <div className="cv-container">
+    <div className={`cv-container${generatingOverlayVisible ? ' cv-container--submitting' : ''}`}>
       <StepIndicator currentStep={currentStep} />
 
       {errorMessage && (
@@ -945,9 +919,6 @@ export function CreateVideoTab({
             systemPersonaOptions={setupPersonaLists.systemPersonas}
             customPersonaOptions={setupPersonaLists.customPersonas}
             isSubmitting={isGenerating || isGeneratingSuccess}
-            currentProcessingStage={generatingStage}
-            isGeneratingSuccess={isGeneratingSuccess}
-            totalPersonasCount={setupState.selectedPersonaIds.length}
             onContinue={goToStep2}
           />
         )}
@@ -1011,6 +982,32 @@ export function CreateVideoTab({
           />
         )}
       </div>
+
+      {generatingOverlayVisible && (
+        <div className="cv-plan-creating-overlay" role="status" aria-live="polite">
+          <div className="cv-plan-creating-badge">
+            <span className="cv-plan-creating-title">
+              {isGeneratingSuccess ? 'Plans Ready ✅' : 'Creating Review Plans'}
+            </span>
+            <span className="cv-plan-creating-subtitle">
+              {isGeneratingSuccess
+                ? 'Your draft plans are ready for review.'
+                : `Hang tight, we're preparing ${setupState.selectedPersonaIds.length} persona draft${setupState.selectedPersonaIds.length === 1 ? '' : 's'}.`}
+            </span>
+
+            {!isGeneratingSuccess && (
+              <>
+                <span className="cv-plan-creating-stage">{generatingStageLabel}</span>
+                <span className="cv-plan-creating-dots" aria-hidden="true">
+                  <span className="cv-plan-creating-dot" />
+                  <span className="cv-plan-creating-dot" />
+                  <span className="cv-plan-creating-dot" />
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

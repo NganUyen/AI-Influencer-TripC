@@ -325,6 +325,7 @@ export function CreateVideoTab({
   initialSourceUrl = '',
   initialPersonaIds = [],
 }: CreateVideoTabProps) {
+  const tabContainerRef = useRef<HTMLDivElement | null>(null);
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [setupState, setSetupState] = useState<CreateVideoSetupState>(DEFAULT_SETUP_STATE);
   const [jobs, setJobs] = useState<ReviewEngineJob[]>(initialJobs);
@@ -350,6 +351,32 @@ export function CreateVideoTab({
   // UI/UX Pro Max Enhanced Loading State
   const [generatingStage, setGeneratingStage] = useState<'validating' | 'generating' | 'finalizing' | null>(null);
   const [isGeneratingSuccess, setIsGeneratingSuccess] = useState(false);
+
+  const scrollFlowViewportToTop = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const topPosition: ScrollToOptions = { top: 0, behavior: 'auto' };
+    window.scrollTo(topPosition);
+    document.documentElement?.scrollTo(topPosition);
+    document.body?.scrollTo(topPosition);
+
+    const dashboardMain = document.getElementById('dashboard-main');
+    dashboardMain?.scrollTo(topPosition);
+
+    let parent = tabContainerRef.current?.parentElement ?? null;
+    while (parent) {
+      const { overflowY } = window.getComputedStyle(parent);
+      const isScrollable =
+        (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay')
+        && parent.scrollHeight > parent.clientHeight;
+      if (isScrollable) {
+        parent.scrollTo(topPosition);
+      }
+      parent = parent.parentElement;
+    }
+  }, []);
 
   const setupPersonaLists = useMemo(() => {
     if (setup) {
@@ -650,7 +677,7 @@ export function CreateVideoTab({
       return;
     }
 
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollFlowViewportToTop();
 
     setErrorMessage(null);
     setIsGenerating(true);
@@ -694,7 +721,8 @@ export function CreateVideoTab({
       setGeneratingStage(null);
       setIsGeneratingSuccess(true);
       await new Promise(resolve => setTimeout(resolve, 500));
-      
+
+      scrollFlowViewportToTop();
       setCurrentStep(2);
     } catch (error) {
       clearTimeout(simulatedTimer1);
@@ -710,7 +738,7 @@ export function CreateVideoTab({
       setIsGenerating(false);
       setIsGeneratingSuccess(false);
     }
-  }, [onRefresh, setupState]);
+  }, [onRefresh, scrollFlowViewportToTop, setupState]);
   const savePlanEdits = useCallback(async () => {
     setErrorMessage(null);
     setIsSavingPlans(true);
@@ -901,7 +929,7 @@ export function CreateVideoTab({
         : 'Finalizing plans...';
 
   return (
-    <div className={`cv-container${generatingOverlayVisible ? ' cv-container--submitting' : ''}`}>
+    <div ref={tabContainerRef} className={`cv-container${generatingOverlayVisible ? ' cv-container--submitting' : ''}`}>
       <StepIndicator currentStep={currentStep} />
 
       {errorMessage && (

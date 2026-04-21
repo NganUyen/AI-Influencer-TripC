@@ -141,6 +141,19 @@ export type ReviewEngineJob = {
   started_at?: string | null;
   status_message?: string | null;
   error_detail?: string | null;
+  failure_stage?: string | null;
+  failure_details?: {
+    stage?: string | null;
+    code?: string | null;
+    message?: string | null;
+    scene_id?: string | null;
+    source_url?: string | null;
+    domain?: string | null;
+    retryable?: boolean | null;
+    http_status?: number | null;
+    final_url?: string | null;
+    recommended_action?: string | null;
+  } | null;
 };
 
 export type ReviewEngineJobResponse = {

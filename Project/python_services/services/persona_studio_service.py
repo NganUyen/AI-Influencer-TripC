@@ -162,18 +162,14 @@ class PersonaStudioService:
         step = get_step_definition(session.skill_name, session.step_key)
         input_type = step.get("input_type")
         prompt_text = cls._display_text_from_prompt(step.get("prompt_text") or "")
-        if input_type in {"free_text", "inline_keyboard"}:
-            # Support hybrid inputs (buttons + text) for advanced skills
-            placeholder = prompt_text or "Type a message or choose an option..."
-            # Strip markdown for placeholder
-            placeholder = re.sub(r"[*`_#]", "", placeholder).split("\n")[0].strip()
+        if input_type == "free_text":
+            placeholder = prompt_text or "Describe your persona..."
             return {
                 "enabled": True,
                 "kind": "text",
                 "placeholder": placeholder,
                 "submit_label": "Send",
             }
-        
         return {
             "enabled": False,
             "kind": "action",

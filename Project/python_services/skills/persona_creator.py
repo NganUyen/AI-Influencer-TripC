@@ -94,62 +94,6 @@ class PersonaCreatorSkill(BaseSkill):
             "error": reason,
         }
 
-    @classmethod
-    async def _resolve_semantic_voice(
-        cls, current: SkillSession, user_input: str
-    ) -> Optional[str]:
-        """
-        Use AI to map a natural language description to a Google TTS voice identifier.
-        """
-        prompt = f"""You are a Text-to-Speech expert. 
-Map the user's description of a voice to the best matching Google TTS voice from the options below.
-
-Available Google TTS Options:
-- 'English US Male': en-US-Studio-Q (Premium)
-- 'English US Female': en-US-Studio-O (Premium)
-- 'English UK Male': en-GB-Wavenet-B
-- 'English UK Female': en-GB-Wavenet-A
-- 'Vietnamese Male': vi-VN-Wavenet-B
-- 'Vietnamese Female': vi-VN-Wavenet-A
-- 'Chinese Male': nb-NO-Wavenet-B (Example placeholder, use correct locale logic)
-- 'Spanish Male': es-ES-Wavenet-B
-- 'Spanish Female': es-ES-Wavenet-A
-
-User's Description: "{user_input}"
-
-If nationality is detected (e.g. 'French'), use the corresponding language code (e.g. 'fr-FR-Wavenet-A').
-Return ONLY the technical ID (e.g. 'en-US-Studio-Q'). No other text.
-If unsure, return 'en-US-Studio-O' as a friendly fallback.
-"""
-        try:
-            openclaw = await OpenClawGateway.create_for_owner(
-                **cls._owner_params(current)
-            )
-            result = await openclaw.execute_task(prompt)
-            voice_id = result.strip()
-            if "-" in voice_id:
-                return voice_id
-        except Exception as e:
-            logger.warning(f"Voice resolution failed: {e}")
-        return "en-US-Studio-O"
-
-    @classmethod
-    async def _regenerate_persona_name(
-        cls, current: SkillSession, nationality: str
-    ) -> str:
-        """
-        Regenerate a culturally accurate name based on nationality.
-        """
-        prompt = f"Suggest ONE realistic and culturally accurate full name for a persona from {nationality}. Return ONLY the name."
-        try:
-            openclaw = await OpenClawGateway.create_for_owner(
-                **cls._owner_params(current)
-            )
-            result = await openclaw.execute_task(prompt)
-            return result.strip().strip('"').strip("'")
-        except Exception as e:
-            logger.warning(f"Name regeneration failed: {e}")
-            return "New Persona"
 
     @classmethod
     def _display_name_from_persona_id(cls, persona_id: str) -> str:
@@ -693,16 +637,6 @@ Response format:
                 elif command == "rebuild_avatar":
                     current.artifacts["force_regenerate_avatar"] = True
                     current.step_key = "generate_preview"
-                elif command == "apply_change":
-                    # Jump back to preview immediately after an edit
-                    current.step_key = "preview"
-                elif command == "regenerate_name":
-                    # Regenerate name based on current nationality
-                    nat = current.collected.get("nationality", "Unknown")
-                    new_name = await cls._regenerate_persona_name(current, nat)
-                    current.collected["display_name"] = new_name
-                    # Stay on the current step so the user sees the new name in the next message
-                    return cls._collecting_result(current, next_step=current.step_key)
                 else:
                     # 'edit_p_name', 'edit_appearance', 'choose_voice', etc.
                     current.step_key = command
@@ -736,21 +670,6 @@ Response format:
                     current.step_key = "collect_nationality"
                     return cls._collecting_result(current, next_step="collect_nationality")
 
-                # Step 2: Voice (Semantic Search Support)
-                voice = current.collected.get("voice")
-                if not voice:
-                    current.step_key = "choose_voice"
-                    return cls._collecting_result(current, next_step="choose_voice")
-                
-                # If the voice looks like a description (no dashes), try to resolve it semantically
-                if voice and "-" not in str(voice):
-                    resolved_voice = await cls._resolve_semantic_voice(current, voice)
-                    if resolved_voice:
-                        current.collected["voice"] = resolved_voice
-                        current.artifacts["voice_search_feedback"] = f"AI matched your description to: {resolved_voice}"
-                    else:
-                        current.artifacts["voice_search_feedback"] = "Could not find a perfect match. Using default US English."
-                        current.collected["voice"] = "en-US-Studio-O"
 
                 # Step 2.5: Language (Required for persistence)
                 language = current.collected.get("language")
@@ -921,11 +840,6 @@ Response format:
             owner_params = cls._owner_params(current)
             if owner_params:
                 payload.update(owner_params)
-            
-            # CRITICAL FIX: Mark persona as ready once saved
-            if current.step_key == "save":
-                payload["status"] = "ready"
-            
             try:
                 persona = await cls._request_json(
                     http_client,

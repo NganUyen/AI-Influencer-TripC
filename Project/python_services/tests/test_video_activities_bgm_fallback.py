@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from activities import video_activities
 

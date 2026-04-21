@@ -255,7 +255,7 @@ class VideoPlannerSkill(BaseSkill):
                 workflow_id = handoff.get("workflow_id")
                 if workflow_id:
                     current.control.workflow_id = workflow_id
-                    current.control.status = SkillStatus.waiting_approval
+                    current.control.status = SkillStatus.running
                     current.step_key = "done"
                 elif handoff.get("status") == "awaiting_manual_upload":
                     current.control.status = SkillStatus.collecting

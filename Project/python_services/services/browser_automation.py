@@ -440,6 +440,85 @@ class BrowserAutomationService:
         finally:
             await page.close()
 
+    async def _probe_render_metrics(self, page: Any) -> Dict[str, Any]:
+        return await page.evaluate(
+            """
+            () => {
+                const body = document.body;
+                const text = body ? (body.innerText || '').trim() : '';
+                const mediaCount = document.querySelectorAll('img, video, canvas, svg').length;
+                const childCount = body ? body.querySelectorAll('*').length : 0;
+                const readyState = document.readyState;
+                const hasMedia = mediaCount > 0;
+                const hasText = text.length > 24;
+                const looksBlank = !hasMedia && !hasText && childCount < 10;
+                const bgColor = body
+                    ? window.getComputedStyle(body).backgroundColor
+                    : "unknown";
+                const isWhiteBg = bgColor === 'rgb(255, 255, 255)' || bgColor === 'rgba(0, 0, 0, 0)';
+
+                return {
+                    readyState,
+                    hasMedia,
+                    hasText,
+                    mediaCount,
+                    childCount,
+                    textLength: text.length,
+                    looksBlank,
+                    bgColor,
+                    isWhiteBg,
+                };
+            }
+            """
+        )
+
+    async def _navigate_for_capture(
+        self,
+        *,
+        page: Any,
+        url: str,
+        reload_only: bool = False,
+    ) -> None:
+        navigation_attempts = [
+            ("networkidle", 30000),
+            ("domcontentloaded", 20000),
+            ("load", 20000),
+        ]
+        last_error: Optional[Exception] = None
+
+        for wait_until, timeout_ms in navigation_attempts:
+            try:
+                if reload_only:
+                    await page.reload(wait_until=wait_until, timeout=timeout_ms)
+                else:
+                    await page.goto(url, wait_until=wait_until, timeout=timeout_ms)
+                return
+            except Exception as nav_err:
+                last_error = nav_err
+                logger.warning(
+                    "Navigation attempt failed | url=%s | mode=%s | timeout_ms=%d | error=%s",
+                    url[:60],
+                    wait_until,
+                    timeout_ms,
+                    str(nav_err)[:100],
+                )
+                try:
+                    metrics = await self._probe_render_metrics(page)
+                except Exception:
+                    metrics = {}
+                if metrics and not metrics.get("looksBlank", True):
+                    logger.info(
+                        "Proceeding after navigation error because page has rendered content | url=%s | mode=%s | ready_state=%s | child_count=%s",
+                        url[:60],
+                        wait_until,
+                        metrics.get("readyState"),
+                        metrics.get("childCount"),
+                    )
+                    return
+
+        if last_error is not None:
+            raise last_error
+
     async def record_video_for_tutorial(
         self, 
         url: str, 
@@ -453,6 +532,7 @@ class BrowserAutomationService:
         follow_relevant_links: bool = True,
         max_links_to_visit: int = 3,
         scene_duration_sec: Optional[float] = None,
+        warmup_enabled: bool = True,
     ) -> tuple[str, CaptureMetrics]:
         """
         Record a video of a website for the top-half of a split-screen video.
@@ -485,25 +565,35 @@ class BrowserAutomationService:
         # Parse capture hint for timeout multiplier
         hint_enum = CaptureHint.from_string(capture_hint)
         
-        # CP-BR2: Warm-up navigation started
         warmup_start = _time.monotonic()
-        logger.info(
-            "CP-BR2: Warm-up navigation started | url=%s | timeout=12s",
-            url[:80],
-        )
-        
-        warmup_ok = await self._warm_up_capture_navigation(url=url, timeout_seconds=12)
-        warmup_duration_ms = int((_time.monotonic() - warmup_start) * 1000)
-        metrics.warmup_ok = warmup_ok
-        metrics.warmup_duration_ms = warmup_duration_ms
-        
-        # CP-BR3: Warm-up result
-        logger.info(
-            "CP-BR3: Warm-up result | success=%s | duration_ms=%d | url=%s",
-            warmup_ok,
-            warmup_duration_ms,
-            url[:80],
-        )
+        if warmup_enabled:
+            logger.info(
+                "CP-BR2: Warm-up navigation started | url=%s | timeout=12s",
+                url[:80],
+            )
+            warmup_ok = await self._warm_up_capture_navigation(url=url, timeout_seconds=12)
+            warmup_duration_ms = int((_time.monotonic() - warmup_start) * 1000)
+            metrics.warmup_ok = warmup_ok
+            metrics.warmup_duration_ms = warmup_duration_ms
+            
+            # CP-BR3: Warm-up result
+            logger.info(
+                "CP-BR3: Warm-up result | success=%s | duration_ms=%d | url=%s",
+                warmup_ok,
+                warmup_duration_ms,
+                url[:80],
+            )
+        else:
+            metrics.warmup_ok = False
+            metrics.warmup_duration_ms = 0
+            logger.info(
+                "CP-BR2: Warm-up skipped | url=%s",
+                url[:80],
+            )
+            logger.info(
+                "CP-BR3: Warm-up skipped | url=%s",
+                url[:80],
+            )
 
         try:
             page = await self.context.new_page()
@@ -1212,16 +1302,7 @@ class BrowserAutomationService:
         """Helper to navigate and ensure that we don't just have a blank shell."""
         import asyncio
         
-        # First, navigate with networkidle to wait for most resources
-        try:
-            await page.goto(url, wait_until="networkidle", timeout=30000)
-        except Exception as nav_err:
-            logger.warning(
-                "Navigation with networkidle failed, falling back to domcontentloaded | url=%s | error=%s",
-                url[:60],
-                str(nav_err)[:100],
-            )
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        await self._navigate_for_capture(page=page, url=url)
 
         # Wait additional time for lazy-loaded content and CSS transitions
         await asyncio.sleep(2.0)
@@ -1230,36 +1311,7 @@ class BrowserAutomationService:
         max_attempts = 6  # Increased from 4 to 6
         for attempt in range(1, max_attempts + 1):
             await asyncio.sleep(1.5)  # Increased from 1.0 to 1.5
-            metrics = await page.evaluate(
-                """
-                () => {
-                    const body = document.body;
-                    const text = body ? (body.innerText || '').trim() : '';
-                    const mediaCount = document.querySelectorAll('img, video, canvas, svg').length;
-                    const childCount = body ? body.querySelectorAll('*').length : 0;
-                    const readyState = document.readyState;
-                    const hasMedia = mediaCount > 0;
-                    const hasText = text.length > 24;
-                    const looksBlank = !hasMedia && !hasText && childCount < 10;
-                    
-                    // Check if page has a white/blank background
-                    const bgColor = window.getComputedStyle(document.body).backgroundColor;
-                    const isWhiteBg = bgColor === 'rgb(255, 255, 255)' || bgColor === 'rgba(0, 0, 0, 0)';
-                    
-                    return {
-                        readyState,
-                        hasMedia,
-                        hasText,
-                        mediaCount,
-                        childCount,
-                        textLength: text.length,
-                        looksBlank,
-                        bgColor,
-                        isWhiteBg,
-                    };
-                }
-                """
-            )
+            metrics = await self._probe_render_metrics(page)
             last_metrics = metrics or {}
 
             logger.info(
@@ -1282,9 +1334,13 @@ class BrowserAutomationService:
             if attempt < max_attempts:
                 # Try reloading if page looks blank
                 try:
-                    await page.reload(wait_until="networkidle", timeout=20000)
-                except Exception:
-                    await page.reload(wait_until="domcontentloaded", timeout=20000)
+                    await self._navigate_for_capture(page=page, url=url, reload_only=True)
+                except Exception as reload_err:
+                    logger.warning(
+                        "Reload after blank probe failed | url=%s | error=%s",
+                        url[:60],
+                        str(reload_err)[:100],
+                    )
 
         # Don't raise error - let the capture proceed and we'll see what happens
         # Some pages may appear "blank" to our detection but still have visual content

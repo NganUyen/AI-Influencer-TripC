@@ -1712,7 +1712,7 @@ class AppReviewStudioService:
             )
         payload: Dict[str, Dict[str, Any]] = {}
         for row in rows:
-            metadata = row.get("metadata") or {}
+            metadata = _coerce_json_dict(row.get("metadata"))
             workflow_id = str(metadata.get("workflow_id") or "").strip()
             if not workflow_id or workflow_id in payload:
                 continue
@@ -1748,7 +1748,7 @@ class AppReviewStudioService:
             )
         payload: Dict[str, Dict[str, Any]] = {}
         for row in rows:
-            metadata = row.get("metadata") or {}
+            metadata = _coerce_json_dict(row.get("metadata"))
             workflow_id = str(metadata.get("workflow_id") or "").strip()
             if not workflow_id or workflow_id in payload:
                 continue

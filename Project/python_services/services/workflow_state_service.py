@@ -310,7 +310,7 @@ class WorkflowStateService:
                     SET status = $2,
                         current_step = COALESCE($3, current_step),
                         error_message = $4,
-                        output_data = COALESCE($5::jsonb, output_data),
+                        output_data = COALESCE(output_data, '{}'::jsonb) || COALESCE($5::jsonb, '{}'::jsonb),
                         completed_at = CASE
                             WHEN completed_at IS NULL THEN NOW()
                             ELSE completed_at
@@ -334,7 +334,10 @@ class WorkflowStateService:
                 payload["current_step"] = current_step
             payload["error_message"] = error_message
             if output_data:
-                payload["output_data"] = output_data
+                payload["output_data"] = {
+                    **(payload.get("output_data") or {}),
+                    **output_data,
+                }
             return dict(payload)
 
         if row is None:

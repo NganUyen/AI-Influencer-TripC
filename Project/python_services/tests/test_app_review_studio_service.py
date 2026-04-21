@@ -759,6 +759,71 @@ async def test_list_jobs_merges_plan_and_workflow_by_plan_id(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_load_media_by_workflow_coerces_string_metadata(monkeypatch):
+    rows = [
+        {
+            "id": "media-1",
+            "url": "https://cdn.example/final.mp4",
+            "metadata": '{"workflow_id":"video-wf-1","kind":"final_video"}',
+            "persona_id": "persona-1",
+            "created_at": "2026-04-18T00:00:00Z",
+        }
+    ]
+
+    async def fake_get_pool():
+        return _FakePool(rows)
+
+    monkeypatch.setattr(
+        studio_module.DatabaseService,
+        "get_pool",
+        fake_get_pool,
+    )
+
+    payload = await AppReviewStudioService._load_media_by_workflow(
+        workflow_ids=["video-wf-1"],
+        user_id=_session().user_id,
+    )
+
+    assert payload["video-wf-1"]["media_asset_id"] == "media-1"
+    assert payload["video-wf-1"]["metadata"]["kind"] == "final_video"
+
+
+@pytest.mark.asyncio
+async def test_load_content_by_workflow_coerces_string_metadata(monkeypatch):
+    rows = [
+        {
+            "id": "content-1",
+            "title": "Caption",
+            "content": "Body",
+            "status": "ready_to_publish",
+            "published_at": None,
+            "metadata": '{"workflow_id":"video-wf-1","post_url":"https://tiktok.example/post/1"}',
+            "updated_at": "2026-04-18T00:00:00Z",
+        }
+    ]
+
+    async def fake_get_pool():
+        return _FakePool(rows)
+
+    monkeypatch.setattr(
+        studio_module.DatabaseService,
+        "get_pool",
+        fake_get_pool,
+    )
+
+    payload = await AppReviewStudioService._load_content_by_workflow(
+        workflow_ids=["video-wf-1"],
+        user_id=_session().user_id,
+    )
+
+    assert payload["video-wf-1"]["content_id"] == "content-1"
+    assert (
+        payload["video-wf-1"]["metadata"]["post_url"]
+        == "https://tiktok.example/post/1"
+    )
+
+
+@pytest.mark.asyncio
 async def test_upload_manual_video_updates_existing_plan(monkeypatch):
     update_calls: List[Dict[str, Any]] = []
 

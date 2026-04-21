@@ -16,13 +16,19 @@ import tempfile
 
 import httpx
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from services.contracts import FinalVideoContract, SplitScreenVideoInput
 from services.background_music_service import (
     BackgroundMusicError,
     BackgroundMusicService,
 )
-from services.errors import AssemblyError, AssemblyMissingAssetError, StorageUploadError
+from services.errors import (
+    AssemblyError,
+    AssemblyMissingAssetError,
+    PipelineError,
+    StorageUploadError,
+)
 from services.storage_service import StorageService
 from services.media_storage_service import MediaStorageService
 
@@ -35,9 +41,12 @@ FULL_FRAME_HEIGHT = 1920
 BOTTOM_SOURCE_WIDTH = 1080
 BOTTOM_SOURCE_HEIGHT = 1080
 TOP_SCENE_SKIP_SECONDS = 8.0
+
 DEFAULT_DUCKED_BGM_VOLUME = 0.22
 DEFAULT_FULL_BGM_VOLUME = 0.35
-SUBTITLE_FONT_NAME = "Tahoma"
+
+SUBTITLE_FONT_NAME = os.getenv("VIDEO_SUBTITLE_FONT_NAME", "DejaVu Sans")
+
 SUBTITLE_FONT_SIZE = 64
 SUBTITLE_CENTER_X = FULL_FRAME_WIDTH // 2
 SUBTITLE_CENTER_Y = FULL_FRAME_HEIGHT // 2
@@ -214,6 +223,35 @@ def _run_ffmpeg(cmd: List[str], label: str, cwd: Optional[str] = None) -> None:
             f"ffmpeg failed ({label}) [code={result.returncode}] cmd={' '.join(cmd[:12])}...: {error_text}"
         )
     logger.info("ffmpeg OK: %s", label)
+
+
+def _truncate_debug_text(text: str, limit: int = 3000) -> str:
+    normalized = str(text or "").strip()
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3] + "..."
+
+
+def _to_activity_application_error(exc: Exception, *, stage: str) -> ApplicationError:
+    if isinstance(exc, ApplicationError):
+        return exc
+
+    message = _truncate_debug_text(str(exc) or repr(exc))
+    if stage and stage not in message:
+        message = f"{stage}: {message}"
+
+    if isinstance(exc, PipelineError):
+        return ApplicationError(
+            message,
+            type=type(exc).__name__,
+            non_retryable=not getattr(exc, "retryable", False),
+        )
+
+    return ApplicationError(
+        message,
+        type=type(exc).__name__,
+        non_retryable=False,
+    )
 
 
 def _safe_topic_fragment(topic: str) -> str:
@@ -716,8 +754,7 @@ def _split_screen_filter() -> str:
     )
 
 
-@activity.defn
-async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
+async def _build_split_screen_video_impl(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Canonical assembly path for final video output.
 
@@ -1181,26 +1218,36 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
             audio_duration=_probe_media_duration(audio_path),
         )
         if subtitle_events:
+            subtitle_status = "burned"
             subtitles_path = str(tmp_path / "captions.ass")
             subtitled_output_path = str(tmp_path / "final_output_subtitled.mp4")
-            _write_ass_subtitles(subtitles_path, subtitle_events)
-            _run_ffmpeg(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-i",
-                    final_path,
-                    "-vf",
-                    f"ass={_ffmpeg_ass_filter_path(subtitles_path)}",
-                    "-c:v",
-                    "libx264",
-                    "-c:a",
-                    "copy",
-                    subtitled_output_path,
-                ],
-                "burn_subtitles",
-            )
-            final_path = subtitled_output_path
+            try:
+                _write_ass_subtitles(subtitles_path, subtitle_events)
+                _run_ffmpeg(
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-i",
+                        final_path,
+                        "-vf",
+                        f"ass={_ffmpeg_ass_filter_path(subtitles_path)}",
+                        "-c:v",
+                        "libx264",
+                        "-c:a",
+                        "copy",
+                        subtitled_output_path,
+                    ],
+                    "burn_subtitles",
+                )
+                final_path = subtitled_output_path
+            except Exception as exc:
+                subtitle_status = "fallback_without_subtitles"
+                subtitle_error = _truncate_debug_text(str(exc) or repr(exc), limit=600)
+                logger.warning(
+                    "Subtitle burn failed; keeping unsubtitled final video | font=%s | error=%s",
+                    SUBTITLE_FONT_NAME,
+                    subtitle_error,
+                )
 
         safe_topic = _safe_topic_fragment(assembly_input.topic)
         storage_key = f"videos/{assembly_input.persona_id}/{safe_topic}_final.mp4"
@@ -1279,3 +1326,15 @@ async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
             persona_id=assembly_input.persona_id,
             topic=assembly_input.topic,
         ).model_dump()
+
+
+@activity.defn
+async def build_split_screen_video(config: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return await _build_split_screen_video_impl(config)
+    except Exception as exc:
+        logger.exception(
+            "Video assembly failed | error_type=%s",
+            type(exc).__name__,
+        )
+        raise _to_activity_application_error(exc, stage="assemble_video") from exc

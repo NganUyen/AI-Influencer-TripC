@@ -12,6 +12,7 @@ EXTERNAL_GHCR_NAMESPACE="${GHCR_NAMESPACE:-}"
 EXTERNAL_IMAGE_TAG="${IMAGE_TAG:-}"
 EXTERNAL_OPENCLAW_IMAGE="${OPENCLAW_IMAGE:-}"
 EXTERNAL_DOCKER_CLEANUP_AFTER_DEPLOY="${DOCKER_CLEANUP_AFTER_DEPLOY:-}"
+EXTERNAL_DOCKER_CLEANUP_BEFORE_PULL="${DOCKER_CLEANUP_BEFORE_PULL:-}"
 EXTERNAL_DEPLOY_BRANCH="${DEPLOY_BRANCH:-}"
 EXTERNAL_SYNC_REPO_BEFORE_DEPLOY="${SYNC_REPO_BEFORE_DEPLOY:-}"
 EXTERNAL_BUILD_APP_IMAGES_FROM_REPO="${BUILD_APP_IMAGES_FROM_REPO:-}"
@@ -42,6 +43,9 @@ fi
 if [[ -n "${EXTERNAL_DOCKER_CLEANUP_AFTER_DEPLOY}" ]]; then
     export DOCKER_CLEANUP_AFTER_DEPLOY="${EXTERNAL_DOCKER_CLEANUP_AFTER_DEPLOY}"
 fi
+if [[ -n "${EXTERNAL_DOCKER_CLEANUP_BEFORE_PULL}" ]]; then
+    export DOCKER_CLEANUP_BEFORE_PULL="${EXTERNAL_DOCKER_CLEANUP_BEFORE_PULL}"
+fi
 if [[ -n "${EXTERNAL_DEPLOY_BRANCH}" ]]; then
     export DEPLOY_BRANCH="${EXTERNAL_DEPLOY_BRANCH}"
 fi
@@ -58,6 +62,7 @@ fi
 sync_repo_before_deploy="$(printf '%s' "${SYNC_REPO_BEFORE_DEPLOY:-0}" | tr '[:upper:]' '[:lower:]')"
 build_app_images_from_repo="$(printf '%s' "${BUILD_APP_IMAGES_FROM_REPO:-0}" | tr '[:upper:]' '[:lower:]')"
 auto_image_tag_from_git="$(printf '%s' "${AUTO_IMAGE_TAG_FROM_GIT:-0}" | tr '[:upper:]' '[:lower:]')"
+cleanup_before_pull="$(printf '%s' "${DOCKER_CLEANUP_BEFORE_PULL:-1}" | tr '[:upper:]' '[:lower:]')"
 
 deploy_branch="${DEPLOY_BRANCH:-${DEFAULT_DEPLOY_BRANCH}}"
 ghcr_namespace="${GHCR_NAMESPACE:-${DEFAULT_REPO_NAMESPACE}}"
@@ -77,6 +82,14 @@ prepare_openclaw_volume_permissions() {
     mkdir -p "${OPENCLAW_CONFIG_DIR}" "${OPENCLAW_WORKSPACE_DIR}"
     chown -R 1000:1000 "${OPENCLAW_CONFIG_DIR}" "${OPENCLAW_WORKSPACE_DIR}"
     chmod -R u+rwX,g+rX,o-rwx "${OPENCLAW_CONFIG_DIR}" "${OPENCLAW_WORKSPACE_DIR}"
+}
+
+maybe_cleanup_before_pull() {
+    if [[ "${cleanup_before_pull}" =~ ^(1|true|yes)$ ]]; then
+        echo "Running Docker cleanup before image operations..."
+        "${SCRIPT_DIR}/docker-cleanup.sh"
+        echo
+    fi
 }
 
 if [[ "${sync_repo_before_deploy}" =~ ^(1|true|yes)$ ]]; then
@@ -108,6 +121,7 @@ echo "Image namespace: ${GHCR_NAMESPACE}"
 echo "Image tag: ${IMAGE_TAG}"
 
 echo "Using env file: ${PROJECT_ENV_FILE}"
+maybe_cleanup_before_pull
 
 if [[ "${build_app_images_from_repo}" =~ ^(1|true|yes)$ ]]; then
     echo "Building app images from repository source..."

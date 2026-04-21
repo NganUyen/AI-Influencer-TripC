@@ -18,6 +18,9 @@ from services.customer_media_service import CustomerMediaService
 from services.database_service import DatabaseService
 from services.persona_registry_service import PersonaRegistryService
 from services.quota_monitor_service import QuotaMonitorService
+from services.system_persona_account_links_service import (
+    SystemPersonaAccountLinksService,
+)
 from services.telegram_link_service import TelegramLinkService
 from services.workflow_state_service import WorkflowStateService
 
@@ -284,6 +287,15 @@ class WorkspaceService:
         content = await cls.list_content(user_id)
         ai_backbone = await CustomerAIBackboneService.get_for_user(user_id)
         personas = await PersonaRegistryService.list_personas(user_id=user_id)
+        if not personas:
+            # Keep workspace stable when persona tables are missing/outdated:
+            # fall back to built-in preset personas used by review-engine setup.
+            from services.app_review_studio_service import AppReviewStudioService
+
+            personas = list(AppReviewStudioService.preset_persona_map().values())
+        personas = await SystemPersonaAccountLinksService.apply_tiktok_links_to_personas(
+            personas
+        )
         telegram_link = {
             "linked": False,
             "link": None,

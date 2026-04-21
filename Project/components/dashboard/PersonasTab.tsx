@@ -73,6 +73,7 @@ interface TikTokChannelStatus {
   activeState: TikTokActiveState;
   connectionState: TikTokConnectionState;
   channelHandle?: string;
+  profileUrl?: string;
   displayName?: string;
   lastSyncLabel?: string;
 }
@@ -82,11 +83,22 @@ interface TikTokChannelStatus {
    Component interface stays unchanged.
   ──────────────────────────────────────────────────────────────────────────── */
 function toTikTokChannelStatus(persona: Persona): TikTokChannelStatus {
+  const configuredProfileUrl =
+    typeof persona.channel_configs?.tiktok?.profile_url === "string"
+      ? persona.channel_configs.tiktok.profile_url
+      : undefined;
+  const configuredHandle =
+    typeof persona.channel_configs?.tiktok?.username === "string"
+      ? persona.channel_configs.tiktok.username
+      : undefined;
   const demoFixtures: Record<string, TikTokChannelStatus> = {
     default: {
       activeState: "active",
       connectionState: "connected_demo",
-      channelHandle: `@${persona.display_name.toLowerCase().replace(/\s+/g, "_")}_tt`,
+      channelHandle:
+        configuredHandle ||
+        `@${persona.display_name.toLowerCase().replace(/\s+/g, "_")}_tt`,
+      profileUrl: configuredProfileUrl,
       displayName: persona.display_name,
       lastSyncLabel: "2 hours ago",
     },
@@ -130,6 +142,7 @@ export function PersonasTab({
   // TikTok Manage Modal
   const [isTiktokModalOpen, setIsTiktokModalOpen] = useState(false);
   const [tiktokUrlDraft, setTiktokUrlDraft] = useState("");
+  const [tiktokProfileUrlDraft, setTiktokProfileUrlDraft] = useState("");
   const [composer, setComposer] = useState("");
   const [studioState, setStudioState] = useState<PersonaStudioSessionState | null>(null);
   const [studioError, setStudioError] = useState<string | null>(null);
@@ -247,7 +260,11 @@ export function PersonasTab({
   };
 
   const handleOpenTiktokManage = () => {
-    setTiktokUrlDraft(tiktokStatus?.channelHandle ?? "");
+    const profileUrl =
+      selectedPersona?.channel_configs?.tiktok?.profile_url || "";
+    const handleFromPersona = selectedPersona?.channel_configs?.tiktok?.username;
+    setTiktokUrlDraft(handleFromPersona ?? tiktokStatus?.channelHandle ?? "");
+    setTiktokProfileUrlDraft(profileUrl);
     setIsTiktokModalOpen(true);
   };
 
@@ -921,6 +938,8 @@ export function PersonasTab({
                     type="url"
                     autoComplete="url"
                     placeholder="https://www.tiktok.com/@handle"
+                    value={tiktokProfileUrlDraft}
+                    onChange={(e) => setTiktokProfileUrlDraft(e.target.value)}
                     className="w-full px-4 py-3 rounded-2xl bg-aura-surface-container border border-aura-outline-variant/20 text-sm font-medium text-aura-on-surface focus:outline-none focus:ring-2 focus:ring-aura-primary/20 transition-all"
                     aria-label="TikTok profile URL"
                   />
@@ -1397,9 +1416,22 @@ function TikTokChannelCard({
           <p className="text-[10px] font-black uppercase tracking-widest text-aura-on-surface-variant/60 font-label flex-shrink-0">
             Channel Handle
           </p>
-          <p className="text-sm font-bold text-aura-on-surface text-right truncate">
-            {status.channelHandle ?? "—"}
-          </p>
+          {status.profileUrl ? (
+            <a
+              href={status.profileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-bold text-aura-primary text-right truncate hover:underline inline-flex items-center gap-1"
+              aria-label="Open TikTok profile in new tab"
+            >
+              {status.channelHandle ?? status.profileUrl}
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          ) : (
+            <p className="text-sm font-bold text-aura-on-surface text-right truncate">
+              {status.channelHandle ?? "—"}
+            </p>
+          )}
         </div>
 
         <div className="flex justify-between items-baseline gap-2">

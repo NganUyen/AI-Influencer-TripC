@@ -888,12 +888,10 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "appearance_prompt_or_photo",
                 "identity_notes",
                 "creative_notes",
-                "preview_command",
             ],
             "note": (
                 "Persona creation keeps language and voice structured, but still"
-                " accepts open text to describe identity or visual nuances. "
-                "The preview_command field allows jumping to edit steps."
+                " accepts open text to describe identity or visual nuances."
             ),
         },
         "internal_skills": [
@@ -942,7 +940,6 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "appearance_prompt_or_photo": None,
                 "identity_notes": None,
                 "creative_notes": None,
-                "preview_command": None,
             },
             "artifacts": {
                 "dream_ready": False,
@@ -950,7 +947,6 @@ OPENCLAW_TELEGRAM_SKILL_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "preview_image_url": None,
                 "avatar_image_url": None,
                 "heygen_avatar_id": None,
-                "voice_search_feedback": None,
             },
         },
     },

@@ -105,3 +105,19 @@ def test_summarize_workflow_exception_preserves_proxy_retry_context_for_top_half
     assert details["failure_details"]["code"] == "http_response_failure"
     assert details["failure_details"]["proxy_retry_failed"] is True
     assert details["failure_details"]["proxy_server"] == "http://proxy.example:8080"
+
+
+def test_summarize_workflow_exception_does_not_misclassify_talking_head_failure_as_top_half():
+    exc = ApplicationError(
+        "HeyGen quota is exhausted and D-ID fallback failed.",
+        type="ApplicationError",
+        non_retryable=True,
+    )
+
+    details = _summarize_workflow_exception(
+        exc,
+        failed_step="generating_top_half",
+    )
+
+    assert details["failure_details"] is None
+    assert details["error_summary"] == "HeyGen quota is exhausted and D-ID fallback failed."

@@ -2,6 +2,18 @@ import type { ReviewEngineJob } from '@/lib/review-engine';
 
 export type CreateVideoStep = 1 | 2 | 3 | 4;
 
+export function shouldShowPlanCreatingOverlay({
+  currentStep,
+  isGenerating,
+  isGeneratingSuccess,
+}: {
+  currentStep: CreateVideoStep;
+  isGenerating: boolean;
+  isGeneratingSuccess: boolean;
+}): boolean {
+  return currentStep === 1 && (isGenerating || isGeneratingSuccess);
+}
+
 function jobTimestamp(job: ReviewEngineJob): string {
   return (
     job.updated_at ||

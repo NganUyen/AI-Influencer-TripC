@@ -21,6 +21,7 @@ import {
   getJobsForPlanIds,
   getPlanIdsFromJobs,
   inferBackendFlowJobs,
+  shouldShowPlanCreatingOverlay,
 } from '@/lib/create-video-flow';
 import type {
   CreateVideoProgressViewModel,
@@ -920,7 +921,11 @@ export function CreateVideoTab({
     setCurrentStep(toStep);
   }, []);
 
-  const generatingOverlayVisible = isGenerating || isGeneratingSuccess;
+  const generatingOverlayVisible = shouldShowPlanCreatingOverlay({
+    currentStep,
+    isGenerating,
+    isGeneratingSuccess,
+  });
   const generatingStageLabel =
     generatingStage === 'validating'
       ? 'Validating source context...'

@@ -3,6 +3,7 @@ import {
   getJobsForPlanIds,
   getPlanIdsFromJobs,
   inferBackendFlowJobs,
+  shouldShowPlanCreatingOverlay,
 } from '@/lib/create-video-flow';
 import type { ReviewEngineJob } from '@/lib/review-engine';
 
@@ -103,5 +104,31 @@ describe('create-video flow helpers', () => {
     ];
 
     expect(deriveStepFromJobs(completedJobs)).toBe(4);
+  });
+
+  it('hides plan-creating overlay immediately after review step is visible', () => {
+    expect(
+      shouldShowPlanCreatingOverlay({
+        currentStep: 2,
+        isGenerating: true,
+        isGeneratingSuccess: false,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldShowPlanCreatingOverlay({
+        currentStep: 2,
+        isGenerating: false,
+        isGeneratingSuccess: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldShowPlanCreatingOverlay({
+        currentStep: 1,
+        isGenerating: true,
+        isGeneratingSuccess: false,
+      }),
+    ).toBe(true);
   });
 });

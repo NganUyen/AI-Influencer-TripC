@@ -198,19 +198,21 @@ def _extract_top_half_failure_details(
     normalized_step = str(failed_step or "").strip().lower()
     normalized_activity = str(activity_type or "").strip().lower()
 
-    is_top_half_failure = normalized_activity == "generate_scene_images" or normalized_step in {
-        "generating_top_half",
-        "generating_top_half_and_audio",
-    }
-    if not is_top_half_failure and not any(
-        marker in text_lower
-        for marker in [
-            "top-half",
-            "public_page_capture",
-            "scene generation failed",
-            "err_http_response_code_failure",
-        ]
-    ):
+    top_half_markers = [
+        "top-half",
+        "public_page_capture",
+        "scene generation failed",
+        "err_http_response_code_failure",
+        "browser capture",
+        "playwright",
+        "recording failed",
+    ]
+    has_top_half_markers = any(marker in text_lower for marker in top_half_markers)
+    is_top_half_failure = normalized_activity == "generate_scene_images" or (
+        normalized_step in {"generating_top_half", "generating_top_half_and_audio"}
+        and has_top_half_markers
+    )
+    if not is_top_half_failure and not has_top_half_markers:
         return None
 
     code = "capture_output_invalid"
@@ -786,23 +788,70 @@ class ShortVideoWorkflow:
             else:
                 talking_head_result = {"url": None, "status": "skipped_no_audio"}
 
-            # Now await scenes (may already be done while talking head was starting)
-            self.current_step = "generating_top_half"
-            scenes_result = await scenes_handle
+            # Await both scenes and talking head concurrently, capturing failures independently
+            scenes_result = None
+            talking_head_result_local = None
+            scenes_exception = None
+            talking_head_exception = None
 
-            # Await talking head if it was started
             if talking_head_handle is not None:
-                try:
-                    talking_head_result = await talking_head_handle
-                except Exception as exc:
+                # Both are running in parallel - use gather to wait for both with proper error handling
+                results = await asyncio.gather(
+                    scenes_handle,
+                    talking_head_handle,
+                    return_exceptions=True,
+                )
+                scenes_result_or_exc, talking_head_result_or_exc = results
+
+                # Extract results and exceptions
+                if isinstance(scenes_result_or_exc, Exception):
+                    scenes_exception = scenes_result_or_exc
+                    # Set step context for error reporting
+                    self.current_step = "generating_top_half"
+                else:
+                    scenes_result = scenes_result_or_exc
+
+                if isinstance(talking_head_result_or_exc, Exception):
+                    talking_head_exception = talking_head_result_or_exc
+                    # Set step context for error reporting
+                    self.current_step = "generating_talking_head"
+                else:
+                    talking_head_result_local = talking_head_result_or_exc
+
+                # Report which one failed first (or both) for debugging
+                if scenes_exception and talking_head_exception:
+                    workflow.logger.error(
+                        "BOTH top-half and talking-head generation failed | persona=%s | scenes_error=%s | talking_head_error=%s",
+                        persona_id,
+                        type(scenes_exception).__name__,
+                        type(talking_head_exception).__name__,
+                    )
+                    # Prioritize talking head failure since it's required for split-screen
+                    raise talking_head_exception
+                elif talking_head_exception:
                     workflow.logger.error(
                         "Talking head generation FAILED | persona=%s | error_type=%s | error=%s",
                         persona_id,
-                        type(exc).__name__,
-                        str(exc)[:300],
+                        type(talking_head_exception).__name__,
+                        str(talking_head_exception)[:300],
                     )
                     # Re-raise to fail the workflow - talking head is required for split-screen
-                    raise
+                    raise talking_head_exception
+                elif scenes_exception:
+                    workflow.logger.error(
+                        "Top-half scene generation FAILED | persona=%s | error_type=%s | error=%s",
+                        persona_id,
+                        type(scenes_exception).__name__,
+                        str(scenes_exception)[:300],
+                    )
+                    raise scenes_exception
+
+                # Use local result if talking head wasn't started
+                talking_head_result = talking_head_result_local or {"url": None, "status": "skipped"}
+            else:
+                # Only scenes running, no talking head
+                self.current_step = "generating_top_half"
+                scenes_result = await scenes_handle
 
             self.workflow_status = "assembling"
             self.current_step = "assembling"

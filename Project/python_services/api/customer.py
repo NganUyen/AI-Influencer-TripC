@@ -33,6 +33,9 @@ from services.app_review_studio_service import AppReviewStudioService
 from services.workspace_service import WorkspaceService
 from services.telegram_link_service import TelegramLinkService
 from services.persona_studio_service import PersonaStudioService
+from services.system_persona_account_links_service import (
+    SystemPersonaAccountLinksService,
+)
 from services.video_capture_handoff_service import (
     VideoCaptureHandoffError,
     VideoCaptureHandoffService,
@@ -746,6 +749,9 @@ async def list_customer_personas(
     session: CustomerSession = Depends(require_customer_session),
 ) -> Dict[str, Any]:
     personas = await PersonaRegistryService.list_personas(user_id=session.user_id)
+    personas = await SystemPersonaAccountLinksService.apply_tiktok_links_to_personas(
+        personas
+    )
     has_system_personas = any(
         AppReviewStudioService.is_system_persona(item)
         for item in personas
@@ -781,6 +787,7 @@ async def list_customer_personas(
                 "description": item.get("description"),
                 "market_default": item.get("market_default"),
                 "tone_default": item.get("tone_default"),
+                "channel_configs": item.get("channel_configs") or {},
                 "created_at": item.get("created_at"),
             }
             for item in personas

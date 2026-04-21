@@ -670,6 +670,12 @@ Response format:
                     current.step_key = "collect_nationality"
                     return cls._collecting_result(current, next_step="collect_nationality")
 
+                # Step 2: Voice
+                voice = current.collected.get("voice")
+                if not voice:
+                    current.step_key = "choose_voice"
+                    return cls._collecting_result(current, next_step="choose_voice")
+
 
                 # Step 2.5: Language (Required for persistence)
                 language = current.collected.get("language")
@@ -840,6 +846,10 @@ Response format:
             owner_params = cls._owner_params(current)
             if owner_params:
                 payload.update(owner_params)
+            
+            # Ensure persona is marked as 'ready' when finalized
+            if current.step_key == "save":
+                payload["status"] = "ready"
             try:
                 persona = await cls._request_json(
                     http_client,

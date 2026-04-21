@@ -1,7 +1,7 @@
 'use client';
 
 import '@/app/create-video.css';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Clapperboard, FileCheck2, Play, Settings2, type LucideIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import type { Persona } from '@/components/customer-dashboard';
@@ -383,6 +383,10 @@ export function CreateVideoTab({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const restoredFlowPlanIdsRef = useRef<string[] | null>(null);
 
+  // UI/UX Pro Max Enhanced Loading State
+  const [generatingStage, setGeneratingStage] = useState<'validating' | 'generating' | 'finalizing' | null>(null);
+  const [isGeneratingSuccess, setIsGeneratingSuccess] = useState(false);
+
   const setupPersonaLists = useMemo(() => {
     if (setup) {
       const configuredSystemPersonas = (setup.persona_options || []).map(reviewPersonaToPersona);
@@ -570,7 +574,14 @@ export function CreateVideoTab({
     });
   }, [explicitActiveJobs.length, inferredActivePlanIds]);
 
-  const shouldPollJobs = activePlanIds.length > 0 || inferredActiveJobs.length > 0;
+  const isAllTerminal = activeJobs.length > 0 && activeJobs.every((job) => {
+    const s = String(job.status || '').toLowerCase();
+    return s === 'completed' || s === 'failed' || job.production?.ready;
+  });
+
+  const shouldPollJobs = 
+    (activePlanIds.length > 0 || inferredActiveJobs.length > 0) && 
+    !isAllTerminal;
 
   useEffect(() => {
     if (!shouldPollJobs) {
@@ -588,22 +599,33 @@ export function CreateVideoTab({
       return;
     }
     setPlanCards((current) => {
-      const currentByPlanId = new Map(
-        current.map((card) => [card.planId || card.jobId, card]),
-      );
-      return toPersonaPlanCards(activeJobs).map((card) => {
-        const existing = currentByPlanId.get(card.planId || card.jobId);
-        return existing
-          ? {
-              ...card,
-              reviewDecision: existing.reviewDecision,
-            }
-          : card;
+      const nextCards = toPersonaPlanCards(activeJobs);
+      const currentById = new Map(current.map((c) => [c.planId || c.jobId, c]));
+      const changed = nextCards.some((card) => {
+        const existing = currentById.get(card.planId || card.jobId);
+        return !existing || JSON.stringify(existing) !== JSON.stringify({ ...card, reviewDecision: existing.reviewDecision });
+      });
+      
+      if (!changed) return current;
+
+      return nextCards.map((card) => {
+        const existing = currentById.get(card.planId || card.jobId);
+        return existing ? { ...card, reviewDecision: existing.reviewDecision } : card;
       });
     });
-    setProgressItems(toRenderProgressItems(activeJobs));
+
+    const nextProgress = toRenderProgressItems(activeJobs);
+    setProgressItems((current) => {
+      if (JSON.stringify(current) === JSON.stringify(nextProgress)) return current;
+      return nextProgress;
+    });
+
     if (!sharedContractDirty) {
-      setSharedContractDraft(buildSharedContractDraft(activeJobs));
+      const nextDraft = buildSharedContractDraft(activeJobs);
+      setSharedContractDraft((current) => {
+        if (current.scriptText === nextDraft.scriptText && current.scenesText === nextDraft.scenesText) return current;
+        return nextDraft;
+      });
     }
 
     const derivedStep = deriveStepFromJobs(activeJobs);
@@ -666,6 +688,13 @@ export function CreateVideoTab({
 
     setErrorMessage(null);
     setIsGenerating(true);
+    setGeneratingStage('validating');
+    setIsGeneratingSuccess(false);
+
+    // Track simulated progress stages over time
+    const simulatedTimer1 = setTimeout(() => setGeneratingStage('generating'), 2000);
+    const simulatedTimer2 = setTimeout(() => setGeneratingStage('finalizing'), 7000);
+
     try {
       const payload = buildCreateJobPayload(setupState);
       const result = await customerApiRequest<{
@@ -687,21 +716,35 @@ export function CreateVideoTab({
       setSharedContractDraft(buildSharedContractDraft(nextJobs, result.master_contract));
       setSharedContractDirty(false);
       setProgressItems([]);
-      setCurrentStep(2);
+      
       if (result.warnings?.[0]?.message) {
         toast(`Review jobs created with a warning: ${result.warnings[0].message}`);
       }
       await Promise.resolve(onRefresh?.());
+
+      // Success UX: show checkmark for 500ms before transition
+      clearTimeout(simulatedTimer1);
+      clearTimeout(simulatedTimer2);
+      setGeneratingStage(null);
+      setIsGeneratingSuccess(true);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      setCurrentStep(2);
     } catch (error) {
+      clearTimeout(simulatedTimer1);
+      clearTimeout(simulatedTimer2);
+      setGeneratingStage(null);
       const message =
         error instanceof Error ? error.message : 'Failed to create review jobs';
       setErrorMessage(message);
       toast.error(message);
     } finally {
+      clearTimeout(simulatedTimer1);
+      clearTimeout(simulatedTimer2);
       setIsGenerating(false);
+      setIsGeneratingSuccess(false);
     }
   }, [onRefresh, setupState]);
-
   const savePlanEdits = useCallback(async () => {
     setErrorMessage(null);
     setIsSavingPlans(true);
@@ -901,11 +944,13 @@ export function CreateVideoTab({
             personas={setupPersonaLists.allPersonas}
             systemPersonaOptions={setupPersonaLists.systemPersonas}
             customPersonaOptions={setupPersonaLists.customPersonas}
-            isSubmitting={isGenerating}
+            isSubmitting={isGenerating || isGeneratingSuccess}
+            currentProcessingStage={generatingStage}
+            isGeneratingSuccess={isGeneratingSuccess}
+            totalPersonasCount={setupState.selectedPersonaIds.length}
             onContinue={goToStep2}
           />
         )}
-
         {currentStep === 2 && (
           <CreateVideoReviewStep
             planCards={planCards}
@@ -966,12 +1011,6 @@ export function CreateVideoTab({
           />
         )}
       </div>
-
-      {isGenerating && (
-        <div className="cv-cta-disabled-reason" style={{ marginTop: 16 }}>
-          Creating backend plans…
-        </div>
-      )}
     </div>
   );
 }
@@ -1003,7 +1042,7 @@ const STEP_CONFIG: Array<{
   },
 ];
 
-function StepIndicator({ currentStep }: { currentStep: Step }) {
+const StepIndicator = memo(({ currentStep }: { currentStep: Step }) => {
   return (
     <div className="cv-progress-tracker">
       <div className="cv-progress-track" role="progressbar" aria-valuenow={currentStep} aria-valuemin={1} aria-valuemax={4}>
@@ -1058,7 +1097,9 @@ function StepIndicator({ currentStep }: { currentStep: Step }) {
       </div>
     </div>
   );
-}
+});
+
+StepIndicator.displayName = 'StepIndicator';
 
 const SYSTEM_PERSONA_USER_ID = '00000000-0000-0000-0000-000000000001';
 

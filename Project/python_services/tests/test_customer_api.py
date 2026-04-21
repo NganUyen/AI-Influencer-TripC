@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from api import customer
 from services.customer_auth_service import CustomerSession
+from services.errors import ScriptGenerationError
 
 
 class _SyncASGIClient:
@@ -357,6 +358,66 @@ def test_create_review_engine_job_skips_campaign_creation_without_brand_profile(
     assert payload["jobs"][0]["campaign_id"] is None
     assert payload["jobs"][0]["script"]["script"] == "Generated review script"
     assert payload["warnings"][0]["code"] == "brand_onboarding_incomplete"
+
+
+def test_validate_review_engine_source_returns_rate_limit_details(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_review_url(url, objective=None, user_id=None):
+        assert url == "https://example.com/app"
+        assert user_id == _session().user_id
+        raise RuntimeError("API rate limit reached. Please try again later.")
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(
+        "services.website_review_service.WebsiteReviewService.review_url",
+        fake_review_url,
+    )
+
+    client = _build_client()
+    response = client.post(
+        "/api/customer/review-engine/source/validate",
+        headers={"Authorization": "Bearer customer-token"},
+        json={"source_url": "https://example.com/app"},
+    )
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == (
+        "OpenClaw API rate limit reached during website_review_planner while validating the source URL: "
+        "API rate limit reached. Please try again later."
+    )
+
+
+def test_create_review_engine_job_returns_rate_limit_details(monkeypatch):
+    async def fake_resolve_session(_authorization):
+        return _session()
+
+    async def fake_create_jobs(*, session, payload, temporal_client=None):
+        assert session.user_id == _session().user_id
+        assert payload["source_url"] == "https://example.com/app"
+        assert temporal_client is None
+        raise ScriptGenerationError("API rate limit reached. Please try again later.")
+
+    monkeypatch.setattr(customer.CustomerAuthService, "resolve_session", fake_resolve_session)
+    monkeypatch.setattr(customer.AppReviewStudioService, "create_jobs", fake_create_jobs)
+
+    client = _build_client()
+    response = client.post(
+        "/api/customer/review-engine/jobs",
+        headers={"Authorization": "Bearer customer-token"},
+        json={
+            "source_url": "https://example.com/app",
+            "objective": "Review",
+            "target_personas": ["persona-1"],
+        },
+    )
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == (
+        "OpenClaw API rate limit reached during review_plan_script_generation while creating review jobs: "
+        "API rate limit reached. Please try again later."
+    )
 
 
 def test_get_review_engine_setup_returns_persona_options(monkeypatch):

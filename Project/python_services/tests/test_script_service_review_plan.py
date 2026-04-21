@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from services.errors import ScriptGenerationError
 from services.script_service import ScriptService
 
 
@@ -91,3 +92,49 @@ async def test_generate_script_from_review_plan_builds_script_and_recording_step
     assert recording_script.execution_mode == "autonomous_screen_recording"
     assert len(recording_script.steps) == 3
     assert recording_script.steps[0].action.startswith("Open the homepage")
+
+
+@pytest.mark.asyncio
+async def test_generate_script_from_review_plan_treats_rate_limit_text_as_generation_error(
+    monkeypatch,
+):
+    async def fake_execute_task(self, task_type, prompt, user_id, context=None):
+        assert task_type == "review_plan_script_generation"
+        return {
+            "text": "API rate limit reached. Please try again later.",
+            "response_id": "resp-rate-limited",
+            "task_type": "review_plan_script_generation",
+        }
+
+    monkeypatch.setattr(
+        "services.script_service.OpenClawService.execute_task",
+        fake_execute_task,
+    )
+    monkeypatch.setattr(
+        "services.script_service.OpenClawService.close",
+        AsyncMock(return_value=None),
+    )
+
+    service = ScriptService()
+    with pytest.raises(ScriptGenerationError, match="rate limit"):
+        await service.generate_script_from_review_plan(
+            app_name="TripC",
+            review_plan={
+                "planning_mode": "webpage_review",
+                "objective": "Create a walkthrough review",
+                "target_url": "https://example.com",
+                "language": "English",
+                "persona_id": "persona-1",
+                "execution_mode": "autonomous_screen_recording",
+                "access_level": "public_page_only",
+                "status": "confirmed",
+                "page_review": {
+                    "target_url": "https://example.com",
+                    "normalized_url": "https://example.com",
+                    "product_summary": "A launch planning app.",
+                    "access_level": "public_page_only",
+                    "login_required": False,
+                },
+            },
+            persona_config={"language_name": "English", "tts_voice": "en-US-Neural2-A"},
+        )

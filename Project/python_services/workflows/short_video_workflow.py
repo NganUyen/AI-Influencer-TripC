@@ -101,6 +101,8 @@ _FFMPEG_SUBSTAGE_PATTERN = re.compile(r"ffmpeg failed \(([^)]+)\)")
 _TOP_HALF_SCENE_PATTERN = re.compile(r"scene\s+([A-Za-z0-9_-]+)", re.IGNORECASE)
 _TOP_HALF_URL_PATTERN = re.compile(r"(https?://[^\s)]+)", re.IGNORECASE)
 _TOP_HALF_HTTP_STATUS_PATTERN = re.compile(r"\b(401|403|404|408|409|410|418|429|500|502|503|504)\b")
+_TOP_HALF_PROXY_RETRY_PATTERN = re.compile(r"capture_context=proxy_retry_failed", re.IGNORECASE)
+_TOP_HALF_PROXY_SERVER_PATTERN = re.compile(r"proxy_server=(\S+)", re.IGNORECASE)
 
 
 def _trim_debug_text(text: str, limit: int = 3000) -> str:
@@ -267,6 +269,13 @@ def _extract_top_half_failure_details(
     status_match = _TOP_HALF_HTTP_STATUS_PATTERN.search(raw_text)
     if status_match:
         payload["http_status"] = int(status_match.group(1))
+
+    if _TOP_HALF_PROXY_RETRY_PATTERN.search(raw_text):
+        payload["proxy_retry_failed"] = True
+
+    proxy_server_match = _TOP_HALF_PROXY_SERVER_PATTERN.search(raw_text)
+    if proxy_server_match:
+        payload["proxy_server"] = proxy_server_match.group(1)
 
     return payload
 

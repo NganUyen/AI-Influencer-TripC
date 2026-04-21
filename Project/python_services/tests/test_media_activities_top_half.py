@@ -114,12 +114,25 @@ async def test_top_half_ai_visual_fallback(MockImageService):
         },
     ]
 
-    results = await generate_scene_images(scenes)
+    with patch(
+        "activities.media_activities._convert_image_to_video",
+        AsyncMock(
+            return_value={
+                "url": "https://mocked.com/ai_images/generated.webm",
+                "storage_url": "https://mocked.com/ai_images/generated.webm",
+                "storage_key": "ai_images/test/generated.webm",
+                "media_asset_id": "asset-ai-video-123",
+                "is_video": True,
+                "generation_method": "ai_visual_video",
+            }
+        ),
+    ):
+        results = await generate_scene_images(scenes)
 
     assert len(results) == 1
     assert results[0]["status"] == "completed"
-    assert results[0]["is_video"] == False
-    assert results[0]["generation_method"] == "ai_visual"
+    assert results[0]["is_video"] is True
+    assert results[0]["generation_method"] == "ai_visual_video"
     assert "ai_images" in results[0]["image_url"]
     
     # Verify ImageGenerationService was called
@@ -188,11 +201,24 @@ async def test_hybrid_candidate_without_source_ref_uses_ai_directly(MockImageSer
         },
     ]
 
-    results = await generate_scene_images(scenes)
+    with patch(
+        "activities.media_activities._convert_image_to_video",
+        AsyncMock(
+            return_value={
+                "url": "https://mocked.com/ai_direct/image.webm",
+                "storage_url": "https://mocked.com/ai_direct/image.webm",
+                "storage_key": "ai_direct/test/image.webm",
+                "media_asset_id": "asset-direct-video-123",
+                "is_video": True,
+                "generation_method": "ai_visual_video",
+            }
+        ),
+    ):
+        results = await generate_scene_images(scenes)
 
     assert len(results) == 1
     assert results[0]["status"] == "completed"
-    assert results[0]["generation_method"] == "ai_visual"
+    assert results[0]["generation_method"] == "ai_visual_video"
     # Should not have fallback_reason since it went directly to AI
     assert results[0].get("fallback_reason") is None
     

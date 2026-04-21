@@ -754,58 +754,177 @@
 }
 
 /* --------------------------------------------------------------------------
-    Background Music Mood Cards
+    Background Music Mood Cards — ENHANCED (Button-like, Gesture-inspired)
     -------------------------------------------------------------------------- */
 
 .cv-bgm-mood-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
 }
 
 .cv-bgm-mood-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 16px;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px;
   border: 1.5px solid rgb(174 173 169 / 0.2);
-  border-radius: 1rem;
+  border-radius: 0.5rem;
   background: var(--surface-container);
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  min-height: 90px;
-  justify-content: center;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  min-height: 48px;
+  min-width: 48px;
+  font-family: inherit;
+  user-select: none;
+  position: relative;
+  overflow: hidden;
 }
 
-.cv-bgm-mood-card:hover {
+/* Hover state - lift & scale feedback (interactive) */
+.cv-bgm-mood-card:hover:not(:disabled) {
   border-color: #705900;
-  background: rgb(112 89 0 / 0.08);
+  background: rgb(112 89 0 / 0.1);
+  transform: scale(1.05) translateY(-1px);
+  box-shadow: 0 4px 12px rgba(112, 89, 0, 0.12);
+  animation: cv-card-gesture-hover 0.4s ease-in-out infinite;
 }
 
-.cv-bgm-mood-card:active {
+/* Active/Pressed state - immediate feedback */
+.cv-bgm-mood-card:active:not(:disabled) {
   border-color: #705900;
   background: rgb(112 89 0 / 0.15);
   transform: scale(0.98);
+  box-shadow: inset 0 2px 4px rgba(112, 89, 0, 0.15);
 }
 
+/* Selected state - persistent indication */
 .cv-bgm-mood-card--selected {
-  border-color: #705900;
+  border: 1.5px solid #705900;
   background: rgb(112 89 0 / 0.14);
-  box-shadow: inset 0 0 0 1px rgb(112 89 0 / 0.25);
+  box-shadow: inset 0 0 0 1px rgb(112 89 0 / 0.25), 0 2px 8px rgba(112, 89, 0, 0.1);
+  font-weight: 600;
 }
 
+.cv-bgm-mood-card--selected:hover:not(:disabled) {
+  background: rgb(112 89 0 / 0.18);
+  box-shadow: inset 0 0 0 1px rgb(112 89 0 / 0.25), 0 4px 12px rgba(112, 89, 0, 0.15);
+}
+
+/* Disabled state */
+.cv-bgm-mood-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Icon styling - compact */
 .cv-bgm-mood-icon {
-  font-size: 24px;
+  font-size: 18px;
   line-height: 1;
+  flex-shrink: 0;
+  transition: transform 0.2s ease-in-out;
 }
 
+/* Label styling - optional, hidden on mobile */
 .cv-bgm-mood-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: #5c5c58;
+  text-align: center;
+  line-height: 1.2;
+  display: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+/* Show label on larger screens */
+@media (min-width: 1200px) {
+  .cv-bgm-mood-label {
+    display: block;
+  }
+}
+
+/* Gesture animation - subtle bounce on hover */
+@keyframes cv-card-gesture-hover {
+  0%, 100% {
+    transform: scale(1.05) translateY(-1px) rotate(0deg);
+  }
+  50% {
+    transform: scale(1.06) translateY(-2px) rotate(0.5deg);
+  }
+}
+
+/* Entrance animation - staggered */
+@keyframes cv-card-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.cv-bgm-mood-card {
+  animation: cv-card-enter 0.3s ease-out both;
+}
+
+.cv-bgm-mood-card:nth-child(1) { animation-delay: 0ms; }
+.cv-bgm-mood-card:nth-child(2) { animation-delay: 30ms; }
+.cv-bgm-mood-card:nth-child(3) { animation-delay: 60ms; }
+.cv-bgm-mood-card:nth-child(4) { animation-delay: 90ms; }
+.cv-bgm-mood-card:nth-child(5) { animation-delay: 120ms; }
+.cv-bgm-mood-card:nth-child(n+6) { animation-delay: 150ms; }
+
+/* Accessibility: Focus visible state */
+.cv-bgm-mood-card:focus-visible {
+  outline: 2px solid rgb(160 57 41 / 0.5);
+  outline-offset: 2px;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .cv-bgm-mood-card {
+    animation: none;
+    transition: none;
+  }
+
+  .cv-bgm-mood-card:hover:not(:disabled) {
+    animation: none;
+    transform: none;
+  }
+}
+
+/* Tablet breakpoints - Music mood cards */
+@media (max-width: 1200px) {
+  .cv-bgm-mood-cards {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 9px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .cv-bgm-mood-cards {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 9px;
+  }
+
+  .cv-bgm-mood-card {
+    padding: 8px;
+    min-height: 48px;
+  }
+
+  .cv-bgm-mood-label {
+    display: none;
+  }
+}
+
+/* Mobile breakpoints */
 @media (max-width: 768px) {
   .cv-background-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -816,7 +935,36 @@
   }
 
   .cv-bgm-mood-cards {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .cv-bgm-mood-card {
+    padding: 6px;
+    min-height: 44px;
+    min-width: 44px;
+    border-radius: 0.375rem;
+  }
+
+  .cv-bgm-mood-icon {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .cv-bgm-mood-cards {
     grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+
+  .cv-bgm-mood-card {
+    padding: 6px;
+    min-height: 44px;
+    border-radius: 0.375rem;
+  }
+
+  .cv-bgm-mood-icon {
+    font-size: 16px;
   }
 }
 

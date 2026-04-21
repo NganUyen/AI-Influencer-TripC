@@ -1309,7 +1309,7 @@ async def _pre_validate_url(url: str, timeout_seconds: float = 10.0) -> Dict[str
     try:
         parsed = urlparse(url)
         domain = parsed.netloc.lower()
-        path = parsed.path.lower()
+        path = (parsed.path or "/").lower()
         
         # Check for known bot-detection domains
         for bot_domain in _BOT_DETECTION_DOMAINS:
@@ -1564,7 +1564,6 @@ async def _capture_browser_video(
         )
         url_validation = {"validation_error": str(val_err)[:100]}
 
-    browser = browser_service_class()
     os.makedirs("/tmp/tutorials_videos", exist_ok=True)
 
     # Inject region and proxy to avoid being blocked (white screen)
@@ -1607,14 +1606,6 @@ async def _capture_browser_video(
         logger.warning("Region/Proxy services not available. Proceeding with defaults.")
 
     try:
-        await browser.initialize_browser(
-            record_video_dir="/tmp/tutorials_videos",
-            record_video_size={"width": 1080, "height": 960},
-            region_info=region_info,
-            proxy_config=proxy_config,
-            platform=platform_hint,
-        )
-
         capture_hint = scene.get("top_half_capture_hint", "scroll")
         target_selector = scene.get("top_half_target")
         action_text = str(scene.get("browser_action") or scene.get("prompt") or "").strip()
@@ -1673,26 +1664,86 @@ async def _capture_browser_video(
             url_validation.get("accessible") if url_validation else "skipped",
         )
 
+        def _is_http_response_capture_error(exc: Exception) -> bool:
+            text = str(exc or "").lower()
+            return any(
+                token in text
+                for token in [
+                    "err_http_response_code_failure",
+                    "access denied",
+                    "forbidden",
+                    "challenge",
+                    "captcha",
+                ]
+            )
+
+        async def _run_capture_session(active_proxy_config):
+            nonlocal browser, local_capture_metrics
+            browser = browser_service_class()
+            logger.info(
+                "Initializing browser capture session | scene=%s | proxy_enabled=%s | proxy_server=%s | region=%s | platform=%s",
+                scene_id,
+                bool(active_proxy_config),
+                (active_proxy_config or {}).get("server"),
+                (region_info or {}).get("countryCode") or (region_info or {}).get("country"),
+                platform_hint,
+            )
+            await browser.initialize_browser(
+                record_video_dir="/tmp/tutorials_videos",
+                record_video_size={"width": 1080, "height": 960},
+                region_info=region_info,
+                proxy_config=active_proxy_config,
+                platform=platform_hint,
+            )
+
+            video_path, local_capture_metrics = await _capture_with_retry(
+                browser=browser,
+                source_ref=source_ref,
+                capture_hint=capture_hint,
+                target_selector=target_selector,
+                action_text=action_text,
+                visual_success_criteria=visual_success_criteria,
+                max_capture_seconds=max_capture_seconds,
+                follow_relevant_links=follow_relevant_links,
+                scene_duration_sec=scene_duration_sec,
+                scene_id=scene_id,
+                max_attempts=3,
+            )
+
+            await browser.close()
+            browser = None
+            return video_path
+
         # ═══════════════════════════════════════════════════════════════════════════
         # MULTI-ATTEMPT CAPTURE WITH RETRY
         # ═══════════════════════════════════════════════════════════════════════════
-        video_path, local_capture_metrics = await _capture_with_retry(
-            browser=browser,
-            source_ref=source_ref,
-            capture_hint=capture_hint,
-            target_selector=target_selector,
-            action_text=action_text,
-            visual_success_criteria=visual_success_criteria,
-            max_capture_seconds=max_capture_seconds,
-            follow_relevant_links=follow_relevant_links,
-            scene_duration_sec=scene_duration_sec,
-            scene_id=scene_id,
-            max_attempts=3,
-        )
+        try:
+            video_path = await _run_capture_session(proxy_config)
+        except Exception as capture_err:
+            if browser is not None:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
+                finally:
+                    browser = None
 
-        # CRITICAL: Close browser BEFORE reading the file to ensure Playwright finalizes the .webm
-        await browser.close()
-        browser = None
+            if proxy_config and _is_http_response_capture_error(capture_err):
+                logger.warning(
+                    "Browser capture failed with proxy-enabled session; retrying once without proxy | scene=%s | url=%s | proxy_server=%s | error=%s",
+                    scene_id,
+                    source_ref[:80],
+                    proxy_config.get("server"),
+                    str(capture_err)[:200],
+                )
+                try:
+                    video_path = await _run_capture_session(None)
+                except Exception as fallback_err:
+                    raise RuntimeError(
+                        f"{fallback_err} | capture_context=proxy_retry_failed proxy_enabled_initial=True proxy_server={proxy_config.get('server')}"
+                    ) from fallback_err
+            else:
+                raise
 
         if not video_path or not os.path.exists(video_path):
             raise RuntimeError(

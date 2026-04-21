@@ -915,6 +915,29 @@ class BrowserAutomationService:
                     logger.warning("Failed to close page after error: %s", close_err)
                 finally:
                     self._page_created = False
+
+            # Preserve a real Playwright recording if one was already produced before
+            # the late-stage exception. This keeps strict browser capture intact while
+            # avoiding false negatives from brittle post-navigation failures.
+            if video is not None:
+                try:
+                    salvage_path = await video.path()
+                except Exception:
+                    salvage_path = None
+
+                if salvage_path and os.path.exists(salvage_path):
+                    salvage_size = os.path.getsize(salvage_path)
+                    if salvage_size >= 2000:
+                        metrics.video_path = salvage_path
+                        metrics.file_size_bytes = salvage_size
+                        logger.warning(
+                            "Returning salvaged browser recording after late capture failure | url=%s | path=%s | size_bytes=%d | error=%s",
+                            url[:60],
+                            salvage_path,
+                            salvage_size,
+                            str(e)[:200],
+                        )
+                        return salvage_path, metrics
             
             raise
 

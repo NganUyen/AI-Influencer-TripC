@@ -91,3 +91,17 @@ def test_build_failure_output_data_includes_structured_failure_details():
     assert payload["failure_step"] == "generating_top_half"
     assert payload["failure_stage"] == "top_half"
     assert payload["failure_details"]["code"] == "http_response_failure"
+
+
+def test_summarize_workflow_exception_preserves_proxy_retry_context_for_top_half_failure():
+    exc = ApplicationError(
+        "Playwright top-half recording failed for scene 4: All 3 capture attempts failed for scene 4. Last error: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://www.coursera.org | capture_context=proxy_retry_failed proxy_enabled_initial=True proxy_server=http://proxy.example:8080",
+        type="TopHalfRecordingError",
+        non_retryable=True,
+    )
+
+    details = _summarize_workflow_exception(exc)
+
+    assert details["failure_details"]["code"] == "http_response_failure"
+    assert details["failure_details"]["proxy_retry_failed"] is True
+    assert details["failure_details"]["proxy_server"] == "http://proxy.example:8080"

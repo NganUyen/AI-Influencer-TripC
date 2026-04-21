@@ -138,6 +138,7 @@ export interface PersonaPlanCardViewModel {
   outputReady: boolean;
   scriptPreview: string;
   scenes: ScenePreviewItem[];
+  lastErrorMessage?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +173,7 @@ export interface CreateVideoProgressViewModel {
   downloadUrl?: string | null;
   readyToPublish: boolean;
   timelineEvents: RenderTimelineEvent[];
+  statusMessage?: string | null;
 }
 
 // ---------------------------------------------------------------------------

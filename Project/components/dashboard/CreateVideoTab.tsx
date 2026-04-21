@@ -1,7 +1,7 @@
 'use client';
 
 import '@/app/create-video.css';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Clapperboard, FileCheck2, Play, Settings2, type LucideIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import type { Persona } from '@/components/customer-dashboard';
@@ -502,7 +502,14 @@ export function CreateVideoTab({
     });
   }, [explicitActiveJobs.length, inferredActivePlanIds]);
 
-  const shouldPollJobs = activePlanIds.length > 0 || inferredActiveJobs.length > 0;
+  const isAllTerminal = activeJobs.length > 0 && activeJobs.every((job) => {
+    const s = String(job.status || '').toLowerCase();
+    return s === 'completed' || s === 'failed' || job.production?.ready;
+  });
+
+  const shouldPollJobs = 
+    (activePlanIds.length > 0 || inferredActiveJobs.length > 0) && 
+    !isAllTerminal;
 
   useEffect(() => {
     if (!shouldPollJobs) {
@@ -520,22 +527,33 @@ export function CreateVideoTab({
       return;
     }
     setPlanCards((current) => {
-      const currentByPlanId = new Map(
-        current.map((card) => [card.planId || card.jobId, card]),
-      );
-      return toPersonaPlanCards(activeJobs).map((card) => {
-        const existing = currentByPlanId.get(card.planId || card.jobId);
-        return existing
-          ? {
-              ...card,
-              reviewDecision: existing.reviewDecision,
-            }
-          : card;
+      const nextCards = toPersonaPlanCards(activeJobs);
+      const currentById = new Map(current.map((c) => [c.planId || c.jobId, c]));
+      const changed = nextCards.some((card) => {
+        const existing = currentById.get(card.planId || card.jobId);
+        return !existing || JSON.stringify(existing) !== JSON.stringify({ ...card, reviewDecision: existing.reviewDecision });
+      });
+      
+      if (!changed) return current;
+
+      return nextCards.map((card) => {
+        const existing = currentById.get(card.planId || card.jobId);
+        return existing ? { ...card, reviewDecision: existing.reviewDecision } : card;
       });
     });
-    setProgressItems(toRenderProgressItems(activeJobs));
+
+    const nextProgress = toRenderProgressItems(activeJobs);
+    setProgressItems((current) => {
+      if (JSON.stringify(current) === JSON.stringify(nextProgress)) return current;
+      return nextProgress;
+    });
+
     if (!sharedContractDirty) {
-      setSharedContractDraft(buildSharedContractDraft(activeJobs));
+      const nextDraft = buildSharedContractDraft(activeJobs);
+      setSharedContractDraft((current) => {
+        if (current.scriptText === nextDraft.scriptText && current.scenesText === nextDraft.scenesText) return current;
+        return nextDraft;
+      });
     }
 
     const derivedStep = deriveStepFromJobs(activeJobs);
@@ -904,7 +922,7 @@ const STEP_CONFIG: Array<{
   },
 ];
 
-function StepIndicator({ currentStep }: { currentStep: Step }) {
+const StepIndicator = memo(({ currentStep }: { currentStep: Step }) => {
   return (
     <div className="cv-progress-tracker">
       <div className="cv-progress-track" role="progressbar" aria-valuenow={currentStep} aria-valuemin={1} aria-valuemax={4}>
@@ -959,7 +977,9 @@ function StepIndicator({ currentStep }: { currentStep: Step }) {
       </div>
     </div>
   );
-}
+});
+
+StepIndicator.displayName = 'StepIndicator';
 
 const SYSTEM_PERSONA_USER_ID = '00000000-0000-0000-0000-000000000001';
 

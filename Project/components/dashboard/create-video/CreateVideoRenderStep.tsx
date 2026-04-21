@@ -1,4 +1,5 @@
 'use client';
+import { memo, useMemo } from 'react';
 
 import type { CreateVideoProgressViewModel, RenderStatus, ViewTone } from '@/types/video-planning';
 
@@ -78,16 +79,30 @@ export function CreateVideoRenderStep({ progressItems, onContinue, onBack }: Cre
 
       {allDone && (
         <div className="cv-continue-bar">
-          <button type="button" onClick={onContinue} className="btn-primary">
-            Continue to publish
-          </button>
+          {completedCount > 0 ? (
+            <button type="button" onClick={onContinue} className="btn-primary">
+              Continue to publish
+            </button>
+          ) : (
+            <div className="cv-render-fail-caution">
+              <p>No videos were successfully rendered. You can try again or adjust your setup.</p>
+              <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+                <button type="button" onClick={onBack} className="btn-secondary">
+                  Back to Review
+                </button>
+                <button type="button" onClick={() => window.location.reload()} className="btn-primary">
+                  Retry All
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function RenderProgressCard({ item }: { item: CreateVideoProgressViewModel }) {
+const RenderProgressCard = memo(({ item }: { item: CreateVideoProgressViewModel }) => {
   const isDone = item.status === 'completed';
   const normalizedProgress = Math.max(0, Math.min(100, item.progressPercent || 0));
   const progressToneClass = isDone
@@ -164,6 +179,12 @@ function RenderProgressCard({ item }: { item: CreateVideoProgressViewModel }) {
           </div>
         )}
 
+        {item.status === 'failed' && item.statusMessage && (
+          <div className="cv-error-box" style={{ marginTop: 10, fontSize: '0.85rem' }}>
+            <strong>Backend Error:</strong> {item.statusMessage}
+          </div>
+        )}
+
         <div>
           <p className="cv-card-section-label">Output</p>
           {item.playableVideoUrl ? (
@@ -208,7 +229,9 @@ function RenderProgressCard({ item }: { item: CreateVideoProgressViewModel }) {
       </div>
     </div>
   );
-}
+});
+
+RenderProgressCard.displayName = 'RenderProgressCard';
 
 function PersonaAvatar({ name, avatarUrl, size }: { name: string; avatarUrl?: string; size: number }) {
   if (avatarUrl) {

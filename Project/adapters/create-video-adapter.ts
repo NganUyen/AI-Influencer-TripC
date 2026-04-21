@@ -265,6 +265,7 @@ export function toPersonaPlanCards(
       scriptPreview:
         String(job.script?.script || job.editable_content || job.content?.body || '').trim(),
       scenes: buildScenePreviewItems(job),
+      lastErrorMessage: job.status_message || job.error_detail || null,
     };
   });
 }
@@ -292,5 +293,6 @@ export function toRenderProgressItems(
       job.production?.ready && job.production?.publish_enabled,
     ),
     timelineEvents: buildTimelineEvents(job),
+    statusMessage: job.status_message || job.error_detail || null,
   }));
 }

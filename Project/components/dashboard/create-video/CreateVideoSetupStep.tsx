@@ -35,6 +35,13 @@ interface CreateVideoSetupStepProps {
   onContinue: () => void;
 }
 
+function isProviderLimitMessage(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return normalized.includes('rate limit')
+    || normalized.includes('quota exhausted')
+    || normalized.includes('too many requests');
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -219,6 +226,9 @@ export function CreateVideoSetupStep({
     } catch (err) {
       if (controller.signal.aborted) return;
       const msg = err instanceof Error ? err.message : 'Validation failed';
+      if (isProviderLimitMessage(msg)) {
+        toast.error(msg);
+      }
       onChange({
         urlValidationStatus: 'invalid',
         urlValidationMessage: msg,

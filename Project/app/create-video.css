@@ -1654,6 +1654,45 @@
   overflow: hidden;
 }
 
+/* Render Fail Caution & Error Box */
+.cv-render-fail-caution {
+  padding: 24px;
+  background: rgb(255 0 0 / 0.04);
+  border: 1px solid rgb(255 0 0 / 0.1);
+  border-radius: 16px;
+  text-align: center;
+  animation: cv-shake-subtle 0.5s ease-in-out;
+}
+
+.cv-render-fail-caution p {
+  color: #c92a2a;
+  font-weight: 500;
+  margin-bottom: 16px;
+}
+
+.cv-error-box {
+  background: rgb(255 0 0 / 0.06);
+  color: #c92a2a;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border-left: 3px solid #f03e3e;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  margin-top: 12px;
+  animation: cv-fade-in-up 0.3s ease-out;
+}
+
+@keyframes cv-shake-subtle {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+}
+
+@keyframes cv-fade-in-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .cv-gesture-demo-stage::after {
   content: "";
   position: absolute;

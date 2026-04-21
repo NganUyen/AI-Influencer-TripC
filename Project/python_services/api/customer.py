@@ -43,11 +43,20 @@ from services.background_music_service import (
 )
 from services.video_planner_handoff_service import VideoPlannerHandoffService
 from services.persona_registry_service import PersonaRegistryService
-from services.errors import PersonaConfigurationError
+from services.errors import (
+    PersonaConfigurationError,
+    QuotaExceededError,
+    ScriptGenerationError,
+)
 from services.video_planning_service import VideoPlanningService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+_PROVIDER_LIMIT_ERROR_MARKERS = (
+    "rate limit",
+    "too many requests",
+    "quota exhausted",
+)
 
 try:  # pragma: no cover - depends on environment extras
     import multipart as _multipart  # type: ignore
@@ -64,6 +73,34 @@ async def require_customer_session(
         return await CustomerAuthService.resolve_session(authorization)
     except CustomerAuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+def _is_provider_limit_error(exc: Exception) -> bool:
+    if isinstance(exc, QuotaExceededError):
+        return True
+
+    if isinstance(exc, ScriptGenerationError):
+        message = str(exc).strip().lower()
+        return any(marker in message for marker in _PROVIDER_LIMIT_ERROR_MARKERS)
+
+    message = str(exc).strip().lower()
+    return any(marker in message for marker in _PROVIDER_LIMIT_ERROR_MARKERS)
+
+
+def _raise_provider_limit_http_error(
+    *,
+    provider: str,
+    operation: str,
+    action: str,
+    exc: Exception,
+) -> None:
+    if not _is_provider_limit_error(exc):
+        return
+
+    detail = (
+        f"{provider} API rate limit reached during {operation} while {action}: {exc}"
+    )
+    raise HTTPException(status_code=429, detail=detail) from exc
 
 
 class BrandProfileRequest(BaseModel):
@@ -1013,12 +1050,17 @@ async def validate_review_engine_source(
             "page_review_data": result.model_dump(mode="json"),
         }
     except Exception as exc:
-        import logging
-        logging.getLogger(__name__).warning("Source validation failed with exception:", exc_info=True)
+        logger.warning("Source validation failed with exception:", exc_info=True)
+        _raise_provider_limit_http_error(
+            provider="OpenClaw",
+            operation="website_review_planner",
+            action="validating the source URL",
+            exc=exc,
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Source validation failed: {exc}",
-        )
+        ) from exc
 
 
 @router.post("/review-engine/jobs")
@@ -1039,10 +1081,16 @@ async def create_review_engine_job(
             detail=str(exc),
         ) from exc
     except Exception as exc:
+        _raise_provider_limit_http_error(
+            provider="OpenClaw",
+            operation="review_plan_script_generation",
+            action="creating review jobs",
+            exc=exc,
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Job creation failed: {exc}"
-        )
+        ) from exc
 
 
 @router.get("/review-engine/setup")

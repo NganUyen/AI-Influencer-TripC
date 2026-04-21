@@ -1,6 +1,103 @@
 import type { ReviewEngineJob } from '@/lib/review-engine';
+import type { PersonaPlanCardViewModel } from '@/types/video-planning';
 
 export type CreateVideoStep = 1 | 2 | 3 | 4;
+
+export function shouldShowPlanCreatingOverlay({
+  currentStep,
+  isGenerating,
+  isGeneratingSuccess,
+}: {
+  currentStep: CreateVideoStep;
+  isGenerating: boolean;
+  isGeneratingSuccess: boolean;
+}): boolean {
+  return currentStep === 1 && (isGenerating || isGeneratingSuccess);
+}
+
+export function shouldPollReviewJobs({
+  currentStep,
+  activePlanIdsCount,
+  inferredActiveJobsCount,
+  isAllTerminal,
+  isSubmittingPlans,
+  isSavingPlans,
+  uploadingPlanIdsCount,
+  publishingJobId,
+  hasRefreshInFlight,
+}: {
+  currentStep: CreateVideoStep;
+  activePlanIdsCount: number;
+  inferredActiveJobsCount: number;
+  isAllTerminal: boolean;
+  isSubmittingPlans: boolean;
+  isSavingPlans: boolean;
+  uploadingPlanIdsCount: number;
+  publishingJobId: string | null;
+  hasRefreshInFlight: boolean;
+}): boolean {
+  const hasTrackedFlow = activePlanIdsCount > 0 || inferredActiveJobsCount > 0;
+  if (!hasTrackedFlow || isAllTerminal) {
+    return false;
+  }
+
+  if (
+    isSubmittingPlans ||
+    isSavingPlans ||
+    uploadingPlanIdsCount > 0 ||
+    Boolean(publishingJobId) ||
+    hasRefreshInFlight
+  ) {
+    return false;
+  }
+
+  if (currentStep < 3 && inferredActiveJobsCount === 0) {
+    return false;
+  }
+
+  return true;
+}
+
+type ApproveablePlanCard = Pick<
+  PersonaPlanCardViewModel,
+  'planId' | 'personaName' | 'reviewDecision'
+>;
+
+export async function approvePlanCards(
+  cards: ApproveablePlanCard[],
+  approvePlan: (card: { planId: string; personaName: string }) => Promise<void>,
+): Promise<{ approvedPlanIds: string[]; failedApprovals: string[] }> {
+  const approvedCards = cards.filter(
+    (card): card is { planId: string; personaName: string; reviewDecision: 'approved' } =>
+      card.reviewDecision === 'approved' && Boolean(card.planId),
+  );
+
+  const results = await Promise.allSettled(
+    approvedCards.map(async (card) => {
+      await approvePlan({
+        planId: String(card.planId || '').trim(),
+        personaName: card.personaName,
+      });
+      return {
+        planId: String(card.planId || '').trim(),
+        personaName: card.personaName,
+      };
+    }),
+  );
+
+  const approvedPlanIds: string[] = [];
+  const failedApprovals: string[] = [];
+
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      approvedPlanIds.push(result.value.planId);
+      return;
+    }
+    failedApprovals.push(approvedCards[index]?.personaName || 'Persona');
+  });
+
+  return { approvedPlanIds, failedApprovals };
+}
 
 function jobTimestamp(job: ReviewEngineJob): string {
   return (

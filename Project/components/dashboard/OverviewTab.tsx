@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Download, Edit2, PlayCircle, Send } from "lucide-react";
+import { Download, Edit2, Maximize2, PlayCircle, Send } from "lucide-react";
 import {
   getReviewJobActiveTikTokChannels,
   getReviewJobChannelLabel,
@@ -78,6 +78,99 @@ function formatDateLabel(value?: string | null) {
     day: "2-digit",
     month: "short",
   });
+}
+
+function FinalProductMedia({
+  playableVideoUrl,
+  personaImage,
+  personaName,
+  personaRegion,
+}: {
+  playableVideoUrl?: string | null;
+  personaImage: string;
+  personaName: string;
+  personaRegion: string;
+}) {
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+
+  const handleVideoClick = React.useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      void video.play().catch(() => undefined);
+      return;
+    }
+    video.pause();
+  }, []);
+
+  const handleFullscreen = React.useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    if (typeof container.requestFullscreen === "function") {
+      void container.requestFullscreen().catch(() => undefined);
+      return;
+    }
+
+    const video = videoRef.current as (HTMLVideoElement & {
+      webkitEnterFullscreen?: () => void;
+    }) | null;
+    video?.webkitEnterFullscreen?.();
+  }, []);
+
+  return (
+    <div ref={containerRef} className="relative aspect-[4/3] overflow-hidden bg-black group">
+      {playableVideoUrl ? (
+        <>
+          <video
+            ref={videoRef}
+            className="w-full h-full object-cover cursor-pointer"
+            src={playableVideoUrl}
+            muted
+            playsInline
+            controls
+            preload="metadata"
+            onClick={handleVideoClick}
+          />
+
+          <div
+            data-testid="final-product-video-overlay"
+            className="pointer-events-none absolute inset-0 flex flex-col justify-between p-3 sm:p-4"
+          >
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleFullscreen}
+                className="pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/65 text-white shadow-lg transition hover:bg-black/80"
+                aria-label="Fullscreen"
+              >
+                <Maximize2 className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="rounded-xl bg-gradient-to-t from-black/85 via-black/45 to-transparent p-2.5 sm:p-3.5">
+              <div className="flex items-center gap-3">
+                <img
+                  alt={personaName}
+                  className="w-9 h-9 rounded-full object-cover ring-2 ring-white/20"
+                  src={personaImage}
+                  width={36}
+                  height={36}
+                />
+                <div className="min-w-0">
+                  <p className="text-white font-semibold text-sm truncate">{personaName}</p>
+                  <p className="text-white/70 text-xs uppercase tracking-widest">{personaRegion}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <img alt={personaName} className="w-full h-full object-cover" src={personaImage} />
+      )}
+    </div>
+  );
 }
 
 export function OverviewTab({
@@ -323,42 +416,12 @@ export function OverviewTab({
                     key={job.job_id}
                     className="dashboard-panel overflow-hidden p-0 flex flex-col h-full"
                   >
-                    <div className="relative aspect-[4/3] overflow-hidden bg-black">
-                      {job.production?.playable_video_url ? (
-                        <video
-                          className="w-full h-full object-cover"
-                          src={job.production.playable_video_url}
-                          muted
-                          playsInline
-                          controls
-                        />
-                      ) : (
-                        <img
-                          alt={job.persona?.display_name || "Persona"}
-                          className="w-full h-full object-cover"
-                          src={personaImage}
-                        />
-                      )}
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-5">
-                        <div className="flex items-center gap-3">
-                          <img
-                            alt={job.persona?.display_name || "Persona"}
-                            className="w-9 h-9 rounded-full object-cover ring-2 ring-white/20"
-                            src={personaImage}
-                            width={36}
-                            height={36}
-                          />
-                          <div className="min-w-0">
-                            <p className="text-white font-semibold text-sm truncate">
-                              {job.persona?.display_name || "Persona"}
-                            </p>
-                            <p className="text-white/70 text-xs uppercase tracking-widest">
-                              {job.persona?.region_label || job.persona?.language || "Global"}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    <FinalProductMedia
+                      playableVideoUrl={job.production?.playable_video_url}
+                      personaImage={personaImage}
+                      personaName={job.persona?.display_name || "Persona"}
+                      personaRegion={job.persona?.region_label || job.persona?.language || "Global"}
+                    />
 
                     <div className="p-3.5 space-y-3">
                       <div className="flex items-start justify-between gap-2">
@@ -464,6 +527,18 @@ export function OverviewTab({
                             <Edit2 className="w-3.5 h-3.5" />
                             Edit Content
                           </button>
+
+                          {job.production?.playable_video_url && (
+                            <a
+                              href={job.production.playable_video_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="btn-secondary btn-sm h-8 px-3 text-xs flex items-center gap-1.5"
+                            >
+                              <PlayCircle className="w-3.5 h-3.5" />
+                              Preview
+                            </a>
+                          )}
 
                           {job.production?.download_url ? (
                             <a

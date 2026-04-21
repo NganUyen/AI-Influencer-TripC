@@ -4,10 +4,6 @@ export interface GestureStyleOption {
   summary: string;
   movementProfile: string;
   demoTitle: string;
-  demoDurationLabel?: string;
-  demoSrc?: string;
-  demoRate?: number;
-  demoStartSeconds?: number;
   previewMode:
     | 'natural'
     | 'expressive'
@@ -19,6 +15,21 @@ export interface GestureStyleOption {
     | 'calm';
 }
 
+export interface ReviewEngineAudioTrack {
+  id?: string;
+  group?: string;
+  profile?: string;
+  style?: string;
+  mood?: string;
+  duration_seconds?: number;
+  preview_path?: string;
+}
+
+export interface ReviewEngineAudioLibrary {
+  bgm?: ReviewEngineAudioTrack[];
+  movement?: ReviewEngineAudioTrack[];
+}
+
 export const GESTURE_STYLE_OPTIONS: GestureStyleOption[] = [
   {
     value: 'Natural',
@@ -26,10 +37,6 @@ export const GESTURE_STYLE_OPTIONS: GestureStyleOption[] = [
     summary: 'Balanced hand motion with subtle rhythm.',
     movementProfile: 'natural',
     demoTitle: 'Natural Motion Bed',
-    demoDurationLabel: 'Live duration',
-    demoSrc: '/create-video-demos/movement/movement_natural.mp3',
-    demoRate: 0.94,
-    demoStartSeconds: 0.4,
     previewMode: 'natural',
   },
   {
@@ -38,10 +45,6 @@ export const GESTURE_STYLE_OPTIONS: GestureStyleOption[] = [
     summary: 'Larger hand movement for energetic hooks.',
     movementProfile: 'expressive',
     demoTitle: 'Expressive Motion Bed',
-    demoDurationLabel: 'Live duration',
-    demoSrc: '/create-video-demos/movement/movement_expressive.mp3',
-    demoRate: 1.06,
-    demoStartSeconds: 14,
     previewMode: 'expressive',
   },
   {
@@ -50,10 +53,6 @@ export const GESTURE_STYLE_OPTIONS: GestureStyleOption[] = [
     summary: 'Small controlled gestures and low visual noise.',
     movementProfile: 'minimal',
     demoTitle: 'Minimal Motion Bed',
-    demoDurationLabel: 'Live duration',
-    demoSrc: '/create-video-demos/movement/movement_minimal.mp3',
-    demoRate: 0.9,
-    demoStartSeconds: 22,
     previewMode: 'minimal',
   },
   {
@@ -62,10 +61,6 @@ export const GESTURE_STYLE_OPTIONS: GestureStyleOption[] = [
     summary: 'Fast upbeat movement for promo-style content.',
     movementProfile: 'energetic',
     demoTitle: 'Energetic Motion Bed',
-    demoDurationLabel: 'Live duration',
-    demoSrc: '/create-video-demos/movement/movement_energetic.mp3',
-    demoRate: 1.1,
-    demoStartSeconds: 10,
     previewMode: 'energetic',
   },
   {
@@ -74,10 +69,6 @@ export const GESTURE_STYLE_OPTIONS: GestureStyleOption[] = [
     summary: 'Confident measured delivery with structured cues.',
     movementProfile: 'professional',
     demoTitle: 'Professional Motion Bed',
-    demoDurationLabel: 'Live duration',
-    demoSrc: '/create-video-demos/movement/movement_professional.mp3',
-    demoRate: 0.97,
-    demoStartSeconds: 34,
     previewMode: 'professional',
   },
   {
@@ -86,10 +77,6 @@ export const GESTURE_STYLE_OPTIONS: GestureStyleOption[] = [
     summary: 'Relaxed posture with conversational hand flow.',
     movementProfile: 'casual',
     demoTitle: 'Casual Motion Bed',
-    demoDurationLabel: 'Live duration',
-    demoSrc: '/create-video-demos/movement/movement_casual.mp3',
-    demoRate: 1.02,
-    demoStartSeconds: 0.2,
     previewMode: 'casual',
   },
   {
@@ -98,10 +85,6 @@ export const GESTURE_STYLE_OPTIONS: GestureStyleOption[] = [
     summary: 'Directional gesture pattern to support narrative scenes.',
     movementProfile: 'storytelling',
     demoTitle: 'Storytelling Motion Bed',
-    demoDurationLabel: 'Live duration',
-    demoSrc: '/create-video-demos/movement/movement_storytelling.mp3',
-    demoRate: 1.0,
-    demoStartSeconds: 16,
     previewMode: 'storytelling',
   },
   {
@@ -110,10 +93,6 @@ export const GESTURE_STYLE_OPTIONS: GestureStyleOption[] = [
     summary: 'Slow steady movement for trust-focused messaging.',
     movementProfile: 'calm',
     demoTitle: 'Calm Motion Bed',
-    demoDurationLabel: 'Live duration',
-    demoSrc: '/create-video-demos/movement/movement_calm.mp3',
-    demoRate: 0.88,
-    demoStartSeconds: 0.6,
     previewMode: 'calm',
   },
 ];
@@ -239,20 +218,83 @@ export const MUSIC_MOOD_OPTIONS: MusicMoodOption[] = [
   },
 ];
 
+function normalizeToken(value?: string | null): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+function resolveTrackPreviewPath(
+  tracks: ReviewEngineAudioTrack[],
+  profile: string,
+): string | undefined {
+  const normalizedProfile = normalizeToken(profile);
+  if (!normalizedProfile) {
+    return undefined;
+  }
+
+  const selectedTrack = tracks.find(
+    (track) => normalizeToken(track.profile) === normalizedProfile,
+  );
+  const previewPath = String(selectedTrack?.preview_path || '').trim();
+  return previewPath || undefined;
+}
+
+export function applyAudioLibraryPreviewOverrides(
+  gestureOptions: GestureStyleOption[],
+  musicOptions: MusicMoodOption[],
+  library?: ReviewEngineAudioLibrary | null,
+): {
+  gestureOptions: GestureStyleOption[];
+  musicOptions: MusicMoodOption[];
+} {
+  const bgmTracks = Array.isArray(library?.bgm)
+    ? library?.bgm ?? []
+    : [];
+
+  const nextMusicOptions = musicOptions.map((option) => {
+    if (normalizeToken(option.value) === 'none') {
+      return {
+        ...option,
+        demoSrc: undefined,
+      };
+    }
+    const previewFromLibrary = resolveTrackPreviewPath(
+      bgmTracks,
+      option.bgmProfile,
+    );
+    if (!previewFromLibrary) {
+      return {
+        ...option,
+        demoSrc: undefined,
+      };
+    }
+    return {
+      ...option,
+      demoSrc: previewFromLibrary,
+    };
+  });
+
+  return {
+    gestureOptions,
+    musicOptions: nextMusicOptions,
+  };
+}
+
 export function getGestureStyleOption(
   value?: string | null,
+  options: GestureStyleOption[] = GESTURE_STYLE_OPTIONS,
 ): GestureStyleOption | undefined {
-  const normalized = String(value || '').trim().toLowerCase();
-  return GESTURE_STYLE_OPTIONS.find(
+  const normalized = normalizeToken(value);
+  return options.find(
     (item) => item.value.trim().toLowerCase() === normalized,
   );
 }
 
 export function getMusicMoodOption(
   value?: string | null,
+  options: MusicMoodOption[] = MUSIC_MOOD_OPTIONS,
 ): MusicMoodOption | undefined {
-  const normalized = String(value || '').trim().toLowerCase();
-  return MUSIC_MOOD_OPTIONS.find(
+  const normalized = normalizeToken(value);
+  return options.find(
     (item) => item.value.trim().toLowerCase() === normalized,
   );
 }

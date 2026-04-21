@@ -87,7 +87,37 @@ def test_mix_video_audio_with_bgm_loops_overlay_and_preserves_video(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_build_split_screen_video_uses_local_bgm_and_preserves_vertical_output(monkeypatch):
+async def test_materialize_track_audio_downloads_from_access_url(monkeypatch, tmp_path):
+    captured = {}
+    dest = tmp_path / "track.mp3"
+
+    async def fake_download_required(url: str, out: str, label: str) -> None:
+        captured["url"] = url
+        captured["dest"] = out
+        captured["label"] = label
+        Path(out).write_bytes(b"a" * 5000)
+
+    monkeypatch.setattr(video_activities, "_download_required", fake_download_required)
+
+    ok = await video_activities._materialize_track_audio(
+        track={
+            "group": "bgm",
+            "profile": "product_explainer",
+            "access_url": "https://cdn.example/audio-library/bgm.mp3",
+        },
+        dest_path=str(dest),
+        label="bgm_fallback",
+    )
+
+    assert ok is True
+    assert captured["url"] == "https://cdn.example/audio-library/bgm.mp3"
+    assert captured["label"] == "bgm_fallback"
+    assert dest.exists()
+    assert dest.stat().st_size >= 5000
+
+
+@pytest.mark.asyncio
+async def test_build_split_screen_video_uses_bgm_fallback_and_preserves_vertical_output(monkeypatch):
     async def fake_download_required(url: str, dest: str, label: str) -> None:
         Path(dest).write_bytes(b"0" * 4000)
 
@@ -312,3 +342,93 @@ async def test_build_split_screen_video_applies_movement_overlay_when_enabled(
     assert "mix_movement_overlay" in ffmpeg_labels
     assert result["metadata"]["used_movement_overlay"] is True
     assert result["metadata"]["movement_profile"] == "natural"
+
+
+@pytest.mark.asyncio
+async def test_build_split_screen_video_can_apply_movement_and_post_combine_bgm_together(
+    monkeypatch, tmp_path
+):
+    ffmpeg_labels = []
+
+    async def fake_download_required(url: str, dest: str, label: str) -> None:
+        Path(dest).write_bytes(b"0" * 4000)
+
+    async def fake_download_optional(url: str, dest: str, label: str):
+        return None
+
+    def fake_run_ffmpeg(cmd, label, cwd=None):
+        ffmpeg_labels.append(label)
+        output_path = Path(cmd[-1])
+        output_path.write_bytes(b"1" * 20000)
+
+    def fake_probe_duration(path: str):
+        return 12.0
+
+    def fake_audio_signal(path: str):
+        return True
+
+    class _FakeMediaStorage:
+        async def upload_bytes(self, **kwargs):
+            return {
+                "access_url": "https://cdn.example/final-with-bgm-and-movement.mp4",
+                "storage_path": "videos/persona/final-with-bgm-and-movement.mp4",
+            }
+
+    def fake_select_track(*, group="bgm", profile="product_explainer", max_duration_seconds=60):
+        if group == "movement":
+            return {
+                "group": "movement",
+                "profile": "natural",
+                "access_url": "https://cdn.example/library/movement-natural.mp3",
+                "duration_seconds": 26,
+                "start_offset_seconds": 0.4,
+                "clip_duration_seconds": 10.0,
+            }
+        return {
+            "group": "bgm",
+            "profile": "motivational_lift",
+            "access_url": "https://cdn.example/library/bgm-motivational.mp3",
+            "duration_seconds": 55,
+        }
+
+    monkeypatch.setattr(video_activities, "_download_required", fake_download_required)
+    monkeypatch.setattr(video_activities, "_download_optional", fake_download_optional)
+    monkeypatch.setattr(video_activities, "_run_ffmpeg", fake_run_ffmpeg)
+    monkeypatch.setattr(video_activities, "_probe_media_duration", fake_probe_duration)
+    monkeypatch.setattr(video_activities, "_audio_has_audible_signal", fake_audio_signal)
+    monkeypatch.setattr(video_activities, "MediaStorageService", _FakeMediaStorage)
+    monkeypatch.setattr(
+        video_activities.BackgroundMusicService,
+        "select_track",
+        fake_select_track,
+    )
+
+    result = await video_activities.build_split_screen_video(
+        {
+            "image_urls": ["https://cdn.example/scene-1.mp4"],
+            "audio_url": "https://cdn.example/voiceover.mp3",
+            "talking_head_url": None,
+            "subtitle_script": "",
+            "subtitle_segments": [],
+            "scene_durations": [4.0],
+            "is_video_flags": [True],
+            "persona_id": "persona-1",
+            "topic": "combo movement and bgm",
+            "duration_per_image": 4.0,
+            "audio_policy": {
+                "bgm_fallback_enabled": True,
+                "bgm_library_profile": "motivational_lift",
+                "bgm_duck_under_voiceover": True,
+                "movement_overlay_enabled": True,
+                "movement_library_profile": "natural",
+                "movement_overlay_volume": 0.2,
+                "max_bgm_duration_seconds": 60,
+            },
+            "owner_key": "telegram:555",
+        }
+    )
+
+    assert "mix_movement_overlay" in ffmpeg_labels
+    assert "mix_bgm_after_combine" in ffmpeg_labels
+    assert result["metadata"]["used_movement_overlay"] is True
+    assert result["metadata"]["used_bgm_overlay_after_combine"] is True

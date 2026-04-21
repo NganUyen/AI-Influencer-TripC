@@ -151,6 +151,67 @@ async def _download_optional(url: str, dest: str, label: str) -> Optional[str]:
         return None
 
 
+def _is_http_url(value: Optional[str]) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized.startswith("http://") or normalized.startswith("https://")
+
+
+def _resolve_track_download_url(track: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not track:
+        return None
+
+    for key in ("access_url", "preview_path", "url", "path"):
+        candidate = str(track.get(key) or "").strip()
+        if _is_http_url(candidate):
+            return candidate
+
+    storage_path = str(track.get("storage_path") or "").strip()
+    if storage_path:
+        try:
+            return StorageService().get_public_url(storage_path)
+        except Exception as exc:
+            logger.warning(
+                "Failed to build public URL for track storage_path=%s: %s",
+                storage_path,
+                exc,
+            )
+    return None
+
+
+async def _materialize_track_audio(
+    *,
+    track: Optional[Dict[str, Any]],
+    dest_path: str,
+    label: str,
+) -> bool:
+    if not track:
+        return False
+
+    download_url = _resolve_track_download_url(track)
+    if download_url:
+        try:
+            await _download_required(download_url, dest_path, label)
+            return True
+        except Exception as exc:
+            logger.warning(
+                "Failed to download %s from storage URL; checking local fallback: %s",
+                label,
+                exc,
+            )
+
+    legacy_path = str(track.get("path") or "").strip()
+    if legacy_path and os.path.exists(legacy_path):
+        try:
+            await asyncio.to_thread(
+                Path(dest_path).write_bytes,
+                Path(legacy_path).read_bytes(),
+            )
+            return True
+        except Exception as exc:
+            logger.warning("Failed local fallback copy for %s: %s", label, exc)
+    return False
+
+
 def _run_ffmpeg(cmd: List[str], label: str, cwd: Optional[str] = None) -> None:
     result = subprocess.run(cmd, capture_output=True, cwd=cwd, text=True)
     if result.returncode != 0:
@@ -276,7 +337,7 @@ def _prepare_audio_source(
         )
     except BackgroundMusicError as exc:
         raise AssemblyMissingAssetError(
-            f"audio_url is missing and no local BGM fallback is available: {exc}"
+            f"audio_url is missing and no BGM fallback is available: {exc}"
         ) from exc
     return str(tmp_path / "bgm_fallback.mp3"), selected_track
 
@@ -772,16 +833,18 @@ async def _build_split_screen_video_impl(config: Dict[str, Any]) -> Dict[str, An
             )
         elif bgm_track and audio_path:
             download_tasks.append(
-                asyncio.to_thread(
-                    Path(audio_path).write_bytes,
-                    Path(str(bgm_track["path"])).read_bytes(),
+                _materialize_track_audio(
+                    track=bgm_track,
+                    dest_path=audio_path,
+                    label="bgm_fallback",
                 )
             )
         if movement_overlay_path and movement_track:
             download_tasks.append(
-                asyncio.to_thread(
-                    Path(movement_overlay_path).write_bytes,
-                    Path(str(movement_track["path"])).read_bytes(),
+                _materialize_track_audio(
+                    track=movement_track,
+                    dest_path=movement_overlay_path,
+                    label="movement_overlay",
                 )
             )
 
@@ -814,8 +877,11 @@ async def _build_split_screen_video_impl(config: Dict[str, Any]) -> Dict[str, An
                         profile=str(audio_policy.get("bgm_library_profile") or "product_explainer").strip(),
                         max_duration_seconds=int(audio_policy.get("max_bgm_duration_seconds") or 60),
                     )
-                    Path(audio_path).write_bytes(Path(str(bgm_track["path"])).read_bytes())
-                    using_bgm_fallback = True
+                    using_bgm_fallback = await _materialize_track_audio(
+                        track=bgm_track,
+                        dest_path=audio_path,
+                        label="bgm_fallback_after_silence",
+                    )
                 except BackgroundMusicError as exc:
                     logger.warning("BGM fallback unavailable after silent audio detection: %s", exc)
 
@@ -1110,8 +1176,13 @@ async def _build_split_screen_video_impl(config: Dict[str, Any]) -> Dict[str, An
                 )
                 bgm_overlay_track = None
 
-            bgm_overlay_source = str((bgm_overlay_track or {}).get("path") or "").strip()
-            if bgm_overlay_source and os.path.exists(bgm_overlay_source):
+            bgm_overlay_source = str(tmp_path / "post_combine_bgm_overlay.mp3")
+            bgm_overlay_ready = await _materialize_track_audio(
+                track=bgm_overlay_track,
+                dest_path=bgm_overlay_source,
+                label="post_combine_bgm_overlay",
+            )
+            if bgm_overlay_ready and os.path.exists(bgm_overlay_source):
                 bgm_overlay_volume = _resolve_bgm_overlay_volume(audio_policy)
                 mixed_with_bgm_path = str(tmp_path / "final_output_with_bgm.mp4")
                 try:
@@ -1138,8 +1209,7 @@ async def _build_split_screen_video_impl(config: Dict[str, Any]) -> Dict[str, An
                     )
             elif bgm_overlay_track:
                 logger.warning(
-                    "Configured post-combine BGM track file is missing: %s",
-                    bgm_overlay_source,
+                    "Configured post-combine BGM track is unavailable for mixing."
                 )
 
         subtitle_events = _build_subtitle_events(

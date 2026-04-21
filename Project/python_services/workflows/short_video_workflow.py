@@ -67,6 +67,13 @@ _KNOWN_VIDEO_GENERATION_METHODS = {
 }
 
 
+async def _drain_activity_handles(*handles: Any) -> List[Any]:
+    pending = [handle for handle in handles if handle is not None]
+    if not pending:
+        return []
+    return list(await asyncio.gather(*pending, return_exceptions=True))
+
+
 def _scene_has_video_asset(scene: Dict[str, Any]) -> bool:
     """Best-effort video detection for mixed worker versions and partial metadata."""
     raw_flag = scene.get("is_video")
@@ -359,6 +366,9 @@ class ShortVideoWorkflow:
         self.workflow_status = "queued"
         self.current_step = "queued"
         self.decision = None
+        audio_handle = None
+        scenes_handle = None
+        talking_head_handle = None
 
         # Version gates for deterministic replay across deployed workflow changes.
         progress_notify_enabled = workflow.patched("short-video-progress-notify-v1")
@@ -683,7 +693,6 @@ class ShortVideoWorkflow:
 
             # Stage A: Start audio and scenes in parallel
             # Temporal 1.5.1 returns ActivityHandle; start both first, then await
-            audio_handle = None
             if bool(audio_policy.get("voiceover_required", True)):
                 audio_handle = workflow.execute_activity(
                     generate_audio,
@@ -745,8 +754,6 @@ class ShortVideoWorkflow:
                         audio_result = None
                     else:
                         raise
-            talking_head_handle = None
-
             # Stage B: Start talking head as soon as audio is ready
             if not heygen_avatar_id and talking_head_optional:
                 workflow.logger.info(
@@ -1110,6 +1117,7 @@ class ShortVideoWorkflow:
                 },
             }
         except (PersonaNotReadyError, PersonaConfigurationError) as exc:
+            await _drain_activity_handles(audio_handle, scenes_handle, talking_head_handle)
             await _handle_workflow_failure(exc)
             raise
         except asyncio.CancelledError:
@@ -1133,6 +1141,7 @@ class ShortVideoWorkflow:
                 "metadata": {"reason": "Cancelled by user"},
             }
         except Exception as exc:
+            await _drain_activity_handles(audio_handle, scenes_handle, talking_head_handle)
             await _handle_workflow_failure(exc)
             raise
 

@@ -1,6 +1,10 @@
+import asyncio
+
+import pytest
 from temporalio.exceptions import ApplicationError
 
 from workflows.short_video_workflow import (
+    _drain_activity_handles,
     _build_failure_output_data,
     _summarize_workflow_exception,
 )
@@ -121,3 +125,25 @@ def test_summarize_workflow_exception_does_not_misclassify_talking_head_failure_
 
     assert details["failure_details"] is None
     assert details["error_summary"] == "HeyGen quota is exhausted and D-ID fallback failed."
+
+
+@pytest.mark.asyncio
+async def test_drain_activity_handles_collects_failures_without_reraising():
+    async def fail_soon():
+        await asyncio.sleep(0)
+        raise RuntimeError("scene failed")
+
+    async def finish_later():
+        await asyncio.sleep(0)
+        return "ok"
+
+    failing_task = asyncio.create_task(fail_soon())
+    success_task = asyncio.create_task(finish_later())
+
+    results = await _drain_activity_handles(failing_task, success_task, None)
+
+    assert len(results) == 2
+    assert isinstance(results[0], RuntimeError)
+    assert results[1] == "ok"
+    assert failing_task.done() is True
+    assert success_task.done() is True

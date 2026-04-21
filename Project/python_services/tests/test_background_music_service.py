@@ -1,10 +1,9 @@
 import json
-from pathlib import Path
 
 from services.background_music_service import BackgroundMusicService
 
 
-def test_background_music_service_selects_local_track_by_profile():
+def test_background_music_service_selects_storage_track_by_profile():
     track = BackgroundMusicService.select_track(
         profile="product_explainer",
         max_duration_seconds=60,
@@ -12,7 +11,10 @@ def test_background_music_service_selects_local_track_by_profile():
 
     assert track["profile"] == "product_explainer"
     assert track["duration_seconds"] <= 60
-    assert track["path"].endswith("bgm_corporate_atlasaudio.mp3")
+    assert track["storage_path"] == "bgm/bgm_corporate_atlasaudio.mp3"
+    assert track["storage_path"].endswith("bgm_corporate_atlasaudio.mp3")
+    assert track["access_url"].startswith("http://")
+    assert track["path"] == track["access_url"]
 
 
 def test_background_music_service_selects_new_bgm_track_by_profile():
@@ -24,7 +26,9 @@ def test_background_music_service_selects_new_bgm_track_by_profile():
 
     assert track["group"] == "bgm"
     assert track["profile"] == "electro_drive"
-    assert track["path"].endswith("bgm_electro_drive.mp3")
+    assert track["storage_path"] == "bgm/bgm_electro_drive.mp3"
+    assert track["storage_path"].endswith("bgm_electro_drive.mp3")
+    assert track["preview_path"].startswith("http://")
 
 
 def test_background_music_service_selects_movement_track_by_profile():
@@ -36,7 +40,9 @@ def test_background_music_service_selects_movement_track_by_profile():
 
     assert track["group"] == "movement"
     assert track["profile"] == "natural"
-    assert track["path"].endswith("movement_natural.mp3")
+    assert track["storage_path"] == "movement/movement_natural.mp3"
+    assert track["storage_path"].endswith("movement_natural.mp3")
+    assert track["access_url"].startswith("http://")
 
 
 def test_background_music_service_lists_tracks_from_manifest_without_audio_files(
@@ -68,9 +74,17 @@ def test_background_music_service_lists_tracks_from_manifest_without_audio_files
         "_legacy_manifest_path",
         library_root / "library.json",
     )
+    monkeypatch.setattr(
+        BackgroundMusicService,
+        "_build_access_url",
+        classmethod(lambda cls, storage_path: f"https://cdn.example/{storage_path}"),
+    )
 
     tracks = BackgroundMusicService.list_tracks(group="bgm")
 
     assert len(tracks) == 1
     assert tracks[0]["group"] == "bgm"
-    assert tracks[0]["path"] == str(Path(library_root / "bgm" / "demo-track.mp3"))
+    assert tracks[0]["storage_path"] == "bgm/demo-track.mp3"
+    assert tracks[0]["access_url"] == "https://cdn.example/bgm/demo-track.mp3"
+    assert tracks[0]["preview_path"] == "https://cdn.example/bgm/demo-track.mp3"
+    assert tracks[0]["path"] == "https://cdn.example/bgm/demo-track.mp3"

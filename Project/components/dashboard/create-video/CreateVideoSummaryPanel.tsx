@@ -6,6 +6,8 @@ import type { CreateVideoSetupState, VideoCreationMode } from '@/types/video-pla
 import {
   getGestureStyleOption,
   getMusicMoodOption,
+  type GestureStyleOption,
+  type MusicMoodOption,
 } from './setup-options';
 
 const MODE_LABELS: Record<VideoCreationMode, string> = {
@@ -17,15 +19,17 @@ const MODE_LABELS: Record<VideoCreationMode, string> = {
 interface CreateVideoSummaryPanelProps {
   setupState: CreateVideoSetupState;
   selectedPersonas: Persona[];
-  movementPreviewNonce?: number;
   musicPreviewNonce?: number;
+  gestureStyleOptions?: GestureStyleOption[];
+  musicMoodOptions?: MusicMoodOption[];
 }
 
 export function CreateVideoSummaryPanel({
   setupState,
   selectedPersonas,
-  movementPreviewNonce = 0,
   musicPreviewNonce = 0,
+  gestureStyleOptions,
+  musicMoodOptions,
 }: CreateVideoSummaryPanelProps) {
   const {
     sourceUrl,
@@ -53,8 +57,14 @@ export function CreateVideoSummaryPanel({
     ? 'Review your plan when the setup feels right.'
     : 'Complete the required source and persona choices.';
 
-  const gestureOption = getGestureStyleOption(selectedMovementStyle);
-  const musicOption = getMusicMoodOption(selectedMusicMood);
+  const gestureOption = getGestureStyleOption(
+    selectedMovementStyle,
+    gestureStyleOptions,
+  );
+  const musicOption = getMusicMoodOption(
+    selectedMusicMood,
+    musicMoodOptions,
+  );
 
   const validationLabel =
     urlValidationStatus === 'idle' ? '-' :
@@ -194,12 +204,14 @@ export function CreateVideoSummaryPanel({
                 musicOption.demoSrc,
                 musicOption.demoRate,
                 musicOption.demoStartSeconds,
+                `${selectedMusicMood}::${musicPreviewNonce}`,
               ].join('|')}
               src={musicOption.demoSrc}
               playbackRate={musicOption.demoRate ?? 1}
               startSeconds={musicOption.demoStartSeconds ?? 0}
               demoDurationLabel={musicOption.demoDurationLabel}
               autoPlayToken={`${selectedMusicMood}::${musicPreviewNonce}`}
+              volumePercent={musicVolume}
             />
           ) : (
             <p className="cv-summary-demo-empty">Select a music mood to preview an audio sample.</p>
@@ -209,31 +221,13 @@ export function CreateVideoSummaryPanel({
         <div className="cv-summary-demo-card">
           <div className="cv-summary-demo-header">
             <span className="cv-summary-label">Gesture Demo</span>
-            <span className="cv-summary-demo-meta">
-              {gestureOption?.demoDurationLabel || 'No sample'}
-            </span>
+            <span className="cv-summary-demo-meta">Action only</span>
           </div>
           <p className="cv-summary-demo-title">{gestureOption?.demoTitle || gestureOption?.label || selectedMovementStyle || 'Natural'}</p>
           <GestureDemo
             mode={gestureOption?.previewMode || 'natural'}
             intensity={gestureIntensity}
           />
-          {gestureOption?.demoSrc ? (
-            <AudioPreviewPlayer
-              key={[
-                gestureOption.demoSrc,
-                gestureOption.demoRate,
-                gestureOption.demoStartSeconds,
-              ].join('|')}
-              src={gestureOption.demoSrc}
-              playbackRate={gestureOption.demoRate ?? 1}
-              startSeconds={gestureOption.demoStartSeconds ?? 0}
-              demoDurationLabel={gestureOption.demoDurationLabel}
-              autoPlayToken={`${selectedMovementStyle}::${movementPreviewNonce}`}
-            />
-          ) : (
-            <p className="cv-summary-demo-empty">Select a movement style to preview an audio sample.</p>
-          )}
           <p className="cv-summary-demo-note">
             {gestureOption?.summary || 'Preview reflects the selected movement style and gesture intensity.'}
           </p>
@@ -260,12 +254,14 @@ function AudioPreviewPlayer({
   startSeconds,
   demoDurationLabel,
   autoPlayToken,
+  volumePercent,
 }: {
   src: string;
   playbackRate: number;
   startSeconds: number;
   demoDurationLabel?: string;
   autoPlayToken?: string;
+  volumePercent: number;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hasInitializedRef = useRef(false);
@@ -273,6 +269,23 @@ function AudioPreviewPlayer({
   const [activeSourceIndex, setActiveSourceIndex] = useState(0);
   const [metadataDuration, setMetadataDuration] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const autoPlayNonce = Number(
+    String(autoPlayToken || "")
+      .split("::")
+      .pop() || "0"
+  );
+  const shouldAutoPlayOnMount = Number.isFinite(autoPlayNonce) && autoPlayNonce > 0;
+  const normalizedVolume = Math.max(
+    0,
+    Math.min(
+      1,
+      (
+        Number.isFinite(volumePercent)
+          ? Number(volumePercent)
+          : 70
+      ) / 100
+    ),
+  );
 
   const sourceCandidates = useMemo(() => {
     const candidates = [src];
@@ -293,13 +306,22 @@ function AudioPreviewPlayer({
   }, [src]);
 
   const activeSource = sourceCandidates[Math.min(activeSourceIndex, sourceCandidates.length - 1)] || src;
-  const activeSourceWithVersion = `${activeSource}${activeSource.includes('?') ? '&' : '?'}v=20260420b`;
+  const cacheBustToken = String(autoPlayToken || '').trim() || '20260420b';
+  const activeSourceWithVersion = `${activeSource}${activeSource.includes('?') ? '&' : '?'}v=${encodeURIComponent(cacheBustToken)}`;
 
   useEffect(() => {
     setActiveSourceIndex(0);
     setMetadataDuration(null);
     setLoadError(null);
   }, [src]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+    audio.volume = normalizedVolume;
+  }, [normalizedVolume]);
 
   useEffect(() => {
     const token = String(autoPlayToken || '').trim().toLowerCase();
@@ -319,6 +341,7 @@ function AudioPreviewPlayer({
 
     const tryPlay = () => {
       audio.playbackRate = Math.max(0.8, Math.min(1.25, playbackRate));
+      audio.volume = normalizedVolume;
       if (startSeconds > 0) {
         try {
           audio.currentTime = startSeconds;
@@ -342,13 +365,14 @@ function AudioPreviewPlayer({
     return () => {
       audio.removeEventListener('canplay', onCanPlay);
     };
-  }, [autoPlayToken, playbackRate, startSeconds]);
+  }, [autoPlayToken, normalizedVolume, playbackRate, startSeconds]);
 
   return (
     <>
       <audio
         ref={audioRef}
         controls
+        autoPlay={shouldAutoPlayOnMount}
         preload="metadata"
         src={activeSourceWithVersion}
         className="cv-summary-audio-player"
@@ -359,6 +383,7 @@ function AudioPreviewPlayer({
             return;
           }
           audio.playbackRate = Math.max(0.8, Math.min(1.25, playbackRate));
+          audio.volume = normalizedVolume;
           if (Number.isFinite(audio.duration) && audio.duration > 0) {
             setMetadataDuration(audio.duration);
             setLoadError(null);
@@ -377,6 +402,7 @@ function AudioPreviewPlayer({
             return;
           }
           audio.playbackRate = Math.max(0.8, Math.min(1.25, playbackRate));
+          audio.volume = normalizedVolume;
           if (startSeconds > 0 && audio.currentTime < 0.1) {
             try {
               audio.currentTime = startSeconds;

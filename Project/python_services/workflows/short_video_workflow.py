@@ -98,6 +98,11 @@ def _has_nonempty_asset_url(scene: Dict[str, Any]) -> bool:
 
 
 _FFMPEG_SUBSTAGE_PATTERN = re.compile(r"ffmpeg failed \(([^)]+)\)")
+_TOP_HALF_SCENE_PATTERN = re.compile(r"scene\s+([A-Za-z0-9_-]+)", re.IGNORECASE)
+_TOP_HALF_URL_PATTERN = re.compile(r"(https?://[^\s)]+)", re.IGNORECASE)
+_TOP_HALF_HTTP_STATUS_PATTERN = re.compile(r"\b(401|403|404|408|409|410|418|429|500|502|503|504)\b")
+_TOP_HALF_PROXY_RETRY_PATTERN = re.compile(r"capture_context=proxy_retry_failed", re.IGNORECASE)
+_TOP_HALF_PROXY_SERVER_PATTERN = re.compile(r"proxy_server=(\S+)", re.IGNORECASE)
 
 
 def _trim_debug_text(text: str, limit: int = 3000) -> str:
@@ -181,7 +186,103 @@ def _infer_failure_substage(raw_error_message: str) -> str | None:
     return None
 
 
-def _summarize_workflow_exception(exc: Exception) -> Dict[str, Any]:
+def _extract_top_half_failure_details(
+    *,
+    raw_error_message: str,
+    activity_type: str | None,
+    failed_step: str | None,
+    retryable: bool | None,
+) -> Dict[str, Any] | None:
+    raw_text = str(raw_error_message or "").strip()
+    text_lower = raw_text.lower()
+    normalized_step = str(failed_step or "").strip().lower()
+    normalized_activity = str(activity_type or "").strip().lower()
+
+    is_top_half_failure = normalized_activity == "generate_scene_images" or normalized_step in {
+        "generating_top_half",
+        "generating_top_half_and_audio",
+    }
+    if not is_top_half_failure and not any(
+        marker in text_lower
+        for marker in [
+            "top-half",
+            "public_page_capture",
+            "scene generation failed",
+            "err_http_response_code_failure",
+        ]
+    ):
+        return None
+
+    code = "capture_output_invalid"
+    message = "Top-half recording failed while generating the browser capture."
+    recommended_action = "Check the target website and try again."
+
+    if "err_http_response_code_failure" in text_lower:
+        code = "http_response_failure"
+        message = (
+            "Top-half recording failed because the website returned an HTTP response "
+            "that browser automation could not use."
+        )
+        recommended_action = (
+            "Verify the site is reachable from automated browsers and try again."
+        )
+    elif any(marker in text_lower for marker in ["cloudflare", "captcha", "challenge", "access denied", "forbidden"]):
+        code = "anti_bot_or_challenge"
+        message = (
+            "Top-half recording failed because the website appears to block or challenge automated browsers."
+        )
+        recommended_action = "Try again later or verify the site allows automated browser access."
+    elif any(marker in text_lower for marker in ["requires source_ref", "login required", "requires login", "auth"]):
+        code = "auth_required"
+        message = "Top-half recording failed because the website requires authentication."
+        recommended_action = "Use an authenticated recording flow for this website."
+    elif "timeout" in text_lower:
+        code = "timeout"
+        message = "Top-half recording failed because the website did not finish loading in time."
+        recommended_action = "Try again and confirm the website loads quickly from the worker environment."
+    elif any(marker in text_lower for marker in ["looks blank", "blank page", "white screen"]):
+        code = "blank_render"
+        message = "Top-half recording failed because the website rendered a blank page in browser automation."
+        recommended_action = "Verify the page renders real content in automated browsers and try again."
+
+    scene_match = _TOP_HALF_SCENE_PATTERN.search(raw_text)
+    url_match = _TOP_HALF_URL_PATTERN.search(raw_text)
+    source_url = url_match.group(1) if url_match else None
+    domain = None
+    if source_url:
+        try:
+            domain = urlparse(source_url).netloc or None
+        except Exception:
+            domain = None
+
+    payload: Dict[str, Any] = {
+        "stage": "top_half",
+        "code": code,
+        "message": message,
+        "scene_id": scene_match.group(1) if scene_match else None,
+        "source_url": source_url,
+        "domain": domain,
+        "retryable": retryable,
+        "recommended_action": recommended_action,
+    }
+
+    status_match = _TOP_HALF_HTTP_STATUS_PATTERN.search(raw_text)
+    if status_match:
+        payload["http_status"] = int(status_match.group(1))
+
+    if _TOP_HALF_PROXY_RETRY_PATTERN.search(raw_text):
+        payload["proxy_retry_failed"] = True
+
+    proxy_server_match = _TOP_HALF_PROXY_SERVER_PATTERN.search(raw_text)
+    if proxy_server_match:
+        payload["proxy_server"] = proxy_server_match.group(1)
+
+    return payload
+
+
+def _summarize_workflow_exception(
+    exc: Exception, *, failed_step: str | None = None
+) -> Dict[str, Any]:
     raw_text = str(exc).strip() or repr(exc)
     error_type = type(exc).__name__
     activity_type = None
@@ -203,14 +304,27 @@ def _summarize_workflow_exception(exc: Exception) -> Dict[str, Any]:
         error_type = _application_error_type(exc, raw_text)
         retryable = not bool(getattr(exc, "non_retryable", False))
 
+    failure_details = _extract_top_half_failure_details(
+        raw_error_message=raw_text,
+        activity_type=activity_type,
+        failed_step=failed_step,
+        retryable=retryable,
+    )
+    error_summary = (
+        str(failure_details.get("message") or "").strip()
+        if failure_details
+        else _sanitize_workflow_error_for_user(raw_text, error_type)
+    )
+
     return {
         "error_type": error_type,
-        "error_summary": _sanitize_workflow_error_for_user(raw_text, error_type),
+        "error_summary": error_summary,
         "raw_error_message": _trim_debug_text(raw_text, limit=4000),
         "failure_substage": _infer_failure_substage(raw_text),
         "activity_type": activity_type,
         "activity_cause_type": cause_type,
         "retryable": retryable,
+        "failure_details": failure_details,
     }
 
 
@@ -230,6 +344,9 @@ def _build_failure_output_data(
         payload["activity_cause_type"] = error_details["activity_cause_type"]
     if error_details.get("retryable") is not None:
         payload["error_retryable"] = bool(error_details["retryable"])
+    if error_details.get("failure_details"):
+        payload["failure_details"] = error_details["failure_details"]
+        payload["failure_stage"] = error_details["failure_details"].get("stage")
     return payload
 
 
@@ -327,7 +444,9 @@ class ShortVideoWorkflow:
         async def _handle_workflow_failure(exc: Exception) -> None:
             failed_step = str(getattr(self, "current_step", "unknown") or "unknown")
             self.workflow_status = "failed"
-            error_details = _summarize_workflow_exception(exc)
+            error_details = _summarize_workflow_exception(
+                exc, failed_step=failed_step
+            )
             failure_output = _build_failure_output_data(
                 failed_step=failed_step,
                 error_details=error_details,

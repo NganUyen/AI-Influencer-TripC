@@ -137,6 +137,15 @@ function buildTimelineEvents(job: ReviewEngineJob): RenderTimelineEvent[] {
   ];
 }
 
+function getJobFailureMessage(job: ReviewEngineJob): string | null {
+  return (
+    String(job.status_message || '').trim() ||
+    String(job.failure_details?.message || '').trim() ||
+    String(job.error_detail || '').trim() ||
+    null
+  );
+}
+
 function toRenderStatus(job: ReviewEngineJob): RenderStatus {
   const normalizedStatus = String(job.status || '').trim().toLowerCase();
   if (normalizedStatus === 'upload_required') {
@@ -265,7 +274,7 @@ export function toPersonaPlanCards(
       scriptPreview:
         String(job.script?.script || job.editable_content || job.content?.body || '').trim(),
       scenes: buildScenePreviewItems(job),
-      lastErrorMessage: job.status_message || job.error_detail || null,
+      lastErrorMessage: getJobFailureMessage(job),
     };
   });
 }
@@ -293,6 +302,6 @@ export function toRenderProgressItems(
       job.production?.ready && job.production?.publish_enabled,
     ),
     timelineEvents: buildTimelineEvents(job),
-    statusMessage: job.status_message || job.error_detail || null,
+    statusMessage: getJobFailureMessage(job),
   }));
 }

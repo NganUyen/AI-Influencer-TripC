@@ -1480,3 +1480,55 @@ async def test_start_workflow_from_plan_manual_upload_creates_synthetic_workflow
     assert captured["status"] == "completed"
     assert captured["output_data"]["final_video_url"] == "https://cdn.example/final.mp4"
     assert captured["plan_update"]["workflow_id"] == captured["workflow_id"]
+
+
+def test_serialize_job_surfaces_structured_top_half_failure_details():
+    job_row = {
+        "workflow_id": "video-persona-1234abcd",
+        "type": "app_review_video",
+        "status": "failed",
+        "current_step": "generating_top_half",
+        "input_data": {
+            "plan_id": "plan-1",
+            "persona_id": "persona-1",
+            "persona_display_name": "Ava",
+            "persona_language": "English",
+            "source_url": "https://aisoeasy.co/",
+            "objective": "Review app",
+            "page_title": "AISEO",
+            "publish_settings": {},
+        },
+        "output_data": {
+            "failure_step": "generating_top_half",
+            "failure_stage": "top_half",
+            "failure_details": {
+                "stage": "top_half",
+                "code": "http_response_failure",
+                "message": "Top-half recording failed because the website returned an HTTP response that browser automation could not use.",
+                "scene_id": "3",
+                "source_url": "https://aisoeasy.co/",
+                "domain": "aisoeasy.co",
+                "retryable": False,
+                "recommended_action": "Verify the site is reachable from automated browsers and try again.",
+            },
+            "raw_error_message": "net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://aisoeasy.co/",
+        },
+        "error_message": "Top-half recording failed because the website returned an HTTP response that browser automation could not use.",
+        "updated_at": "2026-04-21T10:00:00Z",
+        "started_at": "2026-04-21T09:58:00Z",
+    }
+
+    payload = AppReviewStudioService._serialize_job(
+        job_row,
+        media_lookup={},
+        content_lookup={},
+        tiktok_accounts=[],
+    )
+
+    assert payload["status"] == "failed"
+    assert payload["status_message"] == (
+        "Top-half recording failed because the website returned an HTTP response that browser automation could not use."
+    )
+    assert payload["error_detail"] == "net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://aisoeasy.co/"
+    assert payload["failure_stage"] == "top_half"
+    assert payload["failure_details"]["domain"] == "aisoeasy.co"

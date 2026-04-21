@@ -722,8 +722,11 @@ export function CreateVideoSetupStep({
                     setMusicPreviewNonce((prev) => prev + 1);
                     toast.success(`Music mood: ${mood.label}`);
                   }}
+                  aria-label={`${mood.label} music mood${selectedMusicMood === mood.value ? ' (selected)' : ''}`}
+                  aria-pressed={selectedMusicMood === mood.value}
+                  title={mood.label}
                 >
-                  <span className="cv-bgm-mood-icon">♪</span>
+                  <span className="cv-bgm-mood-icon" aria-hidden="true">♪</span>
                   <span className="cv-bgm-mood-label">{mood.label}</span>
                 </button>
               ))}

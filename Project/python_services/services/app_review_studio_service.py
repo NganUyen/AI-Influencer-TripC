@@ -1892,6 +1892,7 @@ class AppReviewStudioService:
         input_data = _coerce_json_dict(job_row.get("input_data"))
         output_data = _coerce_json_dict(job_row.get("output_data"))
         publish_settings = _coerce_json_dict(input_data.get("publish_settings"))
+        failure_details = _coerce_json_dict(output_data.get("failure_details"))
         temporal_result = job_row.get("_temporal_result") or {}
         temporal_metadata = temporal_result.get("metadata") or {}
         temporal_publish = temporal_metadata.get("publish_result") or {}
@@ -1919,6 +1920,12 @@ class AppReviewStudioService:
                 else "not_requested"
             )
         )
+        status_message = (
+            str(job_row.get("error_message") or "").strip()
+            or str(failure_details.get("message") or "").strip()
+            or None
+        )
+        error_detail = str(output_data.get("raw_error_message") or "").strip() or None
         progress = _job_progress(
             str(job_row.get("status") or "running"),
             job_row.get("current_step"),
@@ -2030,6 +2037,10 @@ class AppReviewStudioService:
             "started_at": job_row.get("started_at").isoformat()
             if getattr(job_row.get("started_at"), "isoformat", None)
             else job_row.get("started_at"),
+            "status_message": status_message,
+            "error_detail": error_detail,
+            "failure_stage": output_data.get("failure_stage"),
+            "failure_details": failure_details or None,
         }
 
     @classmethod

@@ -203,7 +203,7 @@ export function CreateVideoReviewStep({
     const scenes = parseScenes(sharedContractDraft.scenesText);
     let currentSecond = 0;
     return scenes.map((scene) => {
-      const duration = scene.durationSeconds ?? 0;
+      const duration = Math.max(0, Math.round(scene.durationSeconds ?? 0));
       const startSecond = currentSecond;
       const endSecond = duration > 0 ? currentSecond + duration : currentSecond;
       currentSecond = endSecond;

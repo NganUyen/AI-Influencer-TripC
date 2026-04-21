@@ -139,6 +139,8 @@ export type ReviewEngineJob = {
   scheduled_at?: string | null;
   updated_at?: string | null;
   started_at?: string | null;
+  status_message?: string | null;
+  error_detail?: string | null;
 };
 
 export type ReviewEngineJobResponse = {

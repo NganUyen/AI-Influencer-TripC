@@ -17,10 +17,12 @@ import {
 } from '@/lib/review-engine';
 import { customerApiRequest } from '@/lib/customer-api';
 import {
+  approvePlanCards,
   deriveStepFromJobs,
   getJobsForPlanIds,
   getPlanIdsFromJobs,
   inferBackendFlowJobs,
+  shouldPollReviewJobs,
   shouldShowPlanCreatingOverlay,
 } from '@/lib/create-video-flow';
 import type {
@@ -347,7 +349,9 @@ export function CreateVideoTab({
     Record<string, string>
   >({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isRefreshingJobs, setIsRefreshingJobs] = useState(false);
   const restoredFlowPlanIdsRef = useRef<string[] | null>(null);
+  const refreshJobsPromiseRef = useRef<Promise<ReviewEngineJob[]> | null>(null);
 
   // UI/UX Pro Max Enhanced Loading State
   const [generatingStage, setGeneratingStage] = useState<'validating' | 'generating' | 'finalizing' | null>(null);
@@ -419,21 +423,34 @@ export function CreateVideoTab({
   }, []);
 
   const refreshJobs = useCallback(async (silent = false): Promise<ReviewEngineJob[]> => {
-    try {
-      const payload = await customerApiRequest<ReviewEngineJobResponse>(
-        '/api/customer/review-engine/jobs',
-      );
-      const nextJobs = payload.jobs || [];
-      setJobs(nextJobs);
-      return nextJobs;
-    } catch (error) {
-      if (!silent) {
-        const message =
-          error instanceof Error ? error.message : 'Failed to refresh review-engine jobs';
-        setErrorMessage(message);
-      }
-      throw error;
+    if (refreshJobsPromiseRef.current) {
+      return refreshJobsPromiseRef.current;
     }
+
+    const refreshPromise = (async () => {
+      setIsRefreshingJobs(true);
+      try {
+        const payload = await customerApiRequest<ReviewEngineJobResponse>(
+          '/api/customer/review-engine/jobs',
+        );
+        const nextJobs = payload.jobs || [];
+        setJobs(nextJobs);
+        return nextJobs;
+      } catch (error) {
+        if (!silent) {
+          const message =
+            error instanceof Error ? error.message : 'Failed to refresh review-engine jobs';
+          setErrorMessage(message);
+        }
+        throw error;
+      } finally {
+        refreshJobsPromiseRef.current = null;
+        setIsRefreshingJobs(false);
+      }
+    })();
+
+    refreshJobsPromiseRef.current = refreshPromise;
+    return refreshPromise;
   }, []);
 
   const persistPlanCards = useCallback(async (cards: PersonaPlanCardViewModel[]) => {
@@ -571,20 +588,29 @@ export function CreateVideoTab({
     return s === 'completed' || s === 'failed' || job.production?.ready;
   });
 
-  const shouldPollJobs = 
-    (activePlanIds.length > 0 || inferredActiveJobs.length > 0) && 
-    !isAllTerminal;
+  const shouldPollJobs = shouldPollReviewJobs({
+    currentStep,
+    activePlanIdsCount: activePlanIds.length,
+    inferredActiveJobsCount: inferredActiveJobs.length,
+    isAllTerminal,
+    isSubmittingPlans,
+    isSavingPlans,
+    uploadingPlanIdsCount: uploadingPlanIds.length,
+    publishingJobId,
+    hasRefreshInFlight: isRefreshingJobs,
+  });
 
   useEffect(() => {
     if (!shouldPollJobs) {
       return;
     }
     void refreshJobs(true).catch(() => undefined);
+    const pollIntervalMs = currentStep >= 3 ? 8000 : 15000;
     const interval = window.setInterval(() => {
       void refreshJobs(true).catch(() => undefined);
-    }, 5000);
+    }, pollIntervalMs);
     return () => window.clearInterval(interval);
-  }, [refreshJobs, shouldPollJobs]);
+  }, [currentStep, refreshJobs, shouldPollJobs]);
 
   useEffect(() => {
     if (activeJobs.length === 0) {
@@ -769,24 +795,24 @@ export function CreateVideoTab({
 
     setErrorMessage(null);
     setIsSubmittingPlans(true);
-    const approvedPlanIds: string[] = [];
-    const failedApprovals: string[] = [];
     try {
       await persistPlanCards(planCards);
       setSharedContractDirty(false);
 
-      for (const card of approvedCards) {
-        try {
-          await customerApiRequest(`/api/customer/review-engine/plans/${card.planId}/approve`, {
-            method: 'POST',
-            body: JSON.stringify({}),
-          });
-          approvedPlanIds.push(String(card.planId || '').trim());
-        } catch (error) {
-          console.error(`[Approve Plan] Failed for ${card.personaName} (${card.planId}):`, error);
-          failedApprovals.push(card.personaName);
-        }
-      }
+      const { approvedPlanIds, failedApprovals } = await approvePlanCards(
+        approvedCards,
+        async ({ planId, personaName }) => {
+          try {
+            await customerApiRequest(`/api/customer/review-engine/plans/${planId}/approve`, {
+              method: 'POST',
+              body: JSON.stringify({}),
+            });
+          } catch (error) {
+            console.error(`[Approve Plan] Failed for ${personaName} (${planId}):`, error);
+            throw error;
+          }
+        },
+      );
 
       const nextPlanIds = approvedPlanIds.filter(Boolean);
       if (nextPlanIds.length === 0) {
@@ -812,10 +838,10 @@ export function CreateVideoTab({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to approve plans';
-      const detailedMessage = `${message}${failedApprovals.length > 0 ? ` (${failedApprovals.length} failed)` : ''} - Check browser console for details.`;
+      const detailedMessage = `${message} - Check browser console for details.`;
       setErrorMessage(detailedMessage);
       toast.error(`Could not approve the selected persona plans: ${message}`);
-      console.error('[goToStep3] Approval process error:', error, { failedApprovals });
+      console.error('[goToStep3] Approval process error:', error);
     } finally {
       setIsSubmittingPlans(false);
     }

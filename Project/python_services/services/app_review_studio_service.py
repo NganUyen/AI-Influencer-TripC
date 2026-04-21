@@ -45,6 +45,7 @@ from services.video_planning_service import VideoPlanningService
 
 _SYSTEM_PERSONA_USER_ID = "00000000-0000-0000-0000-000000000001"
 _APP_REVIEW_JOB_TYPES = {"app_review_video", "app_review_upload"}
+_LIST_JOBS_LIVE_REFRESH_CONCURRENCY = 8
 logger = logging.getLogger(__name__)
 
 _MUSIC_MOOD_TO_BGM_PROFILE = {
@@ -2052,24 +2053,37 @@ class AppReviewStudioService:
         limit: int = 50,
     ) -> Dict[str, Any]:
         workflow_rows = await cls._list_job_rows(user_id=user_id, limit=limit)
-        workflow_rows = [
-            await cls._refresh_live_status(
-                temporal_client=temporal_client,
-                job_row=row,
-            )
-            for row in workflow_rows
-        ]
-        plans = await VideoPlanningService.list_plans(user_id, limit=limit)
+
+        async def _refresh_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            if not rows:
+                return []
+            semaphore = asyncio.Semaphore(_LIST_JOBS_LIVE_REFRESH_CONCURRENCY)
+
+            async def _refresh(row: Dict[str, Any]) -> Dict[str, Any]:
+                async with semaphore:
+                    return await cls._refresh_live_status(
+                        temporal_client=temporal_client,
+                        job_row=row,
+                    )
+
+            return list(await asyncio.gather(*(_refresh(row) for row in rows)))
+
+        workflow_rows, plans = await asyncio.gather(
+            _refresh_rows(workflow_rows),
+            VideoPlanningService.list_plans(user_id, limit=limit),
+        )
         workflow_ids = [str(row.get("workflow_id") or "") for row in workflow_rows]
-        media_lookup = await cls._load_media_by_workflow(
-            workflow_ids=workflow_ids,
-            user_id=user_id,
+        media_lookup, content_lookup, tiktok_accounts = await asyncio.gather(
+            cls._load_media_by_workflow(
+                workflow_ids=workflow_ids,
+                user_id=user_id,
+            ),
+            cls._load_content_by_workflow(
+                workflow_ids=workflow_ids,
+                user_id=user_id,
+            ),
+            cls._list_tiktok_accounts(user_id),
         )
-        content_lookup = await cls._load_content_by_workflow(
-            workflow_ids=workflow_ids,
-            user_id=user_id,
-        )
-        tiktok_accounts = await cls._list_tiktok_accounts(user_id)
         workflow_by_plan_id: Dict[str, Dict[str, Any]] = {}
         workflow_by_id: Dict[str, Dict[str, Any]] = {}
         for row in workflow_rows:
@@ -2081,6 +2095,24 @@ class AppReviewStudioService:
             if plan_ref and plan_ref not in workflow_by_plan_id:
                 workflow_by_plan_id[plan_ref] = row
 
+        persona_ids = {
+            str(plan.get("persona_id") or "").strip()
+            for plan in plans
+            if str(plan.get("persona_id") or "").strip()
+        }
+        persona_cache: Dict[str, Any] = {}
+        if persona_ids:
+            resolved_personas = await asyncio.gather(
+                *(
+                    cls._resolve_persona(persona_id=persona_id, user_id=user_id)
+                    for persona_id in persona_ids
+                )
+            )
+            persona_cache = {
+                persona_id: persona
+                for persona_id, persona in zip(persona_ids, resolved_personas)
+            }
+
         merged_workflow_ids: set[str] = set()
         jobs: List[Dict[str, Any]] = []
         for plan in plans:
@@ -2090,10 +2122,7 @@ class AppReviewStudioService:
                 workflow_row = workflow_by_id.get(str(plan.get("workflow_id")))
             if workflow_row and workflow_row.get("workflow_id"):
                 merged_workflow_ids.add(str(workflow_row["workflow_id"]))
-            persona = await cls._resolve_persona(
-                persona_id=str(plan.get("persona_id") or ""),
-                user_id=user_id,
-            )
+            persona = persona_cache.get(str(plan.get("persona_id") or "").strip())
             jobs.append(
                 cls._serialize_plan_job(
                     plan,

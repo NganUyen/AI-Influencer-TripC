@@ -1,8 +1,10 @@
 import {
+  approvePlanCards,
   deriveStepFromJobs,
   getJobsForPlanIds,
   getPlanIdsFromJobs,
   inferBackendFlowJobs,
+  shouldPollReviewJobs,
   shouldShowPlanCreatingOverlay,
 } from '@/lib/create-video-flow';
 import type { ReviewEngineJob } from '@/lib/review-engine';
@@ -130,5 +132,87 @@ describe('create-video flow helpers', () => {
         isGeneratingSuccess: false,
       }),
     ).toBe(true);
+  });
+
+  it('pauses polling while approval or refresh work is active', () => {
+    expect(
+      shouldPollReviewJobs({
+        currentStep: 2,
+        activePlanIdsCount: 2,
+        inferredActiveJobsCount: 2,
+        isAllTerminal: false,
+        isSubmittingPlans: true,
+        isSavingPlans: false,
+        uploadingPlanIdsCount: 0,
+        publishingJobId: null,
+        hasRefreshInFlight: false,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldPollReviewJobs({
+        currentStep: 3,
+        activePlanIdsCount: 2,
+        inferredActiveJobsCount: 2,
+        isAllTerminal: false,
+        isSubmittingPlans: false,
+        isSavingPlans: false,
+        uploadingPlanIdsCount: 0,
+        publishingJobId: null,
+        hasRefreshInFlight: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldPollReviewJobs({
+        currentStep: 3,
+        activePlanIdsCount: 2,
+        inferredActiveJobsCount: 2,
+        isAllTerminal: false,
+        isSubmittingPlans: false,
+        isSavingPlans: false,
+        uploadingPlanIdsCount: 0,
+        publishingJobId: null,
+        hasRefreshInFlight: false,
+      }),
+    ).toBe(true);
+  });
+
+  it('approves selected plan cards concurrently and preserves failures', async () => {
+    let activeApprovals = 0;
+    let maxActiveApprovals = 0;
+
+    const result = await approvePlanCards(
+      [
+        {
+          planId: 'plan-1',
+          personaName: 'Ava',
+          reviewDecision: 'approved',
+        },
+        {
+          planId: 'plan-2',
+          personaName: 'Natasha',
+          reviewDecision: 'approved',
+        },
+        {
+          planId: 'plan-3',
+          personaName: 'Mika',
+          reviewDecision: 'pending',
+        },
+      ],
+      async ({ planId }) => {
+        activeApprovals += 1;
+        maxActiveApprovals = Math.max(maxActiveApprovals, activeApprovals);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        activeApprovals -= 1;
+        if (planId === 'plan-2') {
+          throw new Error('approve failed');
+        }
+      },
+    );
+
+    expect(maxActiveApprovals).toBeGreaterThan(1);
+    expect(result.approvedPlanIds).toEqual(['plan-1']);
+    expect(result.failedApprovals).toEqual(['Natasha']);
   });
 });

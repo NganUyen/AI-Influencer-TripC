@@ -1532,3 +1532,174 @@ def test_serialize_job_surfaces_structured_top_half_failure_details():
     assert payload["error_detail"] == "net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://aisoeasy.co/"
     assert payload["failure_stage"] == "top_half"
     assert payload["failure_details"]["domain"] == "aisoeasy.co"
+
+
+@pytest.mark.asyncio
+async def test_list_jobs_refreshes_live_status_concurrently(monkeypatch):
+    active_refreshes = 0
+    max_active_refreshes = 0
+
+    async def fake_list_rows(*, user_id, limit=50):
+        return [
+            {
+                "workflow_id": f"video-wf-{index}",
+                "type": "app_review_video",
+                "status": "running",
+                "input_data": {"plan_id": f"plan-{index}"},
+                "output_data": {},
+                "updated_at": f"2026-04-21T10:0{index}:00Z",
+                "started_at": f"2026-04-21T09:5{index}:00Z",
+            }
+            for index in range(3)
+        ]
+
+    async def fake_refresh(*, temporal_client, job_row):
+        nonlocal active_refreshes, max_active_refreshes
+        active_refreshes += 1
+        max_active_refreshes = max(max_active_refreshes, active_refreshes)
+        await asyncio.sleep(0.01)
+        active_refreshes -= 1
+        return job_row
+
+    async def fake_list_plans(user_id, limit=50):
+        return []
+
+    async def fake_list_accounts(_user_id):
+        return []
+
+    async def fake_load_media(*, workflow_ids, user_id):
+        return {}
+
+    async def fake_load_content(*, workflow_ids, user_id):
+        return {}
+
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "_list_job_rows",
+        classmethod(lambda cls, *, user_id, limit=50: fake_list_rows(user_id=user_id, limit=limit)),
+    )
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "_refresh_live_status",
+        classmethod(lambda cls, *, temporal_client, job_row: fake_refresh(temporal_client=temporal_client, job_row=job_row)),
+    )
+    monkeypatch.setattr(
+        "services.app_review_studio_service.VideoPlanningService.list_plans",
+        fake_list_plans,
+    )
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "_load_media_by_workflow",
+        classmethod(lambda cls, *, workflow_ids, user_id: fake_load_media(workflow_ids=workflow_ids, user_id=user_id)),
+    )
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "_load_content_by_workflow",
+        classmethod(lambda cls, *, workflow_ids, user_id: fake_load_content(workflow_ids=workflow_ids, user_id=user_id)),
+    )
+    monkeypatch.setattr(
+        "services.app_review_studio_service.AccountConnectionService.list_accounts",
+        fake_list_accounts,
+    )
+
+    await AppReviewStudioService.list_jobs(
+        user_id=_session().user_id,
+        temporal_client=None,
+        limit=50,
+    )
+
+    assert max_active_refreshes > 1
+
+
+@pytest.mark.asyncio
+async def test_list_jobs_caches_persona_resolution_within_single_request(monkeypatch):
+    resolve_calls = 0
+
+    async def fake_list_rows(*, user_id, limit=50):
+        return []
+
+    async def fake_list_plans(user_id, limit=50):
+        return [
+            {
+                "id": "plan-1",
+                "persona_id": "persona-1",
+                "status": "approved",
+                "workflow_id": None,
+                "source_url": "https://example.com/a",
+                "objective": "Review product",
+                "script_text": "Script 1",
+                "scenes_data": [],
+                "publish_settings": {},
+                "creative_preferences": {},
+            },
+            {
+                "id": "plan-2",
+                "persona_id": "persona-1",
+                "status": "approved",
+                "workflow_id": None,
+                "source_url": "https://example.com/b",
+                "objective": "Review product",
+                "script_text": "Script 2",
+                "scenes_data": [],
+                "publish_settings": {},
+                "creative_preferences": {},
+            },
+        ]
+
+    async def fake_list_accounts(_user_id):
+        return []
+
+    async def fake_load_media(*, workflow_ids, user_id):
+        return {}
+
+    async def fake_load_content(*, workflow_ids, user_id):
+        return {}
+
+    async def fake_resolve_persona(*, persona_id, user_id):
+        nonlocal resolve_calls
+        resolve_calls += 1
+        return {
+            "persona_id": persona_id,
+            "display_name": "Ava",
+            "language": "English",
+            "tts_voice": "en-US-Standard-F",
+        }
+
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "_list_job_rows",
+        classmethod(lambda cls, *, user_id, limit=50: fake_list_rows(user_id=user_id, limit=limit)),
+    )
+    monkeypatch.setattr(
+        "services.app_review_studio_service.VideoPlanningService.list_plans",
+        fake_list_plans,
+    )
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "_load_media_by_workflow",
+        classmethod(lambda cls, *, workflow_ids, user_id: fake_load_media(workflow_ids=workflow_ids, user_id=user_id)),
+    )
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "_load_content_by_workflow",
+        classmethod(lambda cls, *, workflow_ids, user_id: fake_load_content(workflow_ids=workflow_ids, user_id=user_id)),
+    )
+    monkeypatch.setattr(
+        "services.app_review_studio_service.AccountConnectionService.list_accounts",
+        fake_list_accounts,
+    )
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "_resolve_persona",
+        classmethod(lambda cls, *, persona_id, user_id: fake_resolve_persona(persona_id=persona_id, user_id=user_id)),
+    )
+
+    payload = await AppReviewStudioService.list_jobs(
+        user_id=_session().user_id,
+        temporal_client=None,
+        limit=50,
+    )
+
+    assert len(payload["jobs"]) == 2
+    assert resolve_calls == 1
+import asyncio

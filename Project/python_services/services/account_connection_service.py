@@ -414,6 +414,31 @@ class AccountConnectionService:
         return accounts
 
     @classmethod
+    async def get_account_by_id(
+        cls,
+        social_account_id: str,
+        *,
+        user_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        pool = await DatabaseService.get_pool()
+        query = """
+            SELECT *
+            FROM public.social_accounts
+            WHERE id = $1::uuid
+        """
+        args: List[Any] = [social_account_id]
+        if user_id:
+            query += " AND user_id = $2::uuid"
+            args.append(user_id)
+
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(query, *args)
+
+        if row is None:
+            return None
+        return dict(row)
+
+    @classmethod
     async def disconnect_account(cls, user_id: str, social_account_id: str) -> None:
         pool = await DatabaseService.get_pool()
         async with pool.acquire() as conn:
@@ -457,4 +482,179 @@ class AccountConnectionService:
             )
         if row is None:
             return None
+        return dict(row)
+
+    @classmethod
+    async def upsert_browser_session_account(
+        cls,
+        *,
+        user_id: str,
+        platform: str,
+        account_name: str,
+        account_handle: str,
+        display_name: Optional[str] = None,
+        provider_account_id: Optional[str] = None,
+        social_account_id: Optional[str] = None,
+        encrypted_bundle_payload: Optional[Dict[str, Any]] = None,
+        token_expires_at: Optional[datetime] = None,
+        publish_capabilities: Optional[Dict[str, Any]] = None,
+        proxy_config: Optional[Dict[str, Any]] = None,
+        last_api_response: Optional[Dict[str, Any]] = None,
+        is_primary: bool = True,
+        is_active: bool = True,
+        connection_status: str = "connected",
+        connection_method: str = "browser_session",
+        last_error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        token_ref = None
+        encrypted_bundle = None
+        if encrypted_bundle_payload:
+            encrypted_bundle = CustomerTokenVault.seal(encrypted_bundle_payload)
+            token_ref = f"tok_{uuid4().hex}"
+
+        publish_capabilities_json = json.dumps(
+            publish_capabilities or {},
+            sort_keys=True,
+        )
+        proxy_config_json = json.dumps(proxy_config or {}, sort_keys=True)
+        last_api_response_json = json.dumps(last_api_response or {}, sort_keys=True)
+
+        pool = await DatabaseService.get_pool()
+        async with pool.acquire() as conn:
+            if social_account_id:
+                row = await conn.fetchrow(
+                    """
+                    UPDATE public.social_accounts
+                    SET platform = $3,
+                        account_name = $4,
+                        account_handle = $5,
+                        is_primary = $6,
+                        is_active = $7,
+                        connection_status = $8,
+                        provider_account_id = COALESCE($9, provider_account_id),
+                        display_name = COALESCE($10, display_name),
+                        connection_method = $11,
+                        token_ref = COALESCE($12, token_ref),
+                        encrypted_token_bundle = COALESCE($13, encrypted_token_bundle),
+                        token_expires_at = COALESCE($14, token_expires_at),
+                        last_sync_at = CASE
+                            WHEN $8 = 'connected' THEN NOW()
+                            ELSE last_sync_at
+                        END,
+                        last_error = $15,
+                        publish_capabilities = COALESCE(publish_capabilities, '{}'::jsonb) || $16::jsonb,
+                        proxy_config = COALESCE(proxy_config, '{}'::jsonb) || $17::jsonb,
+                        last_api_response = COALESCE(last_api_response, '{}'::jsonb) || $18::jsonb,
+                        updated_at = NOW()
+                    WHERE id = $1::uuid
+                      AND user_id = $2::uuid
+                    RETURNING *
+                    """,
+                    social_account_id,
+                    user_id,
+                    platform,
+                    account_name,
+                    account_handle,
+                    is_primary,
+                    is_active,
+                    connection_status,
+                    provider_account_id,
+                    display_name,
+                    connection_method,
+                    token_ref,
+                    encrypted_bundle,
+                    token_expires_at,
+                    last_error,
+                    publish_capabilities_json,
+                    proxy_config_json,
+                    last_api_response_json,
+                )
+            else:
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO public.social_accounts (
+                        user_id,
+                        platform,
+                        account_name,
+                        account_handle,
+                        is_primary,
+                        is_active,
+                        connection_status,
+                        provider_account_id,
+                        display_name,
+                        connection_method,
+                        token_ref,
+                        encrypted_token_bundle,
+                        token_expires_at,
+                        last_sync_at,
+                        last_error,
+                        publish_capabilities,
+                        proxy_config,
+                        last_api_response
+                    )
+                    VALUES (
+                        $1::uuid,
+                        $2,
+                        $3,
+                        $4,
+                        $5,
+                        $6,
+                        $7,
+                        $8,
+                        $9,
+                        $10,
+                        $11,
+                        $12,
+                        $13,
+                        CASE
+                            WHEN $7 = 'connected' THEN NOW()
+                            ELSE NULL
+                        END,
+                        $14,
+                        $15::jsonb,
+                        $16::jsonb,
+                        $17::jsonb
+                    )
+                    ON CONFLICT (user_id, platform, account_handle, is_primary) DO UPDATE
+                    SET account_name = EXCLUDED.account_name,
+                        is_active = EXCLUDED.is_active,
+                        connection_status = EXCLUDED.connection_status,
+                        provider_account_id = COALESCE(EXCLUDED.provider_account_id, public.social_accounts.provider_account_id),
+                        display_name = COALESCE(EXCLUDED.display_name, public.social_accounts.display_name),
+                        connection_method = EXCLUDED.connection_method,
+                        token_ref = COALESCE(EXCLUDED.token_ref, public.social_accounts.token_ref),
+                        encrypted_token_bundle = COALESCE(EXCLUDED.encrypted_token_bundle, public.social_accounts.encrypted_token_bundle),
+                        token_expires_at = COALESCE(EXCLUDED.token_expires_at, public.social_accounts.token_expires_at),
+                        last_sync_at = CASE
+                            WHEN EXCLUDED.connection_status = 'connected' THEN NOW()
+                            ELSE public.social_accounts.last_sync_at
+                        END,
+                        last_error = EXCLUDED.last_error,
+                        publish_capabilities = COALESCE(public.social_accounts.publish_capabilities, '{}'::jsonb) || EXCLUDED.publish_capabilities,
+                        proxy_config = COALESCE(public.social_accounts.proxy_config, '{}'::jsonb) || EXCLUDED.proxy_config,
+                        last_api_response = COALESCE(public.social_accounts.last_api_response, '{}'::jsonb) || EXCLUDED.last_api_response,
+                        updated_at = NOW()
+                    RETURNING *
+                    """,
+                    user_id,
+                    platform,
+                    account_name,
+                    account_handle,
+                    is_primary,
+                    is_active,
+                    connection_status,
+                    provider_account_id,
+                    display_name,
+                    connection_method,
+                    token_ref,
+                    encrypted_bundle,
+                    token_expires_at,
+                    last_error,
+                    publish_capabilities_json,
+                    proxy_config_json,
+                    last_api_response_json,
+                )
+
+        if row is None:
+            raise RuntimeError("Failed to upsert browser session account")
         return dict(row)

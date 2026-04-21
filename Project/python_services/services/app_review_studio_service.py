@@ -26,9 +26,9 @@ from services.customer_campaign_service import CustomerCampaignService
 from services.database_service import DatabaseService
 from services.media_storage_service import MediaStorageService
 from services.persona_registry_service import PersonaRegistryService
-from services.publisher_service import PublisherService
 from services.script_service import ScriptService
 from services.telegram_link_service import TelegramLinkService
+from services.tiktok_orchestration_service import TikTokOrchestrationService
 from services.workflow_state_service import WorkflowStateService
 from services.contracts import (
     SceneContract,
@@ -559,6 +559,38 @@ class AppReviewStudioService:
             for item in accounts
             if str(item.get("platform") or "").strip().lower() == "tiktok"
         ]
+
+    @staticmethod
+    def _active_tiktok_accounts(
+        tiktok_accounts: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        return [
+            item
+            for item in tiktok_accounts
+            if item.get("connection_status") == "connected" and item.get("is_active")
+        ]
+
+    @classmethod
+    def _select_publish_tiktok_account(
+        cls,
+        *,
+        active_tiktok_accounts: List[Dict[str, Any]],
+        social_account_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        normalized_id = str(social_account_id or "").strip()
+        if normalized_id:
+            for item in active_tiktok_accounts:
+                if str(item.get("id") or "").strip() == normalized_id:
+                    return item
+            raise ValueError("Selected TikTok channel is not active for this user")
+
+        if len(active_tiktok_accounts) == 1:
+            return active_tiktok_accounts[0]
+        if not active_tiktok_accounts:
+            raise ValueError("Connect at least one active TikTok channel before publishing")
+        raise ValueError(
+            "Multiple active TikTok channels are connected; provide social_account_id"
+        )
 
     @classmethod
     def _persona_option_payload(
@@ -1448,9 +1480,11 @@ class AppReviewStudioService:
                     "tts_voice": "en-US-Standard-F",
                 },
             )
-        except Exception:
+        except Exception as exc:
             logger.warning("English master script generation failed", exc_info=True)
-            raise
+            raise ValueError(
+                "No plan was created because master script generation failed."
+            ) from exc
         master_script_payload = master_contract.model_dump(mode="json")
         master_recording_script_payload = (
             master_recording_script.model_dump(mode="json")
@@ -1961,6 +1995,8 @@ class AppReviewStudioService:
                 "published_at": output_data.get("published_at")
                 or temporal_publish.get("published_at")
                 or content.get("published_at"),
+                "social_account_id": output_data.get("social_account_id")
+                or content.get("metadata", {}).get("social_account_id"),
                 "post_url": output_data.get("post_url")
                 or temporal_publish.get("post_url")
                 or content.get("metadata", {}).get("post_url"),
@@ -2220,6 +2256,7 @@ class AppReviewStudioService:
         session: CustomerSession,
         job_id: str,
         schedule_time: Optional[str] = None,
+        social_account_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         job = await cls.get_job(
             user_id=session.user_id,
@@ -2249,38 +2286,41 @@ class AppReviewStudioService:
             if not bool(production.get("publish_enabled")):
                 raise ValueError("Final product is not publish-enabled yet")
 
-        telegram_link = await TelegramLinkService.get_link_for_user(session.user_id)
-        if not telegram_link:
-            raise ValueError("Link Telegram before publishing to TikTok")
         tiktok_accounts = await cls._list_tiktok_accounts(session.user_id)
-        active_tiktok_accounts = [
-            item
-            for item in tiktok_accounts
-            if item.get("connection_status") == "connected" and item.get("is_active")
-        ]
-        if not active_tiktok_accounts:
-            raise ValueError(
-                "Connect at least one active TikTok channel before publishing"
-            )
+        active_tiktok_accounts = cls._active_tiktok_accounts(tiktok_accounts)
+        selected_account = cls._select_publish_tiktok_account(
+            active_tiktok_accounts=active_tiktok_accounts,
+            social_account_id=social_account_id,
+        )
         workflow_link_id = job.get("workflow_id") or job.get("plan_id") or job_id
 
         post_config = {
             "id": workflow_link_id,
             "user_id": session.user_id,
+            "social_account_id": str(selected_account.get("id")),
             "content": job["content"]["body"] or job["objective"] or "App review",
             "platform": "tiktok",
             "media": [{"storage_url": video_url}],
             "scheduled_time": schedule_time,
             "theme": job["page_title"] or job["objective"] or "App Review",
             "hashtags": ["AppReview", "TikTokReview"],
+            "job_workflow_id": job.get("workflow_id") or workflow_link_id,
+            "job_user_id": session.user_id,
         }
         persisted = await ContentPersistenceService.persist_scheduled_post(
             workflow_id=workflow_link_id,
             post_config=post_config,
         )
-        publisher = PublisherService()
+        post_config["content_record_id"] = persisted["content_record_id"]
+        wait_for_completion = not TikTokOrchestrationService.schedule_is_future(
+            schedule_time
+        )
         try:
-            publish_result = await publisher.publish(post_config)
+            workflow_result = await TikTokOrchestrationService.start_publish_workflow(
+                post_config=post_config,
+                temporal_client=None,
+                wait_for_completion=wait_for_completion,
+            )
         except Exception as exc:
             if job.get("workflow_id"):
                 await cls._update_job_output(
@@ -2288,25 +2328,46 @@ class AppReviewStudioService:
                     user_id=session.user_id,
                     output_data={
                         "content_record_id": persisted["content_record_id"],
+                        "social_account_id": str(selected_account.get("id")),
                         "publish_status": "failed",
                         "publish_error": str(exc),
+                        "publish_method": "tiktok_browser_automation",
                     },
                 )
             raise
-        finally:
-            await publisher.close()
-        post_config["content_record_id"] = persisted["content_record_id"]
-        await ContentPersistenceService.update_publish_result(
-            workflow_id=workflow_link_id,
-            post_config=post_config,
-            publish_result=publish_result,
-        )
+        if not wait_for_completion:
+            if job.get("workflow_id"):
+                await cls._update_job_output(
+                    workflow_id=str(job["workflow_id"]),
+                    user_id=session.user_id,
+                    output_data={
+                        "content_record_id": persisted["content_record_id"],
+                        "social_account_id": str(selected_account.get("id")),
+                        "publish_workflow_id": workflow_result.get("workflow_id"),
+                        "publish_status": "scheduled",
+                        "publish_error": None,
+                        "publish_method": "tiktok_browser_automation",
+                        "scheduled_at": schedule_time,
+                    },
+                )
+            updated = await cls.get_job(
+                user_id=session.user_id,
+                job_id=job_id,
+                temporal_client=None,
+            )
+            if not updated:
+                raise ValueError("App review job not found")
+            return updated
+
+        publish_result = workflow_result.get("result") or {}
         if job.get("workflow_id"):
             await cls._update_job_output(
                 workflow_id=str(job["workflow_id"]),
                 user_id=session.user_id,
                 output_data={
                     "content_record_id": persisted["content_record_id"],
+                    "social_account_id": str(selected_account.get("id")),
+                    "publish_workflow_id": workflow_result.get("workflow_id"),
                     "publish_status": publish_result.get("status"),
                     "published_at": publish_result.get("published_at"),
                     "post_url": publish_result.get("post_url"),

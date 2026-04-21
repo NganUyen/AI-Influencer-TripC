@@ -182,6 +182,7 @@ class ReviewEngineJobUpdateRequest(BaseModel):
 
 class ReviewEnginePublishRequest(BaseModel):
     schedule_time: Optional[str] = None
+    social_account_id: Optional[str] = None
 
 
 class VideoPlanCreateRequest(BaseModel):
@@ -1169,6 +1170,7 @@ async def publish_review_engine_job(
             session=session,
             job_id=job_id,
             schedule_time=payload.schedule_time,
+            social_account_id=payload.social_account_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

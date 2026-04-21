@@ -16,7 +16,12 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { customerApiRequest } from "@/lib/customer-api";
-import { type ReviewEngineJob } from "@/lib/review-engine";
+import {
+  getReviewJobActiveTikTokChannels,
+  getReviewJobChannelLabel,
+  getReviewJobPreferredTikTokChannelId,
+  type ReviewEngineJob,
+} from "@/lib/review-engine";
 
 interface PublishingTabProps {
   jobs?: ReviewEngineJob[];
@@ -28,12 +33,43 @@ export function PublishingTab({ jobs, onRefresh }: PublishingTabProps) {
   const [detailJob, setDetailJob] = React.useState<ReviewEngineJob | null>(null);
   const [shareJob, setShareJob] = React.useState<ReviewEngineJob | null>(null);
   const [publishingJobId, setPublishingJobId] = React.useState<string | null>(null);
+  const [selectedChannelIds, setSelectedChannelIds] = React.useState<Record<string, string>>({});
   const safeJobs = Array.isArray(jobs) ? jobs : [];
   const [liveJobs, setLiveJobs] = React.useState<ReviewEngineJob[]>(safeJobs);
 
   React.useEffect(() => {
     setLiveJobs(safeJobs);
   }, [safeJobs]);
+
+  React.useEffect(() => {
+    setSelectedChannelIds((current) => {
+      const next: Record<string, string> = {};
+      for (const job of liveJobs) {
+        const activeChannels = getReviewJobActiveTikTokChannels(job);
+        const currentSelection = current[job.job_id];
+        if (
+          currentSelection &&
+          activeChannels.some((channel) => channel.id === currentSelection)
+        ) {
+          next[job.job_id] = currentSelection;
+          continue;
+        }
+        const preferred = getReviewJobPreferredTikTokChannelId(job);
+        if (preferred) {
+          next[job.job_id] = preferred;
+        }
+      }
+      const currentKeys = Object.keys(current);
+      const nextKeys = Object.keys(next);
+      if (
+        currentKeys.length === nextKeys.length &&
+        nextKeys.every((key) => current[key] === next[key])
+      ) {
+        return current;
+      }
+      return next;
+    });
+  }, [liveJobs]);
 
   const publishingJobs = liveJobs.filter(
     (j) =>
@@ -54,14 +90,16 @@ export function PublishingTab({ jobs, onRefresh }: PublishingTabProps) {
     [],
   );
 
-  const handlePublishNow = async (jobId: string) => {
+  const handlePublishNow = async (jobId: string, socialAccountId?: string | null) => {
     setPublishingJobId(jobId);
     try {
       const updated = await customerApiRequest<ReviewEngineJob>(
         `/api/customer/review-engine/jobs/${jobId}/publish`,
         {
           method: "POST",
-          body: JSON.stringify({}),
+          body: JSON.stringify(
+            socialAccountId ? { social_account_id: socialAccountId } : {},
+          ),
         },
       );
       updateJob(jobId, () => updated);
@@ -234,101 +272,165 @@ export function PublishingTab({ jobs, onRefresh }: PublishingTabProps) {
             </thead>
             <tbody className="divide-y divide-aura-outline-variant/5">
               {filteredContent.length > 0 ? (
-                filteredContent.map((item) => (
-                  <tr
-                    key={item.job_id}
-                    className="group hover:bg-aura-surface-container-lowest transition-colors"
-                  >
-                    <td className="px-8 py-6">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-lg bg-aura-surface-container flex items-center justify-center shrink-0 border border-aura-outline-variant/10">
-                          <Globe className="w-5 h-5 text-aura-on-surface-variant" />
-                        </div>
-                        <span
-                          className="font-bold text-aura-on-surface font-headline truncate max-w-[200px]"
-                          title={item.content?.title || item.page_title || "App Review"}
-                        >
-                          {item.content?.title || item.page_title || "App Review"}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className="flex gap-1.5 flex-wrap">
-                        {[(item.target_platform || "tiktok")].map((p) => (
-                          <span
-                            key={p}
-                            className="px-2.5 py-1 bg-aura-surface-container rounded-full text-[10px] font-bold text-aura-on-surface-variant uppercase tracking-widest border border-aura-outline/5"
-                          >
-                            {p}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-8 py-6 text-sm">
-                      <div
-                        className={cn(
-                          "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest border transition-all",
-                          getStatusColor(item.publish?.status),
-                        )}
-                      >
-                        {getStatusIcon(item.publish?.status)}
-                        {(item.publish?.status || "Draft").replace(/_/g, " ")}
-                      </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2 text-xs font-semibold text-aura-on-surface">
-                          <Calendar className="w-3 h-3 text-aura-primary/60" />
-                          {item.published_at
-                            ? new Date(item.published_at).toLocaleDateString()
-                            : item.scheduled_at
-                              ? new Date(item.scheduled_at).toLocaleDateString()
-                              : "Pending"}
-                        </div>
-                        <div className="text-[10px] text-aura-on-surface-variant font-medium font-body opacity-60">
-                          {item.published_at
-                            ? new Date(item.published_at).toLocaleTimeString()
-                            : item.scheduled_at
-                              ? new Date(item.scheduled_at).toLocaleTimeString()
-                              : "Pending"}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6 text-right">
-                      <div className="flex items-center justify-end gap-2 flex-wrap">
-                        {(item.publish?.status === "scheduled" ||
-                          item.publish?.status === "ready_to_publish" ||
-                          item.publish?.status === "failed" ||
-                          item.publish?.status === "auth_required") && (
-                          <button
-                            className="px-3 py-1.5 text-xs font-semibold rounded-full border border-aura-primary/30 text-aura-primary hover:bg-aura-primary/10 transition-all disabled:opacity-60"
-                            onClick={() => {
-                              void handlePublishNow(item.job_id);
-                            }}
-                            disabled={publishingJobId === item.job_id}
-                          >
-                            {publishingJobId === item.job_id ? "Publishing..." : "Publish"}
-                          </button>
-                        )}
+                filteredContent.map((item) => {
+                  const activeChannels = getReviewJobActiveTikTokChannels(item);
+                  const selectedChannelId =
+                    selectedChannelIds[item.job_id] ??
+                    getReviewJobPreferredTikTokChannelId(item);
+                  const needsExplicitChannelSelection = activeChannels.length > 1;
+                  const selectedChannel = activeChannels.find(
+                    (channel) => channel.id === selectedChannelId,
+                  );
+                  const publishDisabled =
+                    publishingJobId === item.job_id ||
+                    (needsExplicitChannelSelection && !selectedChannelId);
 
-                        <button
-                          className="p-2 hover:bg-aura-primary/10 hover:text-aura-primary rounded-lg transition-all"
-                          title="View details"
-                          onClick={() => setDetailJob(item)}
+                  return (
+                    <tr
+                      key={item.job_id}
+                      className="group hover:bg-aura-surface-container-lowest transition-colors"
+                    >
+                      <td className="px-8 py-6">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-lg bg-aura-surface-container flex items-center justify-center shrink-0 border border-aura-outline-variant/10">
+                            <Globe className="w-5 h-5 text-aura-on-surface-variant" />
+                          </div>
+                          <span
+                            className="font-bold text-aura-on-surface font-headline truncate max-w-[200px]"
+                            title={item.content?.title || item.page_title || "App Review"}
+                          >
+                            {item.content?.title || item.page_title || "App Review"}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-8 py-6">
+                        <div className="flex gap-1.5 flex-wrap">
+                          {[(item.target_platform || "tiktok")].map((p) => (
+                            <span
+                              key={p}
+                              className="px-2.5 py-1 bg-aura-surface-container rounded-full text-[10px] font-bold text-aura-on-surface-variant uppercase tracking-widest border border-aura-outline/5"
+                            >
+                              {p}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-8 py-6 text-sm">
+                        <div
+                          className={cn(
+                            "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest border transition-all",
+                            getStatusColor(item.publish?.status),
+                          )}
                         >
-                          <ExternalLink className="w-4 h-4" />
-                        </button>
-                        <button
-                          className="p-2 hover:bg-aura-primary/10 hover:text-aura-primary rounded-lg transition-all"
-                          title="Share"
-                          onClick={() => setShareJob(item)}
-                        >
-                          <Share2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                          {getStatusIcon(item.publish?.status)}
+                          {(item.publish?.status || "Draft").replace(/_/g, " ")}
+                        </div>
+                      </td>
+                      <td className="px-8 py-6">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2 text-xs font-semibold text-aura-on-surface">
+                            <Calendar className="w-3 h-3 text-aura-primary/60" />
+                            {item.published_at
+                              ? new Date(item.published_at).toLocaleDateString()
+                              : item.scheduled_at
+                                ? new Date(item.scheduled_at).toLocaleDateString()
+                                : "Pending"}
+                          </div>
+                          <div className="text-[10px] text-aura-on-surface-variant font-medium font-body opacity-60">
+                            {item.published_at
+                              ? new Date(item.published_at).toLocaleTimeString()
+                              : item.scheduled_at
+                                ? new Date(item.scheduled_at).toLocaleTimeString()
+                                : "Pending"}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-8 py-6 text-right">
+                        <div className="flex flex-col items-end gap-2">
+                          {activeChannels.length > 0 &&
+                            (needsExplicitChannelSelection ? (
+                              <select
+                                className="min-h-[36px] min-w-[190px] rounded-full border border-aura-outline-variant/15 bg-white px-3 text-xs font-medium text-aura-on-surface shadow-aura-sm outline-none"
+                                value={selectedChannelId || ""}
+                                onChange={(event) =>
+                                  setSelectedChannelIds((current) => {
+                                    if (!event.target.value) {
+                                      const next = { ...current };
+                                      delete next[item.job_id];
+                                      return next;
+                                    }
+                                    return {
+                                      ...current,
+                                      [item.job_id]: event.target.value,
+                                    };
+                                  })
+                                }
+                                aria-label={`Select TikTok channel for ${item.content?.title || item.page_title || item.job_id}`}
+                              >
+                                <option value="">Select channel</option>
+                                {activeChannels.map((channel) => (
+                                  <option
+                                    key={channel.id || channel.handle || "channel"}
+                                    value={channel.id || ""}
+                                  >
+                                    {getReviewJobChannelLabel(channel)}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className="rounded-full border border-aura-outline/10 bg-aura-surface-container px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-aura-on-surface-variant">
+                                {getReviewJobChannelLabel(activeChannels[0])}
+                              </span>
+                            ))}
+
+                          {selectedChannel && (
+                            <span className="text-[10px] font-medium text-aura-on-surface-variant">
+                              Target: {getReviewJobChannelLabel(selectedChannel)}
+                            </span>
+                          )}
+
+                          {needsExplicitChannelSelection && !selectedChannelId && (
+                            <span className="text-[10px] font-medium text-rose-500">
+                              Choose a TikTok channel first
+                            </span>
+                          )}
+
+                          <div className="flex items-center justify-end gap-2 flex-wrap">
+                            {(item.publish?.status === "scheduled" ||
+                              item.publish?.status === "ready_to_publish" ||
+                              item.publish?.status === "failed" ||
+                              item.publish?.status === "auth_required") && (
+                              <button
+                                className="px-3 py-1.5 text-xs font-semibold rounded-full border border-aura-primary/30 text-aura-primary hover:bg-aura-primary/10 transition-all disabled:opacity-60"
+                                onClick={() => {
+                                  void handlePublishNow(item.job_id, selectedChannelId);
+                                }}
+                                disabled={publishDisabled}
+                              >
+                                {publishingJobId === item.job_id ? "Publishing..." : "Publish"}
+                              </button>
+                            )}
+
+                            <button
+                              className="p-2 hover:bg-aura-primary/10 hover:text-aura-primary rounded-lg transition-all"
+                              title="View details"
+                              onClick={() => setDetailJob(item)}
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                            </button>
+                            <button
+                              className="p-2 hover:bg-aura-primary/10 hover:text-aura-primary rounded-lg transition-all"
+                              title="Share"
+                              onClick={() => setShareJob(item)}
+                            >
+                              <Share2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
                   <td colSpan={5} className="px-8 py-20 text-center">

@@ -242,15 +242,25 @@ class PostPublishingWorkflow:
             start_to_close_timeout=timedelta(minutes=10),
         )
 
-        # Start engagement syndicate workflow
-        await workflow.start_child_workflow(
-            EngagementSyndicateWorkflow.run,
-            args=[publish_results],
-            id=f"{workflow.info().workflow_id}-engagement-{post_config.get('id')}",
-            task_queue="ai-influencer-tasks",
+        publish_status = str(publish_results.get("status") or "published")
+        trackable_reference = bool(
+            publish_results.get("platform_post_id") or publish_results.get("post_url")
         )
 
-        return {"status": "published", "results": publish_results}
+        if publish_status == "published" and trackable_reference:
+            await workflow.start_child_workflow(
+                EngagementSyndicateWorkflow.run,
+                args=[publish_results],
+                id=f"{workflow.info().workflow_id}-engagement-{post_config.get('id')}",
+                task_queue="ai-influencer-tasks",
+            )
+        elif publish_status == "published":
+            workflow.logger.info(
+                "Skipping engagement tracking for post %s because no trackable post reference was returned",
+                post_config.get("id"),
+            )
+
+        return {"status": publish_status, "results": publish_results}
 
 
 @workflow.defn

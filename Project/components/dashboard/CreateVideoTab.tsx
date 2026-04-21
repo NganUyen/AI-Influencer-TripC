@@ -10,6 +10,11 @@ import type {
   ReviewEngineJobResponse,
   ReviewEngineSetup,
 } from '@/lib/review-engine';
+import {
+  getReviewJobActiveTikTokChannels,
+  getReviewJobChannelLabel,
+  getReviewJobPreferredTikTokChannelId,
+} from '@/lib/review-engine';
 import { customerApiRequest } from '@/lib/customer-api';
 import {
   deriveStepFromJobs,
@@ -195,11 +200,15 @@ function PublishStep({
   jobs,
   publishingJobId,
   onPublish,
+  selectedChannelIds,
+  onChannelChange,
   onBack,
 }: {
   jobs: ReviewEngineJob[];
   publishingJobId: string | null;
-  onPublish: (jobId: string) => void;
+  onPublish: (jobId: string, socialAccountId?: string | null) => void;
+  selectedChannelIds: Record<string, string>;
+  onChannelChange: (jobId: string, socialAccountId: string) => void;
   onBack: () => void;
 }) {
   const publishableJobs = jobs.filter(
@@ -224,6 +233,17 @@ function PublishStep({
           <div style={{ display: 'grid', gap: 12 }}>
             {publishableJobs.map((job) => {
               const alreadyPublished = job.publish?.status === 'published';
+              const activeChannels = getReviewJobActiveTikTokChannels(job);
+              const selectedChannelId =
+                selectedChannelIds[job.job_id] ?? getReviewJobPreferredTikTokChannelId(job);
+              const needsExplicitChannelSelection = activeChannels.length > 1;
+              const selectedChannel = activeChannels.find(
+                (channel) => channel.id === selectedChannelId,
+              );
+              const publishDisabled =
+                alreadyPublished ||
+                publishingJobId === job.job_id ||
+                (needsExplicitChannelSelection && !selectedChannelId);
               return (
                 <div
                   key={job.plan_id || job.job_id}
@@ -238,11 +258,60 @@ function PublishStep({
                     flexWrap: 'wrap',
                   }}
                 >
-                  <div style={{ display: 'grid', gap: 4 }}>
+                  <div style={{ display: 'grid', gap: 8, minWidth: 240, flex: 1 }}>
                     <strong>{job.persona?.display_name || job.persona_id || 'Persona'}</strong>
                     <span className="cv-cta-disabled-reason">
                       {job.page_title || job.objective || 'Ready for publish'}
                     </span>
+                    {activeChannels.length > 0 && (
+                      needsExplicitChannelSelection ? (
+                        <label
+                          style={{
+                            display: 'grid',
+                            gap: 6,
+                            fontSize: 12,
+                            color: 'var(--cv-text-muted, #6b7280)',
+                          }}
+                        >
+                          <span>Choose TikTok channel</span>
+                          <select
+                            value={selectedChannelId || ''}
+                            onChange={(event) =>
+                              onChannelChange(job.job_id, event.target.value)
+                            }
+                            style={{
+                              minHeight: 38,
+                              borderRadius: 10,
+                              border: '1px solid rgb(174 173 169 / 0.3)',
+                              padding: '8px 10px',
+                              background: '#fff',
+                              color: '#111827',
+                            }}
+                          >
+                            <option value="">Select channel</option>
+                            {activeChannels.map((channel) => (
+                              <option key={channel.id || channel.handle || 'channel'} value={channel.id || ''}>
+                                {getReviewJobChannelLabel(channel)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : (
+                        <span className="cv-cta-disabled-reason">
+                          Channel: {getReviewJobChannelLabel(activeChannels[0])}
+                        </span>
+                      )
+                    )}
+                    {needsExplicitChannelSelection && !selectedChannelId && (
+                      <span className="cv-cta-disabled-reason">
+                        Pick a TikTok channel before publish.
+                      </span>
+                    )}
+                    {selectedChannel && (
+                      <span className="cv-cta-disabled-reason">
+                        Target: {getReviewJobChannelLabel(selectedChannel)}
+                      </span>
+                    )}
                   </div>
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                     {job.production?.playable_video_url && (
@@ -258,8 +327,8 @@ function PublishStep({
                     <button
                       className="btn-primary"
                       type="button"
-                      disabled={alreadyPublished || publishingJobId === job.job_id}
-                      onClick={() => onPublish(job.job_id)}
+                      disabled={publishDisabled}
+                      onClick={() => onPublish(job.job_id, selectedChannelId)}
                     >
                       {alreadyPublished
                         ? 'Published'
@@ -308,6 +377,9 @@ export function CreateVideoTab({
   const [isSubmittingPlans, setIsSubmittingPlans] = useState(false);
   const [uploadingPlanIds, setUploadingPlanIds] = useState<string[]>([]);
   const [publishingJobId, setPublishingJobId] = useState<string | null>(null);
+  const [selectedPublishChannelIds, setSelectedPublishChannelIds] = useState<
+    Record<string, string>
+  >({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const restoredFlowPlanIdsRef = useRef<string[] | null>(null);
 
@@ -545,6 +617,38 @@ export function CreateVideoTab({
   }, [activeJobs, sharedContractDirty]);
 
   useEffect(() => {
+    setSelectedPublishChannelIds((current) => {
+      const next: Record<string, string> = {};
+      for (const job of activeJobs) {
+        const jobId = String(job.job_id);
+        const activeChannels = getReviewJobActiveTikTokChannels(job);
+        const currentSelection = current[jobId];
+        if (
+          currentSelection &&
+          activeChannels.some((channel) => channel.id === currentSelection)
+        ) {
+          next[jobId] = currentSelection;
+          continue;
+        }
+        const preferred = getReviewJobPreferredTikTokChannelId(job);
+        if (preferred) {
+          next[jobId] = preferred;
+        }
+      }
+
+      const currentKeys = Object.keys(current);
+      const nextKeys = Object.keys(next);
+      if (
+        currentKeys.length === nextKeys.length &&
+        nextKeys.every((key) => current[key] === next[key])
+      ) {
+        return current;
+      }
+      return next;
+    });
+  }, [activeJobs]);
+
+  useEffect(() => {
     persistActiveFlow(activePlanIds);
   }, [activePlanIds, persistActiveFlow]);
 
@@ -749,7 +853,7 @@ export function CreateVideoTab({
     }
   }, [onRefresh]);
 
-  const handlePublishJob = useCallback(async (jobId: string) => {
+  const handlePublishJob = useCallback(async (jobId: string, socialAccountId?: string | null) => {
     setErrorMessage(null);
     setPublishingJobId(jobId);
     try {
@@ -757,7 +861,9 @@ export function CreateVideoTab({
         `/api/customer/review-engine/jobs/${jobId}/publish`,
         {
           method: 'POST',
-          body: JSON.stringify({}),
+          body: JSON.stringify(
+            socialAccountId ? { social_account_id: socialAccountId } : {},
+          ),
         },
       );
       setJobs((current) => mergeJobs(current, [updatedJob]));
@@ -841,6 +947,20 @@ export function CreateVideoTab({
           <PublishStep
             jobs={activeJobs}
             publishingJobId={publishingJobId}
+            selectedChannelIds={selectedPublishChannelIds}
+            onChannelChange={(jobId, socialAccountId) => {
+              setSelectedPublishChannelIds((current) => {
+                if (!socialAccountId) {
+                  const next = { ...current };
+                  delete next[jobId];
+                  return next;
+                }
+                return {
+                  ...current,
+                  [jobId]: socialAccountId,
+                };
+              });
+            }}
             onPublish={handlePublishJob}
             onBack={() => goBack(3)}
           />

@@ -21,7 +21,7 @@ from services.database_service import DatabaseService
 logger = logging.getLogger(__name__)
 
 USER_NAMESPACE = UUID("2d9d5f55-2d26-4e34-b0bb-2d2d2f67eaa1")
-POSTIZ_PLATFORMS = {"twitter", "facebook", "linkedin", "tiktok", "youtube"}
+POSTIZ_PLATFORMS = {"twitter", "facebook", "linkedin", "youtube"}
 
 
 def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
@@ -245,6 +245,7 @@ class ContentPersistenceService:
             "logical_post_id": logical_post_id,
             "day": post_config.get("day"),
             "platform": post_config.get("platform"),
+            "social_account_id": post_config.get("social_account_id"),
             "theme": post_config.get("theme"),
             "hashtags": post_config.get("hashtags", []),
             "cta": post_config.get("cta", ""),
@@ -389,6 +390,7 @@ class ContentPersistenceService:
             "provider_post_id": publish_result.get("provider_post_id"),
             "post_url": publish_result.get("post_url"),
             "publish_method": publish_result.get("method"),
+            "social_account_id": post_config.get("social_account_id"),
             "provider_status": publish_result.get("provider_status"),
             "publish_error": publish_result.get("error"),
             "last_publish_result_status": status,

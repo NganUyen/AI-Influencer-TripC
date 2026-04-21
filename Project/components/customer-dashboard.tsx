@@ -1175,11 +1175,13 @@ export default function CustomerDashboard({ activeTab: initialTab }: CustomerDas
                 activityItems={activityItems}
                 quotaWarnings={quotaWarnings}
                 reviewJobs={reviewEngineJobs}
-                onPublishJob={async (jobId) => {
+                onPublishJob={async (job, socialAccountId) => {
                   try {
-                    await customerApiRequest(`/api/customer/review-engine/jobs/${jobId}/publish`, {
+                    await customerApiRequest(`/api/customer/review-engine/jobs/${job.job_id}/publish`, {
                       method: "POST",
-                      body: JSON.stringify({}),
+                      body: JSON.stringify(
+                        socialAccountId ? { social_account_id: socialAccountId } : {},
+                      ),
                     });
                     toast.success("Publish started.");
                     await loadReviewEngineData();

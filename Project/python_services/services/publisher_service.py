@@ -10,6 +10,7 @@ from config.settings import settings
 from services.account_connection_service import AccountConnectionService
 from services.errors import PostizConfigurationError
 from services.postiz_service import PostizService
+from services.tiktok_automation_service import TikTokAutomationService
 
 
 class PublisherService:
@@ -17,11 +18,15 @@ class PublisherService:
 
     def __init__(self) -> None:
         self.postiz_service = PostizService()
+        self.tiktok_service = TikTokAutomationService()
 
     async def publish(self, post_config: Dict[str, Any]) -> Dict[str, Any]:
         platform = str(post_config["platform"]).strip().lower()
         user_id = str(post_config.get("user_id") or "").strip()
         media_urls = [item["storage_url"] for item in post_config.get("media", []) if item.get("storage_url")]
+
+        if platform == "tiktok":
+            return await self.tiktok_service.publish_post(post_config)
 
         connected_account = None
         if user_id:

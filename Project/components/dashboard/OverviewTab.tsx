@@ -3,7 +3,10 @@
 import React from "react";
 import { Download, Edit2, PlayCircle, Send } from "lucide-react";
 import {
+  getReviewJobActiveTikTokChannels,
+  getReviewJobChannelLabel,
   type ReviewEngineJob,
+  getReviewJobPreferredTikTokChannelId,
   getReviewJobPersonaImage,
   getReviewJobStatusLabel,
   getReviewJobTone,
@@ -19,7 +22,10 @@ interface OverviewTabProps {
   activityItems: any[];
   quotaWarnings: any[];
   reviewJobs?: ReviewEngineJob[];
-  onPublishJob?: (jobId: string) => Promise<void> | void;
+  onPublishJob?: (
+    job: ReviewEngineJob,
+    socialAccountId?: string | null,
+  ) => Promise<void> | void;
 }
 
 function statusClass(tone: "default" | "success" | "warning") {
@@ -87,6 +93,37 @@ export function OverviewTab({
 }: OverviewTabProps) {
   const [websiteFilter, setWebsiteFilter] = React.useState("all");
   const [dateSort, setDateSort] = React.useState<"newest" | "oldest">("newest");
+  const [selectedChannelIds, setSelectedChannelIds] = React.useState<Record<string, string>>({});
+
+  React.useEffect(() => {
+    setSelectedChannelIds((current) => {
+      const next: Record<string, string> = {};
+      for (const job of reviewJobs) {
+        const activeChannels = getReviewJobActiveTikTokChannels(job);
+        const currentSelection = current[job.job_id];
+        if (
+          currentSelection &&
+          activeChannels.some((channel) => channel.id === currentSelection)
+        ) {
+          next[job.job_id] = currentSelection;
+          continue;
+        }
+        const preferred = getReviewJobPreferredTikTokChannelId(job);
+        if (preferred) {
+          next[job.job_id] = preferred;
+        }
+      }
+      const currentKeys = Object.keys(current);
+      const nextKeys = Object.keys(next);
+      if (
+        currentKeys.length === nextKeys.length &&
+        nextKeys.every((key) => current[key] === next[key])
+      ) {
+        return current;
+      }
+      return next;
+    });
+  }, [reviewJobs]);
 
   const websiteOptions = React.useMemo(() => {
     const unique = Array.from(
@@ -272,6 +309,15 @@ export function OverviewTab({
                 const personaImage =
                   getReviewJobPersonaImage(job) ||
                   "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=800&auto=format&fit=crop";
+                const activeChannels = getReviewJobActiveTikTokChannels(job);
+                const selectedChannelId =
+                  selectedChannelIds[job.job_id] ??
+                  getReviewJobPreferredTikTokChannelId(job);
+                const needsExplicitChannelSelection = activeChannels.length > 1;
+                const selectedChannel = activeChannels.find(
+                  (channel) => channel.id === selectedChannelId,
+                );
+
                 return (
                   <article
                     key={job.job_id}
@@ -360,50 +406,103 @@ export function OverviewTab({
                         </p>
                       </div>
 
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => onTabChange("create_video")}
-                          className="btn-secondary btn-sm h-8 px-3 text-xs flex items-center gap-1.5"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                          Edit Content
-                        </button>
-                        {job.production?.download_url ? (
-                          <a
-                            href={job.production.download_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="btn-secondary btn-sm h-8 px-3 text-xs flex items-center gap-1.5"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            Download
-                          </a>
-                        ) : (
+                      <div className="flex flex-col gap-2">
+                        {activeChannels.length > 0 &&
+                          (needsExplicitChannelSelection ? (
+                            <select
+                              className="dashboard-input h-8 min-w-[180px] text-xs"
+                              value={selectedChannelId || ""}
+                              onChange={(event) =>
+                                setSelectedChannelIds((current) => {
+                                  if (!event.target.value) {
+                                    const next = { ...current };
+                                    delete next[job.job_id];
+                                    return next;
+                                  }
+                                  return {
+                                    ...current,
+                                    [job.job_id]: event.target.value,
+                                  };
+                                })
+                              }
+                              aria-label={`Select TikTok channel for ${job.content?.title || job.page_title || job.job_id}`}
+                            >
+                              <option value="">Select TikTok channel</option>
+                              {activeChannels.map((channel) => (
+                                <option
+                                  key={channel.id || channel.handle || "channel"}
+                                  value={channel.id || ""}
+                                >
+                                  {getReviewJobChannelLabel(channel)}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="dashboard-pill dashboard-pill-muted w-fit px-2 py-1 text-[10px] normal-case tracking-normal">
+                              {getReviewJobChannelLabel(activeChannels[0])}
+                            </span>
+                          ))}
+
+                        {selectedChannel && (
+                          <span className="text-[10px] font-medium text-aura-on-surface-variant">
+                            Target: {getReviewJobChannelLabel(selectedChannel)}
+                          </span>
+                        )}
+
+                        {needsExplicitChannelSelection && !selectedChannelId && (
+                          <span className="text-[10px] font-medium text-rose-500">
+                            Choose a TikTok channel first
+                          </span>
+                        )}
+
+                        <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
-                            disabled
-                            className="btn-secondary btn-sm h-8 px-3 text-xs opacity-50 cursor-not-allowed flex items-center gap-1.5"
+                            onClick={() => onTabChange("create_video")}
+                            className="btn-secondary btn-sm h-8 px-3 text-xs flex items-center gap-1.5"
                           >
-                            <PlayCircle className="w-3.5 h-3.5" />
-                            Pending
+                            <Edit2 className="w-3.5 h-3.5" />
+                            Edit Content
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          disabled={
-                            !job.production?.ready ||
-                            job.publish?.status === "published" ||
-                            !onPublishJob
-                          }
-                          onClick={() => onPublishJob?.(job.job_id)}
-                          className="btn-primary btn-sm h-8 px-3 text-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <Send className="w-3.5 h-3.5" />
-                          {job.publish?.status === "published"
-                            ? "Published"
-                            : "Publish"}
-                        </button>
+
+                          {job.production?.download_url ? (
+                            <a
+                              href={job.production.download_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="btn-secondary btn-sm h-8 px-3 text-xs flex items-center gap-1.5"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              Download
+                            </a>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled
+                              className="btn-secondary btn-sm h-8 px-3 text-xs opacity-50 cursor-not-allowed flex items-center gap-1.5"
+                            >
+                              <PlayCircle className="w-3.5 h-3.5" />
+                              Pending
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            disabled={
+                              !job.production?.ready ||
+                              job.publish?.status === "published" ||
+                              !onPublishJob ||
+                              (needsExplicitChannelSelection && !selectedChannelId)
+                            }
+                            onClick={() => onPublishJob?.(job, selectedChannelId)}
+                            className="btn-primary btn-sm h-8 px-3 text-xs flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            {job.publish?.status === "published"
+                              ? "Published"
+                              : "Publish"}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </article>

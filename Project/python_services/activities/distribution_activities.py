@@ -15,6 +15,7 @@ from services.content_persistence_service import ContentPersistenceService
 from config.settings import settings
 from services.errors import SocialProviderError
 from services.publisher_service import PublisherService
+from services.tiktok_automation_service import TikTokAutomationService
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,7 @@ async def publish_to_platforms(post_config: Dict[str, Any]) -> Dict[str, Any]:
     platform = post_config["platform"]
     publisher_service: PublisherService | None = None
     browser_service = BrowserAutomationService()
+    tiktok_service: TikTokAutomationService | None = None
 
     results = {
         "post_id": post_config["id"],
@@ -133,10 +135,24 @@ async def publish_to_platforms(post_config: Dict[str, Any]) -> Dict[str, Any]:
     deferred_error: ApplicationError | None = None
 
     # Platforms supported by Postiz OAuth
-    postiz_platforms = ["twitter", "facebook", "linkedin", "tiktok", "youtube"]
+    postiz_platforms = ["twitter", "facebook", "linkedin", "youtube"]
 
     try:
-        if platform in postiz_platforms:
+        if platform == "tiktok":
+            tiktok_service = TikTokAutomationService()
+            result = await tiktok_service.publish_post(post_config)
+            results.update(
+                {
+                    "status": result.get("status", "published"),
+                    "platform_post_id": result.get("platform_post_id"),
+                    "provider_post_id": result.get("provider_post_id"),
+                    "post_url": result.get("post_url"),
+                    "provider_status": result.get("provider_status", result.get("status")),
+                    "provider_response": result.get("raw") or result,
+                    "method": result.get("method", "tiktok_browser_automation"),
+                }
+            )
+        elif platform in postiz_platforms:
             # Use Postiz for official API distribution
             publisher_service = PublisherService()
             result = await publisher_service.publish(
@@ -194,6 +210,10 @@ async def publish_to_platforms(post_config: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to publish to {platform}: {str(e)}")
         results.update({"status": "failed", "error": str(e), "published_at": None})
+        deferred_error = ApplicationError(
+            f"Failed to publish to {platform}: {str(e)}",
+            non_retryable=False,
+        )
     finally:
         try:
             await ContentPersistenceService.update_publish_result(
@@ -207,9 +227,39 @@ async def publish_to_platforms(post_config: Dict[str, Any]) -> Dict[str, Any]:
                 post_config["id"],
                 exc,
             )
+        job_workflow_id = str(post_config.get("job_workflow_id") or "").strip()
+        job_user_id = str(post_config.get("job_user_id") or post_config.get("user_id") or "").strip()
+        if job_workflow_id and job_user_id:
+            try:
+                from services.app_review_studio_service import AppReviewStudioService
+
+                await AppReviewStudioService._update_job_output(
+                    workflow_id=job_workflow_id,
+                    user_id=job_user_id,
+                    output_data={
+                        "content_record_id": post_config.get("content_record_id"),
+                        "publish_status": results.get("status"),
+                        "published_at": results.get("published_at"),
+                        "post_url": results.get("post_url"),
+                        "publish_error": results.get("error"),
+                        "publish_method": results.get("method"),
+                    },
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to sync review-engine publish state for %s: %s",
+                    job_workflow_id,
+                    exc,
+                )
         if publisher_service is not None:
-            await publisher_service.close()
-        await browser_service.close()
+            try:
+                await publisher_service.close()
+            except Exception as exc:
+                logger.warning("Failed to close publisher service: %s", exc)
+        try:
+            await browser_service.close()
+        except Exception as exc:
+            logger.warning("Failed to close browser automation service: %s", exc)
 
     if deferred_error is not None:
         raise deferred_error

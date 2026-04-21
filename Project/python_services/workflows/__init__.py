@@ -10,6 +10,10 @@ from .weekly_marketing_workflow import (
 )
 from .daily_story_workflow import DailyStoryWorkflow
 from .short_video_workflow import ShortVideoWorkflow
+from .tiktok_account_workflow import (
+    TikTokAccountBootstrapWorkflow,
+    TikTokAccountRefreshWorkflow,
+)
 
 __all__ = [
     "WeeklyMarketingWorkflow",
@@ -17,4 +21,6 @@ __all__ = [
     "EngagementSyndicateWorkflow",
     "DailyStoryWorkflow",
     "ShortVideoWorkflow",
+    "TikTokAccountBootstrapWorkflow",
+    "TikTokAccountRefreshWorkflow",
 ]

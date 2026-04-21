@@ -8,6 +8,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+FROM scratch AS app-source
+
+COPY . /src
+
 FROM base AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -50,9 +54,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.base.txt requirements.api.txt ./
 COPY --from=builder /wheels/api /wheels
-RUN pip install --no-index --find-links=/wheels -r requirements.api.txt && rm -rf /wheels
+RUN pip install --no-index --find-links=/wheels --no-compile -r requirements.api.txt && rm -rf /wheels
 
-COPY . .
+COPY --from=app-source /src/main.py ./main.py
+COPY --from=app-source /src/activities ./activities
+COPY --from=app-source /src/agents ./agents
+COPY --from=app-source /src/api ./api
+COPY --from=app-source /src/chatgpt_connector ./chatgpt_connector
+COPY --from=app-source /src/config ./config
+COPY --from=app-source /src/services ./services
+COPY --from=app-source /src/skills ./skills
+COPY --from=app-source /src/utils ./utils
+COPY --from=app-source /src/workflows ./workflows
+# API only needs audio manifests for metadata routes; worker runtime carries the MP3 payloads.
+COPY --from=app-source /src/assets/audio_library/library.json ./assets/audio_library/library.json
+COPY --from=app-source /src/assets/audio_library/bgm/library.json ./assets/audio_library/bgm/library.json
+COPY --from=app-source /src/assets/audio_library/movement/library.json ./assets/audio_library/movement/library.json
 
 EXPOSE 8000
 
@@ -73,13 +90,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.base.txt requirements.api.txt requirements.worker.txt ./
 COPY --from=builder /wheels/worker /wheels
-RUN pip install --no-index --find-links=/wheels -r requirements.worker.txt && rm -rf /wheels
+RUN pip install --no-index --find-links=/wheels --no-compile -r requirements.worker.txt && rm -rf /wheels
 
 # Install Playwright Chromium and clean up cache in same layer
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
 RUN playwright install chromium \
     && rm -rf /root/.cache/pip /root/.cache/ms-playwright-build
 
-COPY . .
+COPY --from=app-source /src/main.py ./main.py
+COPY --from=app-source /src/worker.py ./worker.py
+COPY --from=app-source /src/activities ./activities
+COPY --from=app-source /src/agents ./agents
+COPY --from=app-source /src/api ./api
+COPY --from=app-source /src/chatgpt_connector ./chatgpt_connector
+COPY --from=app-source /src/config ./config
+COPY --from=app-source /src/services ./services
+COPY --from=app-source /src/skills ./skills
+COPY --from=app-source /src/utils ./utils
+COPY --from=app-source /src/workflows ./workflows
+COPY --from=app-source /src/assets ./assets
 
 CMD ["python", "worker.py"]

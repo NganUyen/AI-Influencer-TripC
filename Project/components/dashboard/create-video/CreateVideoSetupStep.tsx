@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import type {
   CreateVideoSetupState,
@@ -14,8 +14,10 @@ import { CreateVideoSummaryPanel } from './CreateVideoSummaryPanel';
 import { customerApiRequest } from '@/lib/customer-api';
 import { resolveCountryCode } from '@/lib/country-mapping';
 import {
+  applyAudioLibraryPreviewOverrides,
   GESTURE_STYLE_OPTIONS,
   MUSIC_MOOD_OPTIONS,
+  type ReviewEngineAudioLibrary,
 } from './setup-options';
 
 // ---------------------------------------------------------------------------
@@ -69,17 +71,49 @@ export function CreateVideoSetupStep({
 
   const [isBriefExpanded, setIsBriefExpanded] = useState(false);
   const [isFeatureModalOpen, setIsFeatureModalOpen] = useState(false);
-  const [movementPreviewNonce, setMovementPreviewNonce] = useState(0);
   const [musicPreviewNonce, setMusicPreviewNonce] = useState(0);
+  const [audioLibrary, setAudioLibrary] = useState<ReviewEngineAudioLibrary | null>(null);
   const [expandedPersonaGroups, setExpandedPersonaGroups] = useState({
     system: true,
     custom: true,
   });
   const validationAbortRef = useRef<AbortController | null>(null);
 
+  useEffect(() => {
+    let isCancelled = false;
+    (async () => {
+      try {
+        const result = await customerApiRequest<ReviewEngineAudioLibrary>(
+          '/api/customer/review-engine/audio-library',
+        );
+        if (!isCancelled) {
+          setAudioLibrary(result);
+        }
+      } catch {
+        if (!isCancelled) {
+          setAudioLibrary(null);
+        }
+      }
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
   const selectedPersonaSet = useMemo(
     () => new Set(selectedPersonaIds),
     [selectedPersonaIds],
+  );
+
+  const { gestureOptions, musicOptions } = useMemo(
+    () =>
+      applyAudioLibraryPreviewOverrides(
+        GESTURE_STYLE_OPTIONS,
+        MUSIC_MOOD_OPTIONS,
+        audioLibrary,
+      ),
+    [audioLibrary],
   );
 
   const systemPersonas = useMemo(
@@ -634,14 +668,13 @@ export function CreateVideoSetupStep({
               Gesture Style
             </p>
             <div className="cv-gesture-chips">
-              {GESTURE_STYLE_OPTIONS.map((style) => (
+              {gestureOptions.map((style) => (
                 <button
                   key={style.value}
                   type="button"
                   className={`cv-gesture-chip${selectedMovementStyle === style.value ? ' cv-gesture-chip--selected' : ''}`}
                   onClick={() => {
                     onChange({ selectedMovementStyle: style.value });
-                    setMovementPreviewNonce((prev) => prev + 1);
                     toast.success(`Movement style: ${style.label}`);
                   }}
                 >
@@ -678,8 +711,8 @@ export function CreateVideoSetupStep({
             </h3>
           </div>
           <div className="cv-section-content">
-            <div className="cv-bgm-mood-cards" role="group" aria-label="Music mood selection">
-              {MUSIC_MOOD_OPTIONS.map((mood) => (
+            <div className="cv-bgm-mood-cards">
+              {musicOptions.map((mood) => (
                 <button
                   key={mood.value}
                   type="button"
@@ -786,8 +819,9 @@ export function CreateVideoSetupStep({
       <CreateVideoSummaryPanel
         setupState={setupState}
         selectedPersonas={selectedPersonas}
-        movementPreviewNonce={movementPreviewNonce}
         musicPreviewNonce={musicPreviewNonce}
+        gestureStyleOptions={gestureOptions}
+        musicMoodOptions={musicOptions}
       />
 
       {isFeatureModalOpen && visibleFeatures.length > 0 && (

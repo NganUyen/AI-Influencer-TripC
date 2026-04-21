@@ -320,6 +320,11 @@ def _public_review_engine_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _public_audio_track(track: Dict[str, Any]) -> Dict[str, Any]:
+    preview_path = (
+        track.get("preview_path")
+        or track.get("access_url")
+        or track.get("url")
+    )
     return {
         "id": track.get("id"),
         "group": track.get("group"),
@@ -327,7 +332,9 @@ def _public_audio_track(track: Dict[str, Any]) -> Dict[str, Any]:
         "style": track.get("style"),
         "mood": track.get("mood"),
         "duration_seconds": track.get("duration_seconds"),
-        "preview_path": track.get("preview_path"),
+        "preview_path": preview_path,
+        "access_url": track.get("access_url") or track.get("url"),
+        "storage_path": track.get("storage_path"),
     }
 
 

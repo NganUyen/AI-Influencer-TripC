@@ -93,6 +93,20 @@ class ScriptService:
             )
         return OpenClawService()
 
+    @staticmethod
+    def _raise_unstructured_ai_error(payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+
+        text_message = str(payload.get("text") or "").strip()
+        if not text_message:
+            return
+
+        if any(key in payload for key in ("script", "steps", "scenes")):
+            return
+
+        raise ScriptGenerationError(text_message)
+
     async def generate_script(
         self,
         app_name: str,
@@ -397,13 +411,11 @@ class ScriptService:
         if isinstance(data, str):
             data = extract_json_from_llm_response(data)
 
+        self._raise_unstructured_ai_error(data)
+
         try:
             raw_steps = data.get("steps") or data.get("scenes") or []
             if not raw_steps:
-                # Log detailed debug info for troubleshooting
-                import logging
-
-                logger = logging.getLogger(__name__)
                 logger.error(
                     f"No recording steps in OpenClaw response. "
                     f"App: {app_name}, "
@@ -572,6 +584,8 @@ class ScriptService:
         payload = data.get("result", data)
         if isinstance(payload, str):
             payload = extract_json_from_llm_response(payload)
+
+        self._raise_unstructured_ai_error(payload)
 
         try:
             return ScriptContract(**payload)

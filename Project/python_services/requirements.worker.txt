@@ -1,9 +1,7 @@
 -r requirements.api.txt
 
 # Social Media & Automation
-selenium==4.17.2
 playwright==1.41.0
-camoufox==0.3.0
 
 # Video Analysis (OCR, blur detection)
 pytesseract==0.3.10

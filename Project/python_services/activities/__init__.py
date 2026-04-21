@@ -36,6 +36,10 @@ from .story_activities import (
     generate_daily_story,
     send_story_for_approval,
 )
+from .tiktok_account_activities import (
+    bootstrap_tiktok_account,
+    refresh_tiktok_account_session,
+)
 
 __all__ = [
     # Strategy
@@ -68,6 +72,8 @@ __all__ = [
     # Daily Story Bot
     "generate_daily_story",
     "send_story_for_approval",
+    "bootstrap_tiktok_account",
+    "refresh_tiktok_account_session",
 ]
 
 from .approval_activities import (

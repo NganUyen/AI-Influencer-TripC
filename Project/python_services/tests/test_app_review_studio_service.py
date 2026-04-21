@@ -44,6 +44,33 @@ def _page_review(**overrides: Any) -> WebPageReviewContract:
     return WebPageReviewContract.model_validate(payload)
 
 
+class _FakeConn:
+    def __init__(self, rows: List[Dict[str, Any]]):
+        self._rows = rows
+
+    async def fetch(self, *_args, **_kwargs):
+        return list(self._rows)
+
+
+class _FakeAcquire:
+    def __init__(self, rows: List[Dict[str, Any]]):
+        self._rows = rows
+
+    async def __aenter__(self):
+        return _FakeConn(self._rows)
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+
+class _FakePool:
+    def __init__(self, rows: List[Dict[str, Any]]):
+        self._rows = rows
+
+    def acquire(self):
+        return _FakeAcquire(self._rows)
+
+
 def test_audio_policy_prefers_explicit_profiles_from_creative_preferences():
     policy = studio_module._audio_policy_from_creative_preferences(
         {
@@ -646,7 +673,7 @@ async def test_list_jobs_merges_plan_and_workflow_by_plan_id(monkeypatch):
                 "scenes_data": [],
                 "status": "approved",
                 "workflow_id": "video-wf-1",
-                "video_url": None,
+                "video_url": "https://cdn.example/stale-plan-video.mp4",
                 "publish_settings": {
                     "content_title": "Example App · Ava",
                     "caption_draft": "Caption draft",
@@ -756,6 +783,76 @@ async def test_list_jobs_merges_plan_and_workflow_by_plan_id(monkeypatch):
     assert job["input_mode"] == "ai_autonomous"
     assert job["creative_preferences"] == {"hook_style": "bold"}
     assert job["source_url"] == "https://example.com/app"
+    assert job["production"].get("playable_video_url") in {None, ""}
+    assert job["production"].get("ready") is not True
+
+
+@pytest.mark.asyncio
+async def test_publish_job_rejects_manual_upload_without_verified_asset(monkeypatch):
+    async def fake_get_job(*, user_id, job_id, temporal_client=None):
+        return {
+            "job_id": job_id,
+            "plan_id": job_id,
+            "workflow_id": None,
+            "input_mode": "user_upload",
+            "publish_settings": {
+                "input_mode": "user_upload",
+            },
+            "production": {
+                "playable_video_url": "https://cdn.example/upload.mp4",
+                "ready": True,
+                "publish_enabled": True,
+            },
+            "content": {"body": "Caption"},
+            "objective": "Review product",
+            "page_title": "Example App",
+        }
+
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "get_job",
+        classmethod(lambda cls, *, user_id, job_id, temporal_client=None: fake_get_job(user_id=user_id, job_id=job_id, temporal_client=temporal_client)),
+    )
+
+    with pytest.raises(ValueError, match="Manual upload video is not verified"):
+        await AppReviewStudioService.publish_job_to_tiktok(
+            session=_session(),
+            job_id="plan-1",
+        )
+
+
+@pytest.mark.asyncio
+async def test_publish_job_rejects_ai_job_without_workflow_link(monkeypatch):
+    async def fake_get_job(*, user_id, job_id, temporal_client=None):
+        return {
+            "job_id": job_id,
+            "plan_id": job_id,
+            "workflow_id": None,
+            "input_mode": "ai_autonomous",
+            "publish_settings": {
+                "input_mode": "ai_autonomous",
+            },
+            "production": {
+                "playable_video_url": "https://cdn.example/final.mp4",
+                "ready": True,
+                "publish_enabled": True,
+            },
+            "content": {"body": "Caption"},
+            "objective": "Review product",
+            "page_title": "Example App",
+        }
+
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "get_job",
+        classmethod(lambda cls, *, user_id, job_id, temporal_client=None: fake_get_job(user_id=user_id, job_id=job_id, temporal_client=temporal_client)),
+    )
+
+    with pytest.raises(ValueError, match="Workflow output is not linked"):
+        await AppReviewStudioService.publish_job_to_tiktok(
+            session=_session(),
+            job_id="plan-1",
+        )
 
 
 @pytest.mark.asyncio
@@ -896,6 +993,254 @@ async def test_upload_manual_video_updates_existing_plan(monkeypatch):
         update_calls[0]["updates"]["publish_settings"]["uploaded_media_asset_id"]
         == "media-1"
     )
+
+
+@pytest.mark.asyncio
+async def test_publish_job_to_tiktok_waits_for_immediate_worker_publish(monkeypatch):
+    update_calls: List[Dict[str, Any]] = []
+
+    async def fake_get_job(*, user_id, job_id, temporal_client=None):
+        return {
+            "job_id": job_id,
+            "plan_id": "plan-1",
+            "workflow_id": "video-wf-1",
+            "objective": "Review product",
+            "page_title": "Example App",
+            "content": {"body": "Caption body"},
+            "production": {
+                "ready": True,
+                "playable_video_url": "https://cdn.example/final.mp4",
+                "publish_enabled": True,
+            },
+        }
+
+    async def fake_get_link_for_user(_user_id):
+        return {"chat_id": "12345"}
+
+    async def fake_list_accounts(_user_id):
+        return [
+            {
+                "id": "social-1",
+                "platform": "tiktok",
+                "connection_status": "connected",
+                "is_active": True,
+            }
+        ]
+
+    async def fake_persist_scheduled_post(*, workflow_id, post_config):
+        assert workflow_id == "video-wf-1"
+        assert post_config["job_workflow_id"] == "video-wf-1"
+        assert post_config["social_account_id"] == "social-1"
+        return {"content_record_id": "content-1", "workflow_id": workflow_id}
+
+    async def fake_start_publish_workflow(*, post_config, temporal_client=None, wait_for_completion=True):
+        assert wait_for_completion is True
+        assert temporal_client is None
+        assert post_config["content_record_id"] == "content-1"
+        assert post_config["social_account_id"] == "social-1"
+        return {
+            "status": "published",
+            "workflow_id": "publish-video-wf-1-1",
+            "result": {
+                "status": "published",
+                "published_at": "2026-04-20T12:00:00+00:00",
+                "post_url": "https://tiktok.example/post/1",
+                "method": "tiktok_browser_automation",
+            },
+        }
+
+    async def fake_update_job_output(**kwargs):
+        update_calls.append(kwargs)
+        return kwargs
+
+    monkeypatch.setattr(AppReviewStudioService, "get_job", classmethod(lambda cls, *, user_id, job_id, temporal_client=None: fake_get_job(user_id=user_id, job_id=job_id, temporal_client=temporal_client)))
+    monkeypatch.setattr(
+        studio_module.TelegramLinkService,
+        "get_link_for_user",
+        fake_get_link_for_user,
+    )
+    monkeypatch.setattr(
+        studio_module.AccountConnectionService,
+        "list_accounts",
+        fake_list_accounts,
+    )
+    monkeypatch.setattr(
+        studio_module.ContentPersistenceService,
+        "persist_scheduled_post",
+        fake_persist_scheduled_post,
+    )
+    monkeypatch.setattr(
+        studio_module.TikTokOrchestrationService,
+        "start_publish_workflow",
+        fake_start_publish_workflow,
+    )
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "_update_job_output",
+        classmethod(lambda cls, **kwargs: fake_update_job_output(**kwargs)),
+    )
+
+    result = await AppReviewStudioService.publish_job_to_tiktok(
+        session=_session(),
+        job_id="plan-1",
+        schedule_time=None,
+    )
+
+    assert result["workflow_id"] == "video-wf-1"
+    assert update_calls[-1]["output_data"]["publish_status"] == "published"
+    assert update_calls[-1]["output_data"]["publish_method"] == "tiktok_browser_automation"
+
+
+@pytest.mark.asyncio
+async def test_publish_job_to_tiktok_schedules_future_worker_publish(monkeypatch):
+    update_calls: List[Dict[str, Any]] = []
+    get_job_calls = {"count": 0}
+
+    async def fake_get_job(*, user_id, job_id, temporal_client=None):
+        get_job_calls["count"] += 1
+        base_payload = {
+            "job_id": job_id,
+            "plan_id": "plan-1",
+            "workflow_id": "video-wf-1",
+            "objective": "Review product",
+            "page_title": "Example App",
+            "content": {"body": "Caption body"},
+            "production": {
+                "ready": True,
+                "playable_video_url": "https://cdn.example/final.mp4",
+                "publish_enabled": True,
+            },
+        }
+        if get_job_calls["count"] > 1:
+            base_payload["publish"] = {"status": "scheduled"}
+        return base_payload
+
+    async def fake_get_link_for_user(_user_id):
+        return {"chat_id": "12345"}
+
+    async def fake_list_accounts(_user_id):
+        return [
+            {
+                "id": "social-1",
+                "platform": "tiktok",
+                "connection_status": "connected",
+                "is_active": True,
+            }
+        ]
+
+    async def fake_persist_scheduled_post(*, workflow_id, post_config):
+        assert workflow_id == "video-wf-1"
+        assert post_config["social_account_id"] == "social-1"
+        return {"content_record_id": "content-2", "workflow_id": workflow_id}
+
+    async def fake_start_publish_workflow(*, post_config, temporal_client=None, wait_for_completion=True):
+        assert wait_for_completion is False
+        assert post_config["scheduled_time"] == "2099-04-21T00:00:00Z"
+        assert post_config["social_account_id"] == "social-1"
+        return {
+            "status": "scheduled",
+            "workflow_id": "publish-video-wf-1-2",
+        }
+
+    async def fake_update_job_output(**kwargs):
+        update_calls.append(kwargs)
+        return kwargs
+
+    monkeypatch.setattr(AppReviewStudioService, "get_job", classmethod(lambda cls, *, user_id, job_id, temporal_client=None: fake_get_job(user_id=user_id, job_id=job_id, temporal_client=temporal_client)))
+    monkeypatch.setattr(
+        studio_module.TelegramLinkService,
+        "get_link_for_user",
+        fake_get_link_for_user,
+    )
+    monkeypatch.setattr(
+        studio_module.AccountConnectionService,
+        "list_accounts",
+        fake_list_accounts,
+    )
+    monkeypatch.setattr(
+        studio_module.ContentPersistenceService,
+        "persist_scheduled_post",
+        fake_persist_scheduled_post,
+    )
+    monkeypatch.setattr(
+        studio_module.TikTokOrchestrationService,
+        "start_publish_workflow",
+        fake_start_publish_workflow,
+    )
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "_update_job_output",
+        classmethod(lambda cls, **kwargs: fake_update_job_output(**kwargs)),
+    )
+
+    result = await AppReviewStudioService.publish_job_to_tiktok(
+        session=_session(),
+        job_id="plan-1",
+        schedule_time="2099-04-21T00:00:00Z",
+    )
+
+    assert result["workflow_id"] == "video-wf-1"
+    assert update_calls[-1]["output_data"]["publish_status"] == "scheduled"
+    assert update_calls[-1]["output_data"]["publish_method"] == "tiktok_browser_automation"
+
+
+@pytest.mark.asyncio
+async def test_publish_job_to_tiktok_requires_explicit_channel_when_multiple_active(
+    monkeypatch,
+):
+    async def fake_get_job(*, user_id, job_id, temporal_client=None):
+        return {
+            "job_id": job_id,
+            "plan_id": "plan-1",
+            "workflow_id": "video-wf-1",
+            "objective": "Review product",
+            "page_title": "Example App",
+            "content": {"body": "Caption body"},
+            "production": {
+                "ready": True,
+                "playable_video_url": "https://cdn.example/final.mp4",
+                "publish_enabled": True,
+            },
+        }
+
+    async def fake_list_accounts(_user_id):
+        return [
+            {
+                "id": "social-1",
+                "platform": "tiktok",
+                "connection_status": "connected",
+                "is_active": True,
+            },
+            {
+                "id": "social-2",
+                "platform": "tiktok",
+                "connection_status": "connected",
+                "is_active": True,
+            },
+        ]
+
+    monkeypatch.setattr(
+        AppReviewStudioService,
+        "get_job",
+        classmethod(
+            lambda cls, *, user_id, job_id, temporal_client=None: fake_get_job(
+                user_id=user_id,
+                job_id=job_id,
+                temporal_client=temporal_client,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        studio_module.AccountConnectionService,
+        "list_accounts",
+        fake_list_accounts,
+    )
+
+    with pytest.raises(ValueError, match="Multiple active TikTok channels"):
+        await AppReviewStudioService.publish_job_to_tiktok(
+            session=_session(),
+            job_id="plan-1",
+        )
 
 
 @pytest.mark.asyncio

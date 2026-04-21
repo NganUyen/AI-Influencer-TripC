@@ -15,6 +15,7 @@ from services.proxy_manager_service import (
     ProxyManagerService,
     _redact_sensitive_response_data,
 )
+from services.tiktok_orchestration_service import TikTokOrchestrationService
 
 router = APIRouter(dependencies=[Depends(require_internal_api_token)])
 logger = logging.getLogger(__name__)
@@ -75,6 +76,31 @@ def _build_browser_profile(platform: str, account_key: str) -> Dict[str, str]:
     return {
         "profile_name": profile_name,
         "storage_state_path": f"/app/browser_profiles/{profile_name}/storage_state.json",
+    }
+
+
+async def _prepare_tiktok_bootstrap_record(payload: Dict[str, Any]) -> Dict[str, Any]:
+    plan_input = _build_onboarding_payload("tiktok", payload)
+    execution = await ProxyManagerService.execute_onboarding(**plan_input)
+    execution["plan"]["browser_profile"] = _build_browser_profile(
+        execution["platform"], execution["account_key"]
+    )
+    registry = await ProxyManagerService.register_account_record(
+        owner_key=str(
+            payload.get("owner_key")
+            or payload.get("user_id")
+            or execution["account_key"]
+        ),
+        platform=execution["platform"],
+        account_key=execution["account_key"],
+        plan=execution["plan"],
+        status="prepared",
+        is_primary=bool(payload.get("is_primary", False)),
+        oauth_token=None,
+    )
+    return {
+        "execution": execution,
+        "registry": registry,
     }
 
 
@@ -310,6 +336,69 @@ async def connect_platform_account(platform: str, credentials: Dict[str, Any]):
         raise
     except Exception as exc:
         logger.error("Failed to connect platform account: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/tiktok/bootstrap")
+async def bootstrap_tiktok_account(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Prepare proxy onboarding, persist a prepared account row, then run TikTok bootstrap in worker."""
+    try:
+        if not payload.get("owner_key") and not payload.get("user_id"):
+            raise HTTPException(
+                status_code=400,
+                detail="owner_key or user_id is required",
+            )
+        prepared = await _prepare_tiktok_bootstrap_record(payload)
+        wait_for_completion = bool(payload.get("wait_for_completion", True))
+        workflow = await TikTokOrchestrationService.start_account_bootstrap(
+            payload={
+                "social_account_id": prepared["registry"].get("registry_id"),
+                "desired_username": payload.get("username") or payload.get("desired_username"),
+                "password": payload.get("password"),
+            },
+            wait_for_completion=wait_for_completion,
+        )
+        response = {
+            "status": workflow["status"],
+            "execution": prepared["execution"],
+            "registry": prepared["registry"],
+            "workflow": workflow,
+        }
+        if workflow.get("result"):
+            response["account"] = workflow["result"]
+        return response
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to bootstrap TikTok account: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/tiktok/refresh")
+async def refresh_tiktok_account(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Refresh an existing TikTok browser session in worker runtime."""
+    try:
+        social_account_id = payload.get("social_account_id")
+        if not social_account_id:
+            raise HTTPException(status_code=400, detail="social_account_id is required")
+
+        wait_for_completion = bool(payload.get("wait_for_completion", True))
+        workflow = await TikTokOrchestrationService.start_account_refresh(
+            payload={"social_account_id": str(social_account_id)},
+            wait_for_completion=wait_for_completion,
+        )
+        response = {
+            "status": workflow["status"],
+            "social_account_id": str(social_account_id),
+            "workflow": workflow,
+        }
+        if workflow.get("result"):
+            response["account"] = workflow["result"]
+        return response
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to refresh TikTok account session: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
 

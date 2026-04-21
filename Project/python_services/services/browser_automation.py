@@ -230,7 +230,7 @@ class BrowserAutomationService:
         # Prefer Chromium's newer headless mode for recording reliability.
         # Some environments may not support it, so we fall back automatically.
         if preferred_launch_options.get("headless", True):
-            preferred_launch_options["headless"] = False
+            preferred_launch_options["headless"] = True
             if "--headless=new" not in preferred_args:
                 preferred_args.insert(0, "--headless=new")
             preferred_launch_options["args"] = preferred_args

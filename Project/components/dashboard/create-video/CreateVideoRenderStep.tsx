@@ -1,4 +1,5 @@
 'use client';
+import { memo, useMemo } from 'react';
 
 import type { CreateVideoProgressViewModel, RenderStatus, ViewTone } from '@/types/video-planning';
 
@@ -31,9 +32,16 @@ export function CreateVideoRenderStep({ progressItems, onContinue, onBack }: Cre
   const allDone = progressItems.every((item) =>
     item.status === 'completed' || item.status === 'failed' || item.status === 'upload_required',
   );
+  const completedCount = progressItems.filter((item) => item.status === 'completed').length;
+  const processingCount = progressItems.filter((item) => item.status === 'in_progress' || item.status === 'queued').length;
+  const uploadRequiredCount = progressItems.filter((item) => item.status === 'upload_required').length;
+  const avgProgress = Math.round(
+    progressItems.reduce((sum, item) => sum + (item.progressPercent || 0), 0) /
+      Math.max(progressItems.length, 1),
+  );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div className="cv-render-shell">
       <div className="cv-step-header">
         <button type="button" onClick={onBack} className="cv-back-btn">← Back</button>
         <div>
@@ -41,6 +49,25 @@ export function CreateVideoRenderStep({ progressItems, onContinue, onBack }: Cre
           <p className="cv-step-sub">
             Live backend status from review-engine jobs. Refresh is automatic while work is running.
           </p>
+        </div>
+      </div>
+
+      <div className="cv-render-summary-grid">
+        <div className="cv-render-summary-card">
+          <p className="cv-render-summary-label">Average Progress</p>
+          <p className="cv-render-summary-value">{avgProgress}%</p>
+        </div>
+        <div className="cv-render-summary-card">
+          <p className="cv-render-summary-label">Completed</p>
+          <p className="cv-render-summary-value">{completedCount}</p>
+        </div>
+        <div className="cv-render-summary-card">
+          <p className="cv-render-summary-label">In Queue/Processing</p>
+          <p className="cv-render-summary-value">{processingCount}</p>
+        </div>
+        <div className="cv-render-summary-card">
+          <p className="cv-render-summary-label">Need Upload</p>
+          <p className="cv-render-summary-value">{uploadRequiredCount}</p>
         </div>
       </div>
 
@@ -52,17 +79,47 @@ export function CreateVideoRenderStep({ progressItems, onContinue, onBack }: Cre
 
       {allDone && (
         <div className="cv-continue-bar">
-          <button type="button" onClick={onContinue} className="btn-primary">
-            Continue to publish
-          </button>
+          {completedCount > 0 ? (
+            <button type="button" onClick={onContinue} className="btn-primary">
+              Continue to publish
+            </button>
+          ) : (
+            <div className="cv-render-fail-caution">
+              <p>No videos were successfully rendered. You can try again or adjust your setup.</p>
+              <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+                <button type="button" onClick={onBack} className="btn-secondary">
+                  Back to Review
+                </button>
+                <button type="button" onClick={() => window.location.reload()} className="btn-primary">
+                  Retry All
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function RenderProgressCard({ item }: { item: CreateVideoProgressViewModel }) {
+const RenderProgressCard = memo(({ item }: { item: CreateVideoProgressViewModel }) => {
   const isDone = item.status === 'completed';
+  const normalizedProgress = Math.max(0, Math.min(100, item.progressPercent || 0));
+  const progressToneClass = isDone
+    ? 'cv-render-progress-fill--done'
+    : item.status === 'failed'
+      ? 'cv-render-progress-fill--failed'
+      : item.status === 'upload_required'
+        ? 'cv-render-progress-fill--upload'
+        : 'cv-render-progress-fill--active';
+  const progressHint =
+    item.status === 'completed'
+      ? 'Render completed successfully.'
+      : item.status === 'failed'
+        ? 'Render failed. Check details below.'
+        : item.status === 'upload_required'
+          ? 'Waiting for your final footage upload.'
+          : 'Backend is still processing. Updates are automatic.';
 
   return (
     <div className="cv-progress-card">
@@ -73,6 +130,27 @@ function RenderProgressCard({ item }: { item: CreateVideoProgressViewModel }) {
       </div>
 
       <div className="cv-progress-body">
+        {item.progressPercent !== undefined && (
+          <div className="cv-render-progress-panel" role="status" aria-live="polite">
+            <div className="cv-render-progress-meta">
+              <span className="cv-render-progress-title">Render progress</span>
+              <span className="cv-render-progress-value">{normalizedProgress}%</span>
+            </div>
+            <div className="cv-render-progress-track" aria-label={`Progress ${normalizedProgress}%`}>
+              <div
+                className={`cv-render-progress-fill ${progressToneClass}`}
+                style={{ width: `${normalizedProgress}%` }}
+              />
+            </div>
+            <p className="cv-render-progress-hint">{progressHint}</p>
+            <div className="cv-render-progress-scale" aria-hidden="true">
+              <span>0%</span>
+              <span>50%</span>
+              <span>100%</span>
+            </div>
+          </div>
+        )}
+
         <div>
           <p className="cv-card-section-label">Timeline</p>
           <div className="cv-timeline">
@@ -110,12 +188,9 @@ function RenderProgressCard({ item }: { item: CreateVideoProgressViewModel }) {
           </div>
         </div>
 
-        {item.progressPercent !== undefined && (
-          <div className="cv-render-progress-track">
-            <div
-              className={`cv-render-progress-fill${isDone ? ' cv-render-progress-fill--done' : ''}`}
-              style={{ width: `${item.progressPercent}%` }}
-            />
+        {item.status === 'failed' && item.statusMessage && (
+          <div className="cv-error-box" style={{ marginTop: 10, fontSize: '0.85rem' }}>
+            <strong>Backend Error:</strong> {item.statusMessage}
           </div>
         )}
 
@@ -142,7 +217,8 @@ function RenderProgressCard({ item }: { item: CreateVideoProgressViewModel }) {
             </div>
           ) : (
             <div className="cv-output-placeholder">
-              Waiting for backend output
+              <p className="cv-output-placeholder-title">Preview is on the way</p>
+              <p className="cv-output-placeholder-subtitle">We are still receiving backend output. This card updates automatically.</p>
             </div>
           )}
         </div>
@@ -163,7 +239,9 @@ function RenderProgressCard({ item }: { item: CreateVideoProgressViewModel }) {
       </div>
     </div>
   );
-}
+});
+
+RenderProgressCard.displayName = 'RenderProgressCard';
 
 function PersonaAvatar({ name, avatarUrl, size }: { name: string; avatarUrl?: string; size: number }) {
   if (avatarUrl) {

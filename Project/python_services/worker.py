@@ -14,6 +14,8 @@ from workflows import (
     EngagementSyndicateWorkflow,
     ShortVideoWorkflow,
     DailyStoryWorkflow,
+    TikTokAccountBootstrapWorkflow,
+    TikTokAccountRefreshWorkflow,
 )
 from activities import (
     generate_weekly_strategy,
@@ -38,6 +40,8 @@ from activities import (
     build_split_screen_video,
     generate_daily_story,
     send_story_for_approval,
+    bootstrap_tiktok_account,
+    refresh_tiktok_account_session,
 )
 from activities.approval_activities import (
     generate_script_from_approved_package_activity,
@@ -57,6 +61,8 @@ workflows = [
     EngagementSyndicateWorkflow,
     DailyStoryWorkflow,
     ShortVideoWorkflow,
+    TikTokAccountBootstrapWorkflow,
+    TikTokAccountRefreshWorkflow,
 ]
 
 activities = [
@@ -82,6 +88,8 @@ activities = [
     build_split_screen_video,
     generate_daily_story,
     send_story_for_approval,
+    bootstrap_tiktok_account,
+    refresh_tiktok_account_session,
     generate_script_from_approved_package_activity,
     send_telegram_progress_update,
     send_telegram_error_notification,

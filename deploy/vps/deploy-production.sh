@@ -12,6 +12,7 @@ EXTERNAL_GHCR_NAMESPACE="${GHCR_NAMESPACE:-}"
 EXTERNAL_IMAGE_TAG="${IMAGE_TAG:-}"
 EXTERNAL_OPENCLAW_IMAGE="${OPENCLAW_IMAGE:-}"
 EXTERNAL_DOCKER_CLEANUP_AFTER_DEPLOY="${DOCKER_CLEANUP_AFTER_DEPLOY:-}"
+EXTERNAL_DOCKER_CLEANUP_BEFORE_PULL="${DOCKER_CLEANUP_BEFORE_PULL:-}"
 EXTERNAL_DEPLOY_BRANCH="${DEPLOY_BRANCH:-}"
 EXTERNAL_SYNC_REPO_BEFORE_DEPLOY="${SYNC_REPO_BEFORE_DEPLOY:-}"
 EXTERNAL_BUILD_APP_IMAGES_FROM_REPO="${BUILD_APP_IMAGES_FROM_REPO:-}"
@@ -42,6 +43,9 @@ fi
 if [[ -n "${EXTERNAL_DOCKER_CLEANUP_AFTER_DEPLOY}" ]]; then
     export DOCKER_CLEANUP_AFTER_DEPLOY="${EXTERNAL_DOCKER_CLEANUP_AFTER_DEPLOY}"
 fi
+if [[ -n "${EXTERNAL_DOCKER_CLEANUP_BEFORE_PULL}" ]]; then
+    export DOCKER_CLEANUP_BEFORE_PULL="${EXTERNAL_DOCKER_CLEANUP_BEFORE_PULL}"
+fi
 if [[ -n "${EXTERNAL_DEPLOY_BRANCH}" ]]; then
     export DEPLOY_BRANCH="${EXTERNAL_DEPLOY_BRANCH}"
 fi
@@ -58,6 +62,7 @@ fi
 sync_repo_before_deploy="$(printf '%s' "${SYNC_REPO_BEFORE_DEPLOY:-0}" | tr '[:upper:]' '[:lower:]')"
 build_app_images_from_repo="$(printf '%s' "${BUILD_APP_IMAGES_FROM_REPO:-0}" | tr '[:upper:]' '[:lower:]')"
 auto_image_tag_from_git="$(printf '%s' "${AUTO_IMAGE_TAG_FROM_GIT:-0}" | tr '[:upper:]' '[:lower:]')"
+cleanup_before_pull="$(printf '%s' "${DOCKER_CLEANUP_BEFORE_PULL:-1}" | tr '[:upper:]' '[:lower:]')"
 
 deploy_branch="${DEPLOY_BRANCH:-${DEFAULT_DEPLOY_BRANCH}}"
 ghcr_namespace="${GHCR_NAMESPACE:-${DEFAULT_REPO_NAMESPACE}}"
@@ -77,6 +82,44 @@ prepare_openclaw_volume_permissions() {
     mkdir -p "${OPENCLAW_CONFIG_DIR}" "${OPENCLAW_WORKSPACE_DIR}"
     chown -R 1000:1000 "${OPENCLAW_CONFIG_DIR}" "${OPENCLAW_WORKSPACE_DIR}"
     chmod -R u+rwX,g+rX,o-rwx "${OPENCLAW_CONFIG_DIR}" "${OPENCLAW_WORKSPACE_DIR}"
+}
+
+maybe_cleanup_before_pull() {
+    if [[ "${cleanup_before_pull}" =~ ^(1|true|yes)$ ]]; then
+        echo "Running Docker cleanup before image operations..."
+        "${SCRIPT_DIR}/docker-cleanup.sh"
+        echo
+    fi
+}
+
+validate_registry_image_tags() {
+    local missing_images=()
+    local image_names=(
+        ai-influencer-frontend
+        ai-influencer-python-api
+        ai-influencer-python-worker
+        ai-influencer-postiz
+        ai-influencer-growchief
+    )
+    local image_ref=""
+    local image_name=""
+
+    for image_name in "${image_names[@]}"; do
+        image_ref="${GHCR_NAMESPACE}/${image_name}:${IMAGE_TAG}"
+        if ! docker manifest inspect "${image_ref}" >/dev/null 2>&1; then
+            missing_images+=("${image_ref}")
+        fi
+    done
+
+    if (( ${#missing_images[@]} > 0 )); then
+        echo "Missing published GHCR image manifest(s) for IMAGE_TAG=${IMAGE_TAG}:" >&2
+        printf '  - %s\n' "${missing_images[@]}" >&2
+        echo >&2
+        echo "This usually means the selected git commit never published app images." >&2
+        echo "The publish workflow only runs on pushes that touch .github/workflows/publish-production-images.yml, Project/**, docker/**, deploy/**, or docker-compose.production.yml." >&2
+        echo "Use a previously published image tag, omit IMAGE_TAG to use latest, or set BUILD_APP_IMAGES_FROM_REPO=1 for an intentional local build." >&2
+        exit 1
+    fi
 }
 
 if [[ "${sync_repo_before_deploy}" =~ ^(1|true|yes)$ ]]; then
@@ -108,6 +151,7 @@ echo "Image namespace: ${GHCR_NAMESPACE}"
 echo "Image tag: ${IMAGE_TAG}"
 
 echo "Using env file: ${PROJECT_ENV_FILE}"
+maybe_cleanup_before_pull
 
 if [[ "${build_app_images_from_repo}" =~ ^(1|true|yes)$ ]]; then
     echo "Building app images from repository source..."
@@ -159,6 +203,7 @@ if [[ "${build_app_images_from_repo}" =~ ^(1|true|yes)$ ]]; then
     docker compose -f "${COMPOSE_FILE}" pull \
         postgres temporal temporal-ui social-temporal-postgres social-temporal-elasticsearch social-temporal redis openclaw
 else
+    validate_registry_image_tags
     echo "Pulling registry-backed production images..."
     docker compose -f "${COMPOSE_FILE}" pull
 fi

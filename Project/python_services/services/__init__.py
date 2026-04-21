@@ -29,7 +29,7 @@ from .telegram_audit_service import TelegramAuditService
 try:
     from .browser_automation import BrowserAutomationService
 except ModuleNotFoundError as exc:
-    if exc.name not in {"camoufox", "playwright", "selenium"}:
+    if exc.name != "playwright":
         raise
 
     class BrowserAutomationService:  # type: ignore[no-redef]

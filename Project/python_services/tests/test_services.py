@@ -203,10 +203,49 @@ async def test_growchief_trigger_engagement_builds_payload(monkeypatch):
     assert result["job_id"].startswith("growchief_")
     assert result["workflow_id"] == "wf-1"
     assert result["status"] == "pending"
-    assert captured["url"] == "/workflows/wf-1"
+    assert captured["url"] == "http://growchief.test/public/workflows/wf-1"
     assert captured["json"] == {"urls": ["https://platform/post/1"]}
     assert result["account_count"] == 3
     assert result["delay_between_actions"] == 15
+    await service.close()
+
+
+@pytest.mark.asyncio
+async def test_growchief_service_falls_back_to_legacy_public_api_path(monkeypatch):
+    class StubResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+            self.headers = {"content-type": "application/json"}
+            self.text = str(payload)
+
+        def json(self):
+            return self._payload
+
+    captured = []
+
+    class StubClient:
+        async def get(self, url):
+            captured.append(url)
+            if url.endswith("/public/workflows") and "/api/public/" not in url:
+                return StubResponse(404, {"message": "Cannot GET /public/workflows"})
+            return StubResponse(200, [{"id": "wf-1", "active": True}])
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(
+        "services.growchief_service.httpx.AsyncClient", lambda **_: StubClient()
+    )
+
+    service = GrowChiefService()
+    result = await service.list_workflows()
+
+    assert captured == [
+        "http://growchief.test/public/workflows",
+        "http://growchief.test/api/public/workflows",
+    ]
+    assert result == [{"id": "wf-1", "active": True}]
     await service.close()
 
 

@@ -131,7 +131,7 @@ BROWSER_AGENT_CONFIG = {
         "screenshot",
         "wait_for_element",
     ],
-    "browser_engine": "camoufox",
+    "browser_engine": "playwright",
     "stealth_settings": {
         "user_agent_rotation": True,
         "canvas_fingerprint_randomization": True,

@@ -179,6 +179,15 @@ class Settings(BaseSettings):
     GROWCHIEF_API_KEY: Optional[str] = None
     GROWCHIEF_WEBHOOK_SECRET: Optional[str] = None
     CUSTOMER_POSTIZ_FALLBACK_ENABLED: bool = True
+    TIKTOK_AUTOMATION_ENABLED: bool = False
+    TIKTOK_SADCAPTCHA_API_KEY: Optional[str] = None
+    TIKTOK_TEMP_EMAIL_PROVIDER: str = "tinyhost"
+    TIKTOK_WAIT_AFTER_OPEN_SECONDS: int = 5
+    TIKTOK_WAIT_AFTER_LOGIN_CLICK_SECONDS: int = 10
+    TIKTOK_WAIT_BEFORE_FETCH_OTP_SECONDS: int = 10
+    TIKTOK_WAIT_AFTER_OTP_NEXT_SECONDS: int = 5
+    TIKTOK_WAIT_AFTER_RESEND_SECONDS: int = 8
+    TIKTOK_UPLOAD_TIMEOUT_SECONDS: int = 180
 
     # Customer OAuth provider configuration
     LINKEDIN_OAUTH_CLIENT_ID: Optional[str] = None
@@ -276,6 +285,7 @@ class Settings(BaseSettings):
         "R2_PUBLIC_URL",
         "R2_ENDPOINT_URL",
         "R2_PUBLIC_DOMAIN",
+        "TIKTOK_SADCAPTCHA_API_KEY",
         mode="before",
     )
     @classmethod
@@ -324,6 +334,12 @@ class Settings(BaseSettings):
         return None
 
     @field_validator(
+        "TIKTOK_WAIT_AFTER_OPEN_SECONDS",
+        "TIKTOK_WAIT_AFTER_LOGIN_CLICK_SECONDS",
+        "TIKTOK_WAIT_BEFORE_FETCH_OTP_SECONDS",
+        "TIKTOK_WAIT_AFTER_OTP_NEXT_SECONDS",
+        "TIKTOK_WAIT_AFTER_RESEND_SECONDS",
+        "TIKTOK_UPLOAD_TIMEOUT_SECONDS",
         "OPENAI_MONTHLY_TOKEN_LIMIT",
         "ANTHROPIC_MONTHLY_TOKEN_LIMIT",
         "GOOGLE_AI_MONTHLY_TOKEN_LIMIT",
@@ -335,6 +351,12 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_optional_ints(cls, value):
         return _normalize_optional_int(value)
+
+    @field_validator("TIKTOK_TEMP_EMAIL_PROVIDER", mode="before")
+    @classmethod
+    def normalize_tiktok_temp_email_provider(cls, value):
+        normalized = _normalize_optional_string(value)
+        return normalized.lower() if normalized else "tinyhost"
 
     @property
     def cors_origins_list(self) -> list[str]:

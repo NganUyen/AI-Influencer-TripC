@@ -98,6 +98,7 @@ export type ReviewEngineJob = {
   publish: {
     requested?: boolean;
     status?: string | null;
+    social_account_id?: string | null;
     published_at?: string | null;
     post_url?: string | null;
     publish_error?: string | null;
@@ -138,6 +139,8 @@ export type ReviewEngineJob = {
   scheduled_at?: string | null;
   updated_at?: string | null;
   started_at?: string | null;
+  status_message?: string | null;
+  error_detail?: string | null;
 };
 
 export type ReviewEngineJobResponse = {
@@ -212,4 +215,60 @@ export function getReviewJobStatusLabel(job: ReviewEngineJob): string {
 
 export function getReviewJobPersonaImage(job: ReviewEngineJob): string | null {
   return job.persona?.selection_image_url || job.persona?.image_url || null;
+}
+
+export function getReviewJobTikTokChannels(job: ReviewEngineJob): ReviewEngineChannel[] {
+  return Array.isArray(job.persona?.tiktok_integration?.channels)
+    ? job.persona.tiktok_integration?.channels || []
+    : [];
+}
+
+export function getReviewJobActiveTikTokChannels(
+  job: ReviewEngineJob,
+): ReviewEngineChannel[] {
+  const channels = getReviewJobTikTokChannels(job);
+  const activeChannels = channels.filter((channel) => {
+    const normalizedStatus = String(channel.status || "").trim().toLowerCase();
+    return normalizedStatus === "active" || normalizedStatus === "connected";
+  });
+
+  if (activeChannels.length > 0) {
+    return activeChannels;
+  }
+
+  const activeCount = Number(job.persona?.tiktok_integration?.active_channels || 0);
+  if (activeCount > 0 && activeCount <= channels.length) {
+    return channels.slice(0, activeCount);
+  }
+
+  return channels;
+}
+
+export function getReviewJobChannelLabel(channel?: ReviewEngineChannel | null): string {
+  if (!channel) {
+    return "TikTok channel";
+  }
+  return (
+    String(channel.display_name || "").trim() ||
+    String(channel.handle || "").trim() ||
+    String(channel.id || "").trim() ||
+    "TikTok channel"
+  );
+}
+
+export function getReviewJobPreferredTikTokChannelId(
+  job: ReviewEngineJob,
+): string | null {
+  const explicitId =
+    String(job.publish?.social_account_id || "").trim() ||
+    String(job.publish_settings?.tiktok_channel_id || "").trim();
+  if (explicitId) {
+    return explicitId;
+  }
+
+  const activeChannels = getReviewJobActiveTikTokChannels(job);
+  if (activeChannels.length === 1) {
+    return String(activeChannels[0]?.id || "").trim() || null;
+  }
+  return null;
 }

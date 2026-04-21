@@ -86,6 +86,55 @@ async def test_publish_to_platforms_uses_postiz_and_closes_services(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_publish_to_platforms_routes_tiktok_to_browser_automation_strategy(
+    monkeypatch,
+):
+    events = {"browser_closed": False}
+
+    class StubPublisher:
+        async def publish(self, _post_config):
+            raise AssertionError("PublisherService should not handle TikTok here")
+
+        async def close(self):
+            return None
+
+    class StubTikTok:
+        async def publish_post(self, post_config):
+            assert post_config["platform"] == "tiktok"
+            return {
+                "status": "published",
+                "method": "tiktok_browser_automation",
+                "raw": {"account_handle": "creator-1"},
+            }
+
+    class StubBrowser:
+        async def publish(self, **_kwargs):
+            raise AssertionError("Generic browser automation should not handle TikTok")
+
+        async def close(self):
+            events["browser_closed"] = True
+
+    monkeypatch.setattr(da, "PublisherService", StubPublisher)
+    monkeypatch.setattr(da, "TikTokAutomationService", StubTikTok)
+    monkeypatch.setattr(da, "BrowserAutomationService", StubBrowser)
+
+    result = await da.publish_to_platforms(
+        {
+            "id": "post-tiktok-1",
+            "platform": "tiktok",
+            "content": "test",
+            "media": [{"storage_url": "https://cdn.example/video.mp4"}],
+            "user_id": "user-1",
+        }
+    )
+
+    assert result["status"] == "published"
+    assert result["method"] == "tiktok_browser_automation"
+    assert result["provider_response"]["account_handle"] == "creator-1"
+    assert events["browser_closed"] is True
+
+
+@pytest.mark.asyncio
 async def test_publish_to_platforms_preserves_future_schedule_for_postiz(monkeypatch):
     captured = {}
 
@@ -126,7 +175,14 @@ async def test_publish_to_platforms_preserves_future_schedule_for_postiz(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_publish_to_platforms_handles_failure(monkeypatch):
+async def test_publish_to_platforms_raises_application_error_for_unexpected_failure(
+    monkeypatch,
+):
+    recorded = {}
+
+    async def fake_update_publish_result(**kwargs):
+        recorded.update(kwargs)
+
     class StubPublisher:
         async def publish(self, _post_config):
             raise RuntimeError("publish failed")
@@ -140,19 +196,27 @@ async def test_publish_to_platforms_handles_failure(monkeypatch):
 
     monkeypatch.setattr(da, "PublisherService", StubPublisher)
     monkeypatch.setattr(da, "BrowserAutomationService", StubBrowser)
-
-    result = await da.publish_to_platforms(
-        {
-            "id": "post-2",
-            "platform": "twitter",
-            "content": "test",
-            "media": [],
-            "user_id": "user-1",
-        }
+    monkeypatch.setattr(
+        da.ContentPersistenceService,
+        "update_publish_result",
+        fake_update_publish_result,
     )
 
-    assert result["status"] == "failed"
-    assert "publish failed" in result["error"]
+    with pytest.raises(ApplicationError) as exc_info:
+        await da.publish_to_platforms(
+            {
+                "id": "post-2",
+                "platform": "twitter",
+                "content": "test",
+                "media": [],
+                "user_id": "user-1",
+                "workflow_id": "wf-2",
+            }
+        )
+
+    assert exc_info.value.non_retryable is False
+    assert recorded["publish_result"]["status"] == "failed"
+    assert "publish failed" in recorded["publish_result"]["error"]
 
 
 @pytest.mark.asyncio

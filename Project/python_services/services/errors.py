@@ -199,3 +199,26 @@ class GrowChiefConfigurationError(
 ):
     """GrowChief configuration is incomplete."""
     retryable = False
+
+
+class TikTokAutomationError(SocialProviderError):
+    """Base class for TikTok browser automation failures."""
+
+
+class TikTokAutomationRetryableError(
+    TikTokAutomationError, SocialProviderRetryableError
+):
+    """Transient TikTok automation failure."""
+    retryable = True
+
+
+class TikTokAutomationAuthError(TikTokAutomationError, SocialProviderAuthError):
+    """TikTok credentials or session are invalid."""
+    retryable = False
+
+
+class TikTokAutomationConfigurationError(
+    TikTokAutomationError, SocialProviderConfigurationError
+):
+    """TikTok automation is disabled or incompletely configured."""
+    retryable = False

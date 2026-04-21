@@ -1,7 +1,7 @@
 'use client';
 
 import '@/app/create-video.css';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Clapperboard, FileCheck2, Play, Settings2, type LucideIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import type { Persona } from '@/components/customer-dashboard';
@@ -9,6 +9,11 @@ import type {
   ReviewEngineJob,
   ReviewEngineJobResponse,
   ReviewEngineSetup,
+} from '@/lib/review-engine';
+import {
+  getReviewJobActiveTikTokChannels,
+  getReviewJobChannelLabel,
+  getReviewJobPreferredTikTokChannelId,
 } from '@/lib/review-engine';
 import { customerApiRequest } from '@/lib/customer-api';
 import {
@@ -25,6 +30,10 @@ import type {
   SharedContractDraft,
 } from '@/types/video-planning';
 import type { ReviewEngineMasterContract } from '@/lib/review-engine';
+import {
+  formatScenesForEditor,
+  toScenePreviewItem,
+} from '@/lib/create-video-contract';
 import { DEFAULT_SETUP_STATE } from '@/types/video-planning';
 import {
   buildCreateJobPayload,
@@ -49,6 +58,7 @@ interface CreateVideoTabProps {
 }
 
 const ACTIVE_FLOW_STORAGE_KEY = 'create-video-active-flow';
+const ACTIVE_FLOW_MAX_AGE_MS = 1000 * 60 * 60 * 6;
 
 function jobKey(job: ReviewEngineJob): string {
   return String(job.plan_id || job.job_id);
@@ -72,14 +82,6 @@ function mergeJobs(
   existing.forEach((job) => merged.set(jobKey(job), job));
   incoming.forEach((job) => merged.set(jobKey(job), job));
   return sortJobs(Array.from(merged.values()));
-}
-
-function formatScenesForEditor(scenes: ScenePreviewItem[]): string {
-  return scenes
-    .map((scene) =>
-      `${scene.description}${scene.durationSeconds !== undefined ? ` | ${scene.durationSeconds}` : ''}`,
-    )
-    .join('\n');
 }
 
 function parseScenesFromEditor(input: string): ScenePreviewItem[] {
@@ -107,23 +109,7 @@ function buildSharedContractDraft(
   const masterSource = masterContract || jobs[0]?.master_contract || jobs[0]?.publish_settings?.shared_contract;
   if (masterSource) {
     const scenes = Array.isArray(masterSource.scenes_data)
-      ? masterSource.scenes_data.map((scene, index) => ({
-          index: index + 1,
-          description: String(
-            scene?.description ||
-              scene?.caption ||
-              scene?.scene_description ||
-              scene?.voiceover ||
-              scene?.script ||
-              scene?.text ||
-              `Scene ${index + 1}`,
-          ).trim(),
-          durationSeconds: Number.isFinite(
-            Number(scene?.durationSeconds ?? scene?.duration_seconds ?? scene?.duration),
-          )
-            ? Number(scene?.durationSeconds ?? scene?.duration_seconds ?? scene?.duration)
-            : undefined,
-        }))
+      ? masterSource.scenes_data.map((scene, index) => toScenePreviewItem(scene, index))
       : [];
     return {
       scriptText: String(masterSource.script_text || '').trim(),
@@ -136,23 +122,7 @@ function buildSharedContractDraft(
     firstJob?.script?.script || firstJob?.editable_content || firstJob?.content?.body || '',
   ).trim();
   const scenes = Array.isArray(firstJob?.script?.scenes)
-    ? firstJob.script?.scenes.map((scene, index) => ({
-        index: index + 1,
-        description: String(
-          scene?.description ||
-            scene?.caption ||
-            scene?.scene_description ||
-            scene?.voiceover ||
-            scene?.script ||
-            scene?.text ||
-            `Scene ${index + 1}`,
-        ).trim(),
-        durationSeconds: Number.isFinite(
-          Number(scene?.durationSeconds ?? scene?.duration_seconds ?? scene?.duration),
-        )
-          ? Number(scene?.durationSeconds ?? scene?.duration_seconds ?? scene?.duration)
-          : undefined,
-      }))
+    ? firstJob.script?.scenes.map((scene, index) => toScenePreviewItem(scene, index))
     : [];
   return {
     scriptText,
@@ -194,11 +164,15 @@ function PublishStep({
   jobs,
   publishingJobId,
   onPublish,
+  selectedChannelIds,
+  onChannelChange,
   onBack,
 }: {
   jobs: ReviewEngineJob[];
   publishingJobId: string | null;
-  onPublish: (jobId: string) => void;
+  onPublish: (jobId: string, socialAccountId?: string | null) => void;
+  selectedChannelIds: Record<string, string>;
+  onChannelChange: (jobId: string, socialAccountId: string) => void;
   onBack: () => void;
 }) {
   const publishableJobs = jobs.filter(
@@ -223,6 +197,17 @@ function PublishStep({
           <div style={{ display: 'grid', gap: 12 }}>
             {publishableJobs.map((job) => {
               const alreadyPublished = job.publish?.status === 'published';
+              const activeChannels = getReviewJobActiveTikTokChannels(job);
+              const selectedChannelId =
+                selectedChannelIds[job.job_id] ?? getReviewJobPreferredTikTokChannelId(job);
+              const needsExplicitChannelSelection = activeChannels.length > 1;
+              const selectedChannel = activeChannels.find(
+                (channel) => channel.id === selectedChannelId,
+              );
+              const publishDisabled =
+                alreadyPublished ||
+                publishingJobId === job.job_id ||
+                (needsExplicitChannelSelection && !selectedChannelId);
               return (
                 <div
                   key={job.plan_id || job.job_id}
@@ -237,11 +222,60 @@ function PublishStep({
                     flexWrap: 'wrap',
                   }}
                 >
-                  <div style={{ display: 'grid', gap: 4 }}>
+                  <div style={{ display: 'grid', gap: 8, minWidth: 240, flex: 1 }}>
                     <strong>{job.persona?.display_name || job.persona_id || 'Persona'}</strong>
                     <span className="cv-cta-disabled-reason">
                       {job.page_title || job.objective || 'Ready for publish'}
                     </span>
+                    {activeChannels.length > 0 && (
+                      needsExplicitChannelSelection ? (
+                        <label
+                          style={{
+                            display: 'grid',
+                            gap: 6,
+                            fontSize: 12,
+                            color: 'var(--cv-text-muted, #6b7280)',
+                          }}
+                        >
+                          <span>Choose TikTok channel</span>
+                          <select
+                            value={selectedChannelId || ''}
+                            onChange={(event) =>
+                              onChannelChange(job.job_id, event.target.value)
+                            }
+                            style={{
+                              minHeight: 38,
+                              borderRadius: 10,
+                              border: '1px solid rgb(174 173 169 / 0.3)',
+                              padding: '8px 10px',
+                              background: '#fff',
+                              color: '#111827',
+                            }}
+                          >
+                            <option value="">Select channel</option>
+                            {activeChannels.map((channel) => (
+                              <option key={channel.id || channel.handle || 'channel'} value={channel.id || ''}>
+                                {getReviewJobChannelLabel(channel)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : (
+                        <span className="cv-cta-disabled-reason">
+                          Channel: {getReviewJobChannelLabel(activeChannels[0])}
+                        </span>
+                      )
+                    )}
+                    {needsExplicitChannelSelection && !selectedChannelId && (
+                      <span className="cv-cta-disabled-reason">
+                        Pick a TikTok channel before publish.
+                      </span>
+                    )}
+                    {selectedChannel && (
+                      <span className="cv-cta-disabled-reason">
+                        Target: {getReviewJobChannelLabel(selectedChannel)}
+                      </span>
+                    )}
                   </div>
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                     {job.production?.playable_video_url && (
@@ -257,8 +291,8 @@ function PublishStep({
                     <button
                       className="btn-primary"
                       type="button"
-                      disabled={alreadyPublished || publishingJobId === job.job_id}
-                      onClick={() => onPublish(job.job_id)}
+                      disabled={publishDisabled}
+                      onClick={() => onPublish(job.job_id, selectedChannelId)}
                     >
                       {alreadyPublished
                         ? 'Published'
@@ -307,7 +341,15 @@ export function CreateVideoTab({
   const [isSubmittingPlans, setIsSubmittingPlans] = useState(false);
   const [uploadingPlanIds, setUploadingPlanIds] = useState<string[]>([]);
   const [publishingJobId, setPublishingJobId] = useState<string | null>(null);
+  const [selectedPublishChannelIds, setSelectedPublishChannelIds] = useState<
+    Record<string, string>
+  >({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const restoredFlowPlanIdsRef = useRef<string[] | null>(null);
+
+  // UI/UX Pro Max Enhanced Loading State
+  const [generatingStage, setGeneratingStage] = useState<'validating' | 'generating' | 'finalizing' | null>(null);
+  const [isGeneratingSuccess, setIsGeneratingSuccess] = useState(false);
 
   const setupPersonaLists = useMemo(() => {
     if (setup) {
@@ -334,7 +376,7 @@ export function CreateVideoTab({
     };
   }, [personas, setup]);
 
-  const persistActiveFlow = useCallback((planIds: string[], step: Step) => {
+  const persistActiveFlow = useCallback((planIds: string[]) => {
     if (typeof window === 'undefined') {
       return;
     }
@@ -344,7 +386,7 @@ export function CreateVideoTab({
     }
     window.localStorage.setItem(
       ACTIVE_FLOW_STORAGE_KEY,
-      JSON.stringify({ planIds, step }),
+      JSON.stringify({ planIds, updatedAt: Date.now() }),
     );
   }, []);
 
@@ -423,20 +465,45 @@ export function CreateVideoTab({
       return;
     }
     try {
-      const payload = JSON.parse(raw) as { planIds?: string[]; step?: Step };
+      const payload = JSON.parse(raw) as { planIds?: string[]; updatedAt?: number };
+      const updatedAt = Number(payload.updatedAt || 0);
+      if (!Number.isFinite(updatedAt) || Date.now() - updatedAt > ACTIVE_FLOW_MAX_AGE_MS) {
+        window.localStorage.removeItem(ACTIVE_FLOW_STORAGE_KEY);
+        return;
+      }
       const nextPlanIds = Array.isArray(payload.planIds)
         ? payload.planIds.filter(Boolean)
         : [];
       if (nextPlanIds.length > 0) {
+        restoredFlowPlanIdsRef.current = nextPlanIds;
         setActivePlanIds(nextPlanIds);
-        if (payload.step && payload.step >= 1 && payload.step <= 4) {
-          setCurrentStep(payload.step);
-        }
       }
     } catch {
       window.localStorage.removeItem(ACTIVE_FLOW_STORAGE_KEY);
     }
   }, []);
+
+  useEffect(() => {
+    const restoredPlanIds = restoredFlowPlanIdsRef.current;
+    if (!restoredPlanIds) {
+      return;
+    }
+
+    const restoredJobs = getJobsForPlanIds(jobs, restoredPlanIds);
+    if (restoredJobs.length === 0) {
+      setActivePlanIds([]);
+      setCurrentStep(1);
+      setPlanCards([]);
+      setProgressItems([]);
+      setSharedContractDraft({ scriptText: '', scenesText: '' });
+      setSharedContractDirty(false);
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(ACTIVE_FLOW_STORAGE_KEY);
+      }
+    }
+
+    restoredFlowPlanIdsRef.current = null;
+  }, [jobs]);
 
   const explicitActiveJobs = useMemo(() => {
     return getJobsForPlanIds(jobs, activePlanIds);
@@ -471,7 +538,14 @@ export function CreateVideoTab({
     });
   }, [explicitActiveJobs.length, inferredActivePlanIds]);
 
-  const shouldPollJobs = activePlanIds.length > 0 || inferredActiveJobs.length > 0;
+  const isAllTerminal = activeJobs.length > 0 && activeJobs.every((job) => {
+    const s = String(job.status || '').toLowerCase();
+    return s === 'completed' || s === 'failed' || job.production?.ready;
+  });
+
+  const shouldPollJobs = 
+    (activePlanIds.length > 0 || inferredActiveJobs.length > 0) && 
+    !isAllTerminal;
 
   useEffect(() => {
     if (!shouldPollJobs) {
@@ -489,36 +563,80 @@ export function CreateVideoTab({
       return;
     }
     setPlanCards((current) => {
-      const currentByPlanId = new Map(
-        current.map((card) => [card.planId || card.jobId, card]),
-      );
-      return toPersonaPlanCards(activeJobs).map((card) => {
-        const existing = currentByPlanId.get(card.planId || card.jobId);
-        return existing
-          ? {
-              ...card,
-              reviewDecision: existing.reviewDecision,
-            }
-          : card;
+      const nextCards = toPersonaPlanCards(activeJobs);
+      const currentById = new Map(current.map((c) => [c.planId || c.jobId, c]));
+      const changed = nextCards.some((card) => {
+        const existing = currentById.get(card.planId || card.jobId);
+        return !existing || JSON.stringify(existing) !== JSON.stringify({ ...card, reviewDecision: existing.reviewDecision });
+      });
+      
+      if (!changed) return current;
+
+      return nextCards.map((card) => {
+        const existing = currentById.get(card.planId || card.jobId);
+        return existing ? { ...card, reviewDecision: existing.reviewDecision } : card;
       });
     });
-    setProgressItems(toRenderProgressItems(activeJobs));
+
+    const nextProgress = toRenderProgressItems(activeJobs);
+    setProgressItems((current) => {
+      if (JSON.stringify(current) === JSON.stringify(nextProgress)) return current;
+      return nextProgress;
+    });
+
     if (!sharedContractDirty) {
-      setSharedContractDraft(buildSharedContractDraft(activeJobs));
+      const nextDraft = buildSharedContractDraft(activeJobs);
+      setSharedContractDraft((current) => {
+        if (current.scriptText === nextDraft.scriptText && current.scenesText === nextDraft.scenesText) return current;
+        return nextDraft;
+      });
     }
 
     const derivedStep = deriveStepFromJobs(activeJobs);
+    const autoStep = Math.min(derivedStep, 3) as Step;
     setCurrentStep((current) => {
-      if (derivedStep > current) {
-        return derivedStep;
+      if (autoStep > current) {
+        return autoStep;
       }
       return current;
     });
   }, [activeJobs, sharedContractDirty]);
 
   useEffect(() => {
-    persistActiveFlow(activePlanIds, currentStep);
-  }, [activePlanIds, currentStep, persistActiveFlow]);
+    setSelectedPublishChannelIds((current) => {
+      const next: Record<string, string> = {};
+      for (const job of activeJobs) {
+        const jobId = String(job.job_id);
+        const activeChannels = getReviewJobActiveTikTokChannels(job);
+        const currentSelection = current[jobId];
+        if (
+          currentSelection &&
+          activeChannels.some((channel) => channel.id === currentSelection)
+        ) {
+          next[jobId] = currentSelection;
+          continue;
+        }
+        const preferred = getReviewJobPreferredTikTokChannelId(job);
+        if (preferred) {
+          next[jobId] = preferred;
+        }
+      }
+
+      const currentKeys = Object.keys(current);
+      const nextKeys = Object.keys(next);
+      if (
+        currentKeys.length === nextKeys.length &&
+        nextKeys.every((key) => current[key] === next[key])
+      ) {
+        return current;
+      }
+      return next;
+    });
+  }, [activeJobs]);
+
+  useEffect(() => {
+    persistActiveFlow(activePlanIds);
+  }, [activePlanIds, persistActiveFlow]);
 
   const handleSetupChange = useCallback((patch: Partial<CreateVideoSetupState>) => {
     setSetupState((current) => ({ ...current, ...patch }));
@@ -532,8 +650,17 @@ export function CreateVideoTab({
       return;
     }
 
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
     setErrorMessage(null);
     setIsGenerating(true);
+    setGeneratingStage('validating');
+    setIsGeneratingSuccess(false);
+
+    // Track simulated progress stages over time
+    const simulatedTimer1 = setTimeout(() => setGeneratingStage('generating'), 2000);
+    const simulatedTimer2 = setTimeout(() => setGeneratingStage('finalizing'), 7000);
+
     try {
       const payload = buildCreateJobPayload(setupState);
       const result = await customerApiRequest<{
@@ -555,21 +682,35 @@ export function CreateVideoTab({
       setSharedContractDraft(buildSharedContractDraft(nextJobs, result.master_contract));
       setSharedContractDirty(false);
       setProgressItems([]);
-      setCurrentStep(2);
+      
       if (result.warnings?.[0]?.message) {
         toast(`Review jobs created with a warning: ${result.warnings[0].message}`);
       }
       await Promise.resolve(onRefresh?.());
+
+      // Success UX: show checkmark for 500ms before transition
+      clearTimeout(simulatedTimer1);
+      clearTimeout(simulatedTimer2);
+      setGeneratingStage(null);
+      setIsGeneratingSuccess(true);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      setCurrentStep(2);
     } catch (error) {
+      clearTimeout(simulatedTimer1);
+      clearTimeout(simulatedTimer2);
+      setGeneratingStage(null);
       const message =
         error instanceof Error ? error.message : 'Failed to create review jobs';
       setErrorMessage(message);
       toast.error(message);
     } finally {
+      clearTimeout(simulatedTimer1);
+      clearTimeout(simulatedTimer2);
       setIsGenerating(false);
+      setIsGeneratingSuccess(false);
     }
   }, [onRefresh, setupState]);
-
   const savePlanEdits = useCallback(async () => {
     setErrorMessage(null);
     setIsSavingPlans(true);
@@ -721,7 +862,7 @@ export function CreateVideoTab({
     }
   }, [onRefresh]);
 
-  const handlePublishJob = useCallback(async (jobId: string) => {
+  const handlePublishJob = useCallback(async (jobId: string, socialAccountId?: string | null) => {
     setErrorMessage(null);
     setPublishingJobId(jobId);
     try {
@@ -729,7 +870,9 @@ export function CreateVideoTab({
         `/api/customer/review-engine/jobs/${jobId}/publish`,
         {
           method: 'POST',
-          body: JSON.stringify({}),
+          body: JSON.stringify(
+            socialAccountId ? { social_account_id: socialAccountId } : {},
+          ),
         },
       );
       setJobs((current) => mergeJobs(current, [updatedJob]));
@@ -749,8 +892,16 @@ export function CreateVideoTab({
     setCurrentStep(toStep);
   }, []);
 
+  const generatingOverlayVisible = isGenerating || isGeneratingSuccess;
+  const generatingStageLabel =
+    generatingStage === 'validating'
+      ? 'Validating source context...'
+      : generatingStage === 'generating'
+        ? 'Generating scripts...'
+        : 'Finalizing plans...';
+
   return (
-    <div className="cv-container">
+    <div className={`cv-container${generatingOverlayVisible ? ' cv-container--submitting' : ''}`}>
       <StepIndicator currentStep={currentStep} />
 
       {errorMessage && (
@@ -767,11 +918,10 @@ export function CreateVideoTab({
             personas={setupPersonaLists.allPersonas}
             systemPersonaOptions={setupPersonaLists.systemPersonas}
             customPersonaOptions={setupPersonaLists.customPersonas}
-            isSubmitting={isGenerating}
+            isSubmitting={isGenerating || isGeneratingSuccess}
             onContinue={goToStep2}
           />
         )}
-
         {currentStep === 2 && (
           <CreateVideoReviewStep
             planCards={planCards}
@@ -813,15 +963,49 @@ export function CreateVideoTab({
           <PublishStep
             jobs={activeJobs}
             publishingJobId={publishingJobId}
+            selectedChannelIds={selectedPublishChannelIds}
+            onChannelChange={(jobId, socialAccountId) => {
+              setSelectedPublishChannelIds((current) => {
+                if (!socialAccountId) {
+                  const next = { ...current };
+                  delete next[jobId];
+                  return next;
+                }
+                return {
+                  ...current,
+                  [jobId]: socialAccountId,
+                };
+              });
+            }}
             onPublish={handlePublishJob}
             onBack={() => goBack(3)}
           />
         )}
       </div>
 
-      {isGenerating && (
-        <div className="cv-cta-disabled-reason" style={{ marginTop: 16 }}>
-          Creating backend plans…
+      {generatingOverlayVisible && (
+        <div className="cv-plan-creating-overlay" role="status" aria-live="polite">
+          <div className="cv-plan-creating-badge">
+            <span className="cv-plan-creating-title">
+              {isGeneratingSuccess ? 'Plans Ready ✅' : 'Creating Review Plans'}
+            </span>
+            <span className="cv-plan-creating-subtitle">
+              {isGeneratingSuccess
+                ? 'Your draft plans are ready for review.'
+                : `Hang tight, we're preparing ${setupState.selectedPersonaIds.length} persona draft${setupState.selectedPersonaIds.length === 1 ? '' : 's'}.`}
+            </span>
+
+            {!isGeneratingSuccess && (
+              <>
+                <span className="cv-plan-creating-stage">{generatingStageLabel}</span>
+                <span className="cv-plan-creating-dots" aria-hidden="true">
+                  <span className="cv-plan-creating-dot" />
+                  <span className="cv-plan-creating-dot" />
+                  <span className="cv-plan-creating-dot" />
+                </span>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -855,7 +1039,7 @@ const STEP_CONFIG: Array<{
   },
 ];
 
-function StepIndicator({ currentStep }: { currentStep: Step }) {
+const StepIndicator = memo(({ currentStep }: { currentStep: Step }) => {
   return (
     <div className="cv-progress-tracker">
       <div className="cv-progress-track" role="progressbar" aria-valuenow={currentStep} aria-valuemin={1} aria-valuemax={4}>
@@ -910,7 +1094,9 @@ function StepIndicator({ currentStep }: { currentStep: Step }) {
       </div>
     </div>
   );
-}
+});
+
+StepIndicator.displayName = 'StepIndicator';
 
 const SYSTEM_PERSONA_USER_ID = '00000000-0000-0000-0000-000000000001';
 

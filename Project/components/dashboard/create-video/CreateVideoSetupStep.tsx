@@ -34,6 +34,13 @@ interface CreateVideoSetupStepProps {
   onContinue: () => void;
 }
 
+function isProviderLimitMessage(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return normalized.includes('rate limit')
+    || normalized.includes('quota exhausted')
+    || normalized.includes('too many requests');
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -247,6 +254,9 @@ export function CreateVideoSetupStep({
     } catch (err) {
       if (controller.signal.aborted) return;
       const msg = err instanceof Error ? err.message : 'Validation failed';
+      if (isProviderLimitMessage(msg)) {
+        toast.error(msg);
+      }
       onChange({
         urlValidationStatus: 'invalid',
         urlValidationMessage: msg,
@@ -412,7 +422,7 @@ export function CreateVideoSetupStep({
   return (
     <div className="cv-setup-grid">
       {/* ===== LEFT COLUMN: Form Sections (Stacked Cards) ===== */}
-      <div className="cv-field-form">
+      <div className={`cv-field-form${isSubmitting ? ' cv-field-form--submitting' : ''}`} aria-busy={isSubmitting}>
 
         {/* ============== SECTION 1: Recording Mode ============== */}
         <div className="cv-section-card">
@@ -779,14 +789,27 @@ export function CreateVideoSetupStep({
             type="button"
             onClick={canContinue ? onContinue : undefined}
             disabled={!canContinue || isSubmitting}
-            className="btn-primary btn-wide"
+            className={`btn-primary btn-wide cv-review-plan-btn${isSubmitting ? ' cv-review-plan-btn--loading' : ''}`}
           >
-            {isSubmitting ? 'Creating Plans…' : 'Review Plan →'}
+            <span className="cv-review-plan-btn__label">
+              {isSubmitting ? 'Creating Plans…' : 'Review Plan →'}
+            </span>
+            {isSubmitting && (
+              <span className="cv-review-plan-btn__loader" aria-hidden="true">
+                <span className="cv-review-plan-btn__dot" />
+                <span className="cv-review-plan-btn__dot" />
+                <span className="cv-review-plan-btn__dot" />
+              </span>
+            )}
           </button>
+          {isSubmitting && (
+            <p className="cv-cta-loading-hint">Building persona review plans and syncing backend state...</p>
+          )}
           {!canContinue && disabledReason && (
             <p className="cv-cta-disabled-reason">{disabledReason}</p>
           )}
         </div>
+
       </div>
 
       {/* ===== RIGHT COLUMN: Summary Sidebar (Sticky) ===== */}

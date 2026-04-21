@@ -103,6 +103,7 @@ Production image delivery values:
 
 - `GHCR_NAMESPACE` defaults to `ghcr.io/nganuyen`
 - `IMAGE_TAG` defaults to `latest`, but should be set to a published commit SHA when you want a deterministic rollout or rollback
+- not every commit on `main` has a matching GHCR tag: `.github/workflows/publish-production-images.yml` only runs on pushes that touch `.github/workflows/publish-production-images.yml`, `Project/**`, or `docker/**`
 - `OPENCLAW_IMAGE` can override the pinned upstream OpenClaw digest if you intentionally promote a different upstream release
 - `DOCKER_CLEANUP_AFTER_DEPLOY=true` keeps post-deploy dangling-image and build-cache cleanup enabled
 - `SYNC_REPO_BEFORE_DEPLOY=false` by default, so production deploy uses the current checked-out repo state unless you explicitly ask it to fast-forward a branch first
@@ -187,6 +188,8 @@ PROJECT_ENV_FILE=./Project/.env.production ./deploy/vps/healthcheck.sh
 ```
 
 This is the standard rollout order for both fresh and existing environments.
+
+Do not substitute `<published-commit-sha>` with `$(git rev-parse origin/main)` unless that exact commit produced GHCR images. Commits that only change deploy scripts or docs will not have matching app image tags.
 
 The deploy script now pulls registry-backed images from GHCR before starting containers by default. It only rebuilds images locally on the VPS if you explicitly set `BUILD_APP_IMAGES_FROM_REPO=true`.
 

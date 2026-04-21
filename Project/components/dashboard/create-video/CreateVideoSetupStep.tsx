@@ -29,6 +29,9 @@ interface CreateVideoSetupStepProps {
   systemPersonaOptions?: Persona[];
   customPersonaOptions?: Persona[];
   isSubmitting?: boolean;
+  totalPersonasCount?: number;
+  currentProcessingStage?: 'validating' | 'generating' | 'finalizing' | null;
+  isGeneratingSuccess?: boolean;
   onContinue: () => void;
 }
 
@@ -43,6 +46,9 @@ export function CreateVideoSetupStep({
   systemPersonaOptions,
   customPersonaOptions,
   isSubmitting = false,
+  totalPersonasCount = 0,
+  currentProcessingStage = null,
+  isGeneratingSuccess = false,
   onContinue,
 }: CreateVideoSetupStepProps) {
   const {
@@ -378,7 +384,7 @@ export function CreateVideoSetupStep({
   return (
     <div className="cv-setup-grid">
       {/* ===== LEFT COLUMN: Form Sections (Stacked Cards) ===== */}
-      <div className={`cv-field-form${isSubmitting ? ' cv-field-form--submitting' : ''}`} aria-busy={isSubmitting}>
+      <div className={`cv-field-form${isSubmitting ? ' cv-field-form--submitting cv-form-dimmed' : ''}`} aria-busy={isSubmitting}>
 
         {/* ============== SECTION 1: Recording Mode ============== */}
         <div className="cv-section-card">
@@ -770,13 +776,30 @@ export function CreateVideoSetupStep({
         {isSubmitting && (
           <div className="cv-plan-creating-overlay" role="status" aria-live="polite">
             <div className="cv-plan-creating-badge">
-              <span className="cv-plan-creating-title">Creating Review Plans</span>
-              <span className="cv-plan-creating-subtitle">Hang tight, we're preparing draft plans for your personas.</span>
-              <span className="cv-plan-creating-dots" aria-hidden="true">
-                <span className="cv-plan-creating-dot" />
-                <span className="cv-plan-creating-dot" />
-                <span className="cv-plan-creating-dot" />
+              <span className="cv-plan-creating-title">
+                {isGeneratingSuccess ? 'Plans Ready ✅' : 'Creating Review Plans'}
               </span>
+              <span className="cv-plan-creating-subtitle">
+                {isGeneratingSuccess 
+                  ? 'Your draft plans are ready for review.'
+                  : `Hang tight, we're preparing ${totalPersonasCount} persona draft${totalPersonasCount === 1 ? '' : 's'}.`
+                }
+              </span>
+              
+              {!isGeneratingSuccess && (
+                <>
+                  <span className="cv-plan-creating-stage" style={{ marginTop: '4px', fontSize: '13px', fontWeight: 600, color: 'var(--primary-color)' }}>
+                    {currentProcessingStage === 'validating' ? 'Validating source context...' :
+                     currentProcessingStage === 'generating' ? 'Generating scripts...' :
+                     'Finalizing plans...'}
+                  </span>
+                  <span className="cv-plan-creating-dots" aria-hidden="true">
+                    <span className="cv-plan-creating-dot" />
+                    <span className="cv-plan-creating-dot" />
+                    <span className="cv-plan-creating-dot" />
+                  </span>
+                </>
+              )}
             </div>
           </div>
         )}

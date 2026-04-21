@@ -311,6 +311,10 @@ export function CreateVideoTab({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const restoredFlowPlanIdsRef = useRef<string[] | null>(null);
 
+  // UI/UX Pro Max Enhanced Loading State
+  const [generatingStage, setGeneratingStage] = useState<'validating' | 'generating' | 'finalizing' | null>(null);
+  const [isGeneratingSuccess, setIsGeneratingSuccess] = useState(false);
+
   const setupPersonaLists = useMemo(() => {
     if (setup) {
       const configuredSystemPersonas = (setup.persona_options || []).map(reviewPersonaToPersona);
@@ -562,6 +566,13 @@ export function CreateVideoTab({
 
     setErrorMessage(null);
     setIsGenerating(true);
+    setGeneratingStage('validating');
+    setIsGeneratingSuccess(false);
+
+    // Track simulated progress stages over time
+    const simulatedTimer1 = setTimeout(() => setGeneratingStage('generating'), 2000);
+    const simulatedTimer2 = setTimeout(() => setGeneratingStage('finalizing'), 7000);
+
     try {
       const payload = buildCreateJobPayload(setupState);
       const result = await customerApiRequest<{
@@ -583,21 +594,35 @@ export function CreateVideoTab({
       setSharedContractDraft(buildSharedContractDraft(nextJobs, result.master_contract));
       setSharedContractDirty(false);
       setProgressItems([]);
-      setCurrentStep(2);
+      
       if (result.warnings?.[0]?.message) {
         toast(`Review jobs created with a warning: ${result.warnings[0].message}`);
       }
       await Promise.resolve(onRefresh?.());
+
+      // Success UX: show checkmark for 500ms before transition
+      clearTimeout(simulatedTimer1);
+      clearTimeout(simulatedTimer2);
+      setGeneratingStage(null);
+      setIsGeneratingSuccess(true);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      setCurrentStep(2);
     } catch (error) {
+      clearTimeout(simulatedTimer1);
+      clearTimeout(simulatedTimer2);
+      setGeneratingStage(null);
       const message =
         error instanceof Error ? error.message : 'Failed to create review jobs';
       setErrorMessage(message);
       toast.error(message);
     } finally {
+      clearTimeout(simulatedTimer1);
+      clearTimeout(simulatedTimer2);
       setIsGenerating(false);
+      setIsGeneratingSuccess(false);
     }
   }, [onRefresh, setupState]);
-
   const savePlanEdits = useCallback(async () => {
     setErrorMessage(null);
     setIsSavingPlans(true);
@@ -795,11 +820,13 @@ export function CreateVideoTab({
             personas={setupPersonaLists.allPersonas}
             systemPersonaOptions={setupPersonaLists.systemPersonas}
             customPersonaOptions={setupPersonaLists.customPersonas}
-            isSubmitting={isGenerating}
+            isSubmitting={isGenerating || isGeneratingSuccess}
+            currentProcessingStage={generatingStage}
+            isGeneratingSuccess={isGeneratingSuccess}
+            totalPersonasCount={setupState.selectedPersonaIds.length}
             onContinue={goToStep2}
           />
         )}
-
         {currentStep === 2 && (
           <CreateVideoReviewStep
             planCards={planCards}
@@ -846,12 +873,6 @@ export function CreateVideoTab({
           />
         )}
       </div>
-
-      {isGenerating && (
-        <div className="cv-cta-disabled-reason" style={{ marginTop: 16 }}>
-          Creating backend plans…
-        </div>
-      )}
     </div>
   );
 }

@@ -1869,36 +1869,44 @@
   animation-delay: 0.24s;
 }
 
+.cv-form-dimmed {
+  opacity: 0.4;
+  filter: saturate(0.7) blur(0.5px);
+  pointer-events: none;
+  transition: opacity 0.4s ease, filter 0.4s ease;
+}
+
 .cv-plan-creating-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 12;
-  border-radius: 16px;
+  z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgb(255 245 242 / 0.58);
-  backdrop-filter: blur(1.5px);
+  background: rgb(0 0 0 / 0.35);
+  backdrop-filter: blur(4px);
+  animation: cv-fade-in 0.25s ease-out;
 }
 
 .cv-plan-creating-badge {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 14px;
   text-align: center;
-  padding: 14px 16px;
+  padding: 24px 32px;
   border-radius: 12px;
   border: 1px solid rgb(160 57 41 / 0.22);
-  background: rgb(255 255 255 / 0.94);
-  box-shadow: 0 10px 24px rgba(160, 57, 41, 0.12);
-  max-width: 360px;
+  background: rgb(255 255 255 / 0.96);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.18);
+  max-width: 420px;
+  animation: cv-badge-enter 0.4s cubic-bezier(0.16, 1, 0.3, 1), cv-pulse-ring 2.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 .cv-plan-creating-title {
   color: #7f3024;
-  font-size: 12px;
+  font-size: 15px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   font-weight: 800;
@@ -1906,22 +1914,30 @@
 
 .cv-plan-creating-subtitle {
   color: #5c5c58;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
+}
+
+.cv-plan-creating-stage {
+  color: #a03929;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 4px;
 }
 
 .cv-plan-creating-dots {
   display: inline-flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
+  margin-top: 4px;
 }
 
 .cv-plan-creating-dot {
-  width: 7px;
-  height: 7px;
+  width: 10px;
+  height: 10px;
   border-radius: 9999px;
   background: #a03929;
-  animation: cv-bounce-dot 1s ease-in-out infinite;
+  animation: cv-bounce-dot-enhanced 1s ease-in-out infinite;
 }
 
 .cv-plan-creating-dot:nth-child(2) {
@@ -1932,13 +1948,45 @@
   animation-delay: 0.24s;
 }
 
+@keyframes cv-badge-enter {
+  0% { transform: scale(0.9) translateY(10px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+@keyframes cv-pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(160, 57, 41, 0.3); }
+  70% { box-shadow: 0 0 0 15px rgba(160, 57, 41, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(160, 57, 41, 0); }
+}
+
+@keyframes cv-bounce-dot-enhanced {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-6px) scale(1.1); }
+}
+
+@keyframes cv-fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
 @media (max-width: 768px) {
   .cv-plan-creating-overlay {
     padding: 12px;
   }
 
   .cv-plan-creating-badge {
-    padding: 12px;
+    padding: 20px;
+    max-width: 90vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cv-plan-creating-badge {
+    animation: cv-badge-enter 0.1s linear forwards !important;
+  }
+  .cv-plan-creating-dot {
+    animation: none !important;
+    opacity: 0.7;
   }
 }
 

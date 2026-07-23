@@ -1,4 +1,4 @@
-# .github Workflows and CI/CD
+# GitHub Workflows and CI/CD
 
 This directory contains GitHub Actions workflows and issue templates.
 

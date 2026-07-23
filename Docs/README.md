@@ -1,6 +1,6 @@
 # Documentation Guide
 
-Last verified: 2026-04-18 (UTC)
+Last verified: 2026-07-23 (UTC)
 
 This folder is the current documentation set for the repo.
 
@@ -8,17 +8,18 @@ Keep current reference docs and active implementation plans at the top level. Hi
 
 ## Recommended Reading Order
 
-1. [START_HERE.md](./START_HERE.md) for local setup and day-to-day development
-2. [ARCHITECTURE.md](./ARCHITECTURE.md) for the big-picture system model
-3. [REPOSITORY_MAP.md](./REPOSITORY_MAP.md) for where code lives
-4. [FRONTEND.md](./FRONTEND.md) for the Next.js app, dashboard flows, and proxy layer
-5. [BACKEND_API.md](./BACKEND_API.md) for FastAPI routes, auth, and service boundaries
-6. [WORKFLOWS_AND_AUTOMATION.md](./WORKFLOWS_AND_AUTOMATION.md) for Temporal workflows, activities, approval paths, and the current short-video lane
-7. [VIDEO_CREATION_CURRENT_STATE.md](./VIDEO_CREATION_CURRENT_STATE.md) for the current web and Telegram create-video flows, backend handoff, and known gaps
-8. [INTEGRATIONS.md](./INTEGRATIONS.md) for OpenClaw, Postiz, GrowChief, Telegram, AI/media providers, storage, and proxies
-9. [db.md](./db.md) for the application database and storage ownership model
-10. [ENVIRONMENT_REFERENCE.md](./ENVIRONMENT_REFERENCE.md) for the env contract used across local and production runtime
-11. [OPERATIONS_RUNBOOK.md](./OPERATIONS_RUNBOOK.md) for VPS deployment, migrations, smoke checks, and production incident triage
+1. [DEVOPS_PORTFOLIO.md](./DEVOPS_PORTFOLIO.md) for the CI/CD, container, security, operations, and recovery evidence map
+2. [START_HERE.md](./START_HERE.md) for local setup and day-to-day development
+3. [ARCHITECTURE.md](./ARCHITECTURE.md) for the big-picture system model
+4. [REPOSITORY_MAP.md](./REPOSITORY_MAP.md) for where code lives
+5. [FRONTEND.md](./FRONTEND.md) for the Next.js app, dashboard flows, and proxy layer
+6. [BACKEND_API.md](./BACKEND_API.md) for FastAPI routes, auth, and service boundaries
+7. [WORKFLOWS_AND_AUTOMATION.md](./WORKFLOWS_AND_AUTOMATION.md) for Temporal workflows, activities, approval paths, and the current short-video lane
+8. [VIDEO_CREATION_CURRENT_STATE.md](./VIDEO_CREATION_CURRENT_STATE.md) for the current web and Telegram create-video flows, backend handoff, and known gaps
+9. [INTEGRATIONS.md](./INTEGRATIONS.md) for OpenClaw, Postiz, GrowChief, Telegram, AI/media providers, storage, and proxies
+10. [db.md](./db.md) for the application database and storage ownership model
+11. [ENVIRONMENT_REFERENCE.md](./ENVIRONMENT_REFERENCE.md) for the env contract used across local and production runtime
+12. [OPERATIONS_RUNBOOK.md](./OPERATIONS_RUNBOOK.md) for VPS deployment, migrations, smoke checks, and production incident triage
 
 ## Current Implementation Plans
 
@@ -29,6 +30,7 @@ Keep current reference docs and active implementation plans at the top level. Hi
 ## How To Use This Set
 
 - start with `START_HERE.md` if you need the project running
+- start with `DEVOPS_PORTFOLIO.md` if you are evaluating the repository as a DevOps case study
 - start with `ARCHITECTURE.md` if you need to understand the product and runtime split
 - start with `REPOSITORY_MAP.md` if you are onboarding into the codebase
 - use `FRONTEND.md`, `BACKEND_API.md`, and `WORKFLOWS_AND_AUTOMATION.md` as the implementation reference set

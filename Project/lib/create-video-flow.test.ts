@@ -25,7 +25,7 @@ function makeJob(overrides: Partial<ReviewEngineJob> = {}): ReviewEngineJob {
 }
 
 describe('create-video flow helpers', () => {
-  it('falls back to backend flow when active plan ids are missing', () => {
+  it('falls back to the latest active backend flow when active plan ids are missing', () => {
     const jobs = [
       makeJob({
         job_id: 'job-running-a',
@@ -58,14 +58,8 @@ describe('create-video flow helpers', () => {
 
     const inferred = inferBackendFlowJobs(jobs);
 
-    expect(inferred.map((job) => job.plan_id)).toEqual([
-      'plan-running-a',
-      'plan-running-b',
-    ]);
-    expect(getPlanIdsFromJobs(inferred)).toEqual([
-      'plan-running-a',
-      'plan-running-b',
-    ]);
+    expect(inferred.map((job) => job.plan_id)).toEqual(['plan-running-a']);
+    expect(getPlanIdsFromJobs(inferred)).toEqual(['plan-running-a']);
     expect(deriveStepFromJobs(inferred)).toBe(3);
   });
 
@@ -90,7 +84,7 @@ describe('create-video flow helpers', () => {
     expect(deriveStepFromJobs(getJobsForPlanIds(jobs, ['plan-1']))).toBe(2);
   });
 
-  it('advances completed backend flows to publish step', () => {
+  it('keeps completed backend flows on render until publish is selected', () => {
     const completedJobs = [
       makeJob({
         job_id: 'job-1',
@@ -105,7 +99,7 @@ describe('create-video flow helpers', () => {
       }),
     ];
 
-    expect(deriveStepFromJobs(completedJobs)).toBe(4);
+    expect(deriveStepFromJobs(completedJobs)).toBe(3);
   });
 
   it('hides plan-creating overlay immediately after review step is visible', () => {

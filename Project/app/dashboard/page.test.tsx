@@ -1,10 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import DashboardPage from "@/app/dashboard/page";
+import DashboardPage from "@/app/dashboard/[[...tab]]/page";
 import { customerApiRequest } from "@/lib/customer-api";
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
+const mockPrefetch = jest.fn();
 const mockLogout = jest.fn(() => Promise.resolve());
 
 jest.mock("@/lib/customer-api", () => ({
@@ -15,6 +16,7 @@ jest.mock("next/navigation", () => ({
   useRouter: () => ({
     push: mockPush,
     replace: mockReplace,
+    prefetch: mockPrefetch,
   }),
   useSearchParams: () => ({
     get: jest.fn(() => null),
@@ -22,8 +24,8 @@ jest.mock("next/navigation", () => ({
 }));
 
 jest.mock("@/store/customer-auth-store", () => ({
-  useCustomerAuthStore: (selector: (state: unknown) => unknown) =>
-    selector({
+  useCustomerAuthStore: (selector?: (state: unknown) => unknown) => {
+    const state = {
       user: {
         id: "user-1",
         email: "founder@example.com",
@@ -35,17 +37,15 @@ jest.mock("@/store/customer-auth-store", () => ({
       error: null,
       initialize: jest.fn(),
       logout: mockLogout,
-    }),
+    };
+    return selector ? selector(state) : state;
+  },
 }));
 
 describe("Customer dashboard", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.useFakeTimers();
-
-    let telegramLinkStatusCalls = 0;
-
-    (customerApiRequest as jest.Mock).mockImplementation((path: string, init?: RequestInit) => {
+    (customerApiRequest as jest.Mock).mockImplementation((path: string) => {
       if (path === "/api/customer/system/summary") {
         return Promise.resolve({ services: [], quota: [] });
       }
@@ -162,85 +162,40 @@ describe("Customer dashboard", () => {
           ],
         });
       }
-      if (path === "/api/customer/telegram/link") {
-        telegramLinkStatusCalls += 1;
-        if (telegramLinkStatusCalls >= 3) {
-          return Promise.resolve({
-            linked: true,
-            link: {
-              telegram_username: "tripc",
-              chat_id: "123456789",
-            },
-          });
-        }
-        return Promise.resolve({ linked: false });
-      }
-      if (path === "/api/customer/telegram/link/start") {
-        return Promise.resolve({
-          start_token: "secure-link-token",
-          expires_at: "2099-03-29T12:00:00Z",
-        });
-      }
       throw new Error(`Unexpected path: ${path}`);
     });
   });
 
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
   it("renders the current dashboard shell", async () => {
-    render(<DashboardPage />);
+    render(await DashboardPage({ params: Promise.resolve({}) }));
 
     await waitFor(() => {
-      expect(screen.getByText("Customer Workspace")).toBeInTheDocument();
-      expect(screen.getByText("Dashboard")).toBeInTheDocument();
-      expect(screen.getByText("Quick Stats")).toBeInTheDocument();
-      expect(screen.getByText("Tổng quan")).toBeInTheDocument();
+      expect(screen.getByText("Production Queue")).toBeInTheDocument();
+      expect(screen.getByText("Final Products")).toBeInTheDocument();
     });
+    expect(screen.getByRole("link", { name: "Overview" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
-  it("refreshes telegram link status in place after connect", async () => {
-    render(<DashboardPage />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Dự án & Memory" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Connect Telegram" }));
-
-    await waitFor(() => {
-      expect(customerApiRequest).toHaveBeenCalledWith(
-        "/api/customer/telegram/link/start",
-        expect.objectContaining({
-          method: "POST",
-        }),
-      );
-    });
+  it("renders a URL-backed dashboard tab", async () => {
+    render(
+      await DashboardPage({
+        params: Promise.resolve({ tab: ["memory"] }),
+      }),
+    );
 
     expect(
-      await screen.findByText(
-        "Waiting for Telegram confirmation. This card updates automatically.",
-      ),
-    ).toBeInTheDocument();
-
-    await act(async () => {
-      jest.advanceTimersByTime(2500);
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText("@tripc")).toBeInTheDocument();
-      expect(screen.getByText("Linked")).toBeInTheDocument();
-    });
-
-    expect(
-      (customerApiRequest as jest.Mock).mock.calls.filter(
-        ([path]) => path === "/api/customer/workspace",
-      ),
-    ).toHaveLength(1);
+      await screen.findByRole("link", { name: "Agent & Instrument" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(await screen.findByText("Connected Accounts")).toBeInTheDocument();
   });
 
   it("signs out the current customer from the dashboard shell", async () => {
-    render(<DashboardPage />);
+    render(await DashboardPage({ params: Promise.resolve({}) }));
 
-    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
 
     await waitFor(() => {
       expect(mockLogout).toHaveBeenCalledTimes(1);

@@ -19,8 +19,8 @@ class SystemPersonaAccountLinksService:
         normalized_persona_ids = [str(item).strip() for item in persona_ids if str(item).strip()]
         if not normalized_persona_ids:
             return {}
-        pool = await DatabaseService.get_pool()
         try:
+            pool = await DatabaseService.get_pool()
             async with pool.acquire() as conn:
                 rows = await conn.fetch(
                     """

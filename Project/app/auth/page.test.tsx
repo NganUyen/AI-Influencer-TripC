@@ -6,12 +6,14 @@ const replace = jest.fn();
 const initialize = jest.fn(() => Promise.resolve());
 const establishSessionFromAccessToken = jest.fn(() => Promise.resolve());
 const loginWithTelegram = jest.fn(() => Promise.resolve());
-const mockSearchParamsGet = jest.fn(() => null);
+const mockSearchParamsGet = jest.fn((_key: string) => null as string | null);
+const router = {
+  push: jest.fn(),
+  replace,
+};
 
 jest.mock("next/navigation", () => ({
-  useRouter: () => ({
-    replace,
-  }),
+  useRouter: () => router,
   useSearchParams: () => ({
     get: mockSearchParamsGet,
   }),
@@ -32,7 +34,6 @@ jest.mock("@/store/customer-auth-store", () => ({
 describe("Auth page", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.useFakeTimers();
     global.fetch = jest.fn();
     window.__AI_INFLUENCER_PUBLIC_ENV__ = {};
     mockSearchParamsGet.mockReturnValue(null);
@@ -43,6 +44,8 @@ describe("Auth page", () => {
   });
 
   it("polls telegram link completion and redirects after establishing a session", async () => {
+    jest.useFakeTimers();
+
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({
         ok: true,
@@ -79,11 +82,8 @@ describe("Auth page", () => {
 
     render(<AuthPage />);
 
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole("button", { name: "Continue with Telegram" }),
-      );
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with TikTok" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Telegram" }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenNthCalledWith(
@@ -153,10 +153,17 @@ describe("Auth page", () => {
 
     render(<AuthPage />);
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Continue with Telegram" }));
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with TikTok" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Telegram" }));
 
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(establishSessionFromAccessToken).toHaveBeenCalledWith(
+        "telegram-access-token",
+        expect.objectContaining({ id: "user-1" }),
+        "telegram-refresh-token",
+      );
+    });
     await waitFor(() => {
       expect(replace).toHaveBeenCalledWith("/capture-handoff?token=abc");
     });

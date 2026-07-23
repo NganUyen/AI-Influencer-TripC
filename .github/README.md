@@ -14,4 +14,5 @@ This directory contains GitHub Actions workflows and issue templates.
 
 Current workflows:
 
-- `publish-production-images.yml`: runs frontend/backend validation, builds the production Docker images, checks size thresholds, and publishes registry tags to GHCR
+- `ci.yml`: pull-request and branch quality gates for frontend, backend, shell, and Docker Compose changes
+- `publish-production-images.yml`: runs the backend publication gate, builds production Docker images, checks size thresholds, and publishes commit-SHA and `latest` tags to GHCR

@@ -1,0 +1,149 @@
+name: CI Quality Gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+      - deploy
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: Project
+    env:
+      NEXT_PUBLIC_API_URL: http://localhost:3000
+      NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-anon-key
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-publishable-key
+      NEXT_PUBLIC_TELEGRAM_BOT_URL: https://t.me/ci_test_bot
+      PYTHON_BACKEND_URL: http://localhost:8000
+      APP_ADMIN_TOKEN: ci-admin-token
+      INTERNAL_API_TOKEN: ci-internal-token
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: Project/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Run unit tests
+        run: npm test -- --ci
+
+      - name: Build production frontend
+        run: npm run build
+
+  backend:
+    name: Backend quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_influencer
+      CHATGPT_CONNECTOR_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_influencer
+      ENVIRONMENT: development
+      DEBUG: "true"
+      FRONTEND_PUBLIC_URL: http://localhost:3000
+      BACKEND_PUBLIC_URL: http://localhost:8000
+      CHATGPT_CONNECTOR_PUBLIC_URL: http://localhost:8010
+      CORS_ORIGINS: http://localhost:3000
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_KEY: ci-supabase-key
+      SUPABASE_SERVICE_ROLE_KEY: ci-supabase-service-role-key
+      SUPABASE_STORAGE_BUCKET: media
+      OPENAI_API_KEY: ci-openai-key
+      ANTHROPIC_API_KEY: ci-anthropic-key
+      GOOGLE_AI_API_KEY: ci-google-ai-key
+      FAL_AI_API_KEY: ci-fal-key
+      OPENCLAW_API_KEY: ci-openclaw-key
+      POSTIZ_API_KEY: ci-postiz-key
+      GROWCHIEF_API_KEY: ci-growchief-key
+      POSTIZ_WEBHOOK_SECRET: ci-postiz-webhook-secret
+      GROWCHIEF_WEBHOOK_SECRET: ci-growchief-webhook-secret
+      JWT_SECRET_KEY: ci-jwt-secret
+      CHATGPT_CONNECTOR_SESSION_SECRET: ci-connector-session-secret
+      INTERNAL_API_TOKEN: ci-internal-token
+      APP_ADMIN_TOKEN: ci-admin-token
+      CUSTOMER_TOKEN_ENCRYPTION_KEY: ci-customer-encryption-key
+      IPROYAL_USERNAME: ci-iproyal-user
+      IPROYAL_PASSWORD: ci-iproyal-password
+      TELEGRAM_BOT_TOKEN: ci-telegram-bot-token
+    defaults:
+      run:
+        working-directory: Project/python_services
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: Project/python_services/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile Python sources
+        run: python -m compileall -q .
+
+      - name: Run critical backend regression suite
+        run: |
+          pytest -q \
+            tests/test_customer_api.py \
+            tests/test_app_review_studio_service.py \
+            tests/test_video_planning_service.py \
+            tests/test_short_video_workflow_failures.py \
+            tests/test_workflow_state_service.py \
+            tests/test_worker_imports.py \
+            tests/test_analytics_api.py \
+            tests/test_webhooks_api.py \
+            tests/test_chatgpt_connector_app.py \
+            tests/test_customer_auth_service.py
+
+  infrastructure:
+    name: Infrastructure validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Validate shell syntax
+        run: |
+          find deploy -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+          bash -n setup-vps.sh monitor.sh
+
+      - name: Render local Compose configuration
+        run: |
+          cp Project/.env.example Project/.env.local
+          docker compose -f docker-compose.yml config --quiet
+
+      - name: Render production Compose configuration
+        env:
+          PROJECT_ENV_FILE: ./Project/.env.example
+        run: docker compose --env-file Project/.env.example -f docker-compose.production.yml config --quiet

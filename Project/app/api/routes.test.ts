@@ -271,7 +271,7 @@ describe("API proxy routes", () => {
       headers: { Authorization: "Bearer customer-token" },
     });
     const response = await getCustomerProxy(request, {
-      params: { path: ["brand"] },
+      params: Promise.resolve({ path: ["brand"] }),
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
@@ -300,7 +300,9 @@ describe("API proxy routes", () => {
       body: JSON.stringify({}),
     });
     const response = await postCustomerProxy(request, {
-      params: { path: ["campaigns", "campaign-1", "launch"] },
+      params: Promise.resolve({
+        path: ["campaigns", "campaign-1", "launch"],
+      }),
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
@@ -333,7 +335,9 @@ describe("API proxy routes", () => {
       },
     );
     const response = await postCustomerProxy(request, {
-      params: { path: ["review-engine", "jobs", "job-1", "upload"] },
+      params: Promise.resolve({
+        path: ["review-engine", "jobs", "job-1", "upload"],
+      }),
     });
 
     const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [

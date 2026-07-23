@@ -1,139 +1,194 @@
-# AI Influencer Factory
+# AI Influencer Factory — DevOps Case Study
 
-Last verified: 2026-04-18 (UTC)
+[![CI Quality Gates](https://github.com/NganUyen/AI-Influencer-TripC/actions/workflows/ci.yml/badge.svg)](https://github.com/NganUyen/AI-Influencer-TripC/actions/workflows/ci.yml)
+[![Publish Production Images](https://github.com/NganUyen/AI-Influencer-TripC/actions/workflows/publish-production-images.yml/badge.svg)](https://github.com/NganUyen/AI-Influencer-TripC/actions/workflows/publish-production-images.yml)
 
-AI Influencer Factory is a full-stack automation repo for customer-facing campaign planning and operator-managed workflow execution. The current codebase combines a Next.js app, a FastAPI backend, Temporal workflows, and a self-hosted support stack built around OpenClaw, Postiz, GrowChief, PostgreSQL, Redis, Docker Compose, and Supabase for auth/storage.
+AI Influencer Factory is a production-oriented, self-hosted automation platform built with Next.js, FastAPI, Temporal, PostgreSQL, Redis, OpenClaw, Postiz, and GrowChief.
 
-## Current Stage
+This repository is also a practical DevOps portfolio project. It demonstrates how I approach CI/CD, containerization, release safety, production networking, health monitoring, database migrations, backup and restore, rollback, and day-two operations for a multi-service application.
 
-The repo is past the original blueprint phase and now has a real product split:
+> Recruiter shortcut: start with the [DevOps portfolio walkthrough](./Docs/DEVOPS_PORTFOLIO.md), then inspect the [CI workflow](./.github/workflows/ci.yml), [production image pipeline](./.github/workflows/publish-production-images.yml), and [operations runbook](./Docs/OPERATIONS_RUNBOOK.md).
 
-- customer app for sign-in, brand onboarding, assistant threads, campaign review, and launch
-- internal ops console for workflow monitoring, approvals, retries, analytics, and quota visibility
-- backend/customer APIs plus a separate ChatGPT-facing OpenClaw connector
-- production-oriented deployment assets for a private self-hosted runtime
+## DevOps Highlights
 
-The strongest implemented slice today is:
+| Capability | Implementation in this repository | Why it matters |
+|---|---|---|
+| CI quality gates | Frontend type checking, Jest tests and production build; a 74-test critical backend regression suite; shell syntax and Compose validation | Prevents broken application or infrastructure changes from reaching image publication |
+| Immutable image delivery | Five application images built with Buildx and tagged with both commit SHA and `latest` in GHCR | Supports traceable releases and deterministic rollback |
+| Container engineering | Multi-stage frontend, API and worker images with separate dependency/runtime layers | Reduces runtime surface area and separates API from browser-heavy worker dependencies |
+| Production orchestration | 14-service Docker Compose stack with dependency ordering, health checks, restart policies, resource limits and log rotation | Makes service behavior explicit and repeatable |
+| Network hardening | Public traffic terminates at nginx; internal services bind to `127.0.0.1` or remain private on the Docker network | Minimizes externally exposed services |
+| Release safety | Published-image preflight, pull-first deployment, opt-in local build, database migration script and post-deploy smoke checks | Fails early when an artifact or dependency is unavailable |
+| Recovery | Database and browser-profile backup/restore plus Git/image-tag rollback automation | Provides documented recovery paths instead of manual improvisation |
+| Operations | Health checks, provider probes, Telegram/OpenClaw diagnostics, resource monitor and scheduled Docker cleanup | Covers routine operations after deployment |
+| Configuration security | Production settings reject placeholder secrets, wildcard credentialed CORS and invalid storage configuration | Converts critical configuration assumptions into startup checks |
 
-1. customer onboarding and planning in the web app
-2. review-first campaign approval and Temporal launch
-3. operator monitoring and retry flows
-4. persisted publish, webhook, and quota state in PostgreSQL
+Current repository evidence:
 
-The main remaining gaps are live provider registration, deeper native publishing adapters, and more end-to-end validation with real credentials.
+- 14 production services
+- 5 application images published by a build matrix
+- 8 container health checks
+- restart and log-rotation policies across all 14 production services
+- 10 resource-limit blocks
+- 11 VPS automation scripts
+- 532 backend test cases collected by pytest, with 74 critical-path backend tests in the release gate
+- 50 frontend test cases
 
-## Repository Layout
+## Runtime Architecture
+
+```mermaid
+flowchart TB
+    Internet[Users / ChatGPT / Webhooks] --> Nginx[nginx TLS reverse proxy]
+
+    subgraph Public entry points
+        Frontend[Next.js frontend]
+        Backend[FastAPI backend]
+        Connector[ChatGPT connector]
+    end
+
+    Nginx --> Frontend
+    Nginx --> Backend
+    Nginx --> Connector
+    Frontend -->|server-side API proxy| Backend
+
+    subgraph Private application network
+        Temporal[Temporal]
+        Worker[Temporal worker]
+        Redis[(Redis)]
+        OpenClaw[OpenClaw]
+        Postiz[Postiz]
+        GrowChief[GrowChief]
+        ServiceDB[(Service PostgreSQL)]
+    end
+
+    Backend --> Temporal
+    Temporal --> Worker
+    Worker --> Redis
+    Worker --> OpenClaw
+    Worker --> Postiz
+    Worker --> GrowChief
+    Temporal --> ServiceDB
+    Postiz --> ServiceDB
+    GrowChief --> ServiceDB
+
+    Backend --> Supabase[(Supabase Auth / Postgres / Storage)]
+    Worker --> Supabase
+    Worker --> Providers[AI, media and messaging providers]
+```
+
+Only the frontend, backend, and connector are intended as public entry points. Temporal, Redis, OpenClaw, Postiz, GrowChief, and PostgreSQL remain private or localhost-bound in production.
+
+## Delivery Pipeline
+
+```mermaid
+flowchart LR
+    PR[Pull request / push] --> CI[CI quality gates]
+    CI --> FrontendGate[Type check + Jest + build]
+    CI --> BackendGate[Pytest]
+    CI --> InfraGate[Shell + Compose validation]
+    FrontendGate --> Merge[Merge to main]
+    BackendGate --> Merge
+    InfraGate --> Merge
+    Merge --> Build[Buildx matrix]
+    Build --> Budget[Image size budgets]
+    Budget --> GHCR[GHCR: SHA + latest tags]
+    GHCR --> Preflight[Deployment image preflight]
+    Preflight --> Deploy[Docker Compose pull/up]
+    Deploy --> Migrate[Ordered DB migrations]
+    Migrate --> Verify[Public/private health checks]
+    Verify -->|failure| Rollback[Git + image-tag rollback]
+```
+
+The production path defaults to registry-backed images. Building directly on the VPS is an explicit emergency option, not the normal release path.
+
+## Product Overview
+
+The application provides:
+
+- a customer workspace for authentication, brand onboarding, personas, campaign review and video creation
+- an internal operations console for workflow monitoring, approvals, retries, analytics and quota visibility
+- Temporal workflows for strategy, media generation, approvals, publishing and engagement
+- a separate constrained ChatGPT/OpenClaw connector
+- persisted application state in Supabase PostgreSQL and media in Supabase Storage
+
+The strongest implemented path is the review-first Create Video workflow:
 
 ```text
-repo/
-|-- Docs/                      Canonical project docs
+Website validation
+  -> shared script contract
+  -> persona-localized plans
+  -> customer approval
+  -> Temporal workflow
+  -> browser capture + voice + talking head
+  -> FFmpeg assembly
+  -> review and publishing
+```
+
+## Repository Map
+
+```text
+.
+|-- .github/workflows/             CI and production image publication
+|-- deploy/nginx/                  TLS reverse-proxy configurations
+|-- deploy/vps/                    Deploy, migrate, health, backup and rollback scripts
+|-- docker/                        Custom service images and health-check helpers
+|-- Docs/                          Architecture, operations and integration documentation
 |-- Project/
-|   |-- app/                   Next.js App Router frontend
-|   |-- components/            Customer and ops UI
-|   |-- lib/                   Frontend API and auth helpers
-|   |-- python_services/       FastAPI app, worker, workflows, services
-|   |-- store/                 Zustand stores
-|   |-- supabase/              Schema and migrations used by the repo DB
-|   `-- README.md              Frontend-focused guide
-|-- deploy/                    nginx and VPS scripts
-|-- docker/                    Custom service images and helpers
-|-- docker-compose.yml         Local stack
-`-- docker-compose.production.yml
+|   |-- app/                       Next.js App Router application
+|   |-- components/                Customer and operator interfaces
+|   |-- python_services/           FastAPI, Temporal worker, workflows and tests
+|   `-- supabase/                  Schema snapshots and ordered migrations
+|-- docker-compose.yml             Local development stack
+`-- docker-compose.production.yml  Production stack
 ```
 
-## Main Entry Points
+## Run Locally
 
-- landing page: `Project/app/page.tsx`
-- customer workspace: `Project/app/dashboard/page.tsx`
-- operator console: `Project/app/ops/page.tsx`
-- frontend proxy routes: `Project/app/api/...`
-- backend API: `Project/python_services/main.py`
-- Temporal worker: `Project/python_services/worker.py`
-- weekly workflow: `Project/python_services/workflows/weekly_marketing_workflow.py`
-- short-video workflow: `Project/python_services/workflows/short_video_workflow.py`
-- daily-story workflow: `Project/python_services/workflows/daily_story_workflow.py`
-
-## Local Development
-
-Start with [Docs/START_HERE.md](./Docs/START_HERE.md). It covers:
-
-- prerequisites
-- env setup
-- frontend-only boot
-- frontend plus backend boot
-- minimal workflow infrastructure
-- full Docker stack
-
-Quick commands:
+Prerequisites: Node.js 20, Python 3.11, and Docker Compose.
 
 ```bash
-cd Project
-npm install
-npm run dev
+cp Project/.env.example Project/.env.local
+docker compose up -d --build
 ```
+
+Main local endpoints:
+
+- frontend: `http://localhost:3000`
+- backend and OpenAPI: `http://localhost:8000/docs`
+- Temporal UI: `http://localhost:8080`
+- ChatGPT connector: `http://localhost:8010`
+
+For smaller development modes and environment setup, use [Start Here](./Docs/START_HERE.md).
+
+## Production Operations
+
+The standard deployment sequence is intentionally explicit:
 
 ```bash
-cd Project/python_services
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+PROJECT_ENV_FILE=./Project/.env.production \
+IMAGE_TAG=<published-commit-sha> \
+./deploy/vps/deploy-production.sh
+
+PROJECT_ENV_FILE=./Project/.env.production \
+./deploy/vps/apply-db-migrations.sh
+
+PROJECT_ENV_FILE=./Project/.env.production \
+./deploy/vps/healthcheck.sh
 ```
 
-## Production And Operations
+Recovery commands and operational caveats are documented in the [Operations Runbook](./Docs/OPERATIONS_RUNBOOK.md).
 
-Use [Docs/OPERATIONS_RUNBOOK.md](./Docs/OPERATIONS_RUNBOOK.md) for:
+## Documentation
 
-- VPS bootstrap
-- multi-host and single-domain topology
-- `.env.production` setup
-- deploy, migration, and smoke-check steps
-- Postiz and GrowChief bootstrap
-- backup, restore, rollback, and security notes
+- [DevOps Portfolio Walkthrough](./Docs/DEVOPS_PORTFOLIO.md)
+- [Architecture](./Docs/ARCHITECTURE.md)
+- [Operations Runbook](./Docs/OPERATIONS_RUNBOOK.md)
+- [Environment Reference](./Docs/ENVIRONMENT_REFERENCE.md)
+- [Workflows and Automation](./Docs/WORKFLOWS_AND_AUTOMATION.md)
+- [Integrations](./Docs/INTEGRATIONS.md)
+- [Database Model](./Docs/db.md)
+- [Repository Map](./Docs/REPOSITORY_MAP.md)
 
-## Documentation Map
+## Honest Scope
 
-Canonical docs now live in `Docs/`:
-
-- [Docs/README.md](./Docs/README.md)
-- [Docs/START_HERE.md](./Docs/START_HERE.md)
-- [Docs/ARCHITECTURE.md](./Docs/ARCHITECTURE.md)
-- [Docs/REPOSITORY_MAP.md](./Docs/REPOSITORY_MAP.md)
-- [Docs/FRONTEND.md](./Docs/FRONTEND.md)
-- [Docs/BACKEND_API.md](./Docs/BACKEND_API.md)
-- [Docs/WORKFLOWS_AND_AUTOMATION.md](./Docs/WORKFLOWS_AND_AUTOMATION.md)
-- [Docs/VIDEO_CREATION_CURRENT_STATE.md](./Docs/VIDEO_CREATION_CURRENT_STATE.md)
-- [Docs/CREATE_VIDEO_WEB_INTEGRATION_PLAN.md](./Docs/CREATE_VIDEO_WEB_INTEGRATION_PLAN.md)
-- [Docs/CREATE_VIDEO_CONTRACT_SYNC_PLAN.md](./Docs/CREATE_VIDEO_CONTRACT_SYNC_PLAN.md)
-- [Docs/CREATE_VIDEO_BACKEND_RELIABILITY_PLAN.md](./Docs/CREATE_VIDEO_BACKEND_RELIABILITY_PLAN.md)
-- [Docs/INTEGRATIONS.md](./Docs/INTEGRATIONS.md)
-- [Docs/db.md](./Docs/db.md)
-- [Docs/ENVIRONMENT_REFERENCE.md](./Docs/ENVIRONMENT_REFERENCE.md)
-- [Docs/OPERATIONS_RUNBOOK.md](./Docs/OPERATIONS_RUNBOOK.md)
-- [Project/README.md](./Project/README.md)
-- [Project/python_services/README.md](./Project/python_services/README.md)
-
-Historical design notes, refactor plans, QA writeups, and one-off analysis docs are archived in [Docs/archive/](./Docs/archive/README.md).
-
-Rule:
-
-- keep only this `README.md` as repo-root documentation
-- keep current documentation in `Docs/`
-- keep active implementation plans in `Docs/`
-- move temporary or historical notes into `Docs/archive/`
-
-## Testing
-
-Frontend:
-
-```bash
-cd Project
-npm test
-```
-
-Backend:
-
-```bash
-cd Project/python_services
-pytest
-```
+This repository demonstrates a VPS and Docker Compose operating model rather than Kubernetes or a public-cloud managed platform. Deployment is operator-triggered after image publication. The full historical backend suite still contains stale media and Telegram tests, so the current release gate runs a stable 74-test critical-path selection while that debt is reconciled. Logical next steps are infrastructure as code, environment-protected automated deployment, centralized metrics/log aggregation, vulnerability scanning, full-suite reconciliation, and tested recovery objectives.
